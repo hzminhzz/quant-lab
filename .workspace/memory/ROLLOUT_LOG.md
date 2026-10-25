@@ -18,3 +18,8 @@ Commit: 9762938
 Tests: uv run pytest tests/test_data_salvage.py -q — 2 passed in 2.05s
 Lint: uv run ruff check — All checks passed
 Metrics: legacy absent; synthetic exploratory 24000 rows SHA256 6abd79bd09404bbf3795c5401323a175d05e708f031d2fb817a065bdf25317cb; holdout 4800 rows SHA256 6bf2befc26d3217dc354385a4205bb37be091753378830cf86061d600c69d224; cutoff 2025-03-25T08:00Z; human-only lock prepared, never run
+Ticket: TKT-05 — Append-only SQLite trial registry and effective-rank DSR
+Commit: 382772b
+Tests: uv run pytest tests/test_registry.py -q — 3 passed in 2.39s
+Lint: uv run ruff check — All checks passed
+Metrics: SQLite BEFORE UPDATE/DELETE triggers abort mutations; 3-strike budget enforcement halts 4th attempt; candidate DSR decouples from historical leader

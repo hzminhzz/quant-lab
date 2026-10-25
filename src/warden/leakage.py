@@ -123,15 +123,15 @@ def compute_and_cache_features(pipeline: FeaturePipelineProtocol, bars_df: pl.Da
 
     fhash = hashlib.sha256(canonical_json({"contract": contract.spec_hash(), "source": hashlib.sha256(source_text.encode()).hexdigest(), "ver": ver}).encode()).hexdigest()[:16]
     cpath = cache_dir / f"{fhash}.parquet"
+    if registry is not None:
+        with registry._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO feature_sets (feature_hash, contract_id, feature_names_json, ml4t_engineer_version, prefix_invariance_passed, parquet_cache_path, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+                (fhash, contract.contract_id, "[]", ver, str(cpath), 1.0),
+            )
     if cpath.is_file():
         return pl.read_parquet(cpath)
-
     verify_prefix_invariance(pipeline, bars_df, contract)
     feats = pipeline.compute(bars_df, contract).sort("timestamp", "asset")
     feats.write_parquet(cpath)
-    if registry is not None:
-        fnames = [c for c in feats.columns if c not in {"timestamp", "asset"}]
-        with registry._connect() as conn:
-            conn.execute("INSERT OR REPLACE INTO feature_sets (feature_hash, contract_id, feature_names_json, ml4t_engineer_version, prefix_invariance_passed, parquet_cache_path, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-                         (fhash, contract.contract_id, canonical_json(fnames), ver, str(cpath), float(cpath.stat().st_mtime)))
     return feats

@@ -38,3 +38,8 @@ Commit: 7f67277
 Tests: uv run pytest tests/experiments/test_hyp_2026_001.py -q — 3 passed in 2.46s
 Lint: uv run ruff check — All checks passed
 Metrics: RUN-RULES-001..003 recorded with mean_ic=None; PF=0.90..0.98; K_eff=1.00->1.39->1.68; 4th run blocked by 3-strike budget
+Ticket: TKT-09 — Vertical Slice 2: Cross-sectional funding & reversal ML HYP-2026-002
+Commit: a51db84
+Tests: uv run pytest tests/experiments/test_hyp_2026_002.py -q — 4 passed in 2.86s
+Lint: uv run ruff check — All checks passed
+Metrics: Linear-first gate blocks LightGBM without Ridge; RUN-ML-001 N=4, K_eff=2.58 (DSR=0.978); RUN-ML-002 N=5 early rejected at Stage 1

@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from warden import __version__
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
@@ -53,6 +55,11 @@ def check_worktree(repo_root: Path = Path(".")) -> bool:
     return not (loc.is_file() and subprocess.run([sys.executable, str(loc)], capture_output=True, check=False).returncode != 0)
 
 
+def cmd_check_worktree(args: argparse.Namespace) -> int:
+    if not check_worktree():
+        return 2
+    print("Worktree integrity verified: protected contracts, warden core, and LOC budgets intact.")
+    return 0
 def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     with runner.registry._connect() as conn:
         n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
@@ -121,13 +128,27 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
             print(f"Error: Run ID '{args.run_id}' not found.", file=sys.stderr)
             return 1
         trial = dict(t)
+        f_row = conn.execute("SELECT prefix_invariance_passed FROM feature_sets WHERE contract_id = ? AND prefix_invariance_passed = 1", (trial["contract_id"],)).fetchone()
+        has_causal_proof = f_row is not None
+
+    contract = runner.resolve_contract(trial["contract_id"])
+    r_path = runner.repo_root / trial.get("returns_parquet_path", "")
+    trimmed_ok = False
+    if r_path.is_file():
+        import polars as pl
+        r_series = pl.read_parquet(r_path)["net_return"].to_numpy()
+        if len(r_series) > 0:
+            p95 = float(np.percentile(r_series, 95.0))
+            trimmed = r_series[r_series <= p95]
+            trimmed_ok = float(np.mean(trimmed)) > -0.001
+
     c = {
-        "1_target_rebalance_alignment": trial.get("stage_reached") in {"STAGE_2_BACKTEST", "STAGE_3_STRESS"},
-        "2_outlier_sensitivity": trial.get("max_drawdown_pct", 100.0) < 50.0 and trial.get("net_sharpe", 0.0) > 0.0,
-        "3_point_in_time_causality": True,
-        "4_fold_local_fitting": True,
-        "5_cost_and_latency_survival": trial.get("stress_2x_cost_sharpe", -1.0) > 0.50,
-        "6_selection_bias_accounting": trial.get("total_trials_n", 0) > 0 and trial.get("deflated_sharpe_prob", 0.0) >= 0.80,
+        "1_target_rebalance_alignment": trial.get("stage_reached") in {"STAGE_2_BACKTEST", "STAGE_3_STRESS"} and contract.label_horizon_bars >= 1,
+        "2_outlier_sensitivity": trimmed_ok and trial.get("net_sharpe", 0.0) > 0.0,
+        "3_point_in_time_causality": has_causal_proof and contract.execution_delay_bars >= 1,
+        "4_fold_local_fitting": (contract.n_folds >= 2 and contract.embargo_bars >= 1) or trial.get("strategy_family") == "rules_ts",
+        "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > 0.50) and (trial.get("delay_plus1_sharpe", -1.0) > 0.0),
+        "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= 0.80),
     }
     passed = all(c.values())
     audit = {"run_id": args.run_id, "checks": {k: {"passed": v} for k, v in c.items()}, "audit_passed": passed}
@@ -205,32 +226,17 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 0
     runner = ExperimentRunner()
-    if args.subcommand == "status":
-        return cmd_status(args, runner)
-    if args.subcommand == "check-worktree":
-        return 0 if check_worktree() else 2
     if args.subcommand == "register-hypothesis":
         if not check_worktree():
             sys.exit(2)
         h = load_hypothesis(Path(args.path))
-        c = runner.resolve_contract(h.contract_id)
-        runner.registry.register_contract(c)
+        runner.registry.register_contract(runner.resolve_contract(h.contract_id))
         runner.registry.register_hypothesis(h)
         print(canonical_json(h.__dict__) if args.json else f"Registered hypothesis '{h.hypothesis_id}'")
         return 0
-    if args.subcommand == "verify":
-        return cmd_verify(args, runner)
-    if args.subcommand == "screen":
-        return cmd_screen(args, runner)
-    if args.subcommand == "backtest":
-        return cmd_backtest(args, runner)
-    if args.subcommand == "audit-check":
-        return cmd_audit_check(args, runner)
-    if args.subcommand == "handoff":
-        return cmd_handoff(args, runner)
-    if args.subcommand == "continue":
-        return cmd_continue(args, runner)
-    return 0
+    cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue}
+    fn = cmds.get(args.subcommand)
+    return fn(args, runner) if fn and "runner" in fn.__code__.co_varnames else fn(args) if fn else 0
 
 
 if __name__ == "__main__":

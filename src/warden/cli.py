@@ -28,11 +28,21 @@ def compute_file_sha256(path: Path) -> str:
 def generate_manifest(repo_root: Path = Path(".")) -> str:
     repo = Path(repo_root)
     protected = (
-        sorted(repo.glob("src/warden/*.py"))
+        sorted(repo.glob("src/warden/**/*.py"))
         + sorted(repo.glob("contracts/*.yaml"))
         + sorted(repo.glob("contracts/*.yml"))
-        + ([repo / "AGENTS.md"] if (repo / "AGENTS.md").is_file() else [])
     )
+    protected += [
+        p for p in (
+            repo / "AGENTS.md",
+            repo / "pyproject.toml",
+            repo / "uv.lock",
+            repo / "scripts" / "check_loc_budget.py",
+            repo / "scripts" / "lock_holdout_permissions.sh",
+            repo / "scripts" / "lock_governance_permissions.sh",
+        ) if p.is_file()
+    ]
+    protected = list(dict.fromkeys(protected))
     content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected) + "\n"
     (repo / MANIFEST_FILE).write_text(content, encoding="utf-8")
     return content
@@ -51,7 +61,9 @@ def check_worktree(repo_root: Path = Path(".")) -> bool:
         if not target.is_file() or compute_file_sha256(target) != expected:
             return False
     loc = repo / "scripts" / "check_loc_budget.py"
-    return not (loc.is_file() and subprocess.run([sys.executable, str(loc)], capture_output=True, check=False).returncode != 0)
+    if not loc.is_file():
+        return False
+    return subprocess.run([sys.executable, str(loc)], capture_output=True, check=False).returncode == 0
 
 
 def cmd_check_worktree(args: argparse.Namespace, runner: ExperimentRunner | None = None) -> int:
@@ -88,10 +100,12 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         data_path = runner.repo_root / "data" / "exploratory" / "crypto_perps_1h.parquet"
     panel = pl.read_parquet(data_path)
     pipeline = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None) or (mod if hasattr(mod, "compute") else None)
-    if pipeline:
-        verify_prefix_invariance(pipeline, panel, contract)
-        compute_and_cache_features(pipeline, panel, contract, registry=runner.registry)
-    res = {"status": "PASS", "prefix_invariance": True, "cached": pipeline is not None, "rows": len(panel)}
+    if not pipeline:
+        print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
+        return 1
+    verify_prefix_invariance(pipeline, panel, contract)
+    compute_and_cache_features(pipeline, panel, contract, registry=runner.registry)
+    res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel)}
     print(json.dumps(res, indent=2) if args.json else "PASS: Prefix-invariance verified.")
     return 0
 
@@ -119,6 +133,8 @@ def cmd_backtest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    if not check_worktree():
+        sys.exit(2)
     with runner.registry._connect() as conn:
         t = conn.execute("SELECT * FROM trials WHERE run_id = ?", (args.run_id,)).fetchone()
         if not t:
@@ -140,13 +156,19 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
     c = {
         "1_target_rebalance_alignment": trial.get("stage_reached") in {"STAGE_2_BACKTEST", "STAGE_3_STRESS"} and contract.label_horizon_bars >= 1,
-        "2_outlier_sensitivity": trimmed_ok and trial.get("net_sharpe", 0.0) > 0.0,
+        "2_outlier_sensitivity": trimmed_ok and trial.get("net_sharpe", 0.0) > 0.0 and trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
         "3_point_in_time_causality": has_causal_proof and contract.execution_delay_bars >= 1,
         "4_fold_local_fitting": (contract.n_folds >= 2 and contract.embargo_bars >= 1) or trial.get("strategy_family") == "rules_ts",
         "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > 0.50) and (trial.get("delay_plus1_sharpe", -1.0) > 0.0),
         "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= 0.80),
     }
     passed = all(c.values())
+    import time
+    with runner.registry._connect() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO audit_reports (run_id, contract_id, verdict, checks_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (args.run_id, trial["contract_id"], "APPROVED" if passed else "REJECTED", canonical_json(c), time.time()),
+        )
     audit = {"run_id": args.run_id, "checks": {k: {"passed": v} for k, v in c.items()}, "audit_passed": passed}
     out = runner.repo_root / ".workspace" / "hypotheses" / f"AUDIT_{args.run_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -169,6 +191,7 @@ def cmd_handoff(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    import shlex
     target = Path(args.transition_path) if args.transition_path else (sorted(runner.repo_root.glob(".workspace/transitions/*/*.md")) or [None])[-1]
     if not target or not target.is_file():
         print("No transition snapshot found.", file=sys.stderr)
@@ -184,9 +207,15 @@ def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         expected = lines[i].strip()[9:].strip() if i < len(lines) and lines[i].strip().startswith("# expect:") else None
         if expected is not None:
             i += 1
-        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=False)
+        if not (cmd.startswith(("git rev-parse", "sqlite3 ")) or "warden check-worktree" in cmd):
+            print(f"REFUSED: Command '{cmd}' is not in the read-only continuation allowlist.", file=sys.stderr)
+            drift = True
+            continue
+        cmd_args = shlex.split(cmd)
+        proc = subprocess.run(cmd_args, cwd=runner.repo_root, capture_output=True, text=True, check=False)
         actual = (proc.stdout or proc.stderr).strip()
-        if expected and expected not in actual:
+        last_line = actual.splitlines()[-1] if actual.splitlines() else actual
+        if expected and actual != expected and last_line != expected:
             print(f"DRIFT: '{cmd}' expected '{expected}', got '{actual}'", file=sys.stderr)
             drift = True
     print("Continue FAILED: Drift detected." if drift else f"Continue SUCCESS: zero drift from {target.name}.")
@@ -194,6 +223,11 @@ def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_qualify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    if not check_worktree():
+        sys.exit(2)
+    if not getattr(args, "unseal_holdout", False):
+        print("Error: Holdout qualification requires --unseal-holdout flag.", file=sys.stderr)
+        return 2
     from warden.qualify import qualify_candidate
     res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner)
     print(canonical_json(res) if args.json else f"Qualification complete: {res['verdict']}")

@@ -19,7 +19,7 @@ def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:
     x = np.asarray(ic_series, dtype=float)
     x = x[np.isfinite(x)]
     n = len(x)
-    if n < 10:
+    if n < 10 or float(np.std(x)) < 1e-6:
         return 0.0
     mean_x = float(np.mean(x))
     demeaned = x - mean_x
@@ -76,7 +76,13 @@ def evaluate_stage1_rules_ts(
     profit_factor = gains / losses
 
     rng = np.random.default_rng(42)
-    boot_means = [np.mean(rng.choice(active_gross, size=len(active_gross), replace=True)) for _ in range(200)]
+    block_size = max(1, min(24, int(math.sqrt(n_active))))
+    n_blocks = math.ceil(n_active / block_size)
+    boot_means = []
+    for _ in range(200):
+        starts = rng.integers(0, n_active, size=n_blocks)
+        idxs = np.concatenate([(starts + i) % n_active for i in range(block_size)])[:n_active]
+        boot_means.append(np.mean(active_gross[idxs]))
     p_value = float(np.mean(np.asarray(boot_means) <= 0.0))
 
     passed = (cond_edge > edge_cost_multiplier * one_way_cost) and (profit_factor >= min_profit_factor) and (time_in_market >= min_time_in_market) and (p_value < 0.05)

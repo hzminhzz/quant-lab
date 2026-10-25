@@ -16,7 +16,10 @@ def generate_canonical_market_panel(parquet_path: Path | None = None, seed: int 
     returns, funding = np.zeros((n_bars, n_assets)), np.zeros((n_bars, n_assets))
     market = rng.normal(0.0, 0.005, size=n_bars)
     for t in range(1, n_bars):
-        funding[t] = 0.88 * funding[t - 1] + rng.normal(0.0, 0.00025, size=n_assets)
+        if t % 8 == 0:
+            funding[t] = 0.88 * funding[t - 8] + rng.normal(0.0, 0.00025, size=n_assets)
+        else:
+            funding[t] = funding[t - 1]
         signal = np.zeros(n_assets)
         if t >= 24:
             past = np.sum(returns[t - 12:t], axis=0)

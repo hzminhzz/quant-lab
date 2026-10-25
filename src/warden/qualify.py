@@ -39,8 +39,23 @@ def qualify_candidate(
             raise ValueError(f"Run ID '{run_id}' not found in registry.")
         trial = dict(t_row)
         hyp_id, cid = trial["hypothesis_id"], trial["contract_id"]
-        h_row = conn.execute("SELECT parent_hypothesis_id FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
-        lineage_id = (h_row[0] if h_row else None) or hyp_id
+        q_entry = conn.execute("SELECT reason FROM trial_quarantine WHERE run_id = ?", (run_id,)).fetchone()
+        if q_entry:
+            raise ValueError(f"Run ID '{run_id}' is quarantined ({q_entry[0]}) and cannot be qualified on holdout.")
+        if trial.get("synthetic") in (1, 1.0, "1", True):
+            raise ValueError(f"Run ID '{run_id}' was generated on synthetic benchmark data and cannot be qualified on holdout.")
+        if trial.get("verdict") != "CANDIDATE_FOR_QUALIFICATION":
+            raise ValueError(f"Run ID '{run_id}' has verdict '{trial.get('verdict')}'; only CANDIDATE_FOR_QUALIFICATION trials can be qualified.")
+        val_sr = float(trial.get("net_sharpe", 0.0))
+        if val_sr <= 0.0:
+            raise ValueError(f"Trial '{run_id}' has non-positive validation Net Sharpe ({val_sr:.2f}); cannot qualify.")
+        curr_hyp = hyp_id
+        while True:
+            p_row = conn.execute("SELECT parent_hypothesis_id FROM hypotheses WHERE hypothesis_id = ?", (curr_hyp,)).fetchone()
+            if not p_row or not p_row[0] or p_row[0] == curr_hyp:
+                lineage_id = curr_hyp
+                break
+            curr_hyp = p_row[0]
 
         q_row = conn.execute("SELECT qual_id, run_id FROM qualifications WHERE lineage_id = ?", (lineage_id,)).fetchone()
         if q_row:
@@ -51,20 +66,35 @@ def qualify_candidate(
     if not h_path.is_file():
         raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")
 
-    panel_df = pl.read_parquet(h_path).sort("timestamp", "asset")
+    raw_panel = pl.read_parquet(h_path).sort("timestamp", "asset")
+    window_df = raw_panel.filter(
+        (pl.col("timestamp") >= contract.holdout_start) & (pl.col("timestamp") <= contract.holdout_end)
+    )
+    panel_df = window_df if window_df.height >= 20 else raw_panel
     ts = sorted(panel_df["timestamp"].unique().to_list())
-    n_bars, n_assets = len(ts), len(panel_df["asset"].unique())
+    assets = sorted(panel_df["asset"].unique().to_list())
+    n_bars = len(ts)
 
-    strat_path = runner.repo_root / ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
+    mod_str = trial.get("strategy_module") or ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
+    strat_path = runner.repo_root / mod_str
+    if not strat_path.is_file():
+        strat_path = runner.repo_root / ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
     mod = load_module_from_path(strat_path)
-    params = yaml.safe_load(trial.get("config_json", "{}"))
+    raw_cfg = trial.get("config_json", "{}")
+    cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}
+    params = cfg_data.get("parameters", cfg_data) if isinstance(cfg_data, dict) else {}
 
     out = mod.generate_positions(panel_df, contract, **params)
-    ret_col = panel_df.select(pl.col("close").pct_change().fill_null(0.0).over("asset")).to_numpy()
-    ret_p = ret_col.reshape((n_bars, n_assets))
-    fund_p = panel_df["funding_rate"].to_numpy().reshape((n_bars, n_assets)) if "funding_rate" in panel_df.columns else None
+    if "open" in panel_df.columns:
+        ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
+    else:
+        ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
+    from warden.runner import _aligned_matrix, _funding_settlement_mask
+    ret_p = _aligned_matrix(ret_df, "ret", assets)
+    fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
+    fund_mask = _funding_settlement_mask(ts, contract)
 
-    sim = simulate_positions(out["positions"], ret_p, fund_p, contract, slice(0, n_bars), cost_multiplier=1.0)
+    sim = simulate_positions(out["positions"], ret_p, fund_p, contract, slice(0, n_bars), cost_multiplier=1.0, funding_mask=fund_mask)
     m = calculate_metrics_from_returns(sim["gross_returns"], sim["net_returns"], sim["turnover"], contract.bars_per_year)
 
     h_net_sr = m["net_sharpe"]

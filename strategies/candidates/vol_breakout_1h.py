@@ -71,12 +71,17 @@ def generate_positions(
     timestamps = sorted(df["timestamp"].unique().to_list())
     assets = sorted(df["asset"].unique().to_list())
     n_bars, n_assets = len(timestamps), len(assets)
-    close_mat = df.pivot(index="timestamp", on="asset", values="close").fill_null(strategy="forward").fill_null(0.0).select(pl.all().exclude("timestamp")).to_numpy()
+    close_pivot = df.pivot(index="timestamp", on="asset", values="close").fill_null(strategy="forward").fill_null(0.0)
+    for a in assets:
+        if a not in close_pivot.columns:
+            close_pivot = close_pivot.with_columns(pl.lit(0.0).alias(a))
+    close_mat = close_pivot.select(assets).to_numpy()
     prev_close = np.vstack([close_mat[:1], close_mat[:-1]])
     ret_mat = np.divide(close_mat - prev_close, prev_close, out=np.zeros_like(close_mat), where=prev_close > 0)
 
     # Focus allocation on top 4 liquid perps (BTC, ETH, SOL, BNB)
-    target_asset_indices = [i for i, sym in enumerate(assets) if sym in {"BTC-PERP", "ETH-PERP", "SOL-PERP", "BNB-PERP"}]
+    target_symbols = {"BTC-PERP", "ETH-PERP", "SOL-PERP", "BNB-PERP", "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
+    target_asset_indices = [i for i, sym in enumerate(assets) if sym in target_symbols]
     if not target_asset_indices:
         target_asset_indices = list(range(min(4, n_assets)))
 

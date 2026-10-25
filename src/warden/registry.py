@@ -1,5 +1,6 @@
 """Durable trial ledger and reference effective-rank DSR; no harness dependencies."""
 
+import hashlib
 import json
 import math
 import sqlite3
@@ -27,16 +28,18 @@ class HypothesisBudgetExhaustedError(ValueError):
 
 
 def compute_effective_trials_and_dsr(candidate_returns, historical_return_streams, bars_per_year, total_trials_n=None):
-    """Port of reference section 3: candidate probability, noise SR, raw N, entropy rank."""
+    """Candidate probability, noise SR, raw N, entropy rank with reject accounting."""
     streams = [np.asarray(s, dtype=float) for s in [*historical_return_streams, candidate_returns]]
-    n, t = (total_trials_n if total_trials_n is not None else len(streams)), len(streams[-1])
+    raw_stream_count = len(streams)
+    n = int(total_trials_n if total_trials_n is not None else raw_stream_count)
+    t = len(streams[-1])
     if any(s.ndim != 1 or len(s) != t or not np.isfinite(s).all() for s in streams):
         raise ValueError("Trial returns must be finite and temporally aligned")
     candidate = streams[-1]
     if t < 10 or np.std(candidate) < 1e-12:
         return 0.0, 0.0, n, 1.0
     k_eff, sr_std = 1.0, 1.0 / math.sqrt(t)
-    if n > 1:
+    if raw_stream_count > 1:
         matrix = np.column_stack(streams)
         centered = matrix - matrix.mean(axis=0)
         norm = np.linalg.norm(centered, axis=0)
@@ -45,14 +48,21 @@ def compute_effective_trials_and_dsr(candidate_returns, historical_return_stream
         np.fill_diagonal(corr, 1.0)
         eigenvalues = np.maximum(np.linalg.eigvalsh(corr), 1e-12)
         p = eigenvalues / eigenvalues.sum()
-        k_eff = float(np.clip(np.exp(-np.sum(p * np.log(p))), 1.0, n))
+        k_eff_base = float(np.clip(np.exp(-np.sum(p * np.log(p))), 1.0, raw_stream_count))
+        missing_trials = max(0, n - raw_stream_count)
+        k_eff = float(min(float(n), k_eff_base + missing_trials))
+
         sharpes = [float(np.mean(s) / (np.std(s, ddof=1) + 1e-12)) for s in streams]
         sr_std = max(float(np.std(sharpes, ddof=1)), sr_std)
         if np.all(norm > 1e-12):
             upstream = deflated_sharpe_ratio(matrix, periods_per_year=bars_per_year,
                                               correlation_method="effective_rank")
-            if not np.isclose(upstream.n_trials_effective, k_eff, rtol=1e-6):
+            if not np.isclose(upstream.n_trials_effective, k_eff_base, rtol=1e-6):
                 raise ValueError("ML4T/reference effective-rank disagreement")
+    else:
+        missing_trials = max(0, n - 1)
+        k_eff = float(min(float(n), 1.0 + missing_trials))
+
     sr = float(np.mean(candidate) / (np.std(candidate, ddof=1) + 1e-12))
     noise = 0.0
     if k_eff > 1.001:
@@ -85,9 +95,34 @@ class ResearchRegistry:
                 CREATE TABLE IF NOT EXISTS trials ({_columns(ExperimentResult)},config_json TEXT,returns_json TEXT,returns_parquet_path TEXT,trial_number_in_hyp INTEGER,git_commit_sha TEXT,created_at REAL,PRIMARY KEY (run_id));
                 CREATE TABLE IF NOT EXISTS feature_sets (feature_hash TEXT PRIMARY KEY,contract_id TEXT,feature_names_json TEXT,ml4t_engineer_version TEXT,prefix_invariance_passed INTEGER,parquet_cache_path TEXT,created_at REAL);
                 CREATE TABLE IF NOT EXISTS qualifications (qual_id TEXT PRIMARY KEY,run_id TEXT,contract_id TEXT,hypothesis_id TEXT,lineage_id TEXT UNIQUE,holdout_gross_sharpe REAL,holdout_net_sharpe REAL,holdout_max_dd_pct REAL,val_to_holdout_sharpe_ratio REAL,approved_by_human TEXT,qualified_at REAL);
+                CREATE TABLE IF NOT EXISTS trial_quarantine (run_id TEXT PRIMARY KEY,reason TEXT,quarantined_at REAL);
+                CREATE TABLE IF NOT EXISTS audit_reports (run_id TEXT PRIMARY KEY,contract_id TEXT,verdict TEXT,checks_json TEXT,created_at REAL);
                 CREATE TRIGGER IF NOT EXISTS trials_no_update BEFORE UPDATE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS trials_no_delete BEFORE DELETE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS hypotheses_no_budget_reset BEFORE UPDATE ON hypotheses
+                BEGIN
+                    SELECT RAISE(ABORT, 'Governance violation: trials_used cannot be decreased')
+                    WHERE NEW.trials_used < OLD.trials_used;
+                    SELECT RAISE(ABORT, 'Governance violation: rejected hypothesis cannot be reactivated')
+                    WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
+                END;
             """)
+            existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(trials)").fetchall()}
+            for c_name, c_type in [
+                ("synthetic", "REAL DEFAULT 0"),
+                ("data_snapshot_sha256", "TEXT DEFAULT ''"),
+                ("strategy_module", "TEXT DEFAULT ''"),
+                ("model_type", "TEXT DEFAULT ''"),
+                ("returns_sha256", "TEXT DEFAULT ''"),
+            ]:
+                if c_name not in existing_cols:
+                    conn.execute(f"ALTER TABLE trials ADD COLUMN {c_name} {c_type}")
+            legacy_runs = ["RUN-RULES-001", "RUN-RULES-002", "RUN-RULES-003", "RUN-ML-001", "RUN-ML-002"]
+            for r_id in legacy_runs:
+                conn.execute(
+                    "INSERT OR IGNORE INTO trial_quarantine (run_id, reason, quarantined_at) VALUES (?, ?, ?)",
+                    (r_id, "Synthetic benchmark evidence; not evaluated on verified exploratory market data", time.time())
+                )
     @contextmanager
     def _connect(self):
         conn = sqlite3.connect(self.db_path, timeout=30)
@@ -160,6 +195,8 @@ class ResearchRegistry:
             if stage == "STAGE_1_SIGNAL" or not r_json or r_json == "[]":
                 continue
             arr = np.array(json.loads(r_json), dtype=float)
+            if float(np.std(arr)) < 1e-12:
+                continue
             if len(arr) != expected_len:
                 raise ValueError("Contract-wide trial histories are not aligned")
             streams.append(arr)
@@ -181,9 +218,12 @@ class ResearchRegistry:
             with path.open("xb") as handle:
                 pl.DataFrame({"net_return": returns}).write_parquet(handle)
             try:
-                _insert(conn, "trials", {**result.to_dict(), "config_json": canonical_json(config_dict),
-                        "returns_json": canonical_json(returns.tolist()), "returns_parquet_path": str(path),
-                        "trial_number_in_hyp": trial_number, "git_commit_sha": config_dict.get("git_commit_sha", ""), "created_at": time.time()})
+                returns_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+                trial_dict = {**result.to_dict(), "config_json": canonical_json(config_dict),
+                              "returns_json": canonical_json(returns.tolist()), "returns_parquet_path": str(path),
+                              "returns_sha256": returns_sha256,
+                              "trial_number_in_hyp": trial_number, "git_commit_sha": config_dict.get("git_commit_sha", ""), "created_at": time.time()}
+                _insert(conn, "trials", trial_dict)
             except Exception:
                 path.unlink()
                 raise

@@ -78,10 +78,18 @@ def generate_positions(
     val_start_idx = ts_map.get(contract.val_start, int(n_bars * 0.25))
     val_end_idx = ts_map.get(contract.val_end, n_bars)
 
-    close_mat = df["close"].to_numpy().reshape((n_bars, n_assets))
+    close_pivot = df.pivot(index="timestamp", on="asset", values="close").fill_null(strategy="forward").fill_null(0.0)
+    for a in assets:
+        if a not in close_pivot.columns:
+            close_pivot = close_pivot.with_columns(pl.lit(0.0).alias(a))
+    close_mat = close_pivot.select(assets).to_numpy()
     prev_close = np.vstack([close_mat[:1], close_mat[:-1]])
     ret_mat = np.divide(close_mat - prev_close, prev_close, out=np.zeros_like(close_mat), where=prev_close > 0)
-    fund_mat = df["funding_rate"].to_numpy().reshape((n_bars, n_assets))
+    fund_pivot = df.pivot(index="timestamp", on="asset", values="funding_rate").fill_null(0.0)
+    for a in assets:
+        if a not in fund_pivot.columns:
+            fund_pivot = fund_pivot.with_columns(pl.lit(0.0).alias(a))
+    fund_mat = fund_pivot.select(assets).to_numpy()
 
     feat_funding = np.zeros_like(ret_mat)
     feat_mom = np.zeros_like(ret_mat)

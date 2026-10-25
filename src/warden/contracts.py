@@ -161,6 +161,11 @@ class ExperimentResult:
     notes: str
     delay_plus1_sharpe: float = 0.0
     cvar_99_pct: float = 0.0
+    synthetic: int = 0
+    data_snapshot_sha256: str = ""
+    strategy_module: str = ""
+    model_type: str = ""
+    returns_sha256: str = ""
 
     def to_dict(self):
         return asdict(self)

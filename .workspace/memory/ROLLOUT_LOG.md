@@ -53,3 +53,8 @@ Commit: 53a49c4
 Tests: uv run pytest tests/acceptance/test_rfc_acceptance.py -v — 6 passed in 11.20s; full suite 68 passed
 Lint: uv run ruff check — All checks passed; src/warden/ 1195/1200 LOC
 Metrics: All 6 RFC acceptance dimensions pass 100%; one-shot lineage lock blocks re-unsealing; isolated tmp_path holdout used
+Ticket: TKT-12 — Ergonomics benchmark report and legacy repository freeze preparation
+Commit: 6765bfe
+Tests: uv run pytest -q — 68 passed in 44.10s; scripts/freeze_legacy_repo.sh --dry-run exits 0
+Lint: uv run ruff check — All checks passed; src/warden/ 1195/1200 LOC
+Metrics: Stage 0 <0.001ms, Stage 1 33.46ms, Stage 2/3 0.09s, RSS 347MB; zero-drift continue verified; freeze script ready for human operator

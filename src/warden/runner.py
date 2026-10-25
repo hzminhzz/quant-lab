@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import importlib.util
 import math
@@ -174,8 +175,7 @@ class ExperimentRunner:
             return evaluate_stage1_cross_sectional_ml(out["ic_series"])
         ts = sorted(panel_df["timestamp"].unique().to_list())
         assets = sorted(panel_df["asset"].unique().to_list())
-        ts_map = {t: i for i, t in enumerate(ts)}
-        v_slice = slice(ts_map.get(contract.val_start, int(len(ts) * 0.25)), ts_map.get(contract.val_end, len(ts)))
+        v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
         if "open" in panel_df.columns:
             ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
         else:
@@ -228,8 +228,7 @@ class ExperimentRunner:
             ts = sorted(panel_df["timestamp"].unique().to_list())
             assets = sorted(panel_df["asset"].unique().to_list())
             n_bars = len(ts)
-            ts_map = {t: i for i, t in enumerate(ts)}
-            v_slice = slice(ts_map.get(contract.val_start, int(n_bars * 0.25)), ts_map.get(contract.val_end, n_bars))
+            v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
             if "open" in panel_df.columns:
                 ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
             else:

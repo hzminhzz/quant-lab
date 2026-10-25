@@ -49,10 +49,10 @@ def test_indices_exploratory_dataset():
     assert actual_sha == contract.data_snapshot_sha256
 
     df = pl.read_parquet(exp_path)
-    assert len(df) == 35345
+    assert len(df) == 46050
     assert df.schema["timestamp"] == pl.Datetime("us", "UTC")
     assert df.schema["asset"] == pl.String
-    assert set(df["asset"].unique()) == {"ES", "NQ", "DAX", "NIKKEI225"}
+    assert set(df["asset"].unique()) == {"ES", "NQ", "DAX", "NIKKEI225", "EUSIDXEUR", "HK33"}
     assert df.null_count().row(0) == (0,) * 8
     assert (df["close"] > 0).all()
     assert df["timestamp"].max() < contract.holdout_start
@@ -70,10 +70,30 @@ def test_indices_1m_exploratory_dataset():
     assert actual_sha == contract.data_snapshot_sha256
 
     df = pl.read_parquet(exp_path)
-    assert len(df) == 1025380
+    assert len(df) == 2633977
     assert df.schema["timestamp"] == pl.Datetime("us", "UTC")
     assert df.schema["asset"] == pl.String
-    assert set(df["asset"].unique()) == {"ES", "NQ"}
+    assert set(df["asset"].unique()) == {"ES", "NQ", "DAX", "NIKKEI225", "EUSIDXEUR", "HK33"}
+    assert df.null_count().row(0) == (0,) * 8
+    assert (df["close"] > 0).all()
+    assert df["timestamp"].max() < contract.holdout_start
+def test_metals_1m_exploratory_dataset():
+    contract_path = Path("contracts/metals_1m_v1.yaml")
+    contract = load_contract(contract_path)
+    assert contract.asset_class == "metals"
+    assert contract.frequency == "1m"
+
+    exp_path = Path(contract.exploratory_data_path)
+    assert exp_path.is_file(), f"Metals 1m exploratory dataset not found at {exp_path}"
+
+    actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
+    assert actual_sha == contract.data_snapshot_sha256
+
+    df = pl.read_parquet(exp_path)
+    assert len(df) == 842813
+    assert df.schema["timestamp"] == pl.Datetime("us", "UTC")
+    assert df.schema["asset"] == pl.String
+    assert set(df["asset"].unique()) == {"XAUUSD", "XAGUSD"}
     assert df.null_count().row(0) == (0,) * 8
     assert (df["close"] > 0).all()
     assert df["timestamp"].max() < contract.holdout_start

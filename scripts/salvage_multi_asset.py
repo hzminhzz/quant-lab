@@ -18,6 +18,16 @@ FX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "CADJPY"
 INDEX_SYMBOLS = ["ES", "NQ", "DAX", "NIKKEI225", "EUSIDXEUR", "HK33"]
 METALS_SYMBOLS = ["XAUUSD", "XAGUSD"]
 COMMODITIES_SYMBOLS = ["CL"]
+CRYPTO_1M_SYMBOLS = [
+    "BTCUSDT_PERP",
+    "ETHUSDT_PERP",
+    "SOLUSDT_PERP",
+    "BNBUSDT_PERP",
+    "DOGEUSDT_PERP",
+    "XRPUSDT_PERP",
+    "ADAUSDT_PERP",
+    "AVAXUSDT_PERP",
+]
 
 
 def normalize_panel(panel: pl.DataFrame) -> pl.DataFrame:
@@ -158,6 +168,31 @@ def load_commodities_panel(store_dir: Path, symbols: list[str] = COMMODITIES_SYM
         raise FileNotFoundError(f"No minute Commodity data found under {store_dir}")
     panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
     return normalize_panel(panel)
+def load_crypto_1m_panel(store_dir: Path, symbols: list[str] = CRYPTO_1M_SYMBOLS) -> pl.DataFrame:
+    frames = []
+    for s in symbols:
+        m_p = store_dir / f"crypto_futures_minute_{s}"
+        if not m_p.exists():
+            continue
+        m_files = [f for f in m_p.rglob("*.parquet") if any(f"year={y}" in str(f) for y in (2024, 2025, 2026))]
+        if not m_files:
+            continue
+        df_m = pl.scan_parquet(m_files).select(["timestamp", "symbol", "open", "high", "low", "close", "volume"]).collect()
+        df_m = df_m.with_columns(pl.col("timestamp").cast(pl.Datetime("us", "UTC")))
+
+        f_p = store_dir / f"crypto_futures_funding_{s}"
+        f_files = [f for f in f_p.rglob("*.parquet") if any(f"year={y}" in str(f) for y in (2024, 2025, 2026))] if f_p.exists() else []
+        if f_files:
+            df_f = pl.scan_parquet(f_files).select(["timestamp", "funding_rate"]).collect()
+            df_f = df_f.with_columns(pl.col("timestamp").cast(pl.Datetime("us", "UTC")))
+            joined = df_m.sort("timestamp").join_asof(df_f.sort("timestamp"), on="timestamp", strategy="backward").fill_null(0.0)
+        else:
+            joined = df_m.with_columns(funding_rate=pl.lit(0.0))
+        frames.append(joined)
+    if not frames:
+        raise FileNotFoundError(f"No minute Crypto futures data found under {store_dir}")
+    panel = pl.concat(frames).rename({"symbol": "asset"}).sort("timestamp", "asset")
+    return normalize_panel(panel)
 
 
 def salvage_dataset(
@@ -211,7 +246,7 @@ def salvage_dataset(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--asset-class", choices=["fx", "indices", "indices_1m", "metals_1m", "commodities_1m", "all"], default="all")
+    parser.add_argument("--asset-class", choices=["fx", "indices", "indices_1m", "metals_1m", "commodities_1m", "crypto_1m", "all"], default="all")
     parser.add_argument("--store-dir", type=Path, default=Path("/home/quant/dev/quant/ml4t-data/.data/store"))
     parser.add_argument("--out-dir", type=Path, default=Path("data"))
     args = parser.parse_args()
@@ -270,6 +305,16 @@ def main():
             update_contract=True,
         )
         results["commodities_1m"] = res_comm
+    if args.asset_class in {"crypto_1m", "all"}:
+        print("Salvaging Top 8 Crypto Perpetuals 1-Minute (BTC, ETH, SOL, BNB, DOGE, XRP, ADA, AVAX)...")
+        crypto_panel = load_crypto_1m_panel(args.store_dir, symbols=CRYPTO_1M_SYMBOLS)
+        res_crypto = salvage_dataset(
+            Path("contracts/crypto_perps_1m_v1.yaml"),
+            args.out_dir,
+            crypto_panel,
+            update_contract=True,
+        )
+        results["crypto_1m"] = res_crypto
     print(json.dumps(results, indent=2))
     print("\nSalvage complete. To lock holdout staging into production holdout:")
     print("  sudo cp -r data/holdout_staging/* data/holdout/ && sudo ./scripts/lock_holdout_permissions.sh ./data/holdout")

@@ -18,4 +18,4 @@ taker_fee_bps: 0.2
 slippage_bps: 0.5
 funding_bps_per_8h: 0.0
 min_expected_move_to_cost_ratio: 2.5
-data_snapshot_sha256: ''
+data_snapshot_sha256: d52c1f156f0726fd5830a2ec283ccc17192a921e13c12c73853d279326fdd996

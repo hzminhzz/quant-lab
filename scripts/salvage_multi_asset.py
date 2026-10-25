@@ -183,9 +183,7 @@ def main():
 
     print(json.dumps(results, indent=2))
     print("\nSalvage complete. To lock holdout staging into production holdout:")
-    print("  sudo cp -r data/holdout_staging/* data/holdout/ 2>/dev/null || true")
-    print("  sudo ./scripts/lock_holdout_permissions.sh ./data/holdout")
-
+    print("  sudo cp -r data/holdout_staging/* data/holdout/ && sudo ./scripts/lock_holdout_permissions.sh ./data/holdout")
 
 if __name__ == "__main__":
     main()

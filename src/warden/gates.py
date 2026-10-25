@@ -12,8 +12,7 @@ from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
 from warden.registry import HypothesisBudgetExhaustedError
 
 
-class GateFalsificationError(ValueError):
-    """Raised when an experiment fails a Stage 0 or Stage 1 gate."""
+class GateFalsificationError(ValueError): pass
 
 
 def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:

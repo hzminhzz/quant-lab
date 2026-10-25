@@ -7,13 +7,10 @@ import importlib.util
 import math
 import sys
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import polars as pl
 import yaml
-from ml4t.backtest import BacktestConfig, DataFeed, Engine, Strategy
-from ml4t.backtest.config import CommissionType, ExecutionMode, ExecutionPrice, SlippageType
 
 from warden.contracts import (
     EvaluationContract,
@@ -45,52 +42,7 @@ def load_module_from_path(module_path: Path):
     return mod
 
 
-class TargetWeightStrategy(Strategy):
-    def __init__(self, target_weights_by_timestamp: dict[Any, dict[str, float]]):
-        super().__init__()
-        self.target_weights = target_weights_by_timestamp
-
-    def on_data(self, timestamp: Any, data: dict, context: dict, broker: Any) -> None:
-        weights = self.target_weights.get(timestamp)
-        if weights:
-            for asset, w in weights.items():
-                broker.order_target_percent(asset, float(w))
-
-
-def run_engine_backtest(
-    panel_df: pl.DataFrame,
-    target_weights: dict[Any, dict[str, float]],
-    contract: EvaluationContract,
-    cost_multiplier: float = 1.0,
-    delay_offset: int = 0,
-) -> dict[str, Any]:
-    feed = DataFeed(prices_df=panel_df, timestamp_col="timestamp", entity_col="asset", open_col="open", high_col="high", low_col="low", close_col="close", volume_col="volume")
-    exec_price = ExecutionPrice.QUOTE_SIDE if contract.execution_mode == "QUOTE_SIDE" else ExecutionPrice.OPEN
-    config = BacktestConfig(
-        execution_mode=ExecutionMode.NEXT_BAR,
-        execution_price=exec_price,
-        commission_type=CommissionType.PERCENTAGE,
-        commission_rate=contract.taker_fee_bps * 1e-4 * cost_multiplier,
-        slippage_type=SlippageType.PERCENTAGE,
-        slippage_rate=contract.slippage_bps * 1e-4 * cost_multiplier,
-        allow_short_selling=True,
-        allow_leverage=True,
-    )
-    engine = Engine(feed=feed, strategy=TargetWeightStrategy(target_weights), config=config)
-    result = engine.run()
-    eq = np.array([e[1] for e in result.equity_curve], dtype=float)
-    return {"net_returns": np.diff(eq) / eq[:-1] if len(eq) > 1 else np.zeros(1), "engine_result": result}
-
-
-def simulate_positions(
-    positions: np.ndarray,
-    returns_panel: np.ndarray,
-    funding_panel: np.ndarray | None,
-    contract: EvaluationContract,
-    val_slice: slice,
-    cost_multiplier: float = 1.0,
-    delay_offset: int = 0,
-) -> dict[str, np.ndarray]:
+def simulate_positions(positions, returns_panel, funding_panel, contract, val_slice, cost_multiplier=1.0, delay_offset=0) -> dict[str, np.ndarray]:
     pos = np.asarray(positions, dtype=float)
     total_delay = contract.execution_delay_bars + delay_offset
     if total_delay > 0:
@@ -106,9 +58,7 @@ def simulate_positions(
     return {"positions": pos_val, "gross_returns": gross, "net_returns": net, "turnover": turnover}
 
 
-def calculate_metrics_from_returns(
-    gross_returns: np.ndarray, net_returns: np.ndarray, bar_turnover: np.ndarray, bars_per_year: int
-) -> dict[str, float]:
+def calculate_metrics_from_returns(gross_returns, net_returns, bar_turnover, bars_per_year) -> dict[str, float]:
     g, n, turn = np.asarray(gross_returns, dtype=float), np.asarray(net_returns, dtype=float), np.asarray(bar_turnover, dtype=float)
     ann = math.sqrt(bars_per_year)
     active = n[np.abs(n) > 1e-10]

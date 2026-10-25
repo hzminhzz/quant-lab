@@ -43,3 +43,8 @@ Commit: a51db84
 Tests: uv run pytest tests/experiments/test_hyp_2026_002.py -q — 4 passed in 2.86s
 Lint: uv run ruff check — All checks passed
 Metrics: Linear-first gate blocks LightGBM without Ridge; RUN-ML-001 N=4, K_eff=2.58 (DSR=0.978); RUN-ML-002 N=5 early rejected at Stage 1
+Ticket: TKT-10 — Herdr dispatch, 6-check adversarial audit, and verifiable handoff/continue
+Commit: f2161dc
+Tests: uv run pytest tests/test_herdr_and_handoff.py -q — 4 passed in 22.06s
+Lint: uv run ruff check — All checks passed
+Metrics: RUN-ML-001 passes all 6 ML4T audit checks; planted violation fails closed; zero-drift continue verified; Herdr fallback tested

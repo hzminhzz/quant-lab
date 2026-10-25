@@ -59,31 +59,22 @@ class EvaluationContract:
 
     def __post_init__(self):
         valid_id(self.contract_id)
-        for name in ("train_start", "val_start", "val_end", "holdout_start", "holdout_end"):
-            object.__setattr__(self, name, utc(getattr(self, name)))
-        dates = [self.train_start, self.val_start, self.val_end, self.holdout_start, self.holdout_end]
-        if not (dates[0] < dates[1] < dates[2] <= dates[3] < dates[4]):
-            raise ContractValidationError("chronological train/validation/holdout boundaries overlap")
-        if self.asset_class not in {"crypto_perps", "fx", "indices", "metals"}:
-            raise ContractValidationError("unknown asset_class")
-        if self.frequency not in {"5m", "15m", "1h", "4h", "1d"}:
-            raise ContractValidationError("unknown frequency")
-        if self.execution_mode not in {"NEXT_BAR", "QUOTE_SIDE"}:
-            raise ContractValidationError("noncausal execution mode")
-        for name in ("bars_per_year", "n_folds", "label_horizon_bars", "embargo_bars", "execution_delay_bars"):
-            value = getattr(self, name)
-            if type(value) is not int or value < 1:
-                raise ContractValidationError(f"{name} must be a positive integer")
-        for name in ("taker_fee_bps", "slippage_bps", "min_expected_move_to_cost_ratio"):
-            value = getattr(self, name)
-            if not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
-                raise ContractValidationError(f"{name} must be finite and positive")
-        if not math.isfinite(self.funding_bps_per_8h) or self.funding_bps_per_8h < 0:
-            raise ContractValidationError("funding floor must be finite and nonnegative")
-        if self.data_snapshot_sha256 and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256):
-            raise ContractValidationError("data_snapshot_sha256 must be a SHA-256 digest")
-        if not self.exploratory_data_path or self.exploratory_data_path == self.holdout_data_path:
-            raise ContractValidationError("exploratory and holdout paths must be distinct")
+        for n in ("train_start", "val_start", "val_end", "holdout_start", "holdout_end"):
+            object.__setattr__(self, n, utc(getattr(self, n)))
+        d = [self.train_start, self.val_start, self.val_end, self.holdout_start, self.holdout_end]
+        if not (d[0] < d[1] < d[2] <= d[3] < d[4]):
+            raise ContractValidationError("chronological boundaries overlap")
+        if self.asset_class not in {"crypto_perps", "fx", "indices", "metals"} or self.frequency not in {"5m", "15m", "1h", "4h", "1d"} or self.execution_mode not in {"NEXT_BAR", "QUOTE_SIDE"}:
+            raise ContractValidationError("invalid asset_class, frequency, or execution_mode")
+        for n in ("bars_per_year", "n_folds", "label_horizon_bars", "embargo_bars", "execution_delay_bars"):
+            if type(getattr(self, n)) is not int or getattr(self, n) < 1:
+                raise ContractValidationError(f"{n} must be positive int")
+        for n in ("taker_fee_bps", "slippage_bps", "min_expected_move_to_cost_ratio"):
+            v = getattr(self, n)
+            if not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0:
+                raise ContractValidationError(f"{n} must be finite positive")
+        if not math.isfinite(self.funding_bps_per_8h) or self.funding_bps_per_8h < 0 or (self.data_snapshot_sha256 and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256)) or not self.exploratory_data_path or self.exploratory_data_path == self.holdout_data_path:
+            raise ContractValidationError("invalid funding, sha256 or data paths")
 
     def total_one_way_cost_decimal(self) -> float:
         return (self.taker_fee_bps + self.slippage_bps) * 1e-4
@@ -111,17 +102,13 @@ class HypothesisSpec:
         valid_id(self.contract_id)
         if self.parent_hypothesis_id:
             valid_id(self.parent_hypothesis_id)
-        if self.parent_hypothesis_id == self.hypothesis_id:
-            raise ContractValidationError("hypothesis cannot be its own parent")
-        if self.strategy_family not in {"rules_ts", "cross_sectional_ml", "carry_rv", "meta_overlay"}:
-            raise ContractValidationError("unknown strategy_family")
-        for name in ("economic_mechanism", "counterparty_or_friction"):
-            if not isinstance(getattr(self, name), str) or len(getattr(self, name).strip()) < 20:
-                raise ContractValidationError(f"{name} must explain at least 20 characters")
-        if type(self.expected_holding_bars) is not int or self.expected_holding_bars < 1:
-            raise ContractValidationError("expected_holding_bars must be a positive integer")
-        if not self.title.strip() or not self.falsification_criteria.strip():
-            raise ContractValidationError("title and falsification criteria are required")
+        if self.parent_hypothesis_id == self.hypothesis_id or self.strategy_family not in {"rules_ts", "cross_sectional_ml", "carry_rv", "meta_overlay"}:
+            raise ContractValidationError("invalid parent or strategy_family")
+        for n in ("economic_mechanism", "counterparty_or_friction"):
+            if not isinstance(getattr(self, n), str) or len(getattr(self, n).strip()) < 20:
+                raise ContractValidationError(f"{n} must explain at least 20 chars")
+        if type(self.expected_holding_bars) is not int or self.expected_holding_bars < 1 or not self.title.strip() or not self.falsification_criteria.strip():
+            raise ContractValidationError("invalid holding bars, title, or criteria")
 
     @classmethod
     def from_yaml(cls, path: Path):
@@ -186,15 +173,15 @@ def _load(path, cls, markdown=False):
     try:
         text = Path(path).read_text()
         if markdown:
-            match = re.match(r"\A---\s*\n(.*?)\n---(?:\n|$)", text, re.DOTALL)
-            if not match:
-                raise ContractValidationError("missing Markdown YAML frontmatter")
-            text = match.group(1)
-        value = yaml.safe_load(text)
-        if not isinstance(value, dict):
-            raise ContractValidationError("specification must be a YAML mapping")
+            m = re.match(r"\A---\s*\n(.*?)\n---(?:\n|$)", text, re.DOTALL)
+            if not m:
+                raise ContractValidationError("missing Markdown frontmatter")
+            text = m.group(1)
+        v = yaml.safe_load(text)
+        if not isinstance(v, dict):
+            raise ContractValidationError("spec must be YAML mapping")
         valid_keys = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in value.items() if k in valid_keys})
+        return cls(**{k: val for k, val in v.items() if k in valid_keys})
     except (TypeError, ValueError, yaml.YAMLError) as exc:
         raise ContractValidationError(f"{path}: {exc}") from exc
 

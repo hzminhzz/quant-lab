@@ -33,8 +33,7 @@ def generate_manifest(repo_root: Path = Path(".")) -> str:
         + sorted(repo.glob("contracts/*.yml"))
         + ([repo / "AGENTS.md"] if (repo / "AGENTS.md").is_file() else [])
     )
-    lines = [f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected]
-    content = "\n".join(lines) + "\n"
+    content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected) + "\n"
     (repo / MANIFEST_FILE).write_text(content, encoding="utf-8")
     return content
 
@@ -55,26 +54,24 @@ def check_worktree(repo_root: Path = Path(".")) -> bool:
     return not (loc.is_file() and subprocess.run([sys.executable, str(loc)], capture_output=True, check=False).returncode != 0)
 
 
-def cmd_check_worktree(args: argparse.Namespace) -> int:
+def cmd_check_worktree(args: argparse.Namespace, runner: ExperimentRunner | None = None) -> int:
     if not check_worktree():
         return 2
     print("Worktree integrity verified: protected contracts, warden core, and LOC budgets intact.")
     return 0
+
+
 def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     with runner.registry._connect() as conn:
         n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
         n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
-        rows = conn.execute(
-            "SELECT run_id, hypothesis_id, strategy_family, net_sharpe, deflated_sharpe_prob, verdict FROM trials ORDER BY created_at DESC LIMIT 5"
-        ).fetchall()
+        rows = conn.execute("SELECT run_id, hypothesis_id, strategy_family, net_sharpe, deflated_sharpe_prob, verdict FROM trials ORDER BY created_at DESC LIMIT 5").fetchall()
     recent = [{"run_id": r[0], "hypothesis_id": r[1], "strategy_family": r[2], "net_sharpe": float(r[3]), "deflated_sharpe_prob": float(r[4]), "verdict": r[5]} for r in rows]
     data = {"warden_version": __version__, "hypotheses_count": n_hyp, "trials_count": n_trials, "recent_trials": recent}
     if args.json:
         print(json.dumps(data, indent=2))
     else:
-        print(f"Warden v{__version__} | Hypotheses: {n_hyp} | Trials: {n_trials}")
-        for t in recent:
-            print(f"  {t['run_id']} ({t['strategy_family']}): NetSR={t['net_sharpe']:.2f}, DSR={t['deflated_sharpe_prob']:.2f} -> {t['verdict']}")
+        print(f"Warden v{__version__} | Hypotheses: {n_hyp} | Trials: {n_trials}\n" + "\n".join(f"  {t['run_id']} ({t['strategy_family']}): NetSR={t['net_sharpe']:.2f}, DSR={t['deflated_sharpe_prob']:.2f} -> {t['verdict']}" for t in recent))
     return 0
 
 
@@ -139,8 +136,7 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         r_series = pl.read_parquet(r_path)["net_return"].to_numpy()
         if len(r_series) > 0:
             p95 = float(np.percentile(r_series, 95.0))
-            trimmed = r_series[r_series <= p95]
-            trimmed_ok = float(np.mean(trimmed)) > -0.001
+            trimmed_ok = float(np.mean(r_series[r_series <= p95])) > -0.001
 
     c = {
         "1_target_rebalance_alignment": trial.get("stage_reached") in {"STAGE_2_BACKTEST", "STAGE_3_STRESS"} and contract.label_horizon_bars >= 1,
@@ -162,9 +158,8 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 def cmd_handoff(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     now = datetime.datetime.now(datetime.UTC)
     d, t = now.strftime("%Y-%m-%d"), now.strftime("%H%M%S")
-    tdir = runner.repo_root / ".workspace" / "transitions" / d
-    tdir.mkdir(parents=True, exist_ok=True)
-    tfile = tdir / f"{t}.md"
+    tfile = runner.repo_root / ".workspace" / "transitions" / d / f"{t}.md"
+    tfile.parent.mkdir(parents=True, exist_ok=True)
     head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
     with runner.registry._connect() as conn:
         n = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
@@ -198,24 +193,32 @@ def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     return 1 if drift else 0
 
 
+def cmd_qualify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    from warden.qualify import qualify_candidate
+    res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner)
+    print(canonical_json(res) if args.json else f"Qualification complete: {res['verdict']}")
+    return 0 if res["promoted"] else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="warden", description="Deterministic quantitative research harness.")
     p.add_argument("--version", action="version", version=f"warden {__version__}")
     s = p.add_subparsers(dest="subcommand")
-    s.add_parser("status").add_argument("--json", action="store_true")
+    s.add_parser("status")
     s.add_parser("check-worktree")
     s.add_parser("register-hypothesis").add_argument("path")
-    s.add_parser("verify").add_argument("spec_yaml")
-    s.add_parser("screen").add_argument("spec_yaml")
-    s.add_parser("backtest").add_argument("spec_yaml")
+    for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     s.add_parser("audit-check").add_argument("--run-id", required=True)
     h = s.add_parser("handoff")
     h.add_argument("--notes", default="Session transition checkpoint")
     h.add_argument("--ticket", default=None)
     s.add_parser("continue").add_argument("transition_path", nargs="?", default=None)
+    q = s.add_parser("qualify")
+    q.add_argument("--run-id", required=True)
+    q.add_argument("--human-confirm-unseal", default="")
+    q.add_argument("--unseal-holdout", action="store_true")
     for sub in s.choices.values():
-        if "json" not in [a.dest for a in sub._actions]:
-            sub.add_argument("--json", action="store_true")
+        if "json" not in [a.dest for a in sub._actions]: sub.add_argument("--json", action="store_true")
     return p
 
 
@@ -234,9 +237,9 @@ def main(argv: list[str] | None = None) -> int:
         runner.registry.register_hypothesis(h)
         print(canonical_json(h.__dict__) if args.json else f"Registered hypothesis '{h.hypothesis_id}'")
         return 0
-    cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue}
+    cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue, "qualify": cmd_qualify}
     fn = cmds.get(args.subcommand)
-    return fn(args, runner) if fn and "runner" in fn.__code__.co_varnames else fn(args) if fn else 0
+    return fn(args, runner) if fn else 0
 
 
 if __name__ == "__main__":

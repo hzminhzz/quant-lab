@@ -16,12 +16,8 @@ from warden.contracts import EvaluationContract, canonical_json
 from warden.registry import ResearchRegistry
 
 
-class LookaheadLeakageError(ValueError):
-    """Feature at time t depends on future data (t' > t)."""
-
-
-class CrossAssetLeakageError(ValueError):
-    """Asset-isolated feature bleeds cross-sectional information."""
+class LookaheadLeakageError(ValueError): pass
+class CrossAssetLeakageError(ValueError): pass
 
 
 class FeaturePipelineProtocol(Protocol):

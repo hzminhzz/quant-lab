@@ -227,7 +227,6 @@ class ExperimentRunner:
             panel_df = panel_df.sort("timestamp", "asset")
             ts = sorted(panel_df["timestamp"].unique().to_list())
             assets = sorted(panel_df["asset"].unique().to_list())
-            n_bars = len(ts)
             v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
             if "open" in panel_df.columns:
                 ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))

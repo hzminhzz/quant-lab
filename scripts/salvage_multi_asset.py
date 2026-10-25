@@ -14,9 +14,10 @@ from warden.contracts import load_contract
 
 COLUMNS = ["timestamp", "asset", "open", "high", "low", "close", "volume", "funding_rate"]
 
-FX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"]
+FX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "CADJPY", "GBPJPY"]
 INDEX_SYMBOLS = ["ES", "NQ", "DAX", "NIKKEI225", "EUSIDXEUR", "HK33"]
 METALS_SYMBOLS = ["XAUUSD", "XAGUSD"]
+COMMODITIES_SYMBOLS = ["CL"]
 
 
 def normalize_panel(panel: pl.DataFrame) -> pl.DataFrame:
@@ -130,6 +131,30 @@ def load_metals_panel(store_dir: Path, symbols: list[str] = METALS_SYMBOLS) -> p
     return normalize_panel(panel)
 
 
+def load_commodities_panel(store_dir: Path, symbols: list[str] = COMMODITIES_SYMBOLS) -> pl.DataFrame:
+    frames = []
+    std_cols = ["timestamp", "symbol", "open", "high", "low", "close", "volume"]
+    for sym in symbols:
+        p = store_dir / f"commodity_minute_{sym}"
+        if not p.exists():
+            continue
+        files = [f for f in p.rglob("*.parquet") if "year=2024" in str(f) or "year=2025" in str(f)]
+        if not files:
+            continue
+        c_frames = [
+            pl.read_parquet(f).select(std_cols).with_columns([
+                pl.col("timestamp").dt.replace_time_zone("UTC").cast(pl.Datetime("us", "UTC")),
+                pl.col("volume").cast(pl.Float64),
+                pl.col(["open", "high", "low", "close"]).cast(pl.Float64),
+            ]) for f in files
+        ]
+        frames.append(pl.concat(c_frames))
+    if not frames:
+        raise FileNotFoundError(f"No minute Commodity data found under {store_dir}")
+    panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
+    return normalize_panel(panel)
+
+
 def salvage_dataset(
     contract_path: Path,
     out_dir: Path,
@@ -181,7 +206,7 @@ def salvage_dataset(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--asset-class", choices=["fx", "indices", "indices_1m", "metals_1m", "all"], default="all")
+    parser.add_argument("--asset-class", choices=["fx", "indices", "indices_1m", "metals_1m", "commodities_1m", "all"], default="all")
     parser.add_argument("--store-dir", type=Path, default=Path("/home/quant/dev/quant/ml4t-data/.data/store"))
     parser.add_argument("--out-dir", type=Path, default=Path("data"))
     args = parser.parse_args()
@@ -229,6 +254,17 @@ def main():
             update_contract=True,
         )
         results["metals_1m"] = res_metals
+
+    if args.asset_class in {"commodities_1m", "all"}:
+        print("Salvaging Dukascopy Energy Commodities 1-Minute (WTI Crude Oil CL)...")
+        comm_panel = load_commodities_panel(args.store_dir, symbols=COMMODITIES_SYMBOLS)
+        res_comm = salvage_dataset(
+            Path("contracts/commodities_1m_v1.yaml"),
+            args.out_dir,
+            comm_panel,
+            update_contract=True,
+        )
+        results["commodities_1m"] = res_comm
     print(json.dumps(results, indent=2))
     print("\nSalvage complete. To lock holdout staging into production holdout:")
     print("  sudo cp -r data/holdout_staging/* data/holdout/ && sudo ./scripts/lock_holdout_permissions.sh ./data/holdout")

@@ -26,10 +26,10 @@ def test_fx_majors_exploratory_dataset():
     assert actual_sha == contract.data_snapshot_sha256
 
     df = pl.read_parquet(exp_path)
-    assert len(df) == 224115
+    assert len(df) == 298694
     assert df.schema["timestamp"] == pl.Datetime("us", "UTC")
     assert df.schema["asset"] == pl.String
-    assert set(df["asset"].unique()) == {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF"}
+    assert set(df["asset"].unique()) == {"EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "CADJPY", "GBPJPY"}
     assert df.null_count().row(0) == (0,) * 8
     assert (df["close"] > 0).all()
     assert df["timestamp"].max() < contract.holdout_start
@@ -94,6 +94,26 @@ def test_metals_1m_exploratory_dataset():
     assert df.schema["timestamp"] == pl.Datetime("us", "UTC")
     assert df.schema["asset"] == pl.String
     assert set(df["asset"].unique()) == {"XAUUSD", "XAGUSD"}
+    assert df.null_count().row(0) == (0,) * 8
+    assert (df["close"] > 0).all()
+    assert df["timestamp"].max() < contract.holdout_start
+def test_commodities_1m_exploratory_dataset():
+    contract_path = Path("contracts/commodities_1m_v1.yaml")
+    contract = load_contract(contract_path)
+    assert contract.asset_class == "commodities"
+    assert contract.frequency == "1m"
+
+    exp_path = Path(contract.exploratory_data_path)
+    assert exp_path.is_file(), f"Commodities 1m exploratory dataset not found at {exp_path}"
+
+    actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
+    assert actual_sha == contract.data_snapshot_sha256
+
+    df = pl.read_parquet(exp_path)
+    assert len(df) == 497180
+    assert df.schema["timestamp"] == pl.Datetime("us", "UTC")
+    assert df.schema["asset"] == pl.String
+    assert set(df["asset"].unique()) == {"CL"}
     assert df.null_count().row(0) == (0,) * 8
     assert (df["close"] > 0).all()
     assert df["timestamp"].max() < contract.holdout_start

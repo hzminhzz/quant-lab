@@ -23,3 +23,8 @@ Commit: 382772b
 Tests: uv run pytest tests/test_registry.py -q — 3 passed in 2.39s
 Lint: uv run ruff check — All checks passed
 Metrics: SQLite BEFORE UPDATE/DELETE triggers abort mutations; 3-strike budget enforcement halts 4th attempt; candidate DSR decouples from historical leader
+Ticket: TKT-06 — Prefix-invariance leakage prover and content-addressed feature cache
+Commit: bad97f9
+Tests: uv run pytest tests/test_warden_leakage.py -q — 4 passed in 2.96s
+Lint: uv run ruff check — All checks passed
+Metrics: 100% detection across 4 planted leakage traps; causal time-series/cross-sectional pipelines verified; feature cache retrieval under 50ms

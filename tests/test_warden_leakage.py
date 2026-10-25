@@ -70,11 +70,12 @@ class BackwardFillFuturePipeline:
     """Trap 4: Backward fill of future values into past nulls."""
 
     def compute(self, bars_df: pl.DataFrame, contract: EvaluationContract) -> pl.DataFrame:
-        tail_null = pl.when(
-            pl.col("timestamp") == pl.col("timestamp").max().over("asset")
+        # Causal interior missing values (alternate hours null) backward filled from future
+        sparse = pl.when(
+            pl.col("timestamp").dt.hour() % 2 == 0
         ).then(None).otherwise(pl.col("close"))
         return bars_df.with_columns(
-            bfill_feat=tail_null.backward_fill().over("asset")
+            bfill_feat=sparse.backward_fill().over("asset")
         )
 
 
@@ -166,8 +167,8 @@ def test_content_addressed_feature_cache_hit_speed(
     t_second = time.perf_counter() - t1
 
     assert feat2.equals(feat1)
-    # Cache hit should be fast (< 50ms typical)
-    assert t_second < 0.10, f"Cache hit took {t_second:.3f}s (expected fast read)"
+    # Cache hit must clear strict 50ms budget (< 0.050s)
+    assert t_second < 0.05, f"Cache hit took {t_second * 1000:.1f}ms (expected < 50ms)"
 
     # Verify SQLite feature_sets record
     with registry._connect() as conn:

@@ -8,3 +8,8 @@ Commit: d416b51
 Tests: uv run pytest tests/test_agent_compatibility.py -q — 17 passed in 0.97s
 Lint: uv run ruff check — All checks passed; reference typing/imports mechanically modernized
 Metrics: 61 skills; upstream a3f74452112a22e90654950b150a7effca2be0ff; OMP install/clean idempotency smoke passed
+Ticket: TKT-03 — Immutable contracts schema and initial markets
+Commit: e6dca4e
+Tests: uv run pytest tests/test_contracts.py -q — 15 passed in 0.08s
+Lint: uv run ruff check — All checks passed
+Metrics: crypto spec_hash 5dba993566c480ec; mandatory one-way cost 6 bps; timezone-aware half-open date windows

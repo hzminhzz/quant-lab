@@ -1,0 +1,7 @@
+# Optional Oh My Pi project settings for quant-lab
+skills:
+  enableAgentsProject: true
+  enableSkillCommands: true
+task:
+  maxRecursionDepth: 2
+  structured: true

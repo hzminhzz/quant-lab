@@ -10,3 +10,20 @@ venv/
 *.db-shm
 *.db-wal
 artifacts/
+
+# Warden generated state (keep .gitkeep markers and env_manifest.json)
+cache/features/*.parquet
+registry/returns/*.parquet
+registry/predictions/*.parquet
+/data/
+
+# Harness-local adapter state
+.omp/logs/
+.claude/
+.codex/
+/.opencode/
+
+# Packaging
+*.egg-info/
+dist/
+build/

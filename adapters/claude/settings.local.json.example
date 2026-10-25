@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(uv run warden qualify*)",
+      "Read(//data/holdout/**)",
+      "Edit(//data/holdout/**)",
+      "Write(//data/holdout/**)",
+      "Read(/data/holdout/**)",
+      "Edit(/data/holdout/**)",
+      "Write(/data/holdout/**)"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+contract_id: CRYPTO_PERPS_1H_V1
+hypothesis_id: HYP-2026-001
+model_type: rules
+param_grid:
+- lookback_bars: 12
+  rebalance_every: 4
+  vol_window: 24
+  z_threshold: 2.4
+- lookback_bars: 12
+  rebalance_every: 4
+  vol_window: 24
+  z_threshold: 2.2
+parameters:
+  lookback_bars: 12
+  rebalance_every: 4
+  vol_window: 24
+  z_threshold: 2.0
+run_id: RUN-RULES-003
+strategy_family: rules_ts
+strategy_module: strategies/candidates/vol_breakout_1h.py
+strategy_name: VolBreakoutTrend_1H

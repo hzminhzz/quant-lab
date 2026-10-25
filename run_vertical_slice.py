@@ -17,15 +17,14 @@ import json
 import math
 import sqlite3
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Literal
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 from scipy import stats
-
 
 # ============================================================================
 # 1. IMMUTABLE CONTRACTS & GOVERNANCE BOUNDARIES (prepare.py / warden layer)
@@ -69,7 +68,7 @@ class HypothesisSpec:
     counterparty_or_friction: str
     expected_holding_bars: int
     falsification_criteria: str
-    parent_hypothesis_id: Optional[str] = None
+    parent_hypothesis_id: str | None = None
     source_provenance: str = "internal_research"
 
 
@@ -90,8 +89,8 @@ class ExperimentResult:
     expected_max_sharpe_noise: float
     total_trials_n: int
     effective_trials_keff: float
-    mean_ic: Optional[float]
-    ic_hac_tstat: Optional[float]
+    mean_ic: float | None
+    ic_hac_tstat: float | None
     hit_rate: float
     profit_factor: float
     max_drawdown_pct: float
@@ -184,7 +183,7 @@ class ResearchRegistry:
                 hyp.parent_hypothesis_id, hyp.source_provenance, time.time()
             ))
 
-    def load_prior_trial_returns(self, contract_id: str, expected_len: int) -> List[np.ndarray]:
+    def load_prior_trial_returns(self, contract_id: str, expected_len: int) -> list[np.ndarray]:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT returns_json FROM trials WHERE contract_id = ? ORDER BY created_at ASC",
@@ -197,7 +196,7 @@ class ResearchRegistry:
                 streams.append(arr)
         return streams
 
-    def record_trial(self, result: ExperimentResult, config_dict: Dict, net_returns: np.ndarray) -> None:
+    def record_trial(self, result: ExperimentResult, config_dict: dict, net_returns: np.ndarray) -> None:
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO trials VALUES (
@@ -224,9 +223,9 @@ class ResearchRegistry:
 
 def compute_effective_trials_and_dsr(
     candidate_returns: np.ndarray,
-    historical_return_streams: List[np.ndarray],
+    historical_return_streams: list[np.ndarray],
     bars_per_year: int,
-) -> Tuple[float, float, int, float]:
+) -> tuple[float, float, int, float]:
     """
     Computes Deflated Sharpe Ratio (Bailey & Lopez de Prado, 2014) using the
     effective rank of the trial return correlation matrix (matching ml4t-diagnostic).
@@ -284,7 +283,7 @@ def purged_walk_forward_splits(
     min_train_timestamps: int,
     label_horizon: int,
     embargo: int,
-) -> List[Tuple[np.ndarray, np.ndarray]]:
+) -> list[tuple[np.ndarray, np.ndarray]]:
     """
     Generates chronological Walk-Forward Cross-Validation splits with strict
     purging of overlapping forward-return labels and an embargo buffer.
@@ -327,7 +326,7 @@ def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:
 # 4. SYNTHETIC CANONICAL MARKET PANEL GENERATOR (Parquet)
 # ============================================================================
 
-def generate_canonical_market_panel(parquet_path: Path, seed: int = 42) -> Tuple[np.ndarray, List[str]]:
+def generate_canonical_market_panel(parquet_path: Path, seed: int = 42) -> tuple[np.ndarray, list[str]]:
     """
     Generates a synthetic multi-asset 1-hour crypto perpetuals panel stored in Parquet:
     - 12 liquid crypto perpetuals over 2,400 hourly bars (~100 days).
@@ -397,7 +396,7 @@ def run_rules_based_strategy(
     z_threshold: float = 2.0,
     rebalance_every: int = 4,
     cost_multiplier: float = 1.0,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """
     Rules-Based Volatility-Breakout Trend Strategy (Time-Series Family).
     Evaluated on identical validation window [val_start_bar : val_end_bar] so
@@ -470,7 +469,7 @@ def run_ml_cross_sectional_strategy(
     ridge_alpha: float = 10.0,
     rebalance_every: int = 8,
     cost_multiplier: float = 1.0,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """
     Cross-Sectional Ridge Regression Factor Model trained with Purged Walk-Forward CV.
     Evaluated on identical validation window [val_start_bar : val_end_bar].

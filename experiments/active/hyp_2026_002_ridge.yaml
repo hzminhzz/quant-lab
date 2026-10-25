@@ -1,0 +1,10 @@
+contract_id: CRYPTO_PERPS_1H_V1
+hypothesis_id: HYP-2026-002
+strategy_name: CrossSectionalRidge_1H
+strategy_family: cross_sectional_ml
+model_type: ridge
+strategy_module: strategies/baselines/cs_ridge_1h.py
+run_id: RUN-ML-001
+parameters:
+  ridge_alpha: 10.0
+  rebalance_every: 8

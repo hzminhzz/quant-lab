@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quant-lab"
+dynamic = ["version"]
+description = "Agent-native quantitative research harness: immutable contracts, leakage proofs, append-only trial registry."
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "polars",
+    "duckdb",
+    "pyarrow",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "lightgbm",
+    "pyyaml",
+    "pydantic",
+    "ml4t-specs",
+    "ml4t-data",
+    "ml4t-engineer",
+    "ml4t-diagnostic",
+    "ml4t-backtest",
+    "ml4t-live",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+warden = "warden.cli:main"
+
+[tool.hatch.version]
+path = "src/warden/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/warden"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"

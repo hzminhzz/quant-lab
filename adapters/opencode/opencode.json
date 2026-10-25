@@ -1,0 +1,101 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "external_directory": "deny",
+    "webfetch": "allow",
+    "websearch": "allow"
+  },
+  "agent": {
+    "plan": {
+      "mode": "primary",
+      "description": "Designs falsifiable trading hypotheses, inspects registry.db via DuckDB, and writes experiment specs without touching code.",
+      "temperature": 0.1,
+      "permission": {
+        "edit": {
+          "*": "deny",
+          ".workspace/hypotheses/*.md": "allow",
+          ".workspace/plans/*.md": "allow",
+          ".workspace/transitions/**/*.md": "allow"
+        },
+        "bash": {
+          "*": "deny",
+          "duckdb -readonly *": "allow",
+          "sqlite3 -readonly *": "allow",
+          "uv run warden status*": "allow",
+          "uv run warden inspect*": "allow",
+          "git status*": "allow",
+          "git log*": "allow",
+          "git diff*": "allow"
+        }
+      }
+    },
+    "build": {
+      "mode": "primary",
+      "description": "Implements approved experiment specs and Strategy classes, runs warden verification gates via Herdr, and records post-mortems.",
+      "temperature": 0.2,
+      "permission": {
+        "edit": {
+          "*": "deny",
+          "experiments/active/**": "allow",
+          "strategies/candidates/**": "allow",
+          "tests/experiments/**": "allow",
+          ".workspace/**": "allow"
+        },
+        "bash": {
+          "*": "ask",
+          "uv run pytest*": "allow",
+          "uv run ruff*": "allow",
+          "uv run warden register-hypothesis*": "allow",
+          "uv run warden verify*": "allow",
+          "uv run warden screen*": "allow",
+          "uv run warden backtest*": "allow",
+          "herdr pane run*": "allow",
+          "herdr pane wait-output*": "allow",
+          "herdr pane read*": "allow",
+          "duckdb -readonly *": "allow",
+          "git status*": "allow",
+          "git diff*": "allow",
+          "git checkout -b exp/*": "allow",
+          "git add experiments/* strategies/* .workspace/*": "allow",
+          "git commit*": "allow",
+          "uv run warden qualify*": "deny"
+        },
+        "task": {
+          "*": "deny",
+          "explore": "allow",
+          "literature-scout": "allow",
+          "adversarial-auditor": "allow"
+        }
+      }
+    },
+    "literature-scout": {
+      "mode": "subagent",
+      "description": "Searches academic papers, SSRN, and documentation to extract economic mechanisms, counterparty frictions, and parameter priors.",
+      "temperature": 0.2,
+      "steps": 8,
+      "permission": {
+        "edit": {
+          "*": "deny",
+          ".workspace/literature/*.md": "allow"
+        },
+        "bash": "deny"
+      }
+    },
+    "adversarial-auditor": {
+      "mode": "subagent",
+      "description": "Audits candidate strategies against the 6-check ML4T leakage and overfitting checklist before human review.",
+      "temperature": 0.0,
+      "steps": 6,
+      "prompt": "{file:./.opencode/prompts/adversarial_auditor.txt}",
+      "permission": {
+        "edit": "deny",
+        "bash": {
+          "*": "deny",
+          "uv run warden verify*": "allow",
+          "duckdb -readonly *": "allow",
+          "git diff*": "allow"
+        }
+      }
+    }
+  }
+}

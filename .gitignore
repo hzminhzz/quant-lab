@@ -21,7 +21,7 @@ registry/predictions/*.parquet
 .omp/logs/
 .claude/
 .codex/
-.opencode/
+/.opencode/
 
 # Packaging
 *.egg-info/

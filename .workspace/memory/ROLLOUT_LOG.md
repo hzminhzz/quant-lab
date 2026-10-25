@@ -48,3 +48,8 @@ Commit: f2161dc
 Tests: uv run pytest tests/test_herdr_and_handoff.py -q — 4 passed in 22.06s
 Lint: uv run ruff check — All checks passed
 Metrics: RUN-ML-001 passes all 6 ML4T audit checks; planted violation fails closed; zero-drift continue verified; Herdr fallback tested
+Ticket: TKT-11 — Human-only holdout qualification gate and 6-part acceptance suite
+Commit: 53a49c4
+Tests: uv run pytest tests/acceptance/test_rfc_acceptance.py -v — 6 passed in 11.20s; full suite 68 passed
+Lint: uv run ruff check — All checks passed; src/warden/ 1195/1200 LOC
+Metrics: All 6 RFC acceptance dimensions pass 100%; one-shot lineage lock blocks re-unsealing; isolated tmp_path holdout used

@@ -40,14 +40,30 @@ def normalize(panel):
     return panel
 
 
+def load_source_panel(source_dir: Path) -> pl.DataFrame:
+    s_dir = Path(source_dir)
+    perps_p = list(s_dir.glob("**/perps_1h.parquet"))
+    if perps_p:
+        perps = pl.read_parquet(perps_p[0]).with_columns(pl.col("timestamp").cast(pl.Datetime("us", "UTC")))
+        prem_p = list(s_dir.glob("**/premium_index_8h.parquet"))
+        if prem_p and "funding_rate" not in perps.columns:
+            prem = pl.read_parquet(prem_p[0]).with_columns([
+                pl.col("timestamp").cast(pl.Datetime("us", "UTC")),
+                pl.col("premium_index_close").alias("funding_rate"),
+            ]).select("timestamp", "symbol", "funding_rate")
+            return perps.sort("timestamp").join_asof(
+                prem.sort("timestamp"), on="timestamp", by="symbol", strategy="backward"
+            ).fill_null(0.0)
+        return perps
+    files = sorted(list(s_dir.glob("*.parquet")) + list(s_dir.glob("**/*.parquet")))
+    if not files:
+        raise FileNotFoundError(f"No parquet files under {s_dir}")
+    return pl.read_parquet(files[0] if len(files) == 1 else files)
+
+
 def salvage(contract_path, out_dir, source_dir=None, synthetic=False, update_contract=False):
     contract = load_contract(contract_path)
-    if synthetic:
-        panel = generate_canonical_market_panel()
-    else:
-        # Polars resolves the source glob read-only; no source file is ever written.
-        panel = pl.read_parquet(str(Path(source_dir) / "**/*.parquet"))
-    panel = normalize(panel)
+    panel = generate_canonical_market_panel() if synthetic else load_source_panel(source_dir)
     splits = {"exploratory": panel.filter(pl.col("timestamp") < contract.holdout_start),
               "holdout": panel.filter(pl.col("timestamp") >= contract.holdout_start)}
     evidence = {"synthetic": synthetic, "schema": {k: str(v) for k, v in panel.schema.items()}}

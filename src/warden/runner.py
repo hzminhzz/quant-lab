@@ -106,17 +106,18 @@ class ExperimentRunner:
         data_path = self.repo_root / contract.exploratory_data_path
         if not data_path.is_file():
             data_path = self.repo_root / "data" / "exploratory" / "crypto_perps_1h.parquet"
-        panel_df = pl.read_parquet(data_path).sort("timestamp", "asset")
+        panel_df = pl.read_parquet(data_path)
+        if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
+        panel_df = panel_df.sort("timestamp", "asset")
         out = mod.generate_positions(panel_df, contract, **params)
         if family == "cross_sectional_ml":
             return evaluate_stage1_cross_sectional_ml(out["ic_series"])
         ts = sorted(panel_df["timestamp"].unique().to_list())
-        n_bars, n_assets = len(ts), len(panel_df["asset"].unique())
         ts_map = {t: i for i, t in enumerate(ts)}
-        v_slice = slice(ts_map.get(contract.val_start, int(n_bars * 0.25)), ts_map.get(contract.val_end, n_bars))
-        ret_col = panel_df.select(pl.col("close").pct_change().fill_null(0.0).over("asset")).to_numpy()
-        ret_p = ret_col.reshape((n_bars, n_assets))
-        fund_p = panel_df["funding_rate"].to_numpy().reshape((n_bars, n_assets)) if "funding_rate" in panel_df.columns else None
+        v_slice = slice(ts_map.get(contract.val_start, int(len(ts) * 0.25)), ts_map.get(contract.val_end, len(ts)))
+        ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
+        ret_p = ret_df.pivot(index="timestamp", on="asset", values="ret").fill_null(0.0).select(pl.all().exclude("timestamp")).to_numpy()
+        fund_p = panel_df.pivot(index="timestamp", on="asset", values="funding_rate").fill_null(0.0).select(pl.all().exclude("timestamp")).to_numpy() if "funding_rate" in panel_df.columns else None
         sim1 = simulate_positions(out["positions"], ret_p, fund_p, contract, v_slice, cost_multiplier=1.0)
         return evaluate_stage1_rules_ts(sim1["net_returns"].tolist(), sim1["gross_returns"].tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist())
 
@@ -145,14 +146,16 @@ class ExperimentRunner:
         if not data_path.is_file():
             data_path = self.repo_root / "data" / "exploratory" / "crypto_perps_1h.parquet"
 
-        panel_df = pl.read_parquet(data_path).sort("timestamp", "asset")
+        panel_df = pl.read_parquet(data_path)
+        if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
+        panel_df = panel_df.sort("timestamp", "asset")
         ts = sorted(panel_df["timestamp"].unique().to_list())
-        n_bars, n_assets = len(ts), len(panel_df["asset"].unique())
+        n_bars = len(ts)
         ts_map = {t: i for i, t in enumerate(ts)}
         v_slice = slice(ts_map.get(contract.val_start, int(n_bars * 0.25)), ts_map.get(contract.val_end, n_bars))
-        ret_col = panel_df.select(pl.col("close").pct_change().fill_null(0.0).over("asset")).to_numpy()
-        ret_p = ret_col.reshape((n_bars, n_assets))
-        fund_p = panel_df["funding_rate"].to_numpy().reshape((n_bars, n_assets)) if "funding_rate" in panel_df.columns else None
+        ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
+        ret_p = ret_df.pivot(index="timestamp", on="asset", values="ret").fill_null(0.0).select(pl.all().exclude("timestamp")).to_numpy()
+        fund_p = panel_df.pivot(index="timestamp", on="asset", values="funding_rate").fill_null(0.0).select(pl.all().exclude("timestamp")).to_numpy() if "funding_rate" in panel_df.columns else None
 
         out = mod.generate_positions(panel_df, contract, **params)
         raw_pos, ic_series = out["positions"], out.get("ic_series")

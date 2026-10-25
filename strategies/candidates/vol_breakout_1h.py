@@ -65,12 +65,13 @@ def generate_positions(
     **kwargs,
 ) -> dict[str, Any]:
     """Compute causal multi-asset breakout positions matching reference vertical slice."""
+    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
+        panel_df = panel_df.rename({"symbol": "asset"})
     df = panel_df.sort("timestamp", "asset")
     timestamps = sorted(df["timestamp"].unique().to_list())
     assets = sorted(df["asset"].unique().to_list())
     n_bars, n_assets = len(timestamps), len(assets)
-
-    close_mat = df["close"].to_numpy().reshape((n_bars, n_assets))
+    close_mat = df.pivot(index="timestamp", on="asset", values="close").fill_null(strategy="forward").fill_null(0.0).select(pl.all().exclude("timestamp")).to_numpy()
     prev_close = np.vstack([close_mat[:1], close_mat[:-1]])
     ret_mat = np.divide(close_mat - prev_close, prev_close, out=np.zeros_like(close_mat), where=prev_close > 0)
 

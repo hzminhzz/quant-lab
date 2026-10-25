@@ -1,0 +1,12 @@
+contract_id: CRYPTO_PERPS_1H_V1
+hypothesis_id: HYP-2026-002
+strategy_name: CrossSectionalLGBM_1H
+strategy_family: cross_sectional_ml
+model_type: lightgbm
+strategy_module: strategies/candidates/cs_lgbm_1h.py
+run_id: RUN-ML-002
+parameters:
+  num_leaves: 15
+  learning_rate: 0.05
+  n_estimators: 30
+  rebalance_every: 8

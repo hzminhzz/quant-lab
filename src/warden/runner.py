@@ -207,6 +207,14 @@ class ExperimentRunner:
         out = mod.generate_positions(panel_df, contract, **params)
         raw_pos, ic_series = out["positions"], out.get("ic_series")
 
+        with self.registry._connect() as conn:
+            n_prior = conn.execute("SELECT COUNT(*) FROM trials WHERE contract_id = ?", (contract.contract_id,)).fetchone()[0]
+        total_contract_n = n_prior + 1
+        hist = self.registry.load_prior_trial_returns(contract.contract_id, v_slice.stop - v_slice.start)
+        k_eff_prior = 1.0
+        if hist:
+            _, _, _, k_eff_prior = compute_effective_trials_and_dsr(hist[-1], hist[:-1], contract.bars_per_year)
+
         mean_ic, ic_hac_t = None, None
         run_id = override_run_id or cfg.get("run_id") or f"RUN-{family[:2].upper()}-{trials_used+1:03d}"
         if family == "cross_sectional_ml":
@@ -215,7 +223,7 @@ class ExperimentRunner:
             s1 = evaluate_stage1_cross_sectional_ml(ic_series)
             mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
             if not s1.passed:
-                res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, trials_used + 1, 1.0, mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, f"Rejected at Stage 1: {s1.notes}")
+                res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, total_contract_n, k_eff_prior, mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, f"Rejected at Stage 1: {s1.notes}")
                 self.registry.record_trial(res, params, np.zeros(v_slice.stop - v_slice.start))
                 return res
 
@@ -243,7 +251,6 @@ class ExperimentRunner:
         ic_ok = (ic_hac_t >= 2.0) if family == "cross_sectional_ml" and ic_hac_t is not None else True
         rules_ok = s1_rules.passed if s1_rules is not None else True
         verdict = "CANDIDATE_FOR_QUALIFICATION" if (m["net_sharpe"] > min_sr and sr2 > 0.50 and dsr_p >= 0.90 and ic_ok and rules_ok) else "REVISE"
-
         res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_3_STRESS", verdict, m["gross_sharpe"], m["net_sharpe"], dsr_p, float(exp_max), n_t, k_eff, mean_ic, ic_hac_t, m["hit_rate"], m["profit_factor"], m["max_drawdown_pct"], m["annualized_turnover"], m["breakeven_cost_bps"], sr2, stability, f"Simulated on {contract.contract_id}; 2xCostSR={sr2:.2f}.", srd, m["cvar_99_pct"])
         self.registry.record_trial(res, params, net_ret)
         return res

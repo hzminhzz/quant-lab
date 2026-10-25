@@ -26,14 +26,10 @@ class HypothesisBudgetExhaustedError(ValueError):
     pass
 
 
-def compute_effective_trials_and_dsr(candidate_returns, historical_return_streams, bars_per_year):
-    """Port of reference section 3: candidate probability, noise SR, raw N, entropy rank.
-
-    Upstream matrix DSR selects the best historical strategy, not necessarily this
-    candidate. Cross-check its effective rank, but retain candidate-specific math.
-    """
+def compute_effective_trials_and_dsr(candidate_returns, historical_return_streams, bars_per_year, total_trials_n=None):
+    """Port of reference section 3: candidate probability, noise SR, raw N, entropy rank."""
     streams = [np.asarray(s, dtype=float) for s in [*historical_return_streams, candidate_returns]]
-    n, t = len(streams), len(streams[-1])
+    n, t = (total_trials_n if total_trials_n is not None else len(streams)), len(streams[-1])
     if any(s.ndim != 1 or len(s) != t or not np.isfinite(s).all() for s in streams):
         raise ValueError("Trial returns must be finite and temporally aligned")
     candidate = streams[-1]
@@ -160,12 +156,16 @@ class ResearchRegistry:
 
     def load_prior_trial_returns(self, contract_id, expected_len):
         with self._connect() as conn:
-            rows = conn.execute("SELECT returns_json FROM trials WHERE contract_id=? ORDER BY created_at,run_id", (contract_id,)).fetchall()
-        streams = [np.array(json.loads(row[0]), dtype=float) for row in rows]
-        if any(len(s) != expected_len for s in streams):
-            raise ValueError("Contract-wide trial histories are not aligned")
+            rows = conn.execute("SELECT returns_json, stage_reached FROM trials WHERE contract_id=? ORDER BY created_at,run_id", (contract_id,)).fetchall()
+        streams = []
+        for r_json, stage in rows:
+            if stage == "STAGE_1_SIGNAL" or not r_json or r_json == "[]":
+                continue
+            arr = np.array(json.loads(r_json), dtype=float)
+            if len(arr) != expected_len:
+                raise ValueError("Contract-wide trial histories are not aligned")
+            streams.append(arr)
         return streams
-
     def record_trial(self, result, config_dict, net_returns, trial_number=None):
         valid_id(result.run_id)
         valid_id(result.contract_id)

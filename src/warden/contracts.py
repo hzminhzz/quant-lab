@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -193,7 +193,8 @@ def _load(path, cls, markdown=False):
         value = yaml.safe_load(text)
         if not isinstance(value, dict):
             raise ContractValidationError("specification must be a YAML mapping")
-        return cls(**value)
+        valid_keys = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in value.items() if k in valid_keys})
     except (TypeError, ValueError, yaml.YAMLError) as exc:
         raise ContractValidationError(f"{path}: {exc}") from exc
 

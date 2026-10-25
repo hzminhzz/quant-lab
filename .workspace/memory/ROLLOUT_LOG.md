@@ -33,3 +33,8 @@ Commit: d0695d6
 Tests: uv run pytest tests/test_gates_and_runner.py -q — 5 passed in 5.05s
 Lint: uv run ruff check — All checks passed
 Metrics: src/warden/ total 1140/1200 LOC; .warden_manifest.sha256 generated; worktree tampering aborts with code 2; linear-first gate enforced
+Ticket: TKT-08 — Vertical Slice 1: Rules-based breakout strategy HYP-2026-001
+Commit: 7f67277
+Tests: uv run pytest tests/experiments/test_hyp_2026_001.py -q — 3 passed in 2.46s
+Lint: uv run ruff check — All checks passed
+Metrics: RUN-RULES-001..003 recorded with mean_ic=None; PF=0.90..0.98; K_eff=1.00->1.39->1.68; 4th run blocked by 3-strike budget

@@ -74,7 +74,7 @@ def load_fx_panel(store_dir: Path, pairs: list[str] = FX_PAIRS, freq: str = "15m
     return normalize_panel(panel)
 
 
-def load_indices_panel(store_dir: Path, symbols: list[str] = INDEX_SYMBOLS, freq: str = "1h") -> pl.DataFrame:
+def load_indices_panel(store_dir: Path, symbols: list[str] = INDEX_SYMBOLS, freq: str | None = "1h") -> pl.DataFrame:
     frames = []
     for sym in symbols:
         p = store_dir / f"index_minute_{sym}"
@@ -84,18 +84,21 @@ def load_indices_panel(store_dir: Path, symbols: list[str] = INDEX_SYMBOLS, freq
         if not files:
             continue
         df = pl.scan_parquet(files).collect()
-        resampled = (
-            df.sort("timestamp")
-            .group_by_dynamic("timestamp", every=freq, group_by="symbol")
-            .agg([
-                pl.col("open").first(),
-                pl.col("high").max(),
-                pl.col("low").min(),
-                pl.col("close").last(),
-                pl.col("volume").sum().fill_null(0.0),
-            ])
-        )
-        frames.append(resampled)
+        if freq and freq != "1m":
+            resampled = (
+                df.sort("timestamp")
+                .group_by_dynamic("timestamp", every=freq, group_by="symbol")
+                .agg([
+                    pl.col("open").first(),
+                    pl.col("high").max(),
+                    pl.col("low").min(),
+                    pl.col("close").last(),
+                    pl.col("volume").sum().fill_null(0.0),
+                ])
+            )
+            frames.append(resampled)
+        else:
+            frames.append(df)
     if not frames:
         raise FileNotFoundError(f"No minute Index data found under {store_dir}")
     panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
@@ -153,7 +156,7 @@ def salvage_dataset(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--asset-class", choices=["fx", "indices", "all"], default="all")
+    parser.add_argument("--asset-class", choices=["fx", "indices", "indices_1m", "all"], default="all")
     parser.add_argument("--store-dir", type=Path, default=Path("/home/quant/dev/quant/ml4t-data/.data/store"))
     parser.add_argument("--out-dir", type=Path, default=Path("data"))
     args = parser.parse_args()
@@ -180,7 +183,16 @@ def main():
             update_contract=True,
         )
         results["indices"] = res_idx
-
+    if args.asset_class in {"indices_1m", "all"}:
+        print("Salvaging Global Indices 1-Minute (ES, NQ)...")
+        idx_1m_panel = load_indices_panel(args.store_dir, symbols=["ES", "NQ"], freq="1m")
+        res_idx_1m = salvage_dataset(
+            Path("contracts/indices_1m_v1.yaml"),
+            args.out_dir,
+            idx_1m_panel,
+            update_contract=True,
+        )
+        results["indices_1m"] = res_idx_1m
     print(json.dumps(results, indent=2))
     print("\nSalvage complete. To lock holdout staging into production holdout:")
     print("  sudo cp -r data/holdout_staging/* data/holdout/ && sudo ./scripts/lock_holdout_permissions.sh ./data/holdout")

@@ -64,7 +64,7 @@ class EvaluationContract:
         d = [self.train_start, self.val_start, self.val_end, self.holdout_start, self.holdout_end]
         if not (d[0] < d[1] < d[2] <= d[3] < d[4]):
             raise ContractValidationError("chronological boundaries overlap")
-        if self.asset_class not in {"crypto_perps", "fx", "indices", "metals"} or self.frequency not in {"5m", "15m", "1h", "4h", "1d"} or self.execution_mode not in {"NEXT_BAR", "QUOTE_SIDE"}:
+        if self.asset_class not in {"crypto_perps", "fx", "indices", "metals"} or self.frequency not in {"1m", "5m", "15m", "1h", "4h", "1d"} or self.execution_mode not in {"NEXT_BAR", "QUOTE_SIDE"}:
             raise ContractValidationError("invalid asset_class, frequency, or execution_mode")
         for n in ("bars_per_year", "n_folds", "label_horizon_bars", "embargo_bars", "execution_delay_bars"):
             if type(getattr(self, n)) is not int or getattr(self, n) < 1:

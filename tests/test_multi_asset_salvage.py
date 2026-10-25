@@ -36,7 +36,7 @@ def test_fx_majors_exploratory_dataset():
 
 
 def test_indices_exploratory_dataset():
-    contract_path = Path("contracts/indices_1h_v1.yaml")
+    contract_path = Path("contracts/indices_1h_v2.yaml")
     contract = load_contract(contract_path)
     assert contract.asset_class == "indices"
     assert contract.frequency == "1h"

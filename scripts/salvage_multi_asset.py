@@ -267,7 +267,7 @@ def main():
         print("Salvaging 10-Year Global Indices (1h, 2015-2026)...")
         idx_panel = load_indices_panel(args.store_dir, min_year=2015)
         res_idx = salvage_dataset(
-            Path("contracts/indices_1h_v1.yaml"),
+            Path("contracts/indices_1h_v2.yaml"),
             args.out_dir,
             idx_panel,
             update_contract=True,

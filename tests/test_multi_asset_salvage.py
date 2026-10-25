@@ -49,7 +49,8 @@ def test_indices_exploratory_dataset():
     assert actual_sha == contract.data_snapshot_sha256
 
     df = pl.read_parquet(exp_path)
-    assert len(df) == 46050
+    assert len(df) == 302036
+    assert df["timestamp"].min().year == 2015
     assert df.schema["timestamp"] == pl.Datetime("us", "UTC")
     assert df.schema["asset"] == pl.String
     assert set(df["asset"].unique()) == {"ES", "NQ", "DAX", "NIKKEI225", "EUSIDXEUR", "HK33"}

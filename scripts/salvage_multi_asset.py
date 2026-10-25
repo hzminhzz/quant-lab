@@ -76,13 +76,18 @@ def load_fx_panel(store_dir: Path, pairs: list[str] = FX_PAIRS, freq: str = "15m
     return normalize_panel(panel)
 
 
-def load_indices_panel(store_dir: Path, symbols: list[str] = INDEX_SYMBOLS, freq: str | None = "1h") -> pl.DataFrame:
+def load_indices_panel(
+    store_dir: Path,
+    symbols: list[str] = INDEX_SYMBOLS,
+    freq: str | None = "1h",
+    min_year: int = 2015,
+) -> pl.DataFrame:
     frames = []
     for sym in symbols:
         p = store_dir / f"index_minute_{sym}"
         if not p.exists():
             continue
-        files = [f for f in p.rglob("*.parquet") if "year=2024" in str(f) or "year=2025" in str(f)]
+        files = [f for f in p.rglob("*.parquet") if any(f"year={y}" in str(f) for y in range(min_year, 2027))]
         if not files:
             continue
         df = pl.scan_parquet(files).collect()
@@ -224,8 +229,8 @@ def main():
         results["fx"] = res_fx
 
     if args.asset_class in {"indices", "all"}:
-        print("Salvaging Global Indices (1h)...")
-        idx_panel = load_indices_panel(args.store_dir)
+        print("Salvaging 10-Year Global Indices (1h, 2015-2026)...")
+        idx_panel = load_indices_panel(args.store_dir, min_year=2015)
         res_idx = salvage_dataset(
             Path("contracts/indices_1h_v1.yaml"),
             args.out_dir,
@@ -234,8 +239,8 @@ def main():
         )
         results["indices"] = res_idx
     if args.asset_class in {"indices_1m", "all"}:
-        print("Salvaging All 6 Dukascopy Global Indices 1-Minute...")
-        idx_1m_panel = load_indices_panel(args.store_dir, symbols=INDEX_SYMBOLS, freq="1m")
+        print("Salvaging All 6 Dukascopy Global Indices 1-Minute (2024-2026)...")
+        idx_1m_panel = load_indices_panel(args.store_dir, symbols=INDEX_SYMBOLS, freq="1m", min_year=2024)
         res_idx_1m = salvage_dataset(
             Path("contracts/indices_1m_v1.yaml"),
             args.out_dir,

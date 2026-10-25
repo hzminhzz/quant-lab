@@ -4,11 +4,11 @@ frequency: 1h
 bars_per_year: 5850
 exploratory_data_path: data/exploratory/indices_1h.parquet
 holdout_data_path: data/holdout/indices_1h.parquet
-train_start: '2024-01-01T00:00:00Z'
-val_start: '2025-01-01T00:00:00Z'
+train_start: '2015-01-01T00:00:00Z'
+val_start: '2023-01-01T00:00:00Z'
 val_end: '2025-07-01T00:00:00Z'
 holdout_start: '2025-07-01T00:00:00Z'
-holdout_end: '2026-01-01T00:00:00Z'
+holdout_end: '2026-10-24T00:00:00Z'
 n_folds: 4
 label_horizon_bars: 8
 embargo_bars: 2
@@ -18,4 +18,4 @@ taker_fee_bps: 0.5
 slippage_bps: 0.5
 funding_bps_per_8h: 0.0
 min_expected_move_to_cost_ratio: 2.5
-data_snapshot_sha256: 57397d39e479ca66bfaa73289c9ac19f92f1a34000da12c44d90b4ff1c600144
+data_snapshot_sha256: 03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55

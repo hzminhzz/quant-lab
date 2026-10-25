@@ -147,7 +147,9 @@ def test_handoff_and_continue_drift_detection(tmp_path: Path) -> None:
     # Testing that if expected trials count is tampered, continue detects drift:
     latest_trans = max(Path(".workspace/transitions").glob("*/*.md"))
     content = latest_trans.read_text()
-    tampered_content = content.replace("SELECT COUNT(*) FROM trials\"\n# expect: 5", "SELECT COUNT(*) FROM trials\"\n# expect: 999")
+    import re
+    tampered_content = re.sub(r'(SELECT COUNT\(\*\) FROM trials"\s*\n# expect:\s*)\d+', r"\g<1>999", content)
+    assert tampered_content != content, "Failed to tamper expected trial count in transition file"
     tampered_file = tmp_path / "tampered_trans.md"
     tampered_file.write_text(tampered_content)
 

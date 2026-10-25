@@ -9,6 +9,7 @@ import numpy as np
 from scipy import stats
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
+from warden.registry import HypothesisBudgetExhaustedError
 
 
 class GateFalsificationError(ValueError):
@@ -33,7 +34,7 @@ def evaluate_stage0_feasibility(
     contract: EvaluationContract, hypothesis: HypothesisSpec, holding_volatility: float, trials_used: int
 ) -> bool:
     if trials_used >= 3:
-        raise GateFalsificationError(f"Hypothesis {hypothesis.hypothesis_id} budget exhausted ({trials_used}/3)")
+        raise HypothesisBudgetExhaustedError(f"Hypothesis {hypothesis.hypothesis_id} budget exhausted ({trials_used}/3)")
     hurdle = contract.total_one_way_cost_decimal() * 2.0 * contract.min_expected_move_to_cost_ratio
     if holding_volatility < hurdle:
         raise GateFalsificationError(f"Holding volatility ({holding_volatility:.6f}) < hurdle ({hurdle:.6f})")
@@ -63,7 +64,7 @@ def evaluate_stage1_rules_ts(
     edge_cost_multiplier: float = 1.5,
 ) -> Stage1Report:
     net_arr, gross_arr = np.asarray(net_returns, dtype=float), np.asarray(gross_returns, dtype=float)
-    active = np.abs(gross_arr) > 1e-10 if positions is None else np.abs(np.asarray(positions)) > 1e-6
+    active = np.any(np.abs(np.asarray(positions)) > 1e-6, axis=1) if positions is not None else np.abs(gross_arr) > 1e-10
     n_total, n_active = len(net_arr), int(np.sum(active))
     if n_total == 0 or n_active == 0:
         return Stage1Report("rules_ts", False, {}, "Zero active bars")

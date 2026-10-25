@@ -19,6 +19,7 @@ from warden.contracts import (
     EvaluationContract,
     ExperimentResult,
     HypothesisSpec,
+    Stage1Report,
     canonical_json,
     load_contract,
 )
@@ -139,6 +140,36 @@ class ExperimentRunner:
                 return load_contract(p)
         raise FileNotFoundError(f"Contract not found: '{contract_id}'")
 
+    def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
+        cfg = yaml.safe_load(Path(exp_yaml_path).read_text(encoding="utf-8"))
+        contract = self.resolve_contract(cfg["contract_id"])
+        hyp_id, family = cfg["hypothesis_id"], cfg.get("strategy_family", "rules_ts")
+        params = cfg.get("parameters", {})
+        with self.registry._connect() as conn:
+            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
+            if not h:
+                raise ValueError(f"Hypothesis '{hyp_id}' not found.")
+            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
+            trials_used = h[5]
+        evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
+        mod = load_module_from_path(self.repo_root / cfg["strategy_module"])
+        data_path = self.repo_root / contract.exploratory_data_path
+        if not data_path.is_file():
+            data_path = self.repo_root / "data" / "exploratory" / "crypto_perps_1h.parquet"
+        panel_df = pl.read_parquet(data_path).sort("timestamp", "asset")
+        out = mod.generate_positions(panel_df, contract, **params)
+        if family == "cross_sectional_ml":
+            return evaluate_stage1_cross_sectional_ml(out["ic_series"])
+        ts = sorted(panel_df["timestamp"].unique().to_list())
+        n_bars, n_assets = len(ts), len(panel_df["asset"].unique())
+        ts_map = {t: i for i, t in enumerate(ts)}
+        v_slice = slice(ts_map.get(contract.val_start, int(n_bars * 0.25)), ts_map.get(contract.val_end, n_bars))
+        ret_col = panel_df.select(pl.col("close").pct_change().fill_null(0.0).over("asset")).to_numpy()
+        ret_p = ret_col.reshape((n_bars, n_assets))
+        fund_p = panel_df["funding_rate"].to_numpy().reshape((n_bars, n_assets)) if "funding_rate" in panel_df.columns else None
+        sim1 = simulate_positions(out["positions"], ret_p, fund_p, contract, v_slice, cost_multiplier=1.0)
+        return evaluate_stage1_rules_ts(sim1["net_returns"].tolist(), sim1["gross_returns"].tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist())
+
     def run_spec(self, exp_yaml_path: Path, override_run_id: str | None = None) -> ExperimentResult:
         cfg = yaml.safe_load(Path(exp_yaml_path).read_text(encoding="utf-8"))
         contract = self.resolve_contract(cfg["contract_id"])
@@ -155,7 +186,7 @@ class ExperimentRunner:
             h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
             if not h:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
-            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], h[3], h[4])
+            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
             trials_used = h[5]
 
         evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
@@ -169,8 +200,8 @@ class ExperimentRunner:
         n_bars, n_assets = len(ts), len(panel_df["asset"].unique())
         ts_map = {t: i for i, t in enumerate(ts)}
         v_slice = slice(ts_map.get(contract.val_start, int(n_bars * 0.25)), ts_map.get(contract.val_end, n_bars))
-        close_p = panel_df["close"].to_numpy().reshape((n_bars, n_assets))
-        ret_p = np.diff(close_p, axis=0, prepend=close_p[:1]) / close_p
+        ret_col = panel_df.select(pl.col("close").pct_change().fill_null(0.0).over("asset")).to_numpy()
+        ret_p = ret_col.reshape((n_bars, n_assets))
         fund_p = panel_df["funding_rate"].to_numpy().reshape((n_bars, n_assets)) if "funding_rate" in panel_df.columns else None
 
         out = mod.generate_positions(panel_df, contract, **params)
@@ -192,12 +223,7 @@ class ExperimentRunner:
         net_ret, gross_ret, turnover = sim1["net_returns"], sim1["gross_returns"], sim1["turnover"]
         m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)
 
-        if family == "rules_ts":
-            s1_rules = evaluate_stage1_rules_ts(net_ret.tolist(), gross_ret.tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist())
-            if not s1_rules.passed:
-                res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", m["gross_sharpe"], m["net_sharpe"], 0.0, 0.0, trials_used + 1, 1.0, None, None, m["hit_rate"], m["profit_factor"], m["max_drawdown_pct"], m["annualized_turnover"], m["breakeven_cost_bps"], 0.0, 0.0, f"Rejected at Stage 1: {s1_rules.notes}")
-                self.registry.record_trial(res, params, net_ret)
-                return res
+        s1_rules = evaluate_stage1_rules_ts(net_ret.tolist(), gross_ret.tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist()) if family == "rules_ts" else None
 
         sim2 = simulate_positions(raw_pos, ret_p, fund_p, contract, v_slice, cost_multiplier=2.0)
         sim_d = simulate_positions(raw_pos, ret_p, fund_p, contract, v_slice, delay_offset=1)
@@ -215,7 +241,8 @@ class ExperimentRunner:
         dsr_p, exp_max, n_t, k_eff = compute_effective_trials_and_dsr(net_ret, hist, contract.bars_per_year)
         min_sr = 1.2 if family == "cross_sectional_ml" else 1.0
         ic_ok = (ic_hac_t >= 2.0) if family == "cross_sectional_ml" and ic_hac_t is not None else True
-        verdict = "CANDIDATE_FOR_QUALIFICATION" if (m["net_sharpe"] > min_sr and sr2 > 0.50 and dsr_p >= 0.90 and ic_ok) else "REVISE"
+        rules_ok = s1_rules.passed if s1_rules is not None else True
+        verdict = "CANDIDATE_FOR_QUALIFICATION" if (m["net_sharpe"] > min_sr and sr2 > 0.50 and dsr_p >= 0.90 and ic_ok and rules_ok) else "REVISE"
 
         res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_3_STRESS", verdict, m["gross_sharpe"], m["net_sharpe"], dsr_p, float(exp_max), n_t, k_eff, mean_ic, ic_hac_t, m["hit_rate"], m["profit_factor"], m["max_drawdown_pct"], m["annualized_turnover"], m["breakeven_cost_bps"], sr2, stability, f"Simulated on {contract.contract_id}; 2xCostSR={sr2:.2f}.", srd, m["cvar_99_pct"])
         self.registry.record_trial(res, params, net_ret)

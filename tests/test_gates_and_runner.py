@@ -139,3 +139,9 @@ def test_loc_budget_script_passes() -> None:
     proc = subprocess.run([sys.executable, "scripts/check_loc_budget.py"], capture_output=True, text=True, check=False)
     assert proc.returncode == 0, f"LOC budget script failed:\n{proc.stdout}\n{proc.stderr}"
     assert "PASS: All LOC budgets satisfied." in proc.stdout
+
+def test_two_price_return_accounting_exactness() -> None:
+    import polars as pl
+    df = pl.DataFrame({"close": [100.0, 110.0], "asset": ["BTC", "BTC"]})
+    ret = df.select(pl.col("close").pct_change().over("asset"))["close"][1]
+    assert np.isclose(ret, 0.10)

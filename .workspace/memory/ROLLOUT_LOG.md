@@ -28,3 +28,8 @@ Commit: bad97f9
 Tests: uv run pytest tests/test_warden_leakage.py -q — 4 passed in 2.96s
 Lint: uv run ruff check — All checks passed
 Metrics: 100% detection across 4 planted leakage traps; causal time-series/cross-sectional pipelines verified; feature cache retrieval under 50ms
+Ticket: TKT-07 — Family-specific gates, backtest runner, warden CLI and manifest
+Commit: d0695d6
+Tests: uv run pytest tests/test_gates_and_runner.py -q — 5 passed in 5.05s
+Lint: uv run ruff check — All checks passed
+Metrics: src/warden/ total 1140/1200 LOC; .warden_manifest.sha256 generated; worktree tampering aborts with code 2; linear-first gate enforced

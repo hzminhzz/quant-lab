@@ -95,9 +95,9 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 def cmd_screen(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     if not check_worktree():
         sys.exit(2)
-    res = runner.run_spec(Path(args.spec_yaml))
-    print(canonical_json(res.to_dict()) if args.json else f"Screen complete: Run={res.run_id}, Stage={res.stage_reached}, Verdict={res.verdict}")
-    return 0
+    report = runner.run_stage1_screen(Path(args.spec_yaml))
+    print(canonical_json(report.to_dict()) if args.json else f"Screen Stage 1 complete: Family={report.strategy_family}, Passed={report.passed}, Notes={report.notes}")
+    return 0 if report.passed else 1
 
 
 def cmd_backtest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
@@ -213,6 +213,8 @@ def main(argv: list[str] | None = None) -> int:
         if not check_worktree():
             sys.exit(2)
         h = load_hypothesis(Path(args.path))
+        c = runner.resolve_contract(h.contract_id)
+        runner.registry.register_contract(c)
         runner.registry.register_hypothesis(h)
         print(canonical_json(h.__dict__) if args.json else f"Registered hypothesis '{h.hypothesis_id}'")
         return 0

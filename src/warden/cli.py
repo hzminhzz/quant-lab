@@ -16,9 +16,14 @@ import numpy as np
 from warden import __version__
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
+from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner, load_module_from_path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
+STATE_FILE = Path(".workspace") / "state" / "current.json"
+HISTORY_FILE = Path(".workspace") / "state" / "history.jsonl"
+WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and LOC budgets intact."
+ALLOWED_CMD_PREFIXES = ("git rev-parse", "sqlite3 ")
 
 
 def compute_file_sha256(path: Path) -> str:
@@ -69,7 +74,7 @@ def check_worktree(repo_root: Path = Path(".")) -> bool:
 def cmd_check_worktree(args: argparse.Namespace, runner: ExperimentRunner | None = None) -> int:
     if not check_worktree():
         return 2
-    print("Worktree integrity verified: protected contracts, warden core, and LOC budgets intact.")
+    print(WORKTREE_OK)
     return 0
 
 
@@ -177,47 +182,114 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     return 0 if passed else 1
 
 
-def cmd_handoff(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    now = datetime.datetime.now(datetime.UTC)
-    d, t = now.strftime("%Y-%m-%d"), now.strftime("%H%M%S")
-    tfile = runner.repo_root / ".workspace" / "transitions" / d / f"{t}.md"
-    tfile.parent.mkdir(parents=True, exist_ok=True)
+def _contract_pins(repo_root: Path) -> dict[str, str]:
+    import yaml
+    pins = {}
+    for p in sorted((repo_root / "contracts").glob("*.y*ml")):
+        doc = yaml.safe_load(p.read_text(encoding="utf-8"))
+        pins[doc["contract_id"]] = doc.get("data_snapshot_sha256", "")
+    return pins
+
+
+def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
+    """Typed, replayable checkpoint: evidence with timestamps, tool trace, explicit gates."""
+    now = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-    with runner.registry._connect() as conn:
-        n = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
-    tfile.write_text(f"# Transition {d} {t} UTC\nNotes: {args.notes}\nTicket: {args.ticket or 'N/A'}\n```bash\ngit rev-parse --short HEAD\n# expect: {head}\nsqlite3 registry/registry.db \"SELECT COUNT(*) FROM trials\"\n# expect: {n}\nuv run warden check-worktree\n# expect: Worktree integrity verified: protected contracts, warden core, and LOC budgets intact.\n```\n")
-    print(f"Handoff snapshot recorded: {tfile}")
+    registry = ResearchRegistry(repo_root / "registry" / "registry.db")
+    with registry._connect() as conn:
+        n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
+        n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
+    pins = _contract_pins(repo_root)
+    trace = [
+        {"cmd": "git rev-parse --short HEAD", "expect": head},
+        {"cmd": 'sqlite3 registry/registry.db "SELECT COUNT(*) FROM trials"', "expect": str(n_trials)},
+        {"cmd": "uv run warden check-worktree", "expect": WORKTREE_OK},
+    ]
+    return {
+        "schema": 1, "created_at": now, "ticket": ticket or "N/A", "notes": notes,
+        "evidence": [
+            {"source": "git", "kind": "head", "value": head, "observed_at": now},
+            {"source": "registry.db", "kind": "trials", "value": n_trials, "observed_at": now},
+            {"source": "registry.db", "kind": "hypotheses", "value": n_hyp, "observed_at": now},
+            {"source": "contracts", "kind": "pinned_snapshot_sha256", "value": pins, "observed_at": now},
+        ],
+        "tool_trace": trace,
+        "quality_gates": {"worktree_integrity": check_worktree(repo_root), "contracts_pinned": all(pins.values())},
+    }
+
+
+def cmd_handoff(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    state = _build_state(runner.repo_root, args.ticket, args.notes)
+    current = runner.repo_root / STATE_FILE
+    current.parent.mkdir(parents=True, exist_ok=True)
+    current.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    with (runner.repo_root / HISTORY_FILE).open("a", encoding="utf-8") as history:
+        history.write(json.dumps(state, sort_keys=True) + "\n")
+    print(f"Handoff checkpoint recorded: {STATE_FILE} (append-only log: {HISTORY_FILE})")
+    print(f"Gates: {json.dumps(state['quality_gates'])}")
     return 0
 
 
-def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    import shlex
-    target = Path(args.transition_path) if args.transition_path else (sorted(runner.repo_root.glob(".workspace/transitions/*/*.md")) or [None])[-1]
-    if not target or not target.is_file():
-        print("No transition snapshot found.", file=sys.stderr)
-        return 1
-    blocks = re.findall(r"```bash\n(.*?)\n```", target.read_text(encoding="utf-8"), re.DOTALL)
-    lines = (blocks[0] if blocks else "").splitlines()
-    i, drift = 0, False
-    while i < len(lines):
-        cmd = lines[i].strip()
+def _legacy_trace(text: str) -> list[dict]:
+    """Adapter for pre-schema-1 Markdown transitions: keep them auditable, never rewrite them."""
+    block = (re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL) or [""])[0].splitlines()
+    entries, i = [], 0
+    while i < len(block):
+        cmd = block[i].strip()
         i += 1
         if not cmd or cmd.startswith("#"):
             continue
-        expected = lines[i].strip()[9:].strip() if i < len(lines) and lines[i].strip().startswith("# expect:") else None
-        if expected is not None:
+        expect = block[i].strip()[9:].strip() if i < len(block) and block[i].strip().startswith("# expect:") else None
+        if expect is not None:
             i += 1
-        if not (cmd.startswith(("git rev-parse", "sqlite3 ")) or "warden check-worktree" in cmd):
+        entries.append({"cmd": cmd, "expect": expect})
+    return entries
+
+
+def _replay(entries: list[dict], runner: ExperimentRunner) -> bool:
+    import shlex
+    drift = False
+    for entry in entries:
+        cmd, expected = entry.get("cmd", ""), entry.get("expect")
+        if not (cmd.startswith(ALLOWED_CMD_PREFIXES) or "warden check-worktree" in cmd):
             print(f"REFUSED: Command '{cmd}' is not in the read-only continuation allowlist.", file=sys.stderr)
             drift = True
             continue
-        cmd_args = shlex.split(cmd)
-        proc = subprocess.run(cmd_args, cwd=runner.repo_root, capture_output=True, text=True, check=False)
+        proc = subprocess.run(shlex.split(cmd), cwd=runner.repo_root, capture_output=True, text=True, check=False)
         actual = (proc.stdout or proc.stderr).strip()
         last_line = actual.splitlines()[-1] if actual.splitlines() else actual
         if expected and actual != expected and last_line != expected:
-            print(f"DRIFT: '{cmd}' expected '{expected}', got '{actual}'", file=sys.stderr)
+            hint = ""
+            if cmd.startswith("sqlite3 ") and actual.isdigit() and str(expected).isdigit() and int(actual) > int(expected):
+                hint = " (state advanced; regenerate with `uv run warden handoff` if legitimate)"
+            print(f"DRIFT: '{cmd}' expected '{expected}', got '{actual}'{hint}", file=sys.stderr)
             drift = True
+    return drift
+
+
+def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    if args.transition_path:
+        target = Path(args.transition_path)
+    elif (runner.repo_root / STATE_FILE).is_file():
+        target = runner.repo_root / STATE_FILE
+    else:
+        legacy = sorted(runner.repo_root.glob(".workspace/transitions/*/*.md"))
+        target = legacy[-1] if legacy else None
+    if not target or not target.is_file():
+        print("No handoff checkpoint found.", file=sys.stderr)
+        return 1
+    if target.suffix == ".json":
+        state = json.loads(target.read_text(encoding="utf-8"))
+        if state.get("schema") != 1:
+            print(f"REFUSED: unsupported state schema {state.get('schema')!r}", file=sys.stderr)
+            return 1
+        drift = _replay(state.get("tool_trace", []), runner)
+        failed = sorted(k for k, v in state.get("quality_gates", {}).items() if not v)
+        if failed:
+            print(f"DRIFT: recorded quality gates failed at handoff: {failed}", file=sys.stderr)
+            drift = True
+    else:
+        drift = _replay(_legacy_trace(target.read_text(encoding="utf-8")), runner)
     print("Continue FAILED: Drift detected." if drift else f"Continue SUCCESS: zero drift from {target.name}.")
     return 1 if drift else 0
 

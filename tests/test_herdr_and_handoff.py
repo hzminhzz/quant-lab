@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -137,22 +138,36 @@ def test_handoff_and_continue_drift_detection(tmp_path: Path) -> None:
     proc_h = subprocess.run(cmd_h, capture_output=True, text=True, check=False)
     assert proc_h.returncode == 0
 
+    # Typed state artifact: schema, timestamped evidence, replayable trace, explicit gates
+    state = json.loads(Path(".workspace/state/current.json").read_text())
+    assert state["schema"] == 1
+    assert {"created_at", "evidence", "tool_trace", "quality_gates"} <= set(state)
+    assert all("observed_at" in e for e in state["evidence"])
+    assert all({"cmd", "expect"} <= set(t) for t in state["tool_trace"])
+    assert Path(".workspace/state/history.jsonl").read_text().strip()
+
     # Continue on clean state passes (zero drift)
     cmd_c = [sys.executable, "-m", "warden.cli", "continue"]
     proc_c = subprocess.run(cmd_c, capture_output=True, text=True, check=False)
     assert proc_c.returncode == 0
     assert "zero drift" in proc_c.stdout
 
-    # Now simulate drift by inserting an unlogged trial in registry.db (trigger error or count change)
-    # Testing that if expected trials count is tampered, continue detects drift:
-    latest_trans = max(Path(".workspace/transitions").glob("*/*.md"))
-    content = latest_trans.read_text()
-    import re
-    tampered_content = re.sub(r'(SELECT COUNT\(\*\) FROM trials"\s*\n# expect:\s*)\d+', r"\g<1>999", content)
-    assert tampered_content != content, "Failed to tamper expected trial count in transition file"
-    tampered_file = tmp_path / "tampered_trans.md"
-    tampered_file.write_text(tampered_content)
+    # Tamper the recorded trials count downward (the real "a trial was appended" case) -> drift fails closed
+    tampered = json.loads(json.dumps(state))
+    for entry in tampered["tool_trace"]:
+        if entry["cmd"].startswith("sqlite3 "):
+            entry["expect"] = "0"
+    tampered_file = tmp_path / "tampered_state.json"
+    tampered_file.write_text(json.dumps(tampered))
 
     proc_drift = subprocess.run([sys.executable, "-m", "warden.cli", "continue", str(tampered_file)], capture_output=True, text=True, check=False)
     assert proc_drift.returncode == 1
     assert "DRIFT" in proc_drift.stderr or "DRIFT" in proc_drift.stdout
+    assert "state advanced" in proc_drift.stderr
+
+    # Unsupported schema fails closed instead of being replayed
+    tampered["schema"] = 99
+    tampered_file.write_text(json.dumps(tampered))
+    proc_schema = subprocess.run([sys.executable, "-m", "warden.cli", "continue", str(tampered_file)], capture_output=True, text=True, check=False)
+    assert proc_schema.returncode == 1
+    assert "schema" in proc_schema.stderr

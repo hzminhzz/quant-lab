@@ -27,3 +27,6 @@ registry/predictions/*.parquet
 *.egg-info/
 dist/
 build/
+
+# Warden episodic handoffs: superseded by .workspace/state/*.json (append-only history.jsonl)
+.workspace/transitions/

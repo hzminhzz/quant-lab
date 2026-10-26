@@ -1,0 +1,18 @@
+contract_id: INDICES_1H_V1
+hypothesis_id: HYP-2026-003
+model_type: rules
+parameters:
+  ema_slope_bars: 5
+  ema_window: 100
+  max_holding_bars: 8
+  rsi_exit: 55.0
+  rsi_oversold: 22.0
+  rsi_window: 3
+  target_symbols:
+  - NQ
+  vwap_discount_bps: 0.0
+  vwap_window: 10
+run_id: RUN-HYP003-001
+strategy_family: rules_ts
+strategy_module: strategies/candidates/rsi_ema_vwap_pullback_1h.py
+strategy_name: RSIVWAPPullback_NQ

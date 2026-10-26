@@ -10,7 +10,7 @@ import polars as pl
 from sklearn.linear_model import Ridge
 
 from warden.contracts import EvaluationContract
-from warden.leakage import purged_walk_forward_splits
+from warden.leakage import compute_open_forward_label, purged_walk_forward_splits
 
 
 class CSRidgePipeline:
@@ -18,13 +18,14 @@ class CSRidgePipeline:
 
     def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
         df = bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
-        delay = contract.execution_delay_bars
+        # Features observe bars <= t only. Warden applies execution_delay_bars once, at
+        # simulation; pre-lagging here would double the latency.
         return (
             df.sort("timestamp", "asset")
             .with_columns(
-                fund_l1=pl.col("funding_rate").shift(delay).over("asset"),
-                mom_6h=pl.col("close").pct_change(6).shift(delay).over("asset"),
-                rev_2h=pl.col("close").pct_change(2).shift(delay).over("asset"),
+                fund_l1=pl.col("funding_rate").over("asset"),
+                mom_6h=pl.col("close").pct_change(6).over("asset"),
+                rev_2h=pl.col("close").pct_change(2).over("asset"),
             )
             .with_columns(
                 feat_funding=(pl.col("fund_l1") - pl.col("fund_l1").mean().over("timestamp")),
@@ -90,17 +91,18 @@ def generate_positions(
         if a not in fund_pivot.columns:
             fund_pivot = fund_pivot.with_columns(pl.lit(0.0).alias(a))
     fund_mat = fund_pivot.select(assets).to_numpy()
+    open_pivot = df.pivot(index="timestamp", on="asset", values="open").select(assets).to_numpy()
+    h, delay = contract.label_horizon_bars, contract.execution_delay_bars
+    # Executable label: enter Open[t+delay], exit Open[t+delay+h] — the same interval the
+    # evaluator realises, so IC is not measured against an earlier tradeable horizon.
+    forward_label = compute_open_forward_label(open_pivot, delay, h)
 
     feat_funding = np.zeros_like(ret_mat)
     feat_mom = np.zeros_like(ret_mat)
     feat_rev = np.zeros_like(ret_mat)
-    forward_label = np.zeros_like(ret_mat)
-
-    h = contract.label_horizon_bars
-    delay = contract.execution_delay_bars
 
     for t in range(12, n_bars):
-        idx = t - delay
+        idx = t
         f1 = fund_mat[idx] - np.mean(fund_mat[idx])
         f2 = np.sum(ret_mat[idx - 6:idx], axis=0)
         f2 = f2 - np.mean(f2)
@@ -111,16 +113,13 @@ def generate_positions(
         feat_mom[t] = f2 / (np.std(f2) + 1e-8)
         feat_rev[t] = f3 / (np.std(f3) + 1e-8)
 
-        if t + h <= n_bars:
-            fwd = np.sum(ret_mat[t:t + h], axis=0)
-            forward_label[t] = fwd - np.mean(fwd)
-
     splits = purged_walk_forward_splits(
         n_timestamps=val_end_idx,
         n_folds=contract.n_folds,
         min_train_timestamps=val_start_idx,
         label_horizon=contract.label_horizon_bars,
         embargo=contract.embargo_bars,
+        execution_delay=contract.execution_delay_bars,
     )
 
     oos_preds = np.full_like(ret_mat, np.nan)

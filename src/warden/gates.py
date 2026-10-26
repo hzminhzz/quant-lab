@@ -74,6 +74,14 @@ def evaluate_stage1_rules_ts(
     gains = float(np.sum(net_arr[net_arr > 0]))
     losses = float(np.abs(np.sum(net_arr[net_arr < 0]))) + 1e-12
     profit_factor = gains / losses
+    if positions is not None:
+        pos_arr = np.asarray(positions, dtype=float)
+        turn = float(np.sum(np.abs(np.diff(pos_arr, axis=0, prepend=0.0))))
+        avg_holding = (2.0 * n_active / turn) if turn > 1e-6 else 1.0
+    else:
+        avg_holding = 1.0
+
+    trade_edge = cond_edge * avg_holding
 
     rng = np.random.default_rng(42)
     block_size = max(1, min(24, int(math.sqrt(n_active))))
@@ -85,8 +93,8 @@ def evaluate_stage1_rules_ts(
         boot_means.append(np.mean(active_gross[idxs]))
     p_value = float(np.mean(np.asarray(boot_means) <= 0.0))
 
-    passed = (cond_edge > edge_cost_multiplier * one_way_cost) and (profit_factor >= min_profit_factor) and (time_in_market >= min_time_in_market) and (p_value < 0.05)
-    return Stage1Report("rules_ts", passed, {"conditional_edge": cond_edge, "profit_factor": profit_factor, "time_in_market": time_in_market, "bootstrap_p_value": p_value}, f"PF={profit_factor:.2f}, Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%")
+    passed = (trade_edge > edge_cost_multiplier * one_way_cost) and (profit_factor >= min_profit_factor) and (time_in_market >= min_time_in_market) and (p_value < 0.05)
+    return Stage1Report("rules_ts", passed, {"conditional_edge": cond_edge, "profit_factor": profit_factor, "time_in_market": time_in_market, "bootstrap_p_value": p_value, "avg_holding_bars": avg_holding, "trade_edge": trade_edge}, f"PF={profit_factor:.2f}, Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%, Holding={avg_holding:.1f}h")
 
 
 def evaluate_stage1_carry_rv(net_carry_series: Sequence[float], spread_series: Sequence[float]) -> Stage1Report:

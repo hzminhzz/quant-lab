@@ -40,6 +40,14 @@ class LinearBaselineRequiredError(ValueError):
     """Raised when a non-linear ML strategy is executed before a linear baseline is logged."""
 
 
+class ExecutionDataError(ValueError):
+    """Required execution prices are absent; Warden never guesses another price basis."""
+
+
+class DoubleLatencyError(ValueError):
+    """A strategy pre-lags its own signals on top of Warden's mandatory execution delay."""
+
+
 def load_module_from_path(module_path: Path):
     spec = importlib.util.spec_from_file_location(module_path.stem, module_path)
     if spec is None or spec.loader is None:
@@ -62,6 +70,31 @@ def _funding_settlement_mask(timestamps: list, contract: EvaluationContract) -> 
     if contract.asset_class == "crypto_perps" and contract.frequency == "1h":
         return np.array([t.hour % 8 == 0 for t in timestamps], dtype=bool)
     return np.ones(len(timestamps), dtype=bool)
+
+
+def require_execution_columns(panel_df: pl.DataFrame, contract: EvaluationContract) -> None:
+    """Fail closed on a missing price basis instead of silently changing basis."""
+    needed = ["bid", "ask"] if contract.execution_mode == "QUOTE_SIDE" else ["open"]
+    missing = [c for c in needed if c not in panel_df.columns]
+    if missing:
+        raise ExecutionDataError(f"{contract.execution_mode} contract {contract.contract_id} requires {missing}; "
+                                 "a close-price fallback is not a valid execution basis")
+    if contract.asset_class == "crypto_perps" and "funding_rate" not in panel_df.columns:
+        raise ExecutionDataError(f"{contract.contract_id} is a perpetual contract without funding_rate data")
+    if panel_df.select(pl.col(needed[0]).is_null().any()).item():
+        raise ExecutionDataError(f"null {needed[0]} prices cannot be treated as a zero move")
+
+
+def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, assets: list[str]) -> dict:
+    """NEXT_BAR: open-to-open. QUOTE_SIDE: long pays ask, receives bid; short the reverse."""
+    require_execution_columns(panel_df, contract)
+    if contract.execution_mode == "QUOTE_SIDE":
+        df = panel_df.with_columns(
+            long_ret=pl.col("bid").shift(-1).over("asset") / pl.col("ask") - 1.0,
+            short_ret=-(pl.col("ask").shift(-1).over("asset") / pl.col("bid") - 1.0))
+        return {"long": _aligned_matrix(df, "long_ret", assets), "short": _aligned_matrix(df, "short_ret", assets)}
+    df = panel_df.with_columns(ret=pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0)
+    return {"long": _aligned_matrix(df, "ret", assets), "short": None}
 
 
 def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, contract: EvaluationContract, params: dict) -> dict[str, Any]:
@@ -97,7 +130,8 @@ def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, c
         Path(out_path).unlink(missing_ok=True)
 
 
-def simulate_positions(positions, returns_panel, funding_panel, contract, val_slice, cost_multiplier=1.0, delay_offset=0, funding_mask=None) -> dict[str, np.ndarray]:
+def simulate_positions(positions, returns_panel, funding_panel, contract, val_slice, cost_multiplier=1.0,
+                       delay_offset=0, funding_mask=None, quote_returns=None) -> dict[str, np.ndarray]:
     pos = np.asarray(positions, dtype=float)
     total_delay = contract.execution_delay_bars + delay_offset
     if total_delay > 0:
@@ -106,7 +140,12 @@ def simulate_positions(positions, returns_panel, funding_panel, contract, val_sl
     pos_val = pos[val_slice]
     ret_val = returns_panel[val_slice]
     turnover = np.sum(np.abs(np.diff(pos_val, axis=0, prepend=0.0)), axis=1)
-    gross = np.sum(pos_val * ret_val, axis=1)
+    if quote_returns is not None and quote_returns.get("short") is not None:
+        long_r, short_r = quote_returns["long"][val_slice], quote_returns["short"][val_slice]
+        # short_ret is already the per-unit-short PnL, so exposure is |position|.
+        gross = np.sum(np.where(pos_val > 0, pos_val * long_r, np.abs(pos_val) * short_r), axis=1)
+    else:
+        gross = np.sum(pos_val * ret_val, axis=1)
     one_way_cost = contract.total_one_way_cost_decimal() * cost_multiplier
     if funding_panel is not None:
         fund_slice = funding_panel[val_slice]
@@ -176,14 +215,11 @@ class ExperimentRunner:
         ts = sorted(panel_df["timestamp"].unique().to_list())
         assets = sorted(panel_df["asset"].unique().to_list())
         v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-        if "open" in panel_df.columns:
-            ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
-        else:
-            ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
-        ret_p = _aligned_matrix(ret_df, "ret", assets)
+        ret_p = execution_returns(panel_df, contract, assets)
         fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
         fund_mask = _funding_settlement_mask(ts, contract)
-        sim1 = simulate_positions(out["positions"], ret_p, fund_p, contract, v_slice, cost_multiplier=1.0, funding_mask=fund_mask)
+        sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
+                                  funding_mask=fund_mask, quote_returns=ret_p)
         return evaluate_stage1_rules_ts(sim1["net_returns"].tolist(), sim1["gross_returns"].tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist())
 
     def run_spec(self, exp_yaml_path: Path, override_run_id: str | None = None) -> ExperimentResult:
@@ -227,16 +263,16 @@ class ExperimentRunner:
             ts = sorted(panel_df["timestamp"].unique().to_list())
             assets = sorted(panel_df["asset"].unique().to_list())
             v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-            if "open" in panel_df.columns:
-                ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
-            else:
-                ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
-            ret_p = _aligned_matrix(ret_df, "ret", assets)
+            ret_p = execution_returns(panel_df, contract, assets)
             fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
             fund_mask = _funding_settlement_mask(ts, contract)
 
             strat_file = self.repo_root / cfg["strategy_module"]
             out = _run_strategy_isolated(strat_file, panel_df, contract, params)
+            if int(out.get("signal_delay_bars", 0)) > 0:
+                raise DoubleLatencyError(
+                    f"'{strat_name}' declares signal_delay_bars={out['signal_delay_bars']} while Warden already "
+                    f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
             raw_pos, ic_series = out["positions"], out.get("ic_series")
 
             with self.registry._connect() as conn:
@@ -259,20 +295,23 @@ class ExperimentRunner:
                     self.registry.record_trial(res, params, np.zeros(v_slice.stop - v_slice.start), trial_number=trial_num)
                     return res
 
-            sim1 = simulate_positions(raw_pos, ret_p, fund_p, contract, v_slice, cost_multiplier=1.0, funding_mask=fund_mask)
+            sim1 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
+                                      funding_mask=fund_mask, quote_returns=ret_p)
             net_ret, gross_ret, turnover = sim1["net_returns"], sim1["gross_returns"], sim1["turnover"]
             m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)
 
             s1_rules = evaluate_stage1_rules_ts(net_ret.tolist(), gross_ret.tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist()) if family == "rules_ts" else None
 
-            sim2 = simulate_positions(raw_pos, ret_p, fund_p, contract, v_slice, cost_multiplier=2.0, funding_mask=fund_mask)
-            sim_d = simulate_positions(raw_pos, ret_p, fund_p, contract, v_slice, delay_offset=1, funding_mask=fund_mask)
+            sim2 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=2.0,
+                                      funding_mask=fund_mask, quote_returns=ret_p)
+            sim_d = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, delay_offset=1,
+                                       funding_mask=fund_mask, quote_returns=ret_p)
             sr2 = float(np.mean(sim2["net_returns"]) / (np.std(sim2["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
             srd = float(np.mean(sim_d["net_returns"]) / (np.std(sim_d["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
 
             ngrid = cfg.get("param_grid", [])
             if ngrid:
-                n_sr = [float(np.mean(simulate_positions(_run_strategy_isolated(strat_file, panel_df, contract, c)["positions"], ret_p, fund_p, contract, v_slice, funding_mask=fund_mask)["net_returns"]) / (np.std(simulate_positions(_run_strategy_isolated(strat_file, panel_df, contract, c)["positions"], ret_p, fund_p, contract, v_slice, funding_mask=fund_mask)["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year)) for c in ngrid]
+                n_sr = [float(np.mean(simulate_positions(_run_strategy_isolated(strat_file, panel_df, contract, c)["positions"], ret_p["long"], fund_p, contract, v_slice, funding_mask=fund_mask, quote_returns=ret_p)["net_returns"]) / (np.std(simulate_positions(_run_strategy_isolated(strat_file, panel_df, contract, c)["positions"], ret_p["long"], fund_p, contract, v_slice, funding_mask=fund_mask, quote_returns=ret_p)["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year)) for c in ngrid]
                 stability = float(min(n_sr) / (max(n_sr) + 1e-8)) if n_sr else 1.0
             else:
                 stability = 1.0

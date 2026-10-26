@@ -29,7 +29,14 @@ class WalkForwardModelProtocol(Protocol):
         ...
 
 
-def purged_walk_forward_splits(n_timestamps: int, n_folds: int, min_train_timestamps: int, label_horizon: int, embargo: int) -> list[tuple[np.ndarray, np.ndarray]]:
+def purged_walk_forward_splits(n_timestamps: int, n_folds: int, min_train_timestamps: int, label_horizon: int, embargo: int, execution_delay: int = 0) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Purged/embargoed folds over the *complete* information span of a forward label.
+
+    A training label observed at t is only realised at t + execution_delay + label_horizon,
+    so the span purged here is label_horizon + execution_delay. Passing them separately makes
+    the earlier off-by-delay behaviour impossible to reintroduce silently.
+    """
+    span = label_horizon + execution_delay
     test_size = (n_timestamps - min_train_timestamps) // n_folds
     if test_size <= 0:
         raise ValueError("Insufficient timestamps for requested folds.")
@@ -37,13 +44,34 @@ def purged_walk_forward_splits(n_timestamps: int, n_folds: int, min_train_timest
     for fold in range(n_folds):
         t_start = min_train_timestamps + fold * test_size
         t_end = t_start + test_size if fold < n_folds - 1 else n_timestamps
-        train_end = max(0, t_start - label_horizon - embargo)
+        train_end = max(0, t_start - span - embargo)
         train_idx, test_idx = np.arange(0, train_end, dtype=np.int64), np.arange(t_start, t_end, dtype=np.int64)
-        if len(train_idx) > 0 and train_idx[-1] + label_horizon + embargo > test_idx[0]:
+        if len(train_idx) > 0 and train_idx[-1] + span + embargo > test_idx[0]:
             raise LookaheadLeakageError("Purged train set overlaps test set label horizon")
         splits.append((train_idx, test_idx))
     return splits
 
+
+def executable_label_span(contract: EvaluationContract) -> int:
+    """Bars from decision to label exit: execution delay plus the holding horizon."""
+    return contract.execution_delay_bars + contract.label_horizon_bars
+
+
+def compute_open_forward_label(open_mat: np.ndarray, delay: int, horizon: int) -> np.ndarray:
+    """Causal open-to-open forward cross-sectionally demeaned returns matching runner execution.
+
+    Label at t enters at Open[t+delay] and exits at Open[t+delay+horizon]: no close-to-open
+    gap before the fill, and no second lag on top of the evaluator's execution delay.
+    """
+    n_bars, n_assets = open_mat.shape
+    forward_label = np.zeros((n_bars, n_assets), dtype=float)
+    max_t = n_bars - delay - horizon
+    for t in range(max_t):
+        entry_open = open_mat[t + delay]
+        exit_open = open_mat[t + delay + horizon]
+        fwd = np.divide(exit_open - entry_open, entry_open, out=np.zeros_like(entry_open), where=entry_open > 0)
+        forward_label[t] = fwd - np.mean(fwd)
+    return forward_label
 
 def call_ml4t_compute_features(data: pl.DataFrame | pl.LazyFrame, features: list[str | dict] | str | Path, **kwargs) -> pl.DataFrame:
     import ml4t.engineer

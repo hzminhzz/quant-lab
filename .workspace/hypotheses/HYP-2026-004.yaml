@@ -1,0 +1,22 @@
+hypothesis_id: HYP-2026-004
+contract_id: CRYPTO_PERPS_1H_V1
+title: Cross-Sectional Amihud Illiquidity Premium Basket on Major Crypto Perps
+strategy_family: cross_sectional_ml
+economic_mechanism: "Altcoins undergoing elevated trailing Amihud price impact trade at liquidity discounts; longing high-illiquidity and shorting low-illiquidity tokens harvests liquidity normalization premia."
+counterparty_or_friction: "Risk-averse hedgers, noise traders, and forced margin liquidators demanding immediate liquidity."
+expected_holding_bars: 4
+falsification_criteria: "Reject at Stage 1 if Mean IC < 0.015 or HAC t-statistic < 2.0. Reject at Stage 3 if Net Sharpe < 1.2, 2x Cost Stress Sharpe < 0.50, or DSR < 0.90."
+parent_hypothesis_id: null
+source_provenance: "Amihud (2002), Acharya & Pedersen (2005) via quant-research inbox"
+llm_model_id: "claude-sonnet-4-6"
+status: REJECTED
+trials_used: 1
+
+results:
+  - run_id: RUN-ML-003
+    model_type: ridge
+    stage_reached: STAGE_1_SIGNAL
+    verdict: REJECTED_EARLY
+    mean_ic: -0.00229
+    ic_hac_tstat: -0.18
+    notes: "Rejected at Stage 1: Mean IC=-0.0023, HAC t=-0.18"

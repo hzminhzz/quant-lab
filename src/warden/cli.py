@@ -418,12 +418,16 @@ def main(argv: list[str] | None = None) -> int:
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0
     except SystemExit as exc:
-        code = exc.code if isinstance(exc.code, int) else 1
+        code = 0 if exc.code is None else (exc.code if isinstance(exc.code, int) else 1)
         raise
     finally:
         sys.stdout = sink.stream
-        audit_record(runner.repo_root, args.subcommand, argv or sys.argv[1:], decision, code,
-                     (time.perf_counter() - started) * 1000.0, sink.count)
+        # Observability must never decide whether the command "worked".
+        try:
+            audit_record(runner.repo_root, args.subcommand, argv or sys.argv[1:], decision, code,
+                         (time.perf_counter() - started) * 1000.0, sink.count)
+        except OSError as exc:
+            print(f"WARN: audit log unavailable ({exc}); command result unchanged", file=sys.stderr)
     return code
 
 

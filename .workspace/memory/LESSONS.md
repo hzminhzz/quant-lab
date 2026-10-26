@@ -32,3 +32,19 @@
   - **Profit Factor:** Genuinely **fails to improve and severely degrades** out-of-sample Profit Factor (0.9918 down to 0.7680 at 1x costs; 0.9234 down to 0.7438 at 2x costs). In strong hourly bull markets (2023–2025 NQ rally), requiring price to drop 80 bps below the 10-bar rolling VWAP does not identify temporary liquidity exhaustions; it filters out healthy shallow dip-buys and selects for sharp momentum cascades with negative conditional forward returns.
   - **Max Drawdown:** Fails to improve at baseline 1x cost (drawdown widened from 11.43% to 13.11%). Apparent drawdown improvement at 2x cost (13.95% vs. 21.53%) is strictly mechanical due to avoiding 656x/year turnover fee drag.
 - **Status:** **REJECTED (3-Trial Budget Exhausted on INDICES_1H_V2)**.
+
+## HYP-2026-004 (Cross-Sectional Amihud Illiquidity Premium on Crypto Perps)
+- **Source & Mechanism:** Adapted from `dev/quant/quant-research/research_inbox/crypto_xs_amihud_illiquidity_premium_basket_v1` (Amihud 2002, Acharya & Pedersen 2005). Posited that altcoins experiencing elevated trailing Amihud price impact trade at liquidity discounts that yield positive forward return premia.
+- **Linear-First Baseline (`RUN-ML-003`):** Ridge regression cross-sectional factor model on 19 major crypto perpetuals (`CRYPTO_PERPS_1H_V1`) across 4 purged walk-forward folds.
+- **Empirical Falsification at Stage 1:**
+  - Out-of-sample Rank IC: `Mean IC = -0.0023`, Newey-West HAC `t = -0.18`.
+  - Failed the Stage 1 statistical gate ($\text{Mean IC} \ge 0.015, t_{\text{HAC}} \ge 2.0$).
+  - Fast-failed as `REJECTED_EARLY` at Stage 1 before wasteful portfolio simulation.
+- **Scientific Takeaway:** The equity illiquidity premium does not transfer to 24/7 crypto perpetuals. In crypto derivatives, lower liquidity does not reflect an unpriced structural risk premium that normalizes; it reflects ongoing adverse selection, wider spreads, and momentum decay. Status: **REJECTED**.
+
+## HYP-2026-005 (Cross-Sectional Betting Against Beta / Low-Beta Anomaly on Crypto Perps)
+- **Source & Mechanism:** Adapted from `dev/quant/quant-research/research_inbox/crypto_xs_betting_against_beta_basket_v1` (Frazzini & Pedersen 2014, Asness et al. 2020). Posited that retail borrowing constraints and lottery demand bid up high-beta tokens, creating a premium for longing low-beta and shorting high-beta tokens.
+- **Walk-Forward In-Sample Overfitting Discovery:**
+  - Across 4 purged walk-forward folds, Ridge regression trained on 2020–2024 learned strictly negative coefficients on low-volatility features because the historical training regime was heavily dominated by high-beta upside momentum runs.
+  - When applied to the 2025 validation period, the model's momentum-continuation predictions inverted, producing a negative out-of-sample Rank IC of `-0.0556` ($t_{\text{HAC}} = -3.66$).
+- **Scientific Takeaway:** The Betting Against Beta factor suffers severe regime instability in crypto perpetuals. A linear model trained on multi-year bull runs fits historical high-beta momentum, and collapses out-of-sample when the macro regime shifts. Fast-failed at Stage 1 as `REJECTED_EARLY`. Status: **REJECTED**.

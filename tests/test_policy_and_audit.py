@@ -31,19 +31,25 @@ def test_every_subcommand_has_json_flag():
         assert "json" in [a.dest for a in sub._actions], f"{name} lost --json"
 
 
-def test_audit_log_records_one_line_per_invocation(tmp_path, monkeypatch):
-    log = tmp_path / "repo" / AUDIT_LOG
-    monkeypatch.setattr("warden.cli.ExperimentRunner", lambda: ExperimentRunner(repo_root=ROOT))
-    before = log.read_text().count("\n") if log.is_file() else 0
-    code = main(["status", "--json"])
-    assert code == 0
-    lines = [json.loads(x) for x in (tmp_path / "repo" / AUDIT_LOG).read_text().splitlines()] if log.is_file() else []
-    if lines:  # audit root is the real repo, not tmp_path; assert on the real log below
-        assert len(lines) > before
+def test_audit_log_records_one_line_per_invocation():
     real = Path(AUDIT_LOG)
-    entry = json.loads(real.read_text().splitlines()[-1])
+    before = len(real.read_text().splitlines()) if real.is_file() else 0
+    assert main(["status", "--json"]) == 0
+    lines = real.read_text().splitlines()
+    assert len(lines) == before + 1, "exactly one audit line per invocation"
+    entry = json.loads(lines[-1])
     assert {"cmd", "argv", "allow", "policy", "observed_at", "exit_code", "duration_ms", "result_bytes"} <= set(entry)
     assert entry["cmd"] == "status" and entry["allow"] is True and entry["exit_code"] == 0
+
+
+def test_audit_failure_does_not_break_the_cli(monkeypatch, capsys):
+    """A read-only or missing audit dir must not turn a successful command into a failure."""
+    def boom(*a, **k):
+        raise PermissionError("audit dir read-only")
+
+    monkeypatch.setattr("warden.cli.audit_record", boom)
+    assert main(["status", "--json"]) == 0
+    assert "audit log unavailable" in capsys.readouterr().err
 
 
 def test_status_json_envelope_shape():

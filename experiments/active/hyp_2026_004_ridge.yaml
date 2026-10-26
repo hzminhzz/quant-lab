@@ -1,0 +1,11 @@
+contract_id: CRYPTO_PERPS_1H_V1
+hypothesis_id: HYP-2026-004
+model_type: ridge
+parameters:
+  alpha: 10.0
+  rebalance_every: 4
+  top_k: 3
+run_id: RUN-ML-003
+strategy_family: cross_sectional_ml
+strategy_module: strategies/candidates/cs_amihud_1h.py
+strategy_name: CSAmihudRidge_1H

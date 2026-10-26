@@ -1,0 +1,22 @@
+hypothesis_id: HYP-2026-005
+contract_id: CRYPTO_PERPS_1H_V1
+title: Cross-Sectional Betting Against Beta Factor Model on Crypto Perpetuals
+strategy_family: cross_sectional_ml
+economic_mechanism: "Retail borrowing constraints and lottery demand bid up high-beta altcoins; longing low-beta and shorting high-beta tokens in a dollar-neutral basket harvests structural leverage mispricing."
+counterparty_or_friction: "Retail speculators and unconstrained noise traders treating high-beta altcoins as levered call options on market momentum."
+expected_holding_bars: 4
+falsification_criteria: "Reject at Stage 1 if Mean IC < 0.015 or HAC t-statistic < 2.0. Reject at Stage 3 if Net Sharpe < 1.2, 2x Cost Stress Sharpe < 0.50, or DSR < 0.90."
+parent_hypothesis_id: null
+source_provenance: "Frazzini & Pedersen (2014), Asness et al. (2020) via quant-research inbox crypto_xs_betting_against_beta_basket_v1"
+llm_model_id: "claude-sonnet-4-6"
+status: REJECTED
+trials_used: 1
+
+results:
+  - run_id: RUN-ML-004
+    model_type: ridge
+    stage_reached: STAGE_1_SIGNAL
+    verdict: REJECTED_EARLY
+    mean_ic: -0.0556
+    ic_hac_tstat: -3.66
+    notes: "Rejected at Stage 1: Mean IC=-0.0556, HAC t=-3.66"

@@ -1,26 +1,26 @@
 {
   "schema": 1,
-  "created_at": "2026-10-26T03:20:43+00:00",
+  "created_at": "2026-10-26T03:43:59+00:00",
   "ticket": "TKT-10",
   "notes": "Testing drift",
   "evidence": [
     {
       "source": "git",
       "kind": "head",
-      "value": "af943e1",
-      "observed_at": "2026-10-26T03:20:43+00:00"
+      "value": "7e84cad",
+      "observed_at": "2026-10-26T03:43:59+00:00"
     },
     {
       "source": "registry.db",
       "kind": "trials",
-      "value": 11,
-      "observed_at": "2026-10-26T03:20:43+00:00"
+      "value": 13,
+      "observed_at": "2026-10-26T03:43:59+00:00"
     },
     {
       "source": "registry.db",
       "kind": "hypotheses",
-      "value": 4,
-      "observed_at": "2026-10-26T03:20:43+00:00"
+      "value": 6,
+      "observed_at": "2026-10-26T03:43:59+00:00"
     },
     {
       "source": "contracts",
@@ -35,20 +35,21 @@
         "INDICES_1M_V1": "72d9e52c1e7239106550f6769e371dd00329320a18a763934eaae0c700aa58ce",
         "METALS_1M_V1": "5a23cd4aa4524b2c814c0c8198f54a71b6c87c02fd58c85278b837458ca2ac0c"
       },
-      "observed_at": "2026-10-26T03:20:43+00:00"
+      "observed_at": "2026-10-26T03:43:59+00:00"
     }
   ],
   "tool_trace": [
     {
-      "cmd": "git rev-parse --short HEAD",
-      "expect": "af943e1"
+      "op": "git_head",
+      "expect": "7e84cad"
     },
     {
-      "cmd": "sqlite3 registry/registry.db \"SELECT COUNT(*) FROM trials\"",
-      "expect": "11"
+      "op": "registry_count",
+      "table": "trials",
+      "expect": "13"
     },
     {
-      "cmd": "uv run warden check-worktree",
+      "op": "worktree_check",
       "expect": "Worktree integrity verified: protected contracts, warden core, and LOC budgets intact."
     }
   ],

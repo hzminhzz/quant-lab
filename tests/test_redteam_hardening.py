@@ -247,10 +247,11 @@ def test_stage_1_reject_increments_raw_N_and_penalizes_DSR() -> None:
     p1, exp1, n1, k1 = compute_effective_trials_and_dsr(candidate, [], 8760, total_trials_n=1)
     assert n1 == 1 and k1 == 1.0
 
-    # Same stream with 1 prior Stage 1 reject (total_trials_n=2): N=2, K_eff penalizes
+    # Same stream with 1 prior unvectorised reject (total_trials_n=2): N=2 and the approved
+    # 0.50-per-unvectorised-attempt penalty applies on top of the deduplicated rank.
     p2, exp2, n2, k2 = compute_effective_trials_and_dsr(candidate, [], 8760, total_trials_n=2)
     assert n2 == 2
-    assert k2 == 2.0
+    assert k2 == 1.5
     assert exp2 > exp1  # expected max Sharpe noise increases
     assert p2 < p1     # DSR probability decreases due to multiple testing
 

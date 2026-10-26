@@ -45,10 +45,14 @@ def tiny_panel(n_bars: int = 40, assets: tuple[str, ...] = ("AAA", "BBB")) -> pl
 @pytest.fixture
 def tiny_repo(tmp_path: Path):
     """Contract + dataset manifest + registry + hypothesis + spec, all inside tmp_path."""
+    builds = {"n": 0}
+
     def build(provenance: str = "verified_market", module_source: str = FLAT_MODULE,
               module_name: str = "flat", contract_overrides: dict | None = None,
               n_bars: int = 40) -> SimpleNamespace:
-        repo = tmp_path / "repo"
+        builds["n"] += 1
+        root = tmp_path / f"case{builds['n']}"
+        repo = root / "repo"
         panel = tiny_panel(n_bars)
         data_path = repo / "data" / "exploratory" / "tiny.parquet"
         data_path.parent.mkdir(parents=True, exist_ok=True)
@@ -72,7 +76,7 @@ def tiny_repo(tmp_path: Path):
         (repo / "contracts" / "tiny_v1.yaml").write_text(yaml.safe_dump(contract.__dict__))
         (repo / "strategies").mkdir(parents=True, exist_ok=True)
         (repo / "strategies" / f"{module_name}.py").write_text(module_source)
-        reg = ResearchRegistry(tmp_path / "registry.db")
+        reg = ResearchRegistry(root / "registry.db")
         reg.register_contract(contract)
         hyp = HypothesisSpec("HYP-TINY", contract.contract_id, "Tiny", "rules_ts",
                              "Mechanism explanation of twenty chars", "Friction explanation of twenty chars",

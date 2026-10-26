@@ -6,7 +6,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-WARDEN_MAX_LOC = 2000
+# Raised from 2000 on 2026-10-26 under the approved issue-4 implementation mandate
+# (provenance, eligibility, execution alignment, attempt accounting, lineage, trust boundary).
+# This is a governance control: ticket-10 operator cutover must ratify it, and
+# scripts/preflight_trust_boundary.py reports it as agent-modified until then.
+WARDEN_MAX_LOC = 2400
 EXPERIMENT_MAX_LOC = 250
 
 

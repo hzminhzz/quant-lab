@@ -143,7 +143,7 @@ def test_handoff_and_continue_drift_detection(tmp_path: Path) -> None:
     assert state["schema"] == 1
     assert {"created_at", "evidence", "tool_trace", "quality_gates"} <= set(state)
     assert all("observed_at" in e for e in state["evidence"])
-    assert all({"cmd", "expect"} <= set(t) for t in state["tool_trace"])
+    assert all({"op", "expect"} <= set(t) for t in state["tool_trace"])
     assert Path(".workspace/state/history.jsonl").read_text().strip()
 
     # Continue on clean state passes (zero drift)
@@ -155,7 +155,7 @@ def test_handoff_and_continue_drift_detection(tmp_path: Path) -> None:
     # Tamper the recorded trials count downward (the real "a trial was appended" case) -> drift fails closed
     tampered = json.loads(json.dumps(state))
     for entry in tampered["tool_trace"]:
-        if entry["cmd"].startswith("sqlite3 "):
+        if entry.get("op") == "registry_count":
             entry["expect"] = "0"
     tampered_file = tmp_path / "tampered_state.json"
     tampered_file.write_text(json.dumps(tampered))

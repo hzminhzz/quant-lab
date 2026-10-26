@@ -30,3 +30,6 @@ build/
 
 # Warden episodic handoffs: superseded by .workspace/state/*.json (append-only history.jsonl)
 .workspace/transitions/
+
+# Warden invocation audit log (operational, not evidence)
+.workspace/audit/

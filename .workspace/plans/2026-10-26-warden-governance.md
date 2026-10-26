@@ -38,15 +38,29 @@ Gitignore the log; it is operational, not evidence.
   `{"ok": bool, "value": <payload>, "source": "warden.<cmd>", "observed_at": iso, "policy": "allow"}`
 - Bare-text output stays the default so existing callers and tests keep working.
 
-## Phase 4 — Tighten the continuation allowlist (`cli.py`, ~10 LOC)
+## Phase 4 — Remove shell from continuation entirely (`cli.py`, ~20 LOC)
 
-`sqlite3 ` is currently a **prefix** allowlist — arbitrary SQL is reachable. Replace with a read-only predicate checked in code:
+**Advisory confirmed empirically:** `sqlite3 registry/registry.db "SELECT writefile('/tmp/warden_probe_adv','x') FROM trials LIMIT 1"` created a 1-byte file. A `SELECT`-shaped regex allowlist is not a read-only guarantee — `writefile()`, `readfile()`, `load_extension()`, and `edit()` all reach the filesystem from a query, and opening the DB read-only does not help. **Do not pattern-match SQL.**
+
+Replace the `sqlite3 ` prefix with typed re-execution — the trace never spawns the `sqlite3` binary:
 
 ```python
-_SQL_OK = re.compile(r'^sqlite3 registry/registry\.db "SELECT [^;"]+ FROM (trials|hypotheses|contracts)[^;"]*"$')
+TRACE_OPS = {"git_head", "registry_count", "worktree_check"}
+LEGACY = {
+    "git rev-parse --short HEAD": {"op": "git_head"},
+    'sqlite3 registry/registry.db "SELECT COUNT(*) FROM trials"': {"op": "registry_count", "table": "trials"},
+    'sqlite3 registry/registry.db "SELECT COUNT(*) FROM hypotheses"': {"op": "registry_count", "table": "hypotheses"},
+    "uv run warden check-worktree": {"op": "worktree_check"},
+}
 ```
 
-Legacy transitions keep replaying; anything else is REFUSED. This is the operator pattern's `query_registry` at CLI cost, without a new tool.
+- `cmd_handoff` emits `{"op": ..., "expect": ...}` entries (no shell); `expect` is retained.
+- `_replay` dispatches on `op`: `git_head` → `git rev-parse` via `subprocess` (no args from the trace), `registry_count` → `runner.registry._connect()` count with `table ∈ {trials, hypotheses}` asserted in code, `worktree_check` → `check_worktree()` in-process.
+- Anything not in `TRACE_OPS` (including every `sqlite3` string except the two exact legacy literals) → `REFUSED`, exit 1.
+- `ALLOWED_CMD_PREFIXES` shrinks to `("git rev-parse",)` — and that one is now built by code, not trusted from the file.
+- Audit (Phase 2) records the resolved `op`, not the raw string, so the log is typed too.
+
+**Why not `-readonly` / `PRAGMA query_only`:** both still permit `writefile()`. Only removing the SQL surface does.
 
 ## Phase 5 — Untrusted-evidence classification (~15 LOC, migration-sensitive)
 
@@ -62,9 +76,22 @@ Instead: `register-hypothesis` prints `UNTRUSTED SOURCE: <provenance>` and recor
 | 1 | `uv run pytest tests/test_policy.py -q` |
 | 2 | audit line written once per invocation; `wc -l` grows by exactly 1 |
 | 3 | `uv run warden status --json` envelope keys present; all existing tests still pass |
-| 4 | new test: `sqlite3 registry/registry.db "DROP TABLE trials"` → REFUSED; legacy `SELECT COUNT(*)` still replays |
+| 4 | typed ops only; **rejection tests** (below) all REFUSED with exit 1 and no side effects |
 | 5 | `register-hypothesis` on a Substack-provenance file prints UNTRUSTED SOURCE |
 | all | `uv run ruff check && uv run pytest -q && uv run python scripts/check_loc_budget.py && uv run warden check-worktree` |
+
+### Phase 4 rejection matrix (all must exit 1, print `REFUSED`, leave no file)
+
+| Trace entry | Expected |
+| :--- | :--- |
+| `sqlite3 registry/registry.db "SELECT COUNT(*) FROM trials"` | **replays** (42 legacy transitions depend on it) |
+| `sqlite3 registry/registry.db "SELECT writefile('/tmp/warden_probe','x') FROM trials"` | REFUSED; `/tmp/warden_probe` must not exist |
+| `sqlite3 registry/registry.db "SELECT load_extension('/tmp/evil')"` | REFUSED |
+| `sqlite3 registry/registry.db "SELECT * FROM trials"` | REFUSED (only the defined count queries are typed) |
+| `sqlite3 registry/registry.db "DROP TABLE trials"` | REFUSED; table count unchanged |
+| `sqlite3 registry/registry.db "ATTACH DATABASE '/tmp/x' AS y"` | REFUSED |
+| `touch /tmp/pwn` | REFUSED (unchanged red-team test) |
+
 
 ## Judge verdict (2026-10-26)
 

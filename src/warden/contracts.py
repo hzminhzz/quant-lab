@@ -56,6 +56,9 @@ class EvaluationContract:
     execution_mode: str = "NEXT_BAR"
     min_expected_move_to_cost_ratio: float = 2.5
     data_snapshot_sha256: str = ""
+    # Declared origin, independent of the digest. Only "verified_market" may reach
+    # market qualification; "unknown" fails closed.
+    data_provenance: str = "unknown"
 
     def __post_init__(self):
         valid_id(self.contract_id)
@@ -75,6 +78,10 @@ class EvaluationContract:
                 raise ContractValidationError(f"{n} must be finite positive")
         if not math.isfinite(self.funding_bps_per_8h) or self.funding_bps_per_8h < 0 or (self.data_snapshot_sha256 and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256)) or not self.exploratory_data_path or self.exploratory_data_path == self.holdout_data_path:
             raise ContractValidationError("invalid funding, sha256 or data paths")
+        if self.data_provenance not in {"verified_market", "synthetic", "unknown"}:
+            raise ContractValidationError("data_provenance must be verified_market, synthetic or unknown")
+        if self.data_provenance != "unknown" and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256 or ""):
+            raise ContractValidationError("declared data_provenance requires a data_snapshot_sha256 pin")
 
     def total_one_way_cost_decimal(self) -> float:
         return (self.taker_fee_bps + self.slippage_bps) * 1e-4
@@ -96,6 +103,7 @@ class HypothesisSpec:
     parent_hypothesis_id: str | None = None
     source_provenance: str = "internal_research"
     llm_model_id: str = "unspecified"
+    strategy_module: str = ""
 
     def __post_init__(self):
         valid_id(self.hypothesis_id)
@@ -166,6 +174,8 @@ class ExperimentResult:
     strategy_module: str = ""
     model_type: str = ""
     returns_sha256: str = ""
+    data_provenance: str = "unknown"
+    diagnostics_json: str = "{}"
 
     def to_dict(self):
         return asdict(self)

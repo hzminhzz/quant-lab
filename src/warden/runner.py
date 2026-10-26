@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from dataclasses import replace as dc_replace
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ from warden.gates import (
     evaluate_stage1_cross_sectional_ml,
     evaluate_stage1_rules_ts,
 )
+from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry, compute_effective_trials_and_dsr
 
 
@@ -163,10 +165,8 @@ class ExperimentRunner:
             hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
             trials_used = h[5]
         evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
-        data_path = self.repo_root / contract.exploratory_data_path
-        if not data_path.is_file():
-            data_path = self.repo_root / "data" / "exploratory" / "crypto_perps_1h.parquet"
-        panel_df = pl.read_parquet(data_path)
+        dataset = resolve_dataset(contract, self.repo_root)
+        panel_df = pl.read_parquet(self.repo_root / dataset.path)
         if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
         panel_df = panel_df.sort("timestamp", "asset")
         strat_file = self.repo_root / cfg["strategy_module"]
@@ -216,13 +216,12 @@ class ExperimentRunner:
         run_id = override_run_id or cfg.get("run_id") or f"RUN-{family[:2].upper()}-{trials_used+1:03d}"
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
         strat_module_str = str(cfg.get("strategy_module", ""))
-        data_path = self.repo_root / contract.exploratory_data_path
-        if not data_path.is_file():
-            data_path = self.repo_root / "data" / "exploratory" / "crypto_perps_1h.parquet"
-        data_sha = hashlib.sha256(data_path.read_bytes()).hexdigest()
-        is_synthetic = (data_sha != contract.data_snapshot_sha256) or ("synthetic" in str(data_path).lower())
+        dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
+        provenance_kw = {"data_provenance": dataset.provenance}
+        data_sha = dataset.sha256
+        is_synthetic = int(not dataset.eligible_market)
         try:
-            panel_df = pl.read_parquet(data_path)
+            panel_df = pl.read_parquet(self.repo_root / dataset.path)
             if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
             panel_df = panel_df.sort("timestamp", "asset")
             ts = sorted(panel_df["timestamp"].unique().to_list())
@@ -256,6 +255,7 @@ class ExperimentRunner:
                 mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
                 if not s1.passed:
                     res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, total_contract_n, k_eff_prior, mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, f"Rejected at Stage 1: {s1.notes}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
+                    res = dc_replace(res, **provenance_kw)
                     self.registry.record_trial(res, params, np.zeros(v_slice.stop - v_slice.start), trial_number=trial_num)
                     return res
 
@@ -282,8 +282,13 @@ class ExperimentRunner:
             min_sr = 1.2 if family == "cross_sectional_ml" else 1.0
             ic_ok = (ic_hac_t >= 2.0) if family == "cross_sectional_ml" and ic_hac_t is not None else True
             rules_ok = s1_rules.passed if s1_rules is not None else True
-            verdict = "CANDIDATE_FOR_QUALIFICATION" if (m["net_sharpe"] > min_sr and sr2 > 0.50 and srd > 0.0 and dsr_p >= 0.90 and ic_ok and rules_ok) else "REVISE"
+            statistical = m["net_sharpe"] > min_sr and sr2 > 0.50 and srd > 0.0 and dsr_p >= 0.90 and ic_ok and rules_ok
+            if not dataset.eligible_market:
+                verdict = "NON_PROMOTABLE"
+            else:
+                verdict = "CANDIDATE_FOR_QUALIFICATION" if statistical else "REVISE"
             res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_3_STRESS", verdict, m["gross_sharpe"], m["net_sharpe"], dsr_p, float(exp_max), n_t, k_eff, mean_ic, ic_hac_t, m["hit_rate"], m["profit_factor"], m["max_drawdown_pct"], m["annualized_turnover"], m["breakeven_cost_bps"], sr2, stability, f"Simulated on {contract.contract_id}; 2xCostSR={sr2:.2f}.", srd, m["cvar_99_pct"], int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
+            res = dc_replace(res, **provenance_kw)
             self.registry.record_trial(res, params, net_ret, trial_number=trial_num)
             return res
         except Exception as exc:

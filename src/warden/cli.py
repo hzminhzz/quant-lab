@@ -14,10 +14,13 @@ from pathlib import Path
 import numpy as np
 
 from warden import __version__
-from warden.audit import AUDIT_LOG, fingerprint as audit_fingerprint, record as audit_record
+from warden.audit import AUDIT_LOG
+from warden.audit import fingerprint as audit_fingerprint
+from warden.audit import record as audit_record
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
 from warden.policy import Decision, authorize
+from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner, load_module_from_path
 
@@ -54,6 +57,7 @@ def generate_manifest(repo_root: Path = Path(".")) -> str:
         sorted(repo.glob("src/warden/**/*.py"))
         + sorted(repo.glob("contracts/*.yaml"))
         + sorted(repo.glob("contracts/*.yml"))
+        + sorted(repo.glob("contracts/datasets/*.json"))
     )
     protected += [
         p for p in (
@@ -63,6 +67,8 @@ def generate_manifest(repo_root: Path = Path(".")) -> str:
             repo / "scripts" / "check_loc_budget.py",
             repo / "scripts" / "lock_holdout_permissions.sh",
             repo / "scripts" / "lock_governance_permissions.sh",
+            repo / "scripts" / "preflight_trust_boundary.py",
+            repo / "scripts" / "apply_trust_boundary.sh",
         ) if p.is_file()
     ]
     protected = list(dict.fromkeys(protected))
@@ -122,18 +128,19 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
     contract = runner.resolve_contract(cfg["contract_id"])
     mod = load_module_from_path(runner.repo_root / cfg["strategy_module"])
-    data_path = runner.repo_root / contract.exploratory_data_path
-    if not data_path.is_file():
-        data_path = runner.repo_root / "data" / "exploratory" / "crypto_perps_1h.parquet"
-    panel = pl.read_parquet(data_path)
+    dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
+    panel = pl.read_parquet(runner.repo_root / dataset.path)
     pipeline = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None) or (mod if hasattr(mod, "compute") else None)
     if not pipeline:
         print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
         return 1
     verify_prefix_invariance(pipeline, panel, contract)
     compute_and_cache_features(pipeline, panel, contract, registry=runner.registry)
-    res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel)}
-    print(json.dumps(res, indent=2) if args.json else "PASS: Prefix-invariance verified.")
+    res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),
+           "data_provenance": dataset.provenance, "market_eligible": dataset.eligible_market,
+           "provenance_reason": dataset.reason}
+    print(json.dumps(res, indent=2) if args.json else
+          f"PASS: Prefix-invariance verified. provenance={dataset.provenance} market_eligible={dataset.eligible_market}")
     return 0
 
 
@@ -141,7 +148,14 @@ def cmd_screen(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     if not check_worktree():
         sys.exit(2)
     report = runner.run_stage1_screen(Path(args.spec_yaml))
-    print(canonical_json(report.to_dict()) if args.json else f"Screen Stage 1 complete: Family={report.strategy_family}, Passed={report.passed}, Notes={report.notes}")
+    import yaml
+    contract = runner.resolve_contract(yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))["contract_id"])
+    dataset = resolve_dataset(contract, runner.repo_root)
+    payload = {**report.to_dict(), "data_provenance": dataset.provenance,
+               "market_eligible": dataset.eligible_market, "provenance_reason": dataset.reason}
+    print(canonical_json(payload) if args.json else
+          f"Screen Stage 1 complete: Family={report.strategy_family}, Passed={report.passed}, "
+          f"MarketEligible={dataset.eligible_market}, Notes={report.notes}")
     return 0 if report.passed else 1
 
 

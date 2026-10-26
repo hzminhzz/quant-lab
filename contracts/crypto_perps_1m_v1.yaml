@@ -19,3 +19,4 @@ slippage_bps: 2.0
 funding_bps_per_8h: 1.0
 min_expected_move_to_cost_ratio: 2.5
 data_snapshot_sha256: 623f2b1f9302ff85cae2c491048c166e54d7f9db691afde4e01c8d4237b20a03
+data_provenance: verified_market

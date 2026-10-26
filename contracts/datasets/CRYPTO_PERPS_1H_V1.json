@@ -1,0 +1,11 @@
+{
+  "contract_id": "CRYPTO_PERPS_1H_V1",
+  "path": "data/exploratory/crypto_perps_1h.parquet",
+  "sha256": "ab2d51d2134719ccb40174db4d007ab1fbb90baf012f8336488828aa0a356ae6",
+  "provenance": "verified_market",
+  "source": "Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store) via scripts/salvage_crypto.py and scripts/salvage_multi_asset.py",
+  "pipeline": "scripts/salvage_crypto.py",
+  "recorded_at": "2026-10-26T08:11:22+00:00",
+  "recorded_by": "agent:issue-4-ticket-01",
+  "attestation": "Provenance is declared by the salvage pipeline that produced this file; the digest is verified independently against this manifest and the contract pin."
+}

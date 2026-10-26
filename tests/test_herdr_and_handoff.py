@@ -48,29 +48,27 @@ fi
     assert "MOCK_HERDR: pane run w1:p2 uv run warden status" in proc_herdr.stdout
 
 
-def test_audit_check_evaluates_all_six_checks_on_candidate() -> None:
-    # Make sure manifest and worktree check are clean
+def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001() -> None:
+    """Issue #4 tickets 02/03: historical checks may pass, effective verdict may not approve."""
     generate_manifest()
     assert check_worktree() is True
 
-    # Run audit-check via CLI on RUN-ML-001
     cmd = [sys.executable, "-m", "warden.cli", "audit-check", "--run-id", "RUN-ML-001", "--json"]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    assert proc.returncode == 0, f"Audit check failed: {proc.stderr or proc.stdout}"
+    assert proc.returncode == 1, f"RUN-ML-001 must not be approved: {proc.stderr or proc.stdout}"
 
-    import json
     data = json.loads(proc.stdout)
     assert data["run_id"] == "RUN-ML-001"
-    assert data["audit_passed"] is True
-    checks = data["checks"]
-    assert len(checks) == 6
-    for c_name, c_res in checks.items():
-        assert c_res["passed"] is True, f"Check '{c_name}' failed for RUN-ML-001"
+    assert data["historical_checks_passed"] is True
+    assert len(data["checks"]) == 6
+    assert data["audit_passed"] is False
+    assert data["verdict"] == "REVOKED_INELIGIBLE"
+    assert data["effective_eligibility"]["eligible"] is False
 
-    # Verify report written
     report = Path(".workspace/hypotheses/AUDIT_RUN-ML-001.md")
     assert report.is_file()
-    assert "Verdict: APPROVED" in report.read_text()
+    assert "Verdict: REVOKED_INELIGIBLE" in report.read_text()
+    assert "Verdict: APPROVED" not in report.read_text()
 
 
 def test_audit_check_planted_violation_fails_closed(tmp_path: Path) -> None:

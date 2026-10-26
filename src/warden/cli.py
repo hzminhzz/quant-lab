@@ -110,13 +110,22 @@ def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     with runner.registry._connect() as conn:
         n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
         n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
-        rows = conn.execute("SELECT run_id, hypothesis_id, strategy_family, net_sharpe, deflated_sharpe_prob, verdict FROM trials ORDER BY created_at DESC LIMIT 5").fetchall()
-    recent = [{"run_id": r[0], "hypothesis_id": r[1], "strategy_family": r[2], "net_sharpe": float(r[3]), "deflated_sharpe_prob": float(r[4]), "verdict": r[5]} for r in rows]
-    data = {"warden_version": __version__, "hypotheses_count": n_hyp, "trials_count": n_trials, "recent_trials": recent}
+        rows = conn.execute("SELECT run_id, hypothesis_id, strategy_family, net_sharpe, deflated_sharpe_prob, verdict, data_provenance FROM trials ORDER BY created_at DESC LIMIT 5").fetchall()
+    recent = []
+    for r in rows:
+        elig = runner.registry.effective_eligibility(r[0])
+        recent.append({"run_id": r[0], "hypothesis_id": r[1], "strategy_family": r[2], "net_sharpe": float(r[3]),
+                       "deflated_sharpe_prob": float(r[4]), "verdict": r[5], "data_provenance": r[6],
+                       "eligible": elig["eligible"], "eligibility_reason": elig["reason"]})
+    data = {"warden_version": __version__, "hypotheses_count": n_hyp, "trials_count": n_trials,
+            "recent_trials": recent}
     if args.json:
         print(json.dumps(envelope(True, data, "warden.status")))
     else:
-        print(f"Warden v{__version__} | Hypotheses: {n_hyp} | Trials: {n_trials}\n" + "\n".join(f"  {t['run_id']} ({t['strategy_family']}): NetSR={t['net_sharpe']:.2f}, DSR={t['deflated_sharpe_prob']:.2f} -> {t['verdict']}" for t in recent))
+        print(f"Warden v{__version__} | Hypotheses: {n_hyp} | Trials: {n_trials}\n" + "\n".join(
+            f"  {t['run_id']} ({t['strategy_family']}): NetSR={t['net_sharpe']:.2f}, "
+            f"DSR={t['deflated_sharpe_prob']:.2f} -> {t['verdict']} | eligible={t['eligible']} "
+            f"({t['eligibility_reason']})" for t in recent))
     return 0
 
 
@@ -186,6 +195,7 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         has_causal_proof = f_row is not None
 
     contract = runner.resolve_contract(trial["contract_id"])
+    eligibility = runner.registry.effective_eligibility(args.run_id)
     r_path = runner.repo_root / trial.get("returns_parquet_path", "")
     trimmed_ok = False
     if r_path.is_file():
@@ -203,19 +213,21 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > 0.50) and (trial.get("delay_plus1_sharpe", -1.0) > 0.0),
         "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= 0.80),
     }
-    passed = all(c.values())
-    import time
-    with runner.registry._connect() as conn:
-        conn.execute(
-            "INSERT OR REPLACE INTO audit_reports (run_id, contract_id, verdict, checks_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (args.run_id, trial["contract_id"], "APPROVED" if passed else "REJECTED", canonical_json(c), time.time()),
-        )
-    audit = {"run_id": args.run_id, "checks": {k: {"passed": v} for k, v in c.items()}, "audit_passed": passed}
+    historical_passed = all(c.values())
+    approved = historical_passed and eligibility["eligible"]
+    verdict = "APPROVED" if approved else ("REVOKED_INELIGIBLE" if historical_passed else "REJECTED")
+    runner.registry.record_audit(args.run_id, trial["contract_id"], verdict, c, eligibility["reason"])
+    audit = {"run_id": args.run_id, "checks": {k: {"passed": v} for k, v in c.items()},
+             "audit_passed": approved, "historical_checks_passed": historical_passed, "verdict": verdict,
+             "effective_eligibility": eligibility}
     out = runner.repo_root / ".workspace" / "hypotheses" / f"AUDIT_{args.run_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(f"# 6-Check Audit: {args.run_id}\nVerdict: {'APPROVED' if passed else 'REJECTED'}\n" + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n")
-    print(json.dumps(audit, indent=2) if args.json else f"Audit for {args.run_id}: {'PASS' if passed else 'FAIL'}\nReport: {out}")
-    return 0 if passed else 1
+    out.write_text(f"# 6-Check Audit: {args.run_id}\nVerdict: {verdict}\n"
+                   f"Effective eligibility: {eligibility['eligible']} ({eligibility['reason']})\n"
+                   + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n")
+    print(json.dumps(audit, indent=2) if args.json else
+          f"Audit for {args.run_id}: {verdict} (eligible={eligibility['eligible']}: {eligibility['reason']})\nReport: {out}")
+    return 0 if approved else 1
 
 
 def _contract_pins(repo_root: Path) -> dict[str, str]:
@@ -236,6 +248,10 @@ def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
         n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
         n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
     pins = _contract_pins(repo_root)
+    with registry._connect() as conn:
+        candidates = [r[0] for r in conn.execute(
+            "SELECT run_id FROM trials WHERE verdict='CANDIDATE_FOR_QUALIFICATION'")]
+    eligibility = {r: registry.effective_eligibility(r) for r in candidates}
     trace = [
         {"op": "git_head", "expect": head},
         {"op": "registry_count", "table": "trials", "expect": str(n_trials)},
@@ -248,10 +264,14 @@ def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
             {"source": "registry.db", "kind": "trials", "value": n_trials, "observed_at": now},
             {"source": "registry.db", "kind": "hypotheses", "value": n_hyp, "observed_at": now},
             {"source": "contracts", "kind": "pinned_snapshot_sha256", "value": pins, "observed_at": now},
+        {"source": "registry.db", "kind": "effective_eligibility",
+         "value": {r: {"eligible": e["eligible"], "reason": e["reason"], "provenance": e["data_provenance"]}
+                   for r, e in eligibility.items()}, "observed_at": now},
             {"source": "audit", "kind": "toolcalls", "value": audit_fingerprint(repo_root / AUDIT_LOG), "observed_at": now},
         ],
         "tool_trace": trace,
-        "quality_gates": {"worktree_integrity": check_worktree(repo_root), "contracts_pinned": all(pins.values())},
+        "quality_gates": {"worktree_integrity": check_worktree(repo_root), "contracts_pinned": all(pins.values()),
+                          "eligibility_surface_reachable": all("reason" in e for e in eligibility.values())},
     }
 
 

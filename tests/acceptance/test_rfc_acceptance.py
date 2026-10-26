@@ -144,7 +144,11 @@ def test_4_holdout_and_governance_isolation(tmp_path: Path) -> None:
     reg.register_hypothesis(hyp)
 
     from warden.contracts import ExperimentResult
-    res = ExperimentResult("RUN-QUAL-001", hyp.hypothesis_id, contract.contract_id, "Strat", "rules_ts", "cfg", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 2.0, 1.5, 0.95, 0.5, 1, 1.0, None, None, 0.5, 1.3, 3.0, 50.0, 15.0, 1.0, 1.0, "notes")
+    res = ExperimentResult("RUN-QUAL-001", hyp.hypothesis_id, contract.contract_id, "Strat", "rules_ts", "cfg",
+                           "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 2.0, 1.5, 0.95, 0.5, 1, 1.0,
+                           None, None, 0.5, 1.3, 3.0, 50.0, 15.0, 1.0, 1.0, "notes",
+                           data_provenance="verified_market",
+                           data_snapshot_sha256=contract.data_snapshot_sha256)
     reg.record_trial(res, {}, np.linspace(0.01, -0.005, 100))
 
     with reg._connect() as conn, pytest.raises(sqlite3.IntegrityError, match="Append-only violation"):

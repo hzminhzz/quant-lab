@@ -185,7 +185,7 @@ def test_zero_and_negative_validation_sharpe_cannot_be_qualified(tmp_path: Path,
     hyp = HypothesisSpec("HYP-ZERO", clean_contract.contract_id, "T", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit")
     reg.register_hypothesis(hyp)
 
-    r_zero = ExperimentResult("RUN-ZERO", hyp.hypothesis_id, clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 0.0, 0.0, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "")
+    r_zero = ExperimentResult("RUN-ZERO", hyp.hypothesis_id, clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 0.0, 0.0, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market")
     reg.record_trial(r_zero, {}, np.zeros(100))
 
     holdout_p = tmp_path / "holdout.parquet"
@@ -208,7 +208,7 @@ def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(tmp_path: Path, cle
     reg.register_hypothesis(h_child)
     reg.register_hypothesis(h_grand)
 
-    r_root = ExperimentResult("RUN-RT-01", "HYP-RT", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "")
+    r_root = ExperimentResult("RUN-RT-01", "HYP-RT", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market")
     reg.record_trial(r_root, {}, np.zeros(100))
 
     holdout_p = tmp_path / "holdout.parquet"
@@ -219,7 +219,7 @@ def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(tmp_path: Path, cle
     assert q1["lineage_id"] == "HYP-RT"
 
     # Attempting to unseal grandchild of the same root lineage must fail closed
-    r_grand = ExperimentResult("RUN-GD-01", "HYP-GD", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "")
+    r_grand = ExperimentResult("RUN-GD-01", "HYP-GD", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market")
     reg.record_trial(r_grand, {}, np.zeros(100))
 
     with pytest.raises(HoldoutAlreadyUnsealedError, match="Lineage 'HYP-RT' was already unsealed"):

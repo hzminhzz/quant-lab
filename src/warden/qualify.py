@@ -10,6 +10,7 @@ from typing import Any
 import polars as pl
 import yaml
 
+from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
     calculate_metrics_from_returns,
@@ -44,6 +45,10 @@ def qualify_candidate(
             raise ValueError(f"Run ID '{run_id}' is quarantined ({q_entry[0]}) and cannot be qualified on holdout.")
         if trial.get("synthetic") in (1, 1.0, "1", True):
             raise ValueError(f"Run ID '{run_id}' was generated on synthetic benchmark data and cannot be qualified on holdout.")
+        eligibility = reg.effective_eligibility(run_id)
+        if not eligibility["eligible"]:
+            raise ValueError(
+                f"Run ID '{run_id}' is not market-eligible for holdout qualification: {eligibility['reason']}")
         if trial.get("verdict") != "CANDIDATE_FOR_QUALIFICATION":
             raise ValueError(f"Run ID '{run_id}' has verdict '{trial.get('verdict')}'; only CANDIDATE_FOR_QUALIFICATION trials can be qualified.")
         val_sr = float(trial.get("net_sharpe", 0.0))
@@ -62,6 +67,11 @@ def qualify_candidate(
             raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row[1]}'.")
 
     contract = runner.resolve_contract(cid)
+    holdout_override = holdout_override_path is not None
+    if not holdout_override:
+        holdout_res = resolve_dataset(contract, runner.repo_root, role="holdout")
+        if not holdout_res.eligible_market:
+            raise ValueError(f"Holdout dataset for '{cid}' is not market-eligible: {holdout_res.reason}")
     h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
     if not h_path.is_file():
         raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")
@@ -108,4 +118,6 @@ def qualify_candidate(
                      (qual_id, run_id, cid, hyp_id, lineage_id, m["gross_sharpe"], h_net_sr, m["max_drawdown_pct"], ratio, "HUMAN_OPERATOR", time.time()))
         conn.execute("UPDATE hypotheses SET status = ? WHERE hypothesis_id = ?", (verdict, hyp_id))
 
-    return {"qual_id": qual_id, "run_id": run_id, "lineage_id": lineage_id, "holdout_net_sharpe": h_net_sr, "val_to_holdout_ratio": ratio, "promoted": promoted, "verdict": verdict}
+    return {"qual_id": qual_id, "run_id": run_id, "lineage_id": lineage_id, "holdout_net_sharpe": h_net_sr,
+            "val_to_holdout_ratio": ratio, "promoted": promoted, "verdict": verdict,
+            "holdout_override": holdout_override, "data_provenance": eligibility["data_provenance"]}

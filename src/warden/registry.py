@@ -22,6 +22,11 @@ from warden.contracts import (
     valid_id,
 )
 
+BLOCKING = frozenset({"QUARANTINED_SYNTHETIC", "QUARANTINED", "REVOKED", "SUPERSEDED"})
+MARKET = "verified_market"
+LEGACY_RUNS = ("RUN-RULES-001", "RUN-RULES-002", "RUN-RULES-003", "RUN-ML-001", "RUN-ML-002")
+LEGACY_REASON = "Synthetic benchmark evidence; not evaluated on verified exploratory market data"
+
 
 class HypothesisBudgetExhaustedError(ValueError):
     pass
@@ -75,8 +80,16 @@ def compute_effective_trials_and_dsr(candidate_returns, historical_return_stream
 
 
 def _columns(cls):
-    return ",".join(f"{f.name} {'TEXT' if f.type in ('str', str) or 'datetime' in str(f.type) else 'REAL'}"
+    return ",".join(f"{f.name} {'TEXT' if 'str' in str(f.type) or 'datetime' in str(f.type) else 'REAL'}"
                     for f in fields(cls))
+
+
+def _ensure_columns(conn, table, cls):
+    existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    for f in fields(cls):
+        if f.name not in existing:
+            kind = "TEXT" if ("str" in str(f.type) or "datetime" in str(f.type)) else "REAL"
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {f.name} {kind}")
 
 
 def _insert(conn, table, values):
@@ -97,8 +110,16 @@ class ResearchRegistry:
                 CREATE TABLE IF NOT EXISTS qualifications (qual_id TEXT PRIMARY KEY,run_id TEXT,contract_id TEXT,hypothesis_id TEXT,lineage_id TEXT UNIQUE,holdout_gross_sharpe REAL,holdout_net_sharpe REAL,holdout_max_dd_pct REAL,val_to_holdout_sharpe_ratio REAL,approved_by_human TEXT,qualified_at REAL);
                 CREATE TABLE IF NOT EXISTS trial_quarantine (run_id TEXT PRIMARY KEY,reason TEXT,quarantined_at REAL);
                 CREATE TABLE IF NOT EXISTS audit_reports (run_id TEXT PRIMARY KEY,contract_id TEXT,verdict TEXT,checks_json TEXT,created_at REAL);
+                CREATE TABLE IF NOT EXISTS trial_dispositions (disposition_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,disposition TEXT NOT NULL,reason TEXT NOT NULL,attributed_to TEXT NOT NULL,created_at REAL NOT NULL,contract_id TEXT DEFAULT '');
+                CREATE TABLE IF NOT EXISTS audit_evidence (audit_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,contract_id TEXT DEFAULT '',verdict TEXT NOT NULL,checks_json TEXT NOT NULL DEFAULT '{{}}',reason TEXT NOT NULL DEFAULT '',created_at REAL NOT NULL);
                 CREATE TRIGGER IF NOT EXISTS trials_no_update BEFORE UPDATE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS trials_no_delete BEFORE DELETE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS audit_reports_no_update BEFORE UPDATE ON audit_reports BEGIN SELECT RAISE(ABORT,'Append-only violation: audit evidence is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS audit_reports_no_delete BEFORE DELETE ON audit_reports BEGIN SELECT RAISE(ABORT,'Append-only violation: audit evidence is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS audit_evidence_no_update BEFORE UPDATE ON audit_evidence BEGIN SELECT RAISE(ABORT,'Append-only violation: audit evidence is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS audit_evidence_no_delete BEFORE DELETE ON audit_evidence BEGIN SELECT RAISE(ABORT,'Append-only violation: audit evidence is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS dispositions_no_update BEFORE UPDATE ON trial_dispositions BEGIN SELECT RAISE(ABORT,'Append-only violation: dispositions are immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS dispositions_no_delete BEFORE DELETE ON trial_dispositions BEGIN SELECT RAISE(ABORT,'Append-only violation: dispositions are immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS hypotheses_no_budget_reset BEFORE UPDATE ON hypotheses
                 BEGIN
                     SELECT RAISE(ABORT, 'Governance violation: trials_used cannot be decreased')
@@ -107,22 +128,21 @@ class ResearchRegistry:
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
             """)
-            existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(trials)").fetchall()}
-            for c_name, c_type in [
-                ("synthetic", "REAL DEFAULT 0"),
-                ("data_snapshot_sha256", "TEXT DEFAULT ''"),
-                ("strategy_module", "TEXT DEFAULT ''"),
-                ("model_type", "TEXT DEFAULT ''"),
-                ("returns_sha256", "TEXT DEFAULT ''"),
-            ]:
-                if c_name not in existing_cols:
-                    conn.execute(f"ALTER TABLE trials ADD COLUMN {c_name} {c_type}")
-            legacy_runs = ["RUN-RULES-001", "RUN-RULES-002", "RUN-RULES-003", "RUN-ML-001", "RUN-ML-002"]
-            for r_id in legacy_runs:
-                conn.execute(
-                    "INSERT OR IGNORE INTO trial_quarantine (run_id, reason, quarantined_at) VALUES (?, ?, ?)",
-                    (r_id, "Synthetic benchmark evidence; not evaluated on verified exploratory market data", time.time())
-                )
+            for table, cls in (("contracts", EvaluationContract), ("hypotheses", HypothesisSpec),
+                               ("trials", ExperimentResult)):
+                _ensure_columns(conn, table, cls)
+            for r_id in LEGACY_RUNS:
+                conn.execute("INSERT OR IGNORE INTO trial_quarantine (run_id, reason, quarantined_at) VALUES (?, ?, ?)",
+                             (r_id, LEGACY_REASON, time.time()))
+            # Ticket 03: attributed, append-only superseding decision for the required regression case.
+            legacy = conn.execute("SELECT contract_id, created_at FROM trials WHERE run_id='RUN-ML-001'").fetchone()
+            if legacy:
+                q = conn.execute("SELECT quarantined_at FROM trial_quarantine WHERE run_id='RUN-ML-001'").fetchone()
+                self._append_disposition(
+                    conn, "RUN-ML-001", "QUARANTINED_SYNTHETIC",
+                    "Legacy trial recorded synthetic=0 with an empty data_snapshot_sha256, but the registry "
+                    "quarantines it as synthetic benchmark evidence; a matching digest cannot prove market origin.",
+                    "warden:migration:issue-4-03", legacy[0], (q[0] if q else legacy[1]) or time.time())
     @contextmanager
     def _connect(self):
         conn = sqlite3.connect(self.db_path, timeout=30)
@@ -138,6 +158,70 @@ class ResearchRegistry:
                 yield conn
         finally:
             conn.close()
+
+    # --- dispositions, audit evidence, effective eligibility --------------
+
+    @staticmethod
+    def _append_disposition(conn, run_id, disposition, reason, attributed_to, contract_id="", created_at=None):
+        did = "DISP-" + hashlib.sha256(canonical_json([run_id, disposition, reason, attributed_to]).encode()).hexdigest()[:24]
+        conn.execute("INSERT OR IGNORE INTO trial_dispositions VALUES (?,?,?,?,?,?,?)",
+                     (did, run_id, disposition, reason, attributed_to, float(created_at or time.time()), contract_id))
+        return did
+
+    def record_disposition(self, run_id, disposition, reason, attributed_to):
+        """Append a superseding/quarantine decision; original trial bytes never change."""
+        if disposition not in BLOCKING and disposition != "NOTE":
+            raise ValueError(f"unknown disposition '{disposition}'")
+        if len(reason.strip()) < 20 or not attributed_to.strip():
+            raise ValueError("a disposition needs a substantive reason and an attribution")
+        with self._connect() as conn:
+            row = conn.execute("SELECT contract_id FROM trials WHERE run_id=?", (run_id,)).fetchone()
+            if not row:
+                raise ValueError(f"Run ID '{run_id}' not found in registry.")
+            return self._append_disposition(conn, run_id, disposition, reason.strip(), attributed_to.strip(), row[0])
+
+    def effective_eligibility(self, run_id: str) -> dict:
+        """One promotion-eligibility decision, independent of historical verdict fields."""
+        with self._connect() as conn:
+            t = conn.execute("SELECT * FROM trials WHERE run_id=?", (run_id,)).fetchone()
+            if not t:
+                return {"run_id": run_id, "eligible": False, "reason": "unknown run_id",
+                        "historical_verdict": None, "data_provenance": "unknown", "dispositions": []}
+            trial = dict(t)
+            dispositions = [dict(r) for r in conn.execute(
+                "SELECT disposition,reason,attributed_to,created_at FROM trial_dispositions WHERE run_id=? ORDER BY created_at",
+                (run_id,))]
+            quarantine = [dict(r) for r in conn.execute(
+                "SELECT reason,quarantined_at FROM trial_quarantine WHERE run_id=?", (run_id,))]
+            audit = conn.execute("SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
+                                 (run_id,)).fetchone()
+        blocking = [d["disposition"] for d in dispositions if d["disposition"] in BLOCKING]
+        if quarantine:
+            blocking.append("QUARANTINED")
+        provenance = trial.get("data_provenance") or "unknown"
+        if provenance == "unknown" and trial.get("synthetic") in (1, 1.0, True):
+            provenance = "synthetic"
+        checks = [
+            (not blocking, f"blocking disposition(s): {', '.join(sorted(set(blocking)))}" if blocking else ""),
+            (provenance == MARKET, f"provenance '{provenance}' is not verified market data"),
+            (bool(trial.get("data_snapshot_sha256")), "trial has no pinned dataset digest"),
+            (trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
+             f"historical verdict {trial.get('verdict')} is not candidate-for-qualification"),
+        ]
+        reason = next((r for ok, r in checks if not ok), "verified market candidate evidence")
+        return {"run_id": run_id, "eligible": all(ok for ok, _ in checks), "reason": reason,
+                "historical_verdict": trial.get("verdict"),
+                "historical_audit_verdict": audit[0] if audit else None,
+                "data_provenance": provenance, "contract_id": trial.get("contract_id"),
+                "dispositions": dispositions}
+
+    def record_audit(self, run_id, contract_id, verdict, checks, reason=""):
+        payload = canonical_json([run_id, verdict, checks, reason])
+        aid = "AUD-" + hashlib.sha256(payload.encode()).hexdigest()[:24]
+        with self._connect() as conn:
+            conn.execute("INSERT OR IGNORE INTO audit_evidence VALUES (?,?,?,?,?,?,?)",
+                         (aid, run_id, contract_id, verdict, canonical_json(checks), reason, time.time()))
+        return aid
 
     def register_contract(self, contract):
         with self._connect() as conn:

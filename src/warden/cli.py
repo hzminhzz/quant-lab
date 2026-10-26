@@ -14,10 +14,10 @@ from pathlib import Path
 import numpy as np
 
 from warden import __version__
-from warden.audit import record as audit_record
+from warden.audit import AUDIT_LOG, fingerprint as audit_fingerprint, record as audit_record
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
-from warden.policy import authorize
+from warden.policy import Decision, authorize
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner, load_module_from_path
 
@@ -234,6 +234,7 @@ def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
             {"source": "registry.db", "kind": "trials", "value": n_trials, "observed_at": now},
             {"source": "registry.db", "kind": "hypotheses", "value": n_hyp, "observed_at": now},
             {"source": "contracts", "kind": "pinned_snapshot_sha256", "value": pins, "observed_at": now},
+            {"source": "audit", "kind": "toolcalls", "value": audit_fingerprint(repo_root / AUDIT_LOG), "observed_at": now},
         ],
         "tool_trace": trace,
         "quality_gates": {"worktree_integrity": check_worktree(repo_root), "contracts_pinned": all(pins.values())},
@@ -373,7 +374,7 @@ class _CountingWriter:
         self.stream, self.count = stream, 0
 
     def write(self, text):
-        self.count += len(text)
+        self.count += len(text.encode("utf-8", "replace")) if isinstance(text, str) else len(text)
         return self.stream.write(text)
 
     def flush(self):
@@ -386,7 +387,18 @@ class _CountingWriter:
 def main(argv: list[str] | None = None) -> int:
     import time
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            # argparse rejects before dispatch; still leave an audit trail for the attempt.
+            try:
+                reason = Decision(False, "parse error: unparsed or invalid arguments")
+                audit_record(Path("."), None, argv or sys.argv[1:], reason,
+                             exc.code if isinstance(exc.code, int) else 2, 0.0, 0)
+            except OSError:
+                pass
+        raise
     if not args.subcommand:
         parser.print_help()
         return 0

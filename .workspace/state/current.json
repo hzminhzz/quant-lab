@@ -1,26 +1,26 @@
 {
   "schema": 1,
-  "created_at": "2026-10-26T03:43:59+00:00",
-  "ticket": "TKT-10",
-  "notes": "Testing drift",
+  "created_at": "2026-10-26T03:49:14+00:00",
+  "ticket": "RISK-FIX",
+  "notes": "Audit rotation+fingerprint, UTF-8 byte accounting, parse-failure audit",
   "evidence": [
     {
       "source": "git",
       "kind": "head",
-      "value": "7e84cad",
-      "observed_at": "2026-10-26T03:43:59+00:00"
+      "value": "0862695",
+      "observed_at": "2026-10-26T03:49:14+00:00"
     },
     {
       "source": "registry.db",
       "kind": "trials",
       "value": 13,
-      "observed_at": "2026-10-26T03:43:59+00:00"
+      "observed_at": "2026-10-26T03:49:14+00:00"
     },
     {
       "source": "registry.db",
       "kind": "hypotheses",
       "value": 6,
-      "observed_at": "2026-10-26T03:43:59+00:00"
+      "observed_at": "2026-10-26T03:49:14+00:00"
     },
     {
       "source": "contracts",
@@ -29,19 +29,29 @@
         "COMMODITIES_1M_V1": "c9f8d1fe905781de02d764e64aa511596672d1ce496cea3e9ef23a068800eb91",
         "CRYPTO_PERPS_1H_V1": "ab2d51d2134719ccb40174db4d007ab1fbb90baf012f8336488828aa0a356ae6",
         "CRYPTO_PERPS_1M_V1": "623f2b1f9302ff85cae2c491048c166e54d7f9db691afde4e01c8d4237b20a03",
+        "CRYPTO_PERPS_TOP100_1H_V1": "d6cfbdbfbb2ad76ccc52e110b25148a4856913ca1165b959cca3ecce4f87d447",
         "FX_MAJORS_15M_V1": "f6b9d792d3affdfa74679fbcdad5325b6f7696f86d300a873dd4bcca15c65622",
         "INDICES_1H_V1": "4b9fbf54fb6b8aeab2ac5c67de438483599c512b1c54fb7bc492356047b7aa6d",
         "INDICES_1H_V2": "03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55",
         "INDICES_1M_V1": "72d9e52c1e7239106550f6769e371dd00329320a18a763934eaae0c700aa58ce",
         "METALS_1M_V1": "5a23cd4aa4524b2c814c0c8198f54a71b6c87c02fd58c85278b837458ca2ac0c"
       },
-      "observed_at": "2026-10-26T03:43:59+00:00"
+      "observed_at": "2026-10-26T03:49:14+00:00"
+    },
+    {
+      "source": "audit",
+      "kind": "toolcalls",
+      "value": {
+        "lines": 127,
+        "sha256": "fedc301bf1370d8d116386a773ec9e96c1837bc8b53abf9144ae529af980eca4"
+      },
+      "observed_at": "2026-10-26T03:49:14+00:00"
     }
   ],
   "tool_trace": [
     {
       "op": "git_head",
-      "expect": "7e84cad"
+      "expect": "0862695"
     },
     {
       "op": "registry_count",

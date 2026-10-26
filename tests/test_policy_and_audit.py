@@ -173,3 +173,61 @@ def test_internal_provenance_is_not_flagged():
 
     assert UNTRUSTED_SOURCE.search("https://quantifiedstrategies.substack.com/p/x")
     assert not UNTRUSTED_SOURCE.search("internal_research")
+
+
+# --- Residual-risk fixes: rotation, byte accounting, parse-failure audit ---------
+
+
+def test_audit_log_rotates_at_cap(tmp_path, monkeypatch):
+    from warden import audit as audit_mod
+
+    monkeypatch.setattr(audit_mod, "AUDIT_MAX_BYTES", 400)
+    from warden.policy import authorize as az
+
+    for _ in range(6):
+        audit_mod.record(tmp_path, "status", ["status"], az("status"), 0, 1.0, 1)
+    log = tmp_path / audit_mod.AUDIT_LOG
+    rotated = log.with_suffix(".jsonl.1")
+    assert rotated.is_file() and rotated.stat().st_size >= 400
+    # rotation happens on the next write after the cap is crossed, so the live file holds
+    # at most one line beyond the cap
+    assert audit_mod.fingerprint(log)["lines"] <= 2, "active log must restart after rotation"
+    assert log.stat().st_size < 2 * 400
+
+
+def test_audit_fingerprint_detects_loss(tmp_path):
+    from warden import audit as audit_mod
+    from warden.policy import authorize as az
+
+    audit_mod.record(tmp_path, "status", ["status"], az("status"), 0, 1.0, 1)
+    log = tmp_path / audit_mod.AUDIT_LOG
+    first = audit_mod.fingerprint(log)
+    assert first["lines"] == 1 and len(first["sha256"]) == 64
+    audit_mod.record(tmp_path, "status", ["status"], az("status"), 0, 1.0, 1)
+    assert audit_mod.fingerprint(log)["sha256"] != first["sha256"]
+
+
+def test_result_bytes_counts_utf8_bytes():
+    from warden.cli import _CountingWriter
+
+    class _Sink:
+        def write(self, s):
+            return len(s)
+
+        def flush(self):
+            pass
+
+    w = _CountingWriter(_Sink())
+    w.write("é")  # 1 char, 2 UTF-8 bytes
+    assert w.count == 2
+
+
+def test_parse_error_is_audited():
+    before = len(Path(AUDIT_LOG).read_text().splitlines())
+    out = subprocess.run([sys.executable, "-m", "warden.cli", "shell", "--json"], capture_output=True, text=True, check=False)
+    assert out.returncode == 2
+    lines = Path(AUDIT_LOG).read_text().splitlines()
+    assert len(lines) == before + 1
+    entry = json.loads(lines[-1])
+    assert entry["cmd"] is None and entry["allow"] is False
+    assert entry["policy"].startswith("parse error")

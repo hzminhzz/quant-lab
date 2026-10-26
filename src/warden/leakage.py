@@ -83,6 +83,12 @@ def call_ml4t_compute_features(data: pl.DataFrame | pl.LazyFrame, features: list
 
 
 def verify_prefix_invariance(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract, cut_idx: int | None = None) -> None:
+    """Sampled leakage detection at 3 cut points (default 1/4, 1/2, 3/4), tolerance 1e-10.
+
+    This is adversarial sampling, not a formal proof: a feature that only differs
+    after the last cut point is not detected. Deterministic fixtures cover boundary,
+    global-normalisation, future-ratio and null-mask classes; new classes need new tests.
+    """
     timestamps = sorted(bars_df["timestamp"].unique().to_list())
     if len(timestamps) < 20:
         raise ValueError("Insufficient distinct timestamps")

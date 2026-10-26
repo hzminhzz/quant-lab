@@ -27,6 +27,7 @@ from warden.contracts import (
     canonical_json,
     load_contract,
 )
+from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.gates import (
     evaluate_stage0_feasibility,
     evaluate_stage1_cross_sectional_ml,
@@ -325,6 +326,8 @@ class ExperimentRunner:
                                       funding_mask=fund_mask, quote_returns=ret_p)
             net_ret, gross_ret, turnover = sim1["net_returns"], sim1["gross_returns"], sim1["turnover"]
             m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)
+            m.update(compute_trade_metrics(sim1["positions"], net_ret, ret_p["long"][v_slice],
+                                           contract.bars_per_year, contract.total_one_way_cost_decimal()))
 
             s1_rules = evaluate_stage1_rules_ts(net_ret.tolist(), gross_ret.tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist()) if family == "rules_ts" else None
 
@@ -366,6 +369,9 @@ class ExperimentRunner:
                     "excluded_streams": hist["excluded"]}
             if s1_rules is not None:
                 diag["stage1_rules"] = {"metrics": s1_rules.metrics, "notes": s1_rules.notes}
+            diag["metrics"] = m
+            diag["timing_skill"] = compute_shift_skill_pvalue(sim1["positions"], ret_p["long"][v_slice],
+                                                              contract.label_horizon_bars)
             min_sr = 1.2 if family == "cross_sectional_ml" else 1.0
             ic_ok = (ic_hac_t >= 2.0) if family == "cross_sectional_ml" and ic_hac_t is not None else True
             rules_ok = s1_rules.passed if s1_rules is not None else True

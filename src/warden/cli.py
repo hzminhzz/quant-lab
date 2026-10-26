@@ -5,7 +5,9 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
+import hmac
 import json
+import os
 import re
 import subprocess
 import sys
@@ -75,6 +77,27 @@ def generate_manifest(repo_root: Path = Path(".")) -> str:
     content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected) + "\n"
     (repo / MANIFEST_FILE).write_text(content, encoding="utf-8")
     return content
+
+
+def manifest_approval_state(repo_root: Path = Path(".")) -> dict:
+    """Independent approval state. A self-written checksum is integrity, never authority."""
+    repo = Path(repo_root)
+    manifest, sig = repo / MANIFEST_FILE, repo / (MANIFEST_FILE + ".sig")
+    meta = repo / (MANIFEST_FILE + ".meta.json")
+    state = {"signed": False, "verified": False, "mode": "unsigned", "approver": ""}
+    if meta.is_file():
+        state.update({k: v for k, v in json.loads(meta.read_text(encoding="utf-8")).items()
+                      if k in {"mode", "approver", "approved_at"}})
+    if not sig.is_file():
+        return state
+    state["signed"] = True
+    key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
+    if not key:
+        state["verified"] = None  # cannot verify without the human-held key
+        return state
+    digest = hmac.new(key.encode(), manifest.read_bytes(), hashlib.sha256).hexdigest()
+    state["verified"] = hmac.compare_digest(digest, sig.read_text(encoding="utf-8").strip())
+    return state
 
 
 def check_worktree(repo_root: Path = Path(".")) -> bool:
@@ -379,12 +402,47 @@ def cmd_qualify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     return 0 if res["promoted"] else 1
 
 
+def _human_approved(args: argparse.Namespace) -> bool:
+    """Human-only gates need their explicit flag, or the human-held signing key."""
+    flags = {"qualify": "unseal_holdout", "generate-manifest": "human_approve_manifest"}
+    if getattr(args, flags.get(args.subcommand, ""), False):
+        return True
+    return args.subcommand == "generate-manifest" and bool(os.environ.get("WARDEN_HUMAN_SIGNING_KEY"))
+
+
+def cmd_generate_manifest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    """Refuse autonomous self-certification: a human key or an explicit human approval is required."""
+    key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
+    if key:
+        mode, approver = "hmac", "WARDEN_HUMAN_SIGNING_KEY"
+    elif getattr(args, "human_approve_manifest", False) and os.environ.get("WARDEN_NON_INTERACTIVE") != "1":
+        mode, approver = "interactive", "human-operator"
+    else:
+        print("REFUSED: manifest signing requires WARDEN_HUMAN_SIGNING_KEY or an interactive "
+              "--human-approve-manifest with WARDEN_NON_INTERACTIVE unset.", file=sys.stderr)
+        return 2
+    repo = runner.repo_root
+    content = generate_manifest(repo)
+    meta = {"mode": mode, "approver": approver,
+            "approved_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+            "manifest_sha256": hashlib.sha256(content.encode()).hexdigest()}
+    if mode == "hmac":
+        digest = hmac.new(key.encode(), content.encode(), hashlib.sha256).hexdigest()
+        (repo / (MANIFEST_FILE + ".sig")).write_text(digest + "\n", encoding="utf-8")
+    (repo / (MANIFEST_FILE + ".meta.json")).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"manifest": MANIFEST_FILE, **meta}) if args.json else
+          f"Manifest written and approved by {approver} (mode={mode}).")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="warden", description="Deterministic quantitative research harness.")
     p.add_argument("--version", action="version", version=f"warden {__version__}")
     s = p.add_subparsers(dest="subcommand")
     s.add_parser("status")
     s.add_parser("check-worktree")
+    gm = s.add_parser("generate-manifest")
+    gm.add_argument("--human-approve-manifest", action="store_true")
     s.add_parser("register-hypothesis").add_argument("path")
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     s.add_parser("audit-check").add_argument("--run-id", required=True)
@@ -445,8 +503,9 @@ def main(argv: list[str] | None = None) -> int:
         if not decision.allow:
             print(f"REFUSED: {decision.reason}", file=sys.stderr)
             code = 2
-        elif decision.approval_required and not getattr(args, "unseal_holdout", False):
-            print(f"REFUSED: {decision.reason}; pass --unseal-holdout and --human-confirm-unseal", file=sys.stderr)
+        elif decision.approval_required and not _human_approved(args):
+            print(f"REFUSED: {decision.reason}; pass the human-only flag for this subcommand "
+                  "(--unseal-holdout/--human-confirm-unseal or --human-approve-manifest)", file=sys.stderr)
             code = 2
         elif args.subcommand == "register-hypothesis":
             if not check_worktree():
@@ -460,7 +519,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(canonical_json(h.__dict__) if args.json else f"Registered hypothesis '{h.hypothesis_id}'")
                 code = 0
         else:
-            cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue, "qualify": cmd_qualify}
+            cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue, "qualify": cmd_qualify,
+                    "generate-manifest": cmd_generate_manifest}
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0
     except SystemExit as exc:

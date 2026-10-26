@@ -12,7 +12,7 @@ ALLOWED = frozenset({
     "status", "check-worktree", "verify", "screen", "backtest",
     "audit-check", "handoff", "continue", "register-hypothesis",
 })
-APPROVAL = frozenset({"qualify"})
+APPROVAL = frozenset({"qualify", "generate-manifest"})
 
 
 @dataclass(frozen=True)

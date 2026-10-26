@@ -103,6 +103,10 @@ def generate_positions(
     f_fast = feat_df.pivot(index="timestamp", on="asset", values="feat_amihud_fast").fill_null(0.0).select(assets).to_numpy()
     f_vol = feat_df.pivot(index="timestamp", on="asset", values="feat_vol").fill_null(0.0).select(assets).to_numpy()
 
+    # shortcut: label is close-to-close and starts at bar t (ret_mat[t] is t-1->t), while
+    # executed PnL uses open-to-open with a 1-bar delay, so IC/positions are scored against a
+    # target one bar earlier than the tradeable horizon. Recorded results are invalid for any
+    # promotion; fix the basis before spending another trial on this hypothesis.
     h = contract.label_horizon_bars
     forward_label = np.zeros((n_bars, n_assets), dtype=float)
     for t in range(n_bars - h):

@@ -4,8 +4,8 @@ frequency: 1h
 bars_per_year: 8760
 exploratory_data_path: data/exploratory/crypto_perps_top100_1h.parquet
 holdout_data_path: data/holdout/crypto_perps_top100_1h.parquet
-train_start: '2024-01-01T00:00:00Z'
-val_start: '2025-01-01T00:00:00Z'
+train_start: '2023-01-01T00:00:00Z'
+val_start: '2024-07-01T00:00:00Z'
 val_end: '2025-07-01T00:00:00Z'
 holdout_start: '2025-07-01T00:00:00Z'
 holdout_end: '2026-10-24T00:00:00Z'
@@ -18,4 +18,4 @@ taker_fee_bps: 4.0
 slippage_bps: 2.0
 funding_bps_per_8h: 1.0
 min_expected_move_to_cost_ratio: 2.5
-data_snapshot_sha256: d6cfbdbfbb2ad76ccc52e110b25148a4856913ca1165b959cca3ecce4f87d447
+data_snapshot_sha256: a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc

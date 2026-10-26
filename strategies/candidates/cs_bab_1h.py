@@ -31,7 +31,7 @@ class CSBABPipeline:
             .with_columns(
                 feat_low_vol=(-pl.col("rv_72") - (-pl.col("rv_72")).mean().over("timestamp"))
                 / (pl.col("rv_72").std().over("timestamp") + 1e-8),
-                feat_low_beta=(-pl.col("rv_168") - (-pl.col("rv_168")).mean().over("timestamp"))
+                feat_low_vol_slow=(-pl.col("rv_168") - (-pl.col("rv_168")).mean().over("timestamp"))
                 / (pl.col("rv_168").std().over("timestamp") + 1e-8),
                 feat_rev=(pl.col("rev_72") - pl.col("rev_72").mean().over("timestamp"))
                 / (pl.col("rev_72").std().over("timestamp") + 1e-8),
@@ -98,9 +98,13 @@ def generate_positions(
     feat_df = pipe.compute(df, contract)
 
     f_vol = feat_df.pivot(index="timestamp", on="asset", values="feat_low_vol").fill_null(0.0).select(assets).to_numpy()
-    f_beta = feat_df.pivot(index="timestamp", on="asset", values="feat_low_beta").fill_null(0.0).select(assets).to_numpy()
+    f_vol_slow = feat_df.pivot(index="timestamp", on="asset", values="feat_low_vol_slow").fill_null(0.0).select(assets).to_numpy()
     f_rev = feat_df.pivot(index="timestamp", on="asset", values="feat_rev").fill_null(0.0).select(assets).to_numpy()
 
+    # shortcut: label is close-to-close and starts at bar t (ret_mat[t] is t-1->t), while
+    # executed PnL uses open-to-open with a 1-bar delay, so IC/positions are scored against a
+    # target one bar earlier than the tradeable horizon. Recorded results are invalid for any
+    # promotion; fix the basis before spending another trial on this hypothesis.
     h = contract.label_horizon_bars
     forward_label = np.zeros((n_bars, n_assets), dtype=float)
     for t in range(n_bars - h):
@@ -121,14 +125,14 @@ def generate_positions(
         train_idx = train_idx[train_idx >= 168]
         if len(train_idx) < 10:
             continue
-        x_tr = np.column_stack([f_vol[train_idx].ravel(), f_beta[train_idx].ravel(), f_rev[train_idx].ravel()])
+        x_tr = np.column_stack([f_vol[train_idx].ravel(), f_vol_slow[train_idx].ravel(), f_rev[train_idx].ravel()])
         y_tr = forward_label[train_idx].ravel()
         valid = np.isfinite(x_tr).all(axis=1) & np.isfinite(y_tr)
         model = Ridge(alpha=alpha, random_state=42)
         model.fit(x_tr[valid], y_tr[valid])
 
         for t in test_idx:
-            x_test_t = np.column_stack([f_vol[t], f_beta[t], f_rev[t]])
+            x_test_t = np.column_stack([f_vol[t], f_vol_slow[t], f_rev[t]])
             oos_preds[t] = model.predict(np.nan_to_num(x_test_t, nan=0.0))
 
     ic_list: list[float] = []

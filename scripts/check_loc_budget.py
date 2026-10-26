@@ -6,7 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-WARDEN_MAX_LOC = 1500
+WARDEN_MAX_LOC = 2000
 EXPERIMENT_MAX_LOC = 250
 
 

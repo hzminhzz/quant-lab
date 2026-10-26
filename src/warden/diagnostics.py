@@ -31,9 +31,11 @@ def compute_trade_metrics(positions, net_returns, asset_returns=None, bars_per_y
     net = np.asarray(net_returns, dtype=float)
     if pos.shape[0] != net.shape[0]:
         raise ValueError("positions and returns must cover the same bars")
-    exposure = pos.sum(axis=1)
-    active = np.abs(exposure) > 1e-9
-    sign = np.sign(exposure)
+    gross_exposure = np.abs(pos).sum(axis=1)
+    active = gross_exposure > 1e-9
+    # A dollar-neutral book has zero net exposure: use the dominant leg's sign, never net exposure.
+    dominant = np.take_along_axis(pos, np.argmax(np.abs(pos), axis=1)[:, None], axis=1)[:, 0]
+    sign = np.sign(dominant)
     prev_active, prev_sign = np.roll(active, 1), np.roll(sign, 1)
     prev_active[0], prev_sign[0] = False, 0.0
     starts = active & (~prev_active | (sign != prev_sign))
@@ -55,15 +57,19 @@ def compute_trade_metrics(positions, net_returns, asset_returns=None, bars_per_y
         "active_bar_share": float(np.mean(active)),
         "one_way_cost_decimal": float(one_way_cost),
         "trade_conventions": TRADE_CONVENTIONS,
+        "gating": False,
     }
     if asset_returns is not None:
-        bench = np.asarray(asset_returns, dtype=float).mean(axis=1)  # equal-weight, constant 1/N
+        bench = np.asarray(asset_returns, dtype=float).mean(axis=1)  # constant 1/N, rebalanced every bar
         diff = net - bench
         metrics.update({
             "benchmark_net_sharpe": float(np.mean(bench) / (np.std(bench, ddof=1) + 1e-12) * math.sqrt(bars_per_year)),
+            "equal_weight_rebalanced_net_sharpe": float(np.mean(bench) / (np.std(bench, ddof=1) + 1e-12) * math.sqrt(bars_per_year)),
             "information_ratio": float(np.mean(diff) / (np.std(diff, ddof=1) + 1e-12) * math.sqrt(bars_per_year)),
             "relative_return_annualized": float(np.mean(diff) * bars_per_year),
-            "benchmark_conventions": "equal-weight buy-and-hold at 1/N, no costs; strategy net returns include fees",
+            "benchmark_conventions": "equal-weight rebalanced (constant 1/N every bar), no costs; "
+                                     "NOT buy-and-hold; strategy net returns include fees",
+            "gating": False,
         })
     return metrics
 
@@ -88,5 +94,7 @@ def compute_shift_skill_pvalue(positions, returns, label_horizon: int, k: int = 
         "null_q05": float(np.quantile(null, 0.05)), "null_q95": float(np.quantile(null, 0.95)),
         "k": int(k), "seed": int(seed), "valid_shift_range": [low, high],
         "time_in_market": float(np.mean(np.abs(pos).sum(axis=1) > 1e-12)),
-        "exposure_preserved": True, "gate_applied": False, "caveat": TIMING_CAVEAT,
+        "exposure_preserved": True, "gate_applied": False,
+        "position_basis": "long/short net return basis; QUOTE_SIDE PnL is not modelled here",
+        "long_basis_only": bool(np.any(pos < 0)), "caveat": TIMING_CAVEAT,
     }

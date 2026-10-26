@@ -135,13 +135,13 @@ def verify_asset_independence(pipeline: FeaturePipelineProtocol, bars_df: pl.Dat
             raise CrossAssetLeakageError(f"Cross-asset leakage detected in column '{col}' when shocking '{shock}'")
 
 
-def verify_fold_isolation(model: WalkForwardModelProtocol, train_df: pl.DataFrame, val_df: pl.DataFrame, feature_cols: Sequence[str], label_col: str, label_horizon_bars: int = 0, embargo_bars: int = 0, seed: int = 42) -> pl.DataFrame:
+def verify_fold_isolation(model: WalkForwardModelProtocol, train_df: pl.DataFrame, val_df: pl.DataFrame, feature_cols: Sequence[str], label_col: str, label_horizon_bars: int = 0, embargo_bars: int = 0, seed: int = 42, execution_delay_bars: int = 0) -> pl.DataFrame:
     from datetime import datetime, timedelta
     max_train_ts = train_df["timestamp"].max()
     min_val_ts = val_df["timestamp"].min()
     if max_train_ts >= min_val_ts:
         raise LookaheadLeakageError(f"Train timestamp ({max_train_ts}) overlaps validation timestamp ({min_val_ts})")
-    required_gap = label_horizon_bars + embargo_bars
+    required_gap = label_horizon_bars + embargo_bars + execution_delay_bars
     if required_gap > 0:
         if isinstance(max_train_ts, (int, float)) and max_train_ts + required_gap > min_val_ts:
             raise LookaheadLeakageError(f"Fold purge/embargo violation: max_train ({max_train_ts}) + {required_gap} > min_val ({min_val_ts})")

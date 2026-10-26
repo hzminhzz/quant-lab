@@ -1,7 +1,6 @@
 """Comprehensive adversarial regression tests verifying red-team hardening."""
 from __future__ import annotations
 
-import shutil
 import sqlite3
 from argparse import Namespace
 from datetime import UTC, datetime, timedelta
@@ -15,7 +14,6 @@ from warden.cli import (
     check_worktree,
     cmd_continue,
     cmd_verify,
-    generate_manifest,
 )
 from warden.contracts import (
     EvaluationContract,
@@ -32,7 +30,7 @@ from warden.leakage import (
 from warden.qualify import HoldoutAlreadyUnsealedError, qualify_candidate
 from warden.registry import (
     ResearchRegistry,
-    compute_effective_trials_and_dsr,
+    compute_selection_report,
 )
 from warden.runner import (
     ExperimentRunner,
@@ -188,42 +186,53 @@ def test_zero_and_negative_validation_sharpe_cannot_be_qualified(tmp_path: Path,
     r_zero = ExperimentResult("RUN-ZERO", hyp.hypothesis_id, clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 0.0, 0.0, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market")
     reg.record_trial(r_zero, {}, np.zeros(100))
 
-    holdout_p = tmp_path / "holdout.parquet"
-    synthetic_panel.write_parquet(holdout_p)
-
     with pytest.raises(ValueError, match="non-positive validation Net Sharpe"):
-        qualify_candidate("RUN-ZERO", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout_p)
+        qualify_candidate("RUN-ZERO", "YES_UNSEAL_HOLDOUT", runner, reviewer="human")
 
 
-def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(tmp_path: Path, clean_contract, synthetic_panel) -> None:
+def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(qualify_repo) -> None:
     """Unsealing a root hypothesis must lock all child and grandchild hypotheses in that lineage."""
-    reg = ResearchRegistry(tmp_path / "reg.db")
-    runner = ExperimentRunner(registry=reg, repo_root=Path("."))
-    reg.register_contract(clean_contract)
+    fixture = qualify_repo()
+    reg, runner = fixture.registry, fixture.runner
+    for hid, parent in (("HYP-Q-CH", "HYP-Q"), ("HYP-Q-GD", "HYP-Q-CH")):
+        reg.register_hypothesis(HypothesisSpec(hid, fixture.contract.contract_id, "C", "rules_ts",
+                                               "Mechanism at least twenty chars",
+                                               "Friction at least twenty chars", 8, "Crit",
+                                               parent_hypothesis_id=parent))
+    q1 = qualify_candidate("RUN-Q1", "YES_UNSEAL_HOLDOUT", runner, reviewer="human-operator")
+    assert q1["lineage_id"] == "HYP-Q"
 
-    h_root = HypothesisSpec("HYP-RT", clean_contract.contract_id, "R", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit")
-    h_child = HypothesisSpec("HYP-CH", clean_contract.contract_id, "C", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit", parent_hypothesis_id="HYP-RT")
-    h_grand = HypothesisSpec("HYP-GD", clean_contract.contract_id, "G", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit", parent_hypothesis_id="HYP-CH")
-    reg.register_hypothesis(h_root)
-    reg.register_hypothesis(h_child)
-    reg.register_hypothesis(h_grand)
+    from warden.contracts import ExperimentResult
+    r_grand = ExperimentResult("RUN-Q-GD", "HYP-Q-GD", fixture.contract.contract_id, "S", "rules_ts", "x",
+                               "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0,
+                               None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0,
+                               fixture.contract.data_snapshot_sha256, "strategies/flat.py", "rules", "",
+                               data_provenance="verified_market")
+    reg.record_trial(r_grand, {}, np.linspace(0.01, -0.004, 14))
+    reg.record_audit("RUN-Q-GD", fixture.contract.contract_id, "APPROVED",
+                     {f"{n}_check": True for n in range(1, 7)}, "fixture")
+    with pytest.raises(HoldoutAlreadyUnsealedError, match="Lineage 'HYP-Q' was already unsealed"):
+        qualify_candidate("RUN-Q-GD", "YES_UNSEAL_HOLDOUT", runner, reviewer="human-operator")
 
-    r_root = ExperimentResult("RUN-RT-01", "HYP-RT", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market")
-    reg.record_trial(r_root, {}, np.zeros(100))
 
-    holdout_p = tmp_path / "holdout.parquet"
-    synthetic_panel.write_parquet(holdout_p)
+def test_qualification_requires_an_approved_audit_and_reviewer(qualify_repo) -> None:
+    from warden.qualify import qualify_candidate as qualify
 
-    # First qualification on root passes
-    q1 = qualify_candidate("RUN-RT-01", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout_p)
-    assert q1["lineage_id"] == "HYP-RT"
+    unaudited = qualify_repo(audit_approved=False)
+    with pytest.raises(ValueError, match="APPROVED six-check audit"):
+        qualify("RUN-Q1", "YES_UNSEAL_HOLDOUT", unaudited.runner, reviewer="human")
 
-    # Attempting to unseal grandchild of the same root lineage must fail closed
-    r_grand = ExperimentResult("RUN-GD-01", "HYP-GD", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market")
-    reg.record_trial(r_grand, {}, np.zeros(100))
+    no_manifest = qualify_repo(holdout_manifest=False)
+    with pytest.raises(ValueError, match="no 'holdout' record"):
+        qualify("RUN-Q1", "YES_UNSEAL_HOLDOUT", no_manifest.runner, reviewer="human")
 
-    with pytest.raises(HoldoutAlreadyUnsealedError, match="Lineage 'HYP-RT' was already unsealed"):
-        qualify_candidate("RUN-GD-01", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout_p)
+    no_funding = qualify_repo(drop_funding=True)
+    with pytest.raises(ValueError, match="funding_rate"):
+        qualify("RUN-Q1", "YES_UNSEAL_HOLDOUT", no_funding.runner, reviewer="human")
+
+    unreviewed = qualify_repo()
+    out = qualify("RUN-Q1", "YES_UNSEAL_HOLDOUT", unreviewed.runner, reviewer="")
+    assert out["promoted"] is False and out["reviewer"] == "UNVERIFIED_REVIEWER"
 
 
 def test_hypotheses_trials_used_cannot_be_decreased_via_sqlite(tmp_path: Path, clean_contract) -> None:
@@ -240,20 +249,18 @@ def test_hypotheses_trials_used_cannot_be_decreased_via_sqlite(tmp_path: Path, c
         conn.execute("UPDATE hypotheses SET trials_used = 0 WHERE hypothesis_id = 'HYP-LOCK'")
 
 
-def test_stage_1_reject_increments_raw_N_and_penalizes_DSR() -> None:
-    """A Stage 1 early reject must count in contract-wide N and penalize DSR."""
+def test_stage_1_reject_increments_raw_N_and_fails_closed() -> None:
+    """A Stage 1 early reject counts in raw N; without comparable evidence promotion fails closed."""
     candidate = np.random.default_rng(42).normal(0.001, 0.01, 100)
-    # Stream with no prior trials: N=1, K_eff=1
-    p1, exp1, n1, k1 = compute_effective_trials_and_dsr(candidate, [], 8760, total_trials_n=1)
-    assert n1 == 1 and k1 == 1.0
+    clean = compute_selection_report(candidate, [], 8760, raw_attempt_count=1)
+    assert clean["raw_attempt_count"] == 1 and clean["k_eff_gate"] == 1.0
+    assert clean["non_promotable_reason"] == ""
 
-    # Same stream with 1 prior unvectorised reject (total_trials_n=2): N=2 and the approved
-    # 0.50-per-unvectorised-attempt penalty applies on top of the deduplicated rank.
-    p2, exp2, n2, k2 = compute_effective_trials_and_dsr(candidate, [], 8760, total_trials_n=2)
-    assert n2 == 2
-    assert k2 == 1.5
-    assert exp2 > exp1  # expected max Sharpe noise increases
-    assert p2 < p1     # DSR probability decreases due to multiple testing
+    # The unvectorised reject keeps the raw count but gets no invented numeric penalty.
+    blocked = compute_selection_report(candidate, [], 8760, raw_attempt_count=2)
+    assert blocked["raw_attempt_count"] == 2 and blocked["unvectorized_attempts"] == 1
+    assert blocked["k_eff_gate"] == clean["k_eff_gate"]  # no fabricated 0.50-per-attempt penalty
+    assert "no comparable return stream" in blocked["non_promotable_reason"]
 
 
 def test_constant_ic_series_yields_zero_hac_tstat() -> None:
@@ -286,23 +293,18 @@ def test_continue_exact_match_rejects_substring_count_drift(tmp_path: Path) -> N
     assert ret == 1
 
 
-def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contract) -> None:
+def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, signed_repo) -> None:
     """cmd_verify on a module without FeaturePipeline must exit with code 1."""
-    runner = ExperimentRunner(repo_root=Path("."))
-    nopipe = tmp_path / "nopipe.py"
-    nopipe.write_text("def generate_positions(df, contract, **kw): return {}\n")
+    runner = ExperimentRunner(repo_root=signed_repo)
+    (signed_repo / "strategies" / "nopipe.py").write_text("def generate_positions(df, contract, **kw): return {}\n")
     spec_f = tmp_path / "spec.yaml"
-    spec_f.write_text(f"contract_id: {clean_contract.contract_id}\nstrategy_module: {nopipe.resolve()}\n")
+    spec_f.write_text("contract_id: CRYPTO_PERPS_1H_V1\nstrategy_module: strategies/nopipe.py\n")
     ret = cmd_verify(Namespace(spec_yaml=str(spec_f), json=False), runner)
     assert ret == 1
 
 
-def test_missing_loc_budget_script_fails_worktree_check(tmp_path: Path) -> None:
-    """Deleting scripts/check_loc_budget.py must cause check_worktree() to return False."""
-    copy_dir = tmp_path / "copy_repo"
-    shutil.copytree(Path("."), copy_dir, ignore=shutil.ignore_patterns(".git", ".venv", "data", "cache", "__pycache__", ".pytest_cache", ".ruff_cache"))
-    generate_manifest(copy_dir)
-    assert check_worktree(copy_dir) is True
-
-    (copy_dir / "scripts" / "check_loc_budget.py").unlink()
-    assert check_worktree(copy_dir) is False
+def test_missing_loc_budget_script_fails_worktree_check(signed_repo) -> None:
+    """Deleting the protected LOC budget script must cause check_worktree() to return False."""
+    assert check_worktree(signed_repo) is True
+    (signed_repo / "scripts" / "check_loc_budget.py").unlink()
+    assert check_worktree(signed_repo) is False

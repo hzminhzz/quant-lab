@@ -43,20 +43,32 @@ def file_sha256(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def _role_record(repo_root: Path, contract: EvaluationContract, role: str, rel: str):
+    """Role-specific manifest record; never substitute the exploratory record for holdout."""
+    base = Path(repo_root) / MANIFEST_DIR
+    role_manifest = base / f"{contract.contract_id}.{role}.json"
+    if role_manifest.is_file():
+        return json.loads(role_manifest.read_text(encoding="utf-8")), ""
+    manifest = base / f"{contract.contract_id}.json"
+    if not manifest.is_file():
+        return None, f"missing dataset manifest '{manifest.relative_to(repo_root)}'"
+    doc = json.loads(manifest.read_text(encoding="utf-8"))
+    record = doc.get(role) if isinstance(doc.get(role), dict) else (doc if role == "exploratory" else None)
+    return record, "" if record is not None else f"manifest has no '{role}' record for {contract.contract_id}"
+
+
 def resolve_dataset(contract: EvaluationContract, repo_root: Path = Path("."), role: str = "exploratory") -> DatasetResolution:
-    """Resolve the contract's own dataset; verify declared provenance, digest and exact path."""
+    """Resolve the contract's own dataset for this role; verify declared provenance and digest."""
+    repo_root = Path(repo_root)
     rel = getattr(contract, f"{role}_data_path")
-    path = Path(repo_root) / rel
+    path = repo_root / rel
     if not path.is_file():
         raise DatasetProvenanceError(
             f"missing {role} dataset for {contract.contract_id}: '{rel}' (no cross-contract fallback)")
     sha = file_sha256(path)
-    reason, provenance, source = "", "unknown", ""
-    manifest = Path(repo_root) / MANIFEST_DIR / f"{contract.contract_id}.json"
-    if not manifest.is_file():
-        reason = f"missing dataset manifest '{manifest.relative_to(repo_root)}'"
-    else:
-        record = json.loads(manifest.read_text(encoding="utf-8"))
+    record, reason = _role_record(repo_root, contract, role, rel)
+    provenance, source = "unknown", ""
+    if record is not None:
         provenance, source = str(record.get("provenance", "unknown")), str(record.get("source", ""))
         if provenance not in PROVENANCES:
             reason = f"unknown dataset provenance {provenance!r}"
@@ -66,7 +78,7 @@ def resolve_dataset(contract: EvaluationContract, repo_root: Path = Path("."), r
             reason = "dataset digest differs from manifest (file changed or substituted)"
         elif contract.data_provenance != provenance:
             reason = f"contract provenance {contract.data_provenance!r} != manifest provenance {provenance!r}"
-        elif contract.data_snapshot_sha256 != sha:
+        elif role == "exploratory" and contract.data_snapshot_sha256 != sha:
             reason = "contract data_snapshot_sha256 differs from dataset digest"
     eligible = not reason and provenance == MARKET
     return DatasetResolution(contract.contract_id, role, rel, sha, provenance, source, eligible,

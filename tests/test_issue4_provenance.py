@@ -145,3 +145,39 @@ def test_synthetic_run_is_recorded_and_never_promoted(tmp_path: Path) -> None:
     with reg._connect() as conn:
         row = conn.execute("SELECT data_provenance, verdict FROM trials WHERE run_id=?", (res.run_id,)).fetchone()
     assert tuple(row) == ("synthetic", res.verdict)
+
+
+def test_holdout_requires_its_own_role_specific_manifest(tmp_path: Path) -> None:
+    """A single exploratory record can never qualify as holdout evidence."""
+    contract = _contract(tmp_path, _tiny_panel())
+    holdout = tmp_path / contract.holdout_data_path
+    holdout.parent.mkdir(parents=True, exist_ok=True)
+    _tiny_panel().write_parquet(holdout)
+    holdout_sha = hashlib.sha256(holdout.read_bytes()).hexdigest()
+    _manifest(tmp_path, contract)  # exploratory only
+
+    flat = resolve_dataset(contract, tmp_path, role="holdout")
+    assert flat.eligible_market is False and "no 'holdout' record" in flat.reason
+
+    role_file = tmp_path / "contracts" / "datasets" / f"{contract.contract_id}.holdout.json"
+    role_file.write_text(json.dumps({"contract_id": contract.contract_id, "path": contract.holdout_data_path,
+                                     "sha256": holdout_sha, "provenance": "verified_market", "source": "fixture"}))
+    eligible = resolve_dataset(contract, tmp_path, role="holdout")
+    assert eligible.eligible_market is True and eligible.role == "holdout"
+
+    role_file.write_text(json.dumps({"contract_id": contract.contract_id, "path": contract.holdout_data_path,
+                                     "sha256": "0" * 64, "provenance": "verified_market", "source": "fixture"}))
+    assert resolve_dataset(contract, tmp_path, role="holdout").eligible_market is False
+
+
+def test_every_shipped_contract_fails_closed_or_resolves(monkeypatch) -> None:
+    """No shipped contract may crash resolution: each resolves or reports an actionable reason."""
+    root = Path(__file__).resolve().parents[1]
+    for path in sorted((root / "contracts").glob("*.yaml")):
+        contract = load_contract(path)
+        try:
+            resolution = resolve_dataset(contract, root)
+        except DatasetProvenanceError as exc:
+            assert "no cross-contract fallback" in str(exc)
+            continue
+        assert resolution.eligible_market or resolution.reason

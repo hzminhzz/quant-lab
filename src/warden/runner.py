@@ -6,6 +6,7 @@ import bisect
 import hashlib
 import importlib.util
 import math
+import os
 import pickle
 import sqlite3
 import subprocess
@@ -34,7 +35,12 @@ from warden.gates import (
     evaluate_stage1_rules_ts,
 )
 from warden.provenance import resolve_dataset
-from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
+from warden.registry import (
+    HypothesisBudgetExhaustedError,
+    ResearchRegistry,
+    compute_selection_report,
+    normalise_module,
+)
 
 
 class LinearBaselineRequiredError(ValueError):
@@ -68,9 +74,10 @@ def _aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[
 
 
 def _funding_settlement_mask(timestamps: list, contract: EvaluationContract) -> np.ndarray:
-    if contract.asset_class == "crypto_perps" and contract.frequency == "1h":
-        return np.array([t.hour % 8 == 0 for t in timestamps], dtype=bool)
-    return np.ones(len(timestamps), dtype=bool)
+    """Perpetual funding settles on eight-hour boundaries for every bar frequency."""
+    if contract.asset_class != "crypto_perps":
+        return np.ones(len(timestamps), dtype=bool)
+    return np.asarray([t.hour % 8 == 0 and t.minute == 0 for t in timestamps], dtype=bool)
 
 
 def require_execution_columns(panel_df: pl.DataFrame, contract: EvaluationContract) -> None:
@@ -82,8 +89,9 @@ def require_execution_columns(panel_df: pl.DataFrame, contract: EvaluationContra
                                  "a close-price fallback is not a valid execution basis")
     if contract.asset_class == "crypto_perps" and "funding_rate" not in panel_df.columns:
         raise ExecutionDataError(f"{contract.contract_id} is a perpetual contract without funding_rate data")
-    if panel_df.select(pl.col(needed[0]).is_null().any()).item():
-        raise ExecutionDataError(f"null {needed[0]} prices cannot be treated as a zero move")
+    for column in needed:
+        if panel_df.select(pl.col(column).is_null().any()).item():
+            raise ExecutionDataError(f"null {column} prices cannot be treated as a zero move")
 
 
 def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, assets: list[str]) -> dict:
@@ -183,8 +191,12 @@ def calculate_metrics_from_returns(gross_returns, net_returns, bar_turnover, bar
 
 class ExperimentRunner:
     def __init__(self, registry: ResearchRegistry | None = None, repo_root: Path = Path(".")):
-        self.repo_root = Path(repo_root)
-        self.registry = registry or ResearchRegistry(self.repo_root / "registry" / "registry.db")
+        root = Path(repo_root)
+        if str(root) == "." and os.environ.get("WARDEN_REPO_ROOT"):  # explicit repo_root always wins
+            root = Path(os.environ["WARDEN_REPO_ROOT"])
+        self.repo_root = root
+        db = os.environ.get("WARDEN_REGISTRY") or self.repo_root / "registry" / "registry.db"
+        self.registry = registry or ResearchRegistry(db)
 
     def resolve_contract(self, contract_id: str) -> EvaluationContract:
         cid = contract_id.lower()
@@ -205,41 +217,41 @@ class ExperimentRunner:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
             hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
             trials_used = h[5]
-        evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
         try:
+            evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
             dataset = resolve_dataset(contract, self.repo_root)
-        except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc)
-            raise
-        panel_df = pl.read_parquet(self.repo_root / dataset.path)
-        if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
-        panel_df = panel_df.sort("timestamp", "asset")
-        strat_file = self.repo_root / strat_module
-        out = _run_strategy_isolated(strat_file, panel_df, contract, params)
-        if family == "cross_sectional_ml":
-            report = evaluate_stage1_cross_sectional_ml(out["ic_series"])
+            panel_df = pl.read_parquet(self.repo_root / dataset.path)
+            if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
+                panel_df = panel_df.rename({"symbol": "asset"})
+            panel_df = panel_df.sort("timestamp", "asset")
+            out = _run_strategy_isolated(self.repo_root / strat_module, panel_df, contract, params)
+            ts = sorted(panel_df["timestamp"].unique().to_list())
+            assets = sorted(panel_df["asset"].unique().to_list())
+            v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
+            ret_p = execution_returns(panel_df, contract, assets)
+            fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
+            fund_mask = _funding_settlement_mask(ts, contract)
+            sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice,
+                                      cost_multiplier=1.0, funding_mask=fund_mask, quote_returns=ret_p)
+            if family == "cross_sectional_ml":
+                report = evaluate_stage1_cross_sectional_ml(out["ic_series"])
+            else:
+                report = evaluate_stage1_rules_ts(sim1["net_returns"].tolist(), sim1["gross_returns"].tolist(),
+                                                  contract.total_one_way_cost_decimal(), sim1["positions"].tolist())
+            diagnostics = {**report.metrics, "dataset": dataset.to_dict()}
+            if family == "cross_sectional_ml":
+                diagnostics["ic_series"] = np.asarray(out["ic_series"], dtype=float).tolist()
             self.registry.record_selection_attempt(
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=out["ic_series"], diagnostics={**report.metrics, "dataset": dataset.to_dict()})
+                returns=sim1["net_returns"], diagnostics=diagnostics)
             return report
-        ts = sorted(panel_df["timestamp"].unique().to_list())
-        assets = sorted(panel_df["asset"].unique().to_list())
-        v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-        ret_p = execution_returns(panel_df, contract, assets)
-        fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-        fund_mask = _funding_settlement_mask(ts, contract)
-        sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
-                                  funding_mask=fund_mask, quote_returns=ret_p)
-        report = evaluate_stage1_rules_ts(sim1["net_returns"].tolist(), sim1["gross_returns"].tolist(),
-                                          contract.total_one_way_cost_decimal(), sim1["positions"].tolist())
-        self.registry.record_selection_attempt(
-            hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
-            stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
-            strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-            returns=sim1["net_returns"], diagnostics={**report.metrics, "dataset": dataset.to_dict()})
-        return report
+        except HypothesisBudgetExhaustedError:
+            raise
+        except Exception as exc:
+            self._note_failure(contract, hyp_id, family, strat_module, params, None, "STAGE_1_SIGNAL", exc)
+            raise
 
     def run_spec(self, exp_yaml_path: Path, override_run_id: str | None = None) -> ExperimentResult:
         cfg = yaml.safe_load(Path(exp_yaml_path).read_text(encoding="utf-8"))
@@ -284,6 +296,7 @@ class ExperimentRunner:
         provenance_kw = {"data_provenance": dataset.provenance}
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
+        prior_keff, prior_noise, family_key = 1.0, 0.0, ""
         try:
             panel_df = pl.read_parquet(self.repo_root / dataset.path)
             if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
@@ -303,25 +316,13 @@ class ExperimentRunner:
                     f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
             raw_pos, ic_series = out["positions"], out.get("ic_series")
 
-            hist = self.registry.selection_history(contract.contract_id, v_slice.stop - v_slice.start)
             prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
-            n_attempts = hist["raw_attempt_count"] + 1
-
-            mean_ic, ic_hac_t = None, None
-            if family == "cross_sectional_ml":
-                if ic_series is None:
-                    raise ValueError("cross_sectional_ml strategies must output 'ic_series'")
-                s1 = evaluate_stage1_cross_sectional_ml(ic_series)
-                mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
-                if not s1.passed:
-                    # Store the observed validation signal, never a placeholder zero return vector.
-                    diag = {"dataset": dataset, "stage1_signal": {"metrics": s1.metrics, "notes": s1.notes,
-                                                                  "vector": np.asarray(ic_series, dtype=float).tolist()}}
-                    res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, n_attempts, float(prior_keff), mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, f"Rejected at Stage 1: {s1.notes}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
-                    res = dc_replace(res, **provenance_kw, diagnostics_json=canonical_json(diag))
-                    self.registry.record_trial(res, params, np.zeros(0), trial_number=trial_num, diagnostics=diag)
-                    return res
-
+            sim2 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=2.0,
+                                      funding_mask=fund_mask, quote_returns=ret_p)
+            sim_d = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, delay_offset=1,
+                                       funding_mask=fund_mask, quote_returns=ret_p)
+            sr2 = float(np.mean(sim2["net_returns"]) / (np.std(sim2["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
+            srd = float(np.mean(sim_d["net_returns"]) / (np.std(sim_d["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
             sim1 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
                                       funding_mask=fund_mask, quote_returns=ret_p)
             net_ret, gross_ret, turnover = sim1["net_returns"], sim1["gross_returns"], sim1["turnover"]
@@ -331,33 +332,61 @@ class ExperimentRunner:
 
             s1_rules = evaluate_stage1_rules_ts(net_ret.tolist(), gross_ret.tolist(), contract.total_one_way_cost_decimal(), sim1["positions"].tolist()) if family == "rules_ts" else None
 
-            sim2 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=2.0,
-                                      funding_mask=fund_mask, quote_returns=ret_p)
-            sim_d = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, delay_offset=1,
-                                       funding_mask=fund_mask, quote_returns=ret_p)
-            sr2 = float(np.mean(sim2["net_returns"]) / (np.std(sim2["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
-            srd = float(np.mean(sim_d["net_returns"]) / (np.std(sim_d["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
+            mean_ic, ic_hac_t = None, None
+            if family == "cross_sectional_ml":
+                if ic_series is None:
+                    raise ValueError("cross_sectional_ml strategies must output 'ic_series'")
+                s1 = evaluate_stage1_cross_sectional_ml(ic_series)
+                mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
+                if not s1.passed:
+                    # Store the observed stage-1 evidence (IC series and realized signal returns),
+                    # never a placeholder zero return vector.
+                    diag = {"dataset": dataset, "stage1_signal": {"metrics": s1.metrics, "notes": s1.notes,
+                                                                  "vector": np.asarray(ic_series, dtype=float).tolist()}}
+                    res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, self.registry.validation_attempt_count(contract.contract_id), float(max(prior_keff, 1.0)), mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, f"Rejected at Stage 1: {s1.notes}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
+                    res = dc_replace(res, **provenance_kw, diagnostics_json=canonical_json(diag))
+                    self.registry.record_trial(res, params, net_ret, trial_number=trial_num, diagnostics=diag)
+                    return res
 
+            # Every candidate and grid configuration is registered BEFORE the selection-history
+            # snapshot and the gate: a pending, failed or same-run grid can never be free.
+            self.registry.record_selection_attempt(
+                hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_backtest",
+                stage="STAGE_3_STRESS", outcome="PENDING", strategy_family=family,
+                strategy_module=strat_module_str, parameters=params,
+                config_hash=hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12],
+                data_provenance=dataset.provenance, returns=net_ret,
+                diagnostics={"net_sharpe": m["net_sharpe"]}, run_id=run_id)
             ngrid, n_sr = cfg.get("param_grid", []), []
             for grid_params in ngrid:
-                grid_sim = simulate_positions(_run_strategy_isolated(strat_file, panel_df, contract, grid_params)["positions"],
-                                              ret_p["long"], fund_p, contract, v_slice, funding_mask=fund_mask,
-                                              quote_returns=ret_p)
+                grid_hash = hashlib.sha256(canonical_json(grid_params).encode()).hexdigest()[:12]
+                try:
+                    grid_sim = simulate_positions(
+                        _run_strategy_isolated(strat_file, panel_df, contract, grid_params)["positions"],
+                        ret_p["long"], fund_p, contract, v_slice, funding_mask=fund_mask, quote_returns=ret_p)
+                except Exception as grid_exc:
+                    self.registry.record_selection_attempt(
+                        hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="param_grid",
+                        stage="STAGE_3_STRESS", outcome="GRID_ERROR", strategy_family=family,
+                        strategy_module=strat_module_str, parameters=grid_params, config_hash=grid_hash,
+                        data_provenance=dataset.provenance, diagnostics={"error": str(grid_exc)})
+                    raise
                 n_sr.append(float(np.mean(grid_sim["net_returns"]) / (np.std(grid_sim["net_returns"], ddof=1) + 1e-12)
                                   * math.sqrt(contract.bars_per_year)))
-                # Grid configurations consume validation evidence: count them, never silently.
                 self.registry.record_selection_attempt(
                     hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="param_grid",
                     stage="STAGE_3_STRESS", outcome="GRID", strategy_family=family,
-                    strategy_module=strat_module_str, parameters=grid_params,
-                    config_hash=hashlib.sha256(canonical_json(grid_params).encode()).hexdigest()[:12],
+                    strategy_module=strat_module_str, parameters=grid_params, config_hash=grid_hash,
                     data_provenance=dataset.provenance, returns=grid_sim["net_returns"],
                     diagnostics={"net_sharpe": n_sr[-1]})
             stability = float(min(n_sr) / (max(n_sr) + 1e-8)) if n_sr else 1.0
 
+            hist = self.registry.selection_history(contract.contract_id, v_slice.stop - v_slice.start,
+                                                   exclude_run_id=run_id)
             report = compute_selection_report(net_ret, hist["streams"], contract.bars_per_year,
-                                              raw_attempt_count=n_attempts, prior_max_keff=prior_keff,
-                                              prior_max_noise=prior_noise)
+                                              raw_attempt_count=self.registry.validation_attempt_count(contract.contract_id),
+                                              prior_max_keff=prior_keff, prior_max_noise=prior_noise)
+
             self.registry.update_search_floor(contract.contract_id, report["k_eff_gate"],
                                              report["expected_max_sharpe_noise"])
             dsr_p, exp_max, k_eff = report["probability"], report["expected_max_sharpe_noise"], report["k_eff_gate"]
@@ -386,17 +415,23 @@ class ExperimentRunner:
             self.registry.record_trial(res, params, net_ret, trial_number=trial_num, diagnostics=diag)
             return res
         except Exception as exc:
-            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
+            # Raw N is the real attempt count, never a hardcoded 1; evidence-write failures are
+            # surfaced instead of silently discarded.
+            raw_n = self.registry.validation_attempt_count(contract.contract_id)
+            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, raw_n, float(max(prior_keff, 1.0)), None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
             try:
                 self.registry.record_trial(res_failed, params, np.zeros(0), trial_number=trial_num,
                                            diagnostics={"error": str(exc), "dataset": dataset})
-            except (ValueError, sqlite3.Error, OSError):
-                pass
+            except (ValueError, sqlite3.Error, OSError) as rec_exc:
+                print(f"WARN: failed-trial evidence could not be recorded: {rec_exc}", file=sys.stderr)
             raise
 
     def _note_failure(self, contract, hyp_id, family, strat_module, params, dataset, stage, exc):
         """Record validation-consuming failures that never reach a trial row."""
-        self.registry.record_selection_attempt(
-            hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="failed_reservation", stage=stage,
-            outcome="ERROR", strategy_family=family, strategy_module=strat_module, parameters=params,
-            data_provenance=(dataset or {}).get("provenance", "unknown"), diagnostics={"error": str(exc)})
+        try:
+            self.registry.record_selection_attempt(
+                hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="failed_reservation", stage=stage,
+                outcome="ERROR", strategy_family=family, strategy_module=strat_module, parameters=params,
+                data_provenance=(dataset or {}).get("provenance", "unknown"), diagnostics={"error": str(exc)})
+        except HypothesisBudgetExhaustedError:
+            pass  # the exhausted lineage already refuses further validation; the budget binds.

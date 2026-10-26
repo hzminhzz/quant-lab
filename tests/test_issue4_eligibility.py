@@ -46,7 +46,7 @@ def _with_returns(tmp_path: Path, reg: ResearchRegistry, result: ExperimentResul
                                  (result.run_id,)).fetchone()[0])
 
 
-def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path) -> None:
+def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path, signed_repo) -> None:
     reg = _registry(tmp_path)
     _with_returns(tmp_path, reg, _candidate("RUN-ML-001", "synthetic"))
     with reg._connect() as conn:
@@ -60,7 +60,7 @@ def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path
     assert "QUARANTINED_SYNTHETIC" in elig["reason"]
     assert [d["disposition"] for d in elig["dispositions"]] == ["QUARANTINED_SYNTHETIC"]
 
-    runner = ExperimentRunner(registry=reg, repo_root=REPO)
+    runner = ExperimentRunner(registry=reg, repo_root=signed_repo)
     ret = cmd_audit_check(argparse.Namespace(run_id="RUN-ML-001", json=True), runner)
     assert ret == 1
     with reg._connect() as conn:
@@ -68,7 +68,7 @@ def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path
     assert verdict == "REVOKED_INELIGIBLE" and "QUARANTINED_SYNTHETIC" in reason
 
 
-def test_effective_eligibility_agrees_across_status_and_handoff(tmp_path: Path) -> None:
+def test_effective_eligibility_agrees_across_status_and_handoff(tmp_path: Path, signed_repo, monkeypatch) -> None:
     reg = _registry(tmp_path)
     _with_returns(tmp_path, reg, _candidate("RUN-OK", "verified_market"))
     _with_returns(tmp_path, reg, _candidate("RUN-UNPINNED", "verified_market", sha=""))
@@ -85,7 +85,8 @@ def test_effective_eligibility_agrees_across_status_and_handoff(tmp_path: Path) 
     assert by_run["RUN-UNPINNED"]["eligible"] is False
     assert "no pinned dataset digest" in by_run["RUN-UNPINNED"]["eligibility_reason"]
 
-    state = _build_state(REPO, "issue-4", "eligibility")  # live registry: no crash, additive evidence
+    monkeypatch.setenv("WARDEN_REGISTRY", str(reg.db_path))
+    state = _build_state(signed_repo, "issue-4", "eligibility")  # isolated registry: additive evidence
     assert any(e["kind"] == "effective_eligibility" for e in state["evidence"])
     assert "eligibility_surface_reachable" in state["quality_gates"]
 
@@ -113,12 +114,12 @@ def test_migration_is_idempotent_and_history_is_immutable(tmp_path: Path) -> Non
             conn.execute("UPDATE audit_evidence SET verdict='APPROVED'")
 
 
-def test_verified_market_candidate_keeps_the_normal_lifecycle(tmp_path: Path) -> None:
+def test_verified_market_candidate_keeps_the_normal_lifecycle(tmp_path: Path, signed_repo) -> None:
     reg = _registry(tmp_path)
     _with_returns(tmp_path, reg, _candidate("RUN-MARKET", "verified_market"))
     with reg._connect() as conn:
         conn.execute("INSERT INTO feature_sets VALUES ('fh','CRYPTO_PERPS_1H_V1','[]','0.2.0',1,'p',1.0)")
-    runner = ExperimentRunner(registry=reg, repo_root=REPO)
+    runner = ExperimentRunner(registry=reg, repo_root=signed_repo)
     assert cmd_audit_check(argparse.Namespace(run_id="RUN-MARKET", json=True), runner) == 0
     with reg._connect() as conn:
         assert conn.execute("SELECT verdict FROM audit_evidence WHERE run_id='RUN-MARKET'").fetchone()[0] == "APPROVED"

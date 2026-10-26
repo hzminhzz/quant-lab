@@ -81,7 +81,7 @@ def evaluate_stage1_rules_ts(
     else:
         avg_holding = 1.0
 
-    trade_edge = cond_edge * avg_holding
+    trade_edge = cond_edge * avg_holding  # diagnostic only: the gate stays on the conditional edge
 
     rng = np.random.default_rng(42)
     block_size = max(1, min(24, int(math.sqrt(n_active))))
@@ -93,7 +93,7 @@ def evaluate_stage1_rules_ts(
         boot_means.append(np.mean(active_gross[idxs]))
     p_value = float(np.mean(np.asarray(boot_means) <= 0.0))
 
-    passed = (trade_edge > edge_cost_multiplier * one_way_cost) and (profit_factor >= min_profit_factor) and (time_in_market >= min_time_in_market) and (p_value < 0.05)
+    passed = (cond_edge > edge_cost_multiplier * one_way_cost) and (profit_factor >= min_profit_factor) and (time_in_market >= min_time_in_market) and (p_value < 0.05)
     return Stage1Report("rules_ts", passed, {"conditional_edge": cond_edge, "profit_factor": profit_factor, "time_in_market": time_in_market, "bootstrap_p_value": p_value, "avg_holding_bars": avg_holding, "trade_edge": trade_edge}, f"PF={profit_factor:.2f}, Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%, Holding={avg_holding:.1f}h")
 
 

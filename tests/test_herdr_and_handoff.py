@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import numpy as np
 
-from warden.cli import check_worktree, generate_manifest
+from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
 
 
@@ -48,124 +48,93 @@ fi
     assert "MOCK_HERDR: pane run w1:p2 uv run warden status" in proc_herdr.stdout
 
 
-def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001() -> None:
+def _seed_historical_candidate(reg, contract, run_id="RUN-ML-001", synthetic=1):
+    import numpy as np
+
+    from warden.contracts import ExperimentResult, HypothesisSpec
+
+    reg.register_contract(contract)
+    reg.register_hypothesis(HypothesisSpec("HYP-ML-001", contract.contract_id, "T", "rules_ts",
+                                           "Mechanism explanation of twenty chars",
+                                           "Friction explanation of twenty chars", 8, "Criteria"))
+    result = ExperimentResult(
+        run_id, "HYP-ML-001", contract.contract_id, "Legacy", "rules_ts", "cfg", "STAGE_3_STRESS",
+        "CANDIDATE_FOR_QUALIFICATION", 1.0, 1.5, 0.95, 0.2, 1, 1.0, None, None, 0.55, 1.4, 3.0,
+        60.0, 12.0, 0.9, 0.9, "fixture", 0.1, 1.0, synthetic, contract.data_snapshot_sha256,
+        "strategies/flat.py", "rules", "", data_provenance="synthetic" if synthetic else "verified_market")
+    reg.record_trial(result, {}, np.linspace(0.01, -0.004, 120))
+    with reg._connect() as conn:
+        conn.execute(f"INSERT INTO feature_sets VALUES ('fh','{contract.contract_id}','[]','0.2.0',1,'p',1.0)")
+    return result
+
+
+def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001(signed_repo) -> None:
     """Issue #4 tickets 02/03: historical checks may pass, effective verdict may not approve."""
-    generate_manifest()
-    assert check_worktree() is True
-
-    cmd = [sys.executable, "-m", "warden.cli", "audit-check", "--run-id", "RUN-ML-001", "--json"]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    assert proc.returncode == 1, f"RUN-ML-001 must not be approved: {proc.stderr or proc.stdout}"
-
-    data = json.loads(proc.stdout)
-    assert data["run_id"] == "RUN-ML-001"
-    assert data["historical_checks_passed"] is True
-    assert len(data["checks"]) == 6
-    assert data["audit_passed"] is False
-    assert data["verdict"] == "REVOKED_INELIGIBLE"
-    assert data["effective_eligibility"]["eligible"] is False
-
-    report = Path(".workspace/hypotheses/AUDIT_RUN-ML-001.md")
-    assert report.is_file()
-    assert "Verdict: REVOKED_INELIGIBLE" in report.read_text()
-    assert "Verdict: APPROVED" not in report.read_text()
-
-
-def test_audit_check_planted_violation_fails_closed(tmp_path: Path) -> None:
-    # Plant an artificial run with failing delay survival in a temporary registry
-    from warden.contracts import ExperimentResult
-    from warden.registry import ResearchRegistry
-
-    fake_db = tmp_path / "reg.db"
-    reg = ResearchRegistry(fake_db)
-
-    # Insert a failing trial with delay_plus1_sharpe = -0.5
-    failing_result = ExperimentResult(
-        run_id="RUN-FAIL-AUDIT",
-        hypothesis_id="HYP-2026-002",
-        contract_id="CRYPTO_PERPS_1H_V1",
-        strategy_name="FailingStrategy",
-        strategy_family="cross_sectional_ml",
-        config_hash="abc",
-        stage_reached="STAGE_3_STRESS",
-        verdict="REVISE",
-        gross_sharpe=1.0,
-        net_sharpe=0.5,
-        deflated_sharpe_prob=0.85,
-        expected_max_sharpe_noise=0.2,
-        total_trials_n=1,
-        effective_trials_keff=1.0,
-        mean_ic=0.03,
-        ic_hac_tstat=2.5,
-        hit_rate=0.5,
-        profit_factor=1.2,
-        max_drawdown_pct=5.0,
-        annualized_turnover=100.0,
-        breakeven_cost_bps=10.0,
-        stress_2x_cost_sharpe=0.8,
-        param_neighbor_stability=0.9,
-        notes="Failing delay test",
-        delay_plus1_sharpe=-0.5,  # FAILS check 5!
-    )
-
-    runner = ExperimentRunner(registry=reg, repo_root=Path("."))
-    # Must register contract first
+    from warden.cli import main
     from warden.contracts import load_contract
-    reg.register_contract(load_contract(Path("contracts/crypto_perps_1h_v1.yaml")))
 
-    from warden.contracts import HypothesisSpec
-    reg.register_hypothesis(HypothesisSpec(
-        "HYP-2026-002", "CRYPTO_PERPS_1H_V1", "Title", "cross_sectional_ml",
-        "Economic mechanism here", "Counterparty friction here", 8, "Criteria"
-    ))
+    runner = ExperimentRunner(repo_root=signed_repo)
+    _seed_historical_candidate(runner.registry, load_contract(signed_repo / "contracts" / "crypto_perps_1h_v1.yaml"))
+    ResearchRegistry(runner.registry.db_path)  # idempotent migration adds the superseding disposition
 
-    reg.record_trial(failing_result, {}, np.linspace(0.01, -0.01, 100))
+    assert main(["audit-check", "--run-id", "RUN-ML-001", "--json"]) == 1
+    reports = list((signed_repo / ".workspace" / "hypotheses").glob("AUDIT_RUN-ML-001_*.md"))
+    assert len(reports) == 1
+    assert "Verdict: REVOKED_INELIGIBLE" in reports[0].read_text()
+    assert "Verdict: APPROVED" not in reports[0].read_text()
+    assert runner.registry.effective_eligibility("RUN-ML-001")["eligible"] is False
 
-    import argparse
 
+def test_audit_check_planted_violation_fails_closed(signed_repo) -> None:
+    from warden.contracts import ExperimentResult
+
+    runner = ExperimentRunner(repo_root=signed_repo)
+    contract = runner.resolve_contract("CRYPTO_PERPS_1H_V1")
+    _seed_historical_candidate(runner.registry, contract)
+    failing = ExperimentResult(
+        "RUN-FAIL-AUDIT", "HYP-ML-001", contract.contract_id, "Failing", "rules_ts", "cfg",
+        "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.0, 0.5, 0.95, 0.2, 2, 1.0, None, None,
+        0.5, 1.2, 5.0, 100.0, 10.0, 0.8, 0.9, "fails delay survival", -0.5, 1.0, 0,
+        contract.data_snapshot_sha256, "strategies/flat.py", "rules", "", data_provenance="verified_market")
+    # A second reservation is fine for the same hypothesis (raw N 2 of 3).
+    runner.registry.record_trial(failing, {}, np.linspace(0.01, -0.01, 120))
     from warden.cli import cmd_audit_check
     args = argparse.Namespace(run_id="RUN-FAIL-AUDIT", json=True)
-    ret = cmd_audit_check(args, runner)
-    # Must return 1 (falsified/rejected)
-    assert ret == 1
+    assert cmd_audit_check(args, runner) == 1
+    with runner.registry._connect() as conn:
+        assert conn.execute("SELECT verdict FROM audit_evidence WHERE run_id='RUN-FAIL-AUDIT'").fetchone()[0] == "REJECTED"
 
 
-def test_handoff_and_continue_drift_detection(tmp_path: Path) -> None:
-    # Generate clean handoff
-    cmd_h = [sys.executable, "-m", "warden.cli", "handoff", "--ticket", "TKT-10", "--notes", "Testing drift"]
-    proc_h = subprocess.run(cmd_h, capture_output=True, text=True, check=False)
-    assert proc_h.returncode == 0
+def test_handoff_and_continue_drift_detection(signed_repo, seeded_env_registry, tmp_path) -> None:
+    from warden.cli import main
 
-    # Typed state artifact: schema, timestamped evidence, replayable trace, explicit gates
-    state = json.loads(Path(".workspace/state/current.json").read_text())
+    # Generate a clean handoff inside the isolated signed repo.
+    assert main(["handoff", "--ticket", "TKT-10", "--notes", "Testing drift"]) == 0
+    state = json.loads((signed_repo / ".workspace" / "state" / "current.json").read_text())
     assert state["schema"] == 1
     assert {"created_at", "evidence", "tool_trace", "quality_gates"} <= set(state)
     assert all("observed_at" in e for e in state["evidence"])
     assert all({"op", "expect"} <= set(t) for t in state["tool_trace"])
-    assert Path(".workspace/state/history.jsonl").read_text().strip()
+    assert (signed_repo / ".workspace" / "state" / "history.jsonl").read_text().strip()
 
-    # Continue on clean state passes (zero drift)
-    cmd_c = [sys.executable, "-m", "warden.cli", "continue"]
-    proc_c = subprocess.run(cmd_c, capture_output=True, text=True, check=False)
-    assert proc_c.returncode == 0
-    assert "zero drift" in proc_c.stdout
+    assert main(["continue"]) == 0
 
-    # Tamper the recorded trials count downward (the real "a trial was appended" case) -> drift fails closed
+    # Tamper the recorded trials count downward -> drift fails closed.
     tampered = json.loads(json.dumps(state))
     for entry in tampered["tool_trace"]:
         if entry.get("op") == "registry_count":
             entry["expect"] = "0"
     tampered_file = tmp_path / "tampered_state.json"
     tampered_file.write_text(json.dumps(tampered))
+    assert main(["continue", str(tampered_file)]) == 1
 
-    proc_drift = subprocess.run([sys.executable, "-m", "warden.cli", "continue", str(tampered_file)], capture_output=True, text=True, check=False)
-    assert proc_drift.returncode == 1
-    assert "DRIFT" in proc_drift.stderr or "DRIFT" in proc_drift.stdout
-    assert "state advanced" in proc_drift.stderr
+    # An empty hand-authored trace cannot report "zero drift".
+    tampered["schema"] = 1
+    tampered["tool_trace"] = []
+    tampered_file.write_text(json.dumps(tampered))
+    assert main(["continue", str(tampered_file)]) == 1
 
-    # Unsupported schema fails closed instead of being replayed
+    # Unsupported schema fails closed instead of being replayed.
     tampered["schema"] = 99
     tampered_file.write_text(json.dumps(tampered))
-    proc_schema = subprocess.run([sys.executable, "-m", "warden.cli", "continue", str(tampered_file)], capture_output=True, text=True, check=False)
-    assert proc_schema.returncode == 1
-    assert "schema" in proc_schema.stderr
+    assert main(["continue", str(tampered_file)]) == 1

@@ -52,12 +52,12 @@ def test_audit_failure_does_not_break_the_cli(monkeypatch, capsys):
     assert "audit log unavailable" in capsys.readouterr().err
 
 
-def test_status_json_envelope_shape():
+def test_status_json_envelope_shape(seeded_env_registry):
     out = subprocess.run([sys.executable, "-m", "warden.cli", "status", "--json"], capture_output=True, text=True, check=False)
     assert out.returncode == 0
     env = json.loads(out.stdout)
     assert env["ok"] is True and env["source"] == "warden.status" and env["policy"] == "allow"
-    assert env["value"]["trials_count"] >= 1
+    assert env["value"]["trials_count"] == 1  # seeded isolated registry, never the live one
     assert env["observed_at"].endswith("+00:00")
 
 
@@ -112,18 +112,15 @@ def test_replay_accepts_legacy_count_query_and_typed_ops():
     assert _replay([{"op": "registry_count", "table": "sqlite_master", "expect": "1"}], runner) is True
 
 
-def test_continue_json_envelope(tmp_path):
-    """Self-contained checkpoint: other tests add trials, so never rely on live state."""
-    import sqlite3
-
-    with sqlite3.connect("registry/registry.db") as conn:
-        n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
+def test_continue_json_envelope(tmp_path, seeded_env_registry):
+    """Self-contained checkpoint against the isolated registry; never the live state."""
     head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
     state = {
         "schema": 1, "created_at": "2026-01-01T00:00:00+00:00", "ticket": "T", "notes": "",
         "evidence": [{"source": "git", "kind": "head", "value": head, "observed_at": "2026-01-01T00:00:00+00:00"}],
-        "tool_trace": [{"op": "registry_count", "table": "trials", "expect": str(n_trials)}],
-        "quality_gates": {"worktree_integrity": True},
+        "tool_trace": [{"op": "registry_count", "table": "trials", "expect": "1"}],
+        "quality_gates": {"worktree_integrity": True, "contracts_pinned": True,
+                          "eligibility_surface_reachable": True},
     }
     checkpoint = tmp_path / "state.json"
     checkpoint.write_text(json.dumps(state))

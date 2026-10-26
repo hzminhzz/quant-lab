@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
-import hmac
 import json
 import os
 import re
@@ -15,7 +14,7 @@ from pathlib import Path
 
 import numpy as np
 
-from warden import __version__
+from warden import __version__, trust_root
 from warden.audit import AUDIT_LOG
 from warden.audit import fingerprint as audit_fingerprint
 from warden.audit import record as audit_record
@@ -27,6 +26,7 @@ from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner, load_module_from_path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
+MANIFEST_SIG = MANIFEST_FILE + ".sig"
 STATE_FILE = Path(".workspace") / "state" / "current.json"
 HISTORY_FILE = Path(".workspace") / "state" / "history.jsonl"
 WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and LOC budgets intact."
@@ -49,84 +49,92 @@ def envelope(ok: bool, value, source: str, policy: str = "allow") -> dict:
             "policy": policy}
 
 
+def _git_head(repo_root: Path) -> str:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=repo_root, text=True,
+                                       stderr=subprocess.DEVNULL).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return "unavailable"
+
+
 def compute_file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def protected_paths(repo_root: Path = Path(".")) -> list[Path]:
+    """The one protected set shared by manifest generation, verification and cutover."""
+    repo = Path(repo_root)
+    protected = [p for pattern in ("src/warden/**/*.py", "contracts/*.yaml", "contracts/*.yml",
+                                   "contracts/datasets/*.json") for p in sorted(repo.glob(pattern))]
+    names = ("AGENTS.md", "pyproject.toml", "uv.lock", "scripts/check_loc_budget.py",
+             "scripts/lock_holdout_permissions.sh", "scripts/lock_governance_permissions.sh",
+             "scripts/preflight_trust_boundary.py", "scripts/apply_trust_boundary.sh")
+    protected += [p for p in (repo / n for n in names) if p.is_file()]
+    return list(dict.fromkeys(protected))
+
+
 def generate_manifest(repo_root: Path = Path(".")) -> str:
     repo = Path(repo_root)
-    protected = (
-        sorted(repo.glob("src/warden/**/*.py"))
-        + sorted(repo.glob("contracts/*.yaml"))
-        + sorted(repo.glob("contracts/*.yml"))
-        + sorted(repo.glob("contracts/datasets/*.json"))
-    )
-    protected += [
-        p for p in (
-            repo / "AGENTS.md",
-            repo / "pyproject.toml",
-            repo / "uv.lock",
-            repo / "scripts" / "check_loc_budget.py",
-            repo / "scripts" / "lock_holdout_permissions.sh",
-            repo / "scripts" / "lock_governance_permissions.sh",
-            repo / "scripts" / "preflight_trust_boundary.py",
-            repo / "scripts" / "apply_trust_boundary.sh",
-        ) if p.is_file()
-    ]
-    protected = list(dict.fromkeys(protected))
-    content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected) + "\n"
+    content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected_paths(repo)) + "\n"
     (repo / MANIFEST_FILE).write_text(content, encoding="utf-8")
     return content
 
 
 def manifest_approval_state(repo_root: Path = Path(".")) -> dict:
-    """Independent approval state. A self-written checksum is integrity, never authority."""
+    """Independent approval state: a pinned asymmetric signature, never a self-written checksum."""
     repo = Path(repo_root)
-    manifest, sig = repo / MANIFEST_FILE, repo / (MANIFEST_FILE + ".sig")
-    meta = repo / (MANIFEST_FILE + ".meta.json")
+    manifest, sig, meta = repo / MANIFEST_FILE, repo / MANIFEST_SIG, repo / (MANIFEST_FILE + ".meta.json")
     state = {"signed": False, "verified": False, "mode": "unsigned", "approver": ""}
     if meta.is_file():
         state.update({k: v for k, v in json.loads(meta.read_text(encoding="utf-8")).items()
                       if k in {"mode", "approver", "approved_at"}})
-    if not sig.is_file():
+    if not manifest.is_file() or not sig.is_file():
         return state
     state["signed"] = True
-    key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
-    if not key:
-        state["verified"] = None  # cannot verify without the human-held key
-        return state
-    digest = hmac.new(key.encode(), manifest.read_bytes(), hashlib.sha256).hexdigest()
-    state["verified"] = hmac.compare_digest(digest, sig.read_text(encoding="utf-8").strip())
+    state["verified"] = trust_root.verify_manifest_signature(manifest.read_bytes(),
+                                                             sig.read_text(encoding="utf-8").strip())
     return state
 
 
 def check_worktree(repo_root: Path = Path(".")) -> bool:
-    repo = Path(repo_root)
-    manifest = repo / MANIFEST_FILE
-    if not manifest.is_file():
+    """Integrity (exact path set + every digest) AND approval (pinned signature)."""
+    repo, manifest = Path(repo_root), Path(repo_root) / MANIFEST_FILE
+    lines = [line.strip() for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()] \
+        if manifest.is_file() else []
+    if not lines:
+        return False  # an empty manifest must never be read as "nothing to verify"
+    declared = {}
+    for line in lines:
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2 or len(parts[0]) != 64:
+            return False
+        declared[parts[1].strip()] = parts[0]
+    if set(declared) != {str(p.relative_to(repo)) for p in protected_paths(repo)}:
         return False
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        expected, rel = line.strip().split(maxsplit=1)
+    for rel, expected in declared.items():
         target = repo / rel
         if not target.is_file() or compute_file_sha256(target) != expected:
             return False
-    loc = repo / "scripts" / "check_loc_budget.py"
-    if not loc.is_file():
+    sig = repo / MANIFEST_SIG
+    if not sig.is_file() or not trust_root.verify_manifest_signature(manifest.read_bytes(),
+                                                                     sig.read_text(encoding="utf-8").strip()):
         return False
-    return subprocess.run([sys.executable, str(loc)], capture_output=True, check=False).returncode == 0
+    loc = repo / "scripts" / "check_loc_budget.py"
+    return loc.is_file() and subprocess.run([sys.executable, str(loc)], capture_output=True, check=False).returncode == 0
 
 
 def cmd_check_worktree(args: argparse.Namespace, runner: ExperimentRunner | None = None) -> int:
     ok = check_worktree()
     if getattr(args, "json", False):
-        print(json.dumps(envelope(ok, {"worktree_integrity": ok}, "warden.check-worktree", "deny" if not ok else "allow")))
+        print(json.dumps(envelope(ok, {"worktree_integrity": ok, "manifest_approval": manifest_approval_state()},
+                                  "warden.check-worktree", "allow" if ok else "deny")))
         return 0 if ok else 2
     if not ok:
         return 2
     print(WORKTREE_OK)
     return 0
+
+
 
 
 def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
@@ -153,19 +161,19 @@ def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    if not check_worktree():
+    if not check_worktree(runner.repo_root):
         sys.exit(2)
     import polars as pl
     import yaml
     cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
     contract = runner.resolve_contract(cfg["contract_id"])
     mod = load_module_from_path(runner.repo_root / cfg["strategy_module"])
-    dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
-    panel = pl.read_parquet(runner.repo_root / dataset.path)
     pipeline = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None) or (mod if hasattr(mod, "compute") else None)
     if not pipeline:
         print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
         return 1
+    dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
+    panel = pl.read_parquet(runner.repo_root / dataset.path)
     verify_prefix_invariance(pipeline, panel, contract)
     compute_and_cache_features(pipeline, panel, contract, registry=runner.registry)
     res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),
@@ -177,7 +185,7 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_screen(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    if not check_worktree():
+    if not check_worktree(runner.repo_root):
         sys.exit(2)
     report = runner.run_stage1_screen(Path(args.spec_yaml))
     import yaml
@@ -192,7 +200,7 @@ def cmd_screen(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_backtest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    if not check_worktree():
+    if not check_worktree(runner.repo_root):
         print("WARDEN_RUN_FAILED")
         sys.exit(2)
     try:
@@ -206,7 +214,7 @@ def cmd_backtest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    if not check_worktree():
+    if not check_worktree(runner.repo_root):
         sys.exit(2)
     with runner.registry._connect() as conn:
         t = conn.execute("SELECT * FROM trials WHERE run_id = ?", (args.run_id,)).fetchone()
@@ -234,20 +242,22 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         "3_point_in_time_causality": has_causal_proof and contract.execution_delay_bars >= 1,
         "4_fold_local_fitting": (contract.n_folds >= 2 and contract.embargo_bars >= 1) or trial.get("strategy_family") == "rules_ts",
         "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > 0.50) and (trial.get("delay_plus1_sharpe", -1.0) > 0.0),
-        "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= 0.80),
+        "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= 0.90),
     }
     historical_passed = all(c.values())
     approved = historical_passed and eligibility["eligible"]
     verdict = "APPROVED" if approved else ("REVOKED_INELIGIBLE" if historical_passed else "REJECTED")
-    runner.registry.record_audit(args.run_id, trial["contract_id"], verdict, c, eligibility["reason"])
-    audit = {"run_id": args.run_id, "checks": {k: {"passed": v} for k, v in c.items()},
+    audit_id = runner.registry.record_audit(args.run_id, trial["contract_id"], verdict, c, eligibility["reason"])
+    audit = {"run_id": args.run_id, "audit_id": audit_id, "checks": {k: {"passed": v} for k, v in c.items()},
              "audit_passed": approved, "historical_checks_passed": historical_passed, "verdict": verdict,
              "effective_eligibility": eligibility}
-    out = runner.repo_root / ".workspace" / "hypotheses" / f"AUDIT_{args.run_id}.md"
+    out = runner.repo_root / ".workspace" / "hypotheses" / f"AUDIT_{args.run_id}_{audit_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(f"# 6-Check Audit: {args.run_id}\nVerdict: {verdict}\n"
-                   f"Effective eligibility: {eligibility['eligible']} ({eligibility['reason']})\n"
-                   + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n")
+    with out.open("x", encoding="utf-8") as handle:  # immutable: never overwrite earlier evidence
+        handle.write(f"# 6-Check Audit: {args.run_id}\nVerdict: {verdict}\n"
+                     f"Audit evidence: {audit_id}\n"
+                     f"Effective eligibility: {eligibility['eligible']} ({eligibility['reason']})\n"
+                     + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n")
     print(json.dumps(audit, indent=2) if args.json else
           f"Audit for {args.run_id}: {verdict} (eligible={eligibility['eligible']}: {eligibility['reason']})\nReport: {out}")
     return 0 if approved else 1
@@ -265,8 +275,8 @@ def _contract_pins(repo_root: Path) -> dict[str, str]:
 def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
     """Typed, replayable checkpoint: evidence with timestamps, tool trace, explicit gates."""
     now = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
-    head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-    registry = ResearchRegistry(repo_root / "registry" / "registry.db")
+    head = _git_head(repo_root)
+    registry = ResearchRegistry(os.environ.get("WARDEN_REGISTRY") or repo_root / "registry" / "registry.db")
     with registry._connect() as conn:
         n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
         n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
@@ -337,7 +347,7 @@ def _replay(entries: list[dict], runner: ExperimentRunner) -> bool:
             drift = True
             continue
         if op == "git_head":
-            actual = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=runner.repo_root, text=True).strip()
+            actual = _git_head(runner.repo_root)
         elif op == "registry_count":
             table = entry.get("table")
             if table not in REGISTRY_TABLES:
@@ -375,13 +385,24 @@ def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
             return 1
         trace = [(LEGACY_TRACE.get(e["cmd"], e) if "op" not in e and "cmd" in e else e) for e in state.get("tool_trace", [])]
         trace = [dict(t) for t in trace]
+        gates = state.get("quality_gates") or {}
+        missing = [g for g in ("worktree_integrity", "contracts_pinned", "eligibility_surface_reachable")
+                   if g not in gates]
+        if not trace or missing:
+            print(f"REFUSED: checkpoint has no replayable tool trace or is missing mandatory gates {missing}",
+                  file=sys.stderr)
+            return 1
         drift = _replay(trace, runner)
-        failed = sorted(k for k, v in state.get("quality_gates", {}).items() if not v)
+        failed = sorted(k for k, v in gates.items() if not v)
         if failed:
             print(f"DRIFT: recorded quality gates failed at handoff: {failed}", file=sys.stderr)
             drift = True
     else:
-        drift = _replay(_legacy_trace(target.read_text(encoding="utf-8")), runner)
+        trace = _legacy_trace(target.read_text(encoding="utf-8"))
+        if not trace:
+            print("REFUSED: legacy checkpoint contains no replayable typed operations", file=sys.stderr)
+            return 1
+        drift = _replay(trace, runner)
     status = "FAILED" if drift else "SUCCESS"
     if getattr(args, "json", False):
         print(json.dumps(envelope(not drift, {"drift": drift, "checkpoint": target.name}, f"warden.continue.{status}")))
@@ -391,47 +412,59 @@ def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 
 
 def cmd_qualify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    if not check_worktree():
+    if not check_worktree(runner.repo_root):
         sys.exit(2)
     if not getattr(args, "unseal_holdout", False):
         print("Error: Holdout qualification requires --unseal-holdout flag.", file=sys.stderr)
         return 2
     from warden.qualify import qualify_candidate
-    res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner)
+    res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner, reviewer=args.reviewer)
     print(canonical_json(res) if args.json else f"Qualification complete: {res['verdict']}")
     return 0 if res["promoted"] else 1
 
 
 def _human_approved(args: argparse.Namespace) -> bool:
-    """Human-only gates need their explicit flag, or the human-held signing key."""
-    flags = {"qualify": "unseal_holdout", "generate-manifest": "human_approve_manifest"}
-    if getattr(args, flags.get(args.subcommand, ""), False):
-        return True
-    return args.subcommand == "generate-manifest" and bool(os.environ.get("WARDEN_HUMAN_SIGNING_KEY"))
+    """Human-only gates need their explicit flag. No environment variable can substitute."""
+    flags = {"qualify": "unseal_holdout", "generate-manifest": "signing_key_file"}
+    return bool(getattr(args, flags.get(args.subcommand, ""), False))
 
 
 def cmd_generate_manifest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    """Refuse autonomous self-certification: a human key or an explicit human approval is required."""
-    key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
-    if key:
-        mode, approver = "hmac", "WARDEN_HUMAN_SIGNING_KEY"
-    elif getattr(args, "human_approve_manifest", False) and os.environ.get("WARDEN_NON_INTERACTIVE") != "1":
-        mode, approver = "interactive", "human-operator"
-    else:
-        print("REFUSED: manifest signing requires WARDEN_HUMAN_SIGNING_KEY or an interactive "
-              "--human-approve-manifest with WARDEN_NON_INTERACTIVE unset.", file=sys.stderr)
+    """Human-only: sign the manifest with an offline Ed25519 key that is never in the repo."""
+    if os.environ.get("WARDEN_NON_INTERACTIVE") == "1":
+        print("REFUSED: manifest approval is an interactive human-only gate.", file=sys.stderr)
         return 2
-    repo = runner.repo_root
+    raw_key = getattr(args, "signing_key_file", None)
+    if not raw_key:
+        print("REFUSED: pass --signing-key-file with the offline human Ed25519 key.", file=sys.stderr)
+        return 2
+    repo = Path(runner.repo_root).resolve()
+    key_path = Path(raw_key).expanduser().resolve()
+    if not key_path.is_file():
+        print(f"REFUSED: signing key '{key_path}' is not a file.", file=sys.stderr)
+        return 2
+    if key_path.is_relative_to(repo):
+        print("REFUSED: the signing key must live outside the repository.", file=sys.stderr)
+        return 2
+    if key_path.stat().st_mode & 0o777 != 0o600:
+        print("REFUSED: the signing key must be mode 0600.", file=sys.stderr)
+        return 2
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        key = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(key_path.read_text().strip()))
+    except (ValueError, ImportError) as exc:
+        print(f"REFUSED: unusable Ed25519 signing key ({exc}).", file=sys.stderr)
+        return 2
     content = generate_manifest(repo)
-    meta = {"mode": mode, "approver": approver,
+    signature = key.sign(content.encode())
+    meta = {"mode": "ed25519", "approver": key_path.name,
             "approved_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
             "manifest_sha256": hashlib.sha256(content.encode()).hexdigest()}
-    if mode == "hmac":
-        digest = hmac.new(key.encode(), content.encode(), hashlib.sha256).hexdigest()
-        (repo / (MANIFEST_FILE + ".sig")).write_text(digest + "\n", encoding="utf-8")
+    (repo / MANIFEST_SIG).write_text(signature.hex() + "\n", encoding="utf-8")
     (repo / (MANIFEST_FILE + ".meta.json")).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"manifest": MANIFEST_FILE, **meta}) if args.json else
-          f"Manifest written and approved by {approver} (mode={mode}).")
+          f"Manifest signed by {key_path.name} (ed25519). Verification still requires the pinned public key.")
     return 0
 
 
@@ -442,7 +475,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("status")
     s.add_parser("check-worktree")
     gm = s.add_parser("generate-manifest")
-    gm.add_argument("--human-approve-manifest", action="store_true")
+    gm.add_argument("--signing-key-file", default=None)
     s.add_parser("register-hypothesis").add_argument("path")
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     s.add_parser("audit-check").add_argument("--run-id", required=True)
@@ -454,6 +487,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--run-id", required=True)
     q.add_argument("--human-confirm-unseal", default="")
     q.add_argument("--unseal-holdout", action="store_true")
+    q.add_argument("--reviewer", default="", help="human reviewer identity recorded with the decision")
     for sub in s.choices.values():
         if "json" not in [a.dest for a in sub._actions]: sub.add_argument("--json", action="store_true")
     return p
@@ -505,10 +539,10 @@ def main(argv: list[str] | None = None) -> int:
             code = 2
         elif decision.approval_required and not _human_approved(args):
             print(f"REFUSED: {decision.reason}; pass the human-only flag for this subcommand "
-                  "(--unseal-holdout/--human-confirm-unseal or --human-approve-manifest)", file=sys.stderr)
+                  "(--unseal-holdout/--human-confirm-unseal or --signing-key-file)", file=sys.stderr)
             code = 2
         elif args.subcommand == "register-hypothesis":
-            if not check_worktree():
+            if not check_worktree(runner.repo_root):
                 code = 2
             else:
                 h = load_hypothesis(Path(args.path))

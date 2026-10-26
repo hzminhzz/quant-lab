@@ -101,6 +101,11 @@ def generate_positions(
         if a not in fund_pivot.columns:
             fund_pivot = fund_pivot.with_columns(pl.lit(0.0).alias(a))
     fund_mat = fund_pivot.select(assets).to_numpy()
+    open_pivot = df.pivot(index="timestamp", on="asset", values="open").fill_null(strategy="forward").fill_null(0.0)
+    for a in assets:
+        if a not in open_pivot.columns:
+            open_pivot = open_pivot.with_columns(pl.lit(0.0).alias(a))
+    open_mat = open_pivot.select(assets).to_numpy()
 
     feat_funding = np.zeros_like(ret_mat)
     feat_mom = np.zeros_like(ret_mat)
@@ -122,8 +127,9 @@ def generate_positions(
         feat_mom[t] = f2 / (np.std(f2) + 1e-8)
         feat_rev[t] = f3 / (np.std(f3) + 1e-8)
 
-        if t + h <= n_bars:
-            fwd = np.sum(ret_mat[t:t + h], axis=0)
+        if t + h + delay < n_bars:
+            entry, exit_ = open_mat[t + delay], open_mat[t + delay + h]
+            fwd = np.divide(exit_ - entry, entry, out=np.zeros_like(entry), where=entry > 0)
             forward_label[t] = fwd - np.mean(fwd)
 
     splits = purged_walk_forward_splits(
@@ -132,6 +138,7 @@ def generate_positions(
         min_train_timestamps=val_start_idx,
         label_horizon=contract.label_horizon_bars,
         embargo=contract.embargo_bars,
+        execution_delay=contract.execution_delay_bars,
     )
 
     oos_preds = np.full_like(ret_mat, np.nan)

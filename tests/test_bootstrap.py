@@ -28,7 +28,7 @@ CANONICAL_DIRECTORIES: tuple[str, ...] = (
     ".workspace/hypotheses",
     ".workspace/literature",
     ".workspace/plans",
-    ".workspace/transitions",
+    ".workspace/state",
 )
 
 REQUIRED_PACKAGES: tuple[str, ...] = (
@@ -51,7 +51,7 @@ REQUIRED_PACKAGES: tuple[str, ...] = (
 
 
 def test_canonical_directory_skeleton_exists() -> None:
-    """Verify all 20 required canonical directories exist in quant-lab."""
+    """Verify the required canonical directories exist (transitions is git-ignored by design)."""
     missing = [
         rel_path
         for rel_path in CANONICAL_DIRECTORIES

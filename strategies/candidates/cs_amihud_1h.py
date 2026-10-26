@@ -103,14 +103,15 @@ def generate_positions(
     f_fast = feat_df.pivot(index="timestamp", on="asset", values="feat_amihud_fast").fill_null(0.0).select(assets).to_numpy()
     f_vol = feat_df.pivot(index="timestamp", on="asset", values="feat_vol").fill_null(0.0).select(assets).to_numpy()
 
-    # shortcut: label is close-to-close and starts at bar t (ret_mat[t] is t-1->t), while
-    # executed PnL uses open-to-open with a 1-bar delay, so IC/positions are scored against a
-    # target one bar earlier than the tradeable horizon. Recorded results are invalid for any
-    # promotion; fix the basis before spending another trial on this hypothesis.
-    h = contract.label_horizon_bars
+    # Executable label: the position formed at t is filled at open[t+delay] and realised at
+    # open[t+delay+h], exactly Warden's NEXT_BAR open-to-open basis (one lag, no double lag).
+    h, delay = contract.label_horizon_bars, contract.execution_delay_bars
+    open_pivot = df.pivot(index="timestamp", on="asset", values="open").fill_null(strategy="forward").fill_null(0.0)
+    open_mat = open_pivot.select([a for a in assets if a in open_pivot.columns]).to_numpy()
     forward_label = np.zeros((n_bars, n_assets), dtype=float)
-    for t in range(n_bars - h):
-        fwd = np.sum(ret_mat[t : t + h], axis=0)
+    for t in range(n_bars - h - delay):
+        entry, exit_ = open_mat[t + delay], open_mat[t + delay + h]
+        fwd = np.divide(exit_ - entry, entry, out=np.zeros_like(entry), where=entry > 0)
         forward_label[t] = fwd - np.mean(fwd)
 
     # Train Ridge walk-forward
@@ -120,6 +121,7 @@ def generate_positions(
         min_train_timestamps=val_start_idx,
         label_horizon=contract.label_horizon_bars,
         embargo=contract.embargo_bars,
+        execution_delay=contract.execution_delay_bars,
     )
 
     oos_preds = np.full_like(ret_mat, np.nan)

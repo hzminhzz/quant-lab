@@ -21,13 +21,12 @@ class VolBreakoutPipeline:
 
     def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
         df = bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
-        # Features strictly lagged by contract.execution_delay_bars (at least 1)
-        delay = contract.execution_delay_bars
+        # Features use data through t only; Warden applies the single mandatory execution delay.
         return (
             df.sort("timestamp", "asset")
             .with_columns(
-                cum_ret=pl.col("close").pct_change(self.lookback_bars).shift(delay).over("asset"),
-                realized_vol=pl.col("close").pct_change(1).rolling_std(self.vol_window).shift(delay).over("asset"),
+                cum_ret=pl.col("close").pct_change(self.lookback_bars).over("asset"),
+                realized_vol=pl.col("close").pct_change(1).rolling_std(self.vol_window).over("asset"),
             )
             .with_columns(
                 z_score=pl.col("cum_ret") / (pl.col("realized_vol") * math.sqrt(self.lookback_bars) + 1e-12)
@@ -93,8 +92,9 @@ def generate_positions(
             positions[t] = positions[t - 1]
             continue
 
-        # Signal formed strictly up to t - contract.execution_delay_bars
-        end_idx = t - contract.execution_delay_bars
+        # Signal formed using data up to and including t; Warden applies the single mandatory
+        # execution delay, so the strategy must not pre-lag its own signal.
+        end_idx = t
         if end_idx <= max(lookback_bars, vol_window):
             positions[t] = positions[t - 1]
             continue

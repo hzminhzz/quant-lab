@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -519,3 +520,90 @@ def test_s19_positions_are_invariant_to_row_order():
         s19.generate_positions(panel, CONTRACT)["positions"],
         s19.generate_positions(shuffled, CONTRACT)["positions"],
     )
+
+
+# --- S21, S22, S23 ---------------------------------------------------------------
+
+s21 = load_module_from_path(Path("strategies/candidates/carver_daily/s21_breakout.py"))
+s22 = load_module_from_path(Path("strategies/candidates/carver_daily/s22_value.py"))
+s23 = load_module_from_path(Path("strategies/candidates/carver_daily/s23_acceleration.py"))
+
+
+def test_s21_range_uses_only_closing_prices():
+    # Monotone staircase of 80 closes: the last close is the max, the first the min.
+    closes = [float(i) for i in range(1, 81)]
+    panel = _panel({"AAA": closes})
+    feat = s21.pipeline.compute(panel, CONTRACT)
+    raw = feat["raw_forecast"].to_numpy()
+
+    # midpoint of [1, 80] is 40.5, range 79 -> 40 * 39.5 / 79 == 20 exactly
+    assert math.isclose(raw[79], 20.0, rel_tol=0.0, abs_tol=1e-12)
+
+    shocked = panel.with_columns((pl.col("high") * 7.0).alias("high"), (pl.col("low") * 0.1).alias("low"))
+    other = s21.pipeline.compute(shocked, CONTRACT)
+    assert np.array_equal(feat["forecast"].to_numpy(), other["forecast"].to_numpy(), equal_nan=True)
+
+
+def test_s21_top_of_range_scales_to_the_table91_forecast():
+    # alternating 90/100 makes the 80-bar range exactly [90, 100]; a later rise to 120
+    # keeps the price at the top of its own window, so the raw forecast stays at +20.
+    closes = [100.0 if i % 2 else 90.0 for i in range(90)] + [100.0, 110.0, 120.0]
+    feat = s21.pipeline.compute(_panel({"AAA": closes}), CONTRACT)
+    raw = feat["raw_forecast"].to_numpy()[-1]
+    forecast = feat["forecast"].to_numpy()[-1]
+
+    assert math.isclose(raw, 20.0, rel_tol=0.0, abs_tol=1e-12)
+    assert forecast <= 0.73 * 20.0 + 1e-12  # the scalar caps the scaled forecast below 20
+    expected = np.clip(
+        pl.Series(feat["raw_forecast"]).ewm_mean(span=20).to_numpy() * 0.73, -20.0, 20.0
+    )
+    assert np.allclose(feat["forecast"].to_numpy(), expected, equal_nan=True)
+
+
+def test_s21_buffering_holds_within_the_deadband_and_never_stops_out():
+    closes = _ramp(160, 0.004) + [_ramp(160, 0.004)[-1] * 0.6] + [60.0] * 5
+    panel = _panel({"AAA": closes})
+    feat = s21.pipeline.compute(panel, CONTRACT)
+    target = value_matrix(feat, "weight", ["AAA"])[:, 0]
+    average = value_matrix(feat, "average", ["AAA"])[:, 0]
+    pos = s21.generate_positions(panel, CONTRACT)["positions"][:, 0]
+
+    for t in range(1, len(pos)):
+        if abs(target[t] - pos[t - 1]) <= 0.10 * average[t]:
+            assert pos[t] == pos[t - 1]
+    assert pos[160] != 0.0  # a 3x ATR stop would have flattened this bar
+
+
+def test_s22_forecast_is_the_negated_horizon_outperformance():
+    # two fx members with opposite five-hundred-bar outperformance regimes
+    first = _ramp(700, 0.004) + _ramp(400, -0.003, _ramp(700, 0.004)[-1])
+    second = _ramp(700, -0.004, 100.0) + _ramp(400, 0.003, _ramp(700, -0.004, 100.0)[-1])
+    panel = _panel({"AUDUSD": first, "EURUSD": second})
+    feat = s22.ValuePipeline(horizon_bars=600, smooth_span=30, scalar=7.27).compute(panel, CONTRACT)
+    rel = feat.sort("timestamp", "asset").filter(pl.col("asset") == "AUDUSD")["relative"].to_numpy()
+    forecast = feat.sort("timestamp", "asset").filter(pl.col("asset") == "AUDUSD")["forecast"].to_numpy()
+    change = -(rel[-1] - rel[-601])
+
+    assert math.copysign(1.0, forecast[-1]) == math.copysign(1.0, change)
+    earlier = -(rel[650] - rel[650 - 601])
+    assert earlier * change < 0.0  # the long-horizon relative trend really flipped
+    assert s22.SCALAR == 7.27 and s22.SMOOTH_SPAN == 30
+
+
+def test_s23_is_the_scaled_change_in_each_ewmac_forecast():
+    panel = _panel({"AAA": _noisy(260, 0.0004, 0.006, seed=31)})
+    feat = s23.pipeline.compute(panel, CONTRACT)
+    per_speed = []
+    for fast in s23.SPEEDS:
+        trend, vol_bar = _feature_columns(panel, fast, 4 * fast)
+        f = np.clip(trend / vol_bar * s23.EWMAC_SCALARS[fast], -20.0, 20.0)
+        delta = np.full_like(f, np.nan)
+        delta[fast:] = (f[fast:] - f[:-fast]) * s23.ACCELERATION_SCALARS[fast]
+        per_speed.append(np.clip(delta, -20.0, 20.0))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # all-NaN leading rows
+        expected = np.clip(np.nanmean(per_speed, axis=0) * 1.55, -20.0, 20.0)
+
+    assert s23.ACCELERATION_SCALARS == {8: 1.87, 16: 1.90, 32: 1.98, 64: 2.05}
+    assert s23.FDM == 1.55
+    assert np.allclose(feat["forecast"].to_numpy()[200:], expected[200:], equal_nan=True)

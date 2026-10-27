@@ -54,17 +54,20 @@ def test_ewmac_is_computed_per_asset():
     assert np.allclose(bbb, 0.0, atol=1e-12)
 
 
-def test_ann_vol_matches_hand_value_and_price_vol_is_lagged():
-    df = _bars([100.0, 102.0, 102.0, 102.0])
+def test_ann_vol_is_the_raw_statistic_and_price_vol_is_exactly_its_lag():
+    """The API split: ann_vol is the window ending now, price_vol is ann_vol shifted one bar."""
+    df = _bars([100.0, 102.0, 103.0, 102.5, 103.5])
     out = df.select(
         ann_vol(pl.col("close"), 2, 312).alias("ann"),
         price_vol(pl.col("close"), 2, 312).alias("pv"),
     )
 
-    # Returns are [null, 0.02, 0.0, 0.0]; sample std of [0.02, 0.0] is 0.02/sqrt(2).
-    assert math.isclose(out["ann"][2], 0.02 * math.sqrt(156.0), rel_tol=0.0, abs_tol=1e-12)
-    assert out["ann"][3] == 0.0
-    assert out["pv"][3] == out["ann"][2]
+    # Returns are [null, 0.02, 0.0098.., -0.00485..]; the window ending at bar 2 holds two
+    # returns, so its sample std is hand-computable and ann_vol reports it at bar 2 itself.
+    assert math.isclose(out["ann"][2], np.std([0.02, 103.0 / 102.0 - 1.0], ddof=1) * math.sqrt(312),
+                        rel_tol=1e-12)
+    # price_vol is that same series shifted by exactly one bar, so sizing lags the statistic
+    assert np.allclose(out["pv"].to_numpy()[1:], out["ann"].to_numpy()[:-1], equal_nan=True)
 
 
 def test_forecast_from_trend_scales_and_clips():

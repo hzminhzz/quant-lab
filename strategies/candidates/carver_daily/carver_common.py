@@ -43,7 +43,12 @@ def ewmac(close: pl.Expr, fast: int, slow: int) -> pl.Expr:
 
 
 def ann_vol(close: pl.Expr, window: int, bars_per_year: int, min_samples: int = 2) -> pl.Expr:
-    """Annualised close-to-close volatility of the window ending on the current bar."""
+    """RAW statistic: annualised close-to-close volatility of the window ending NOW.
+
+    Not lagged, and not for position sizing -- use `price_vol` or `ewma_price_vol` there.
+    The one-bar lag those add is a timing convention rather than a leak fix: the contract
+    already delays execution by one bar, so a signal computed from bar t trades bar t+1.
+    """
     returns = close.pct_change()
     return returns.rolling_std(window, min_samples=min_samples) * math.sqrt(bars_per_year)
 

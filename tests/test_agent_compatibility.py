@@ -133,6 +133,9 @@ def test_omp_adapter_templates_valid() -> None:
     assert isinstance(auditor_fm.get("tools"), list)
     assert isinstance(auditor_fm.get("autoloadSkills"), list)
 
+    router_ext = omp_dir / "extensions" / "skill-router.ts"
+    assert router_ext.is_file(), "adapters/omp/.omp/extensions/skill-router.ts must exist"
+
 
 
 def test_opencode_adapter_templates_valid() -> None:
@@ -209,7 +212,7 @@ def run_installer(repo: Path, *args: str, cwd: Path | None = None) -> subprocess
 
 
 def test_installer_omp_harness(isolated_repo: Path) -> None:
-    """Test --harness omp installs symlink to adapters/omp/.omp idempotently."""
+    """Test --harness omp installs symlink to adapters/omp/.omp idempotently and cleans cleanly."""
     proc1 = run_installer(isolated_repo, "--harness", "omp")
     assert proc1.returncode == 0, f"Installer failed: {proc1.stderr}"
 
@@ -217,11 +220,19 @@ def test_installer_omp_harness(isolated_repo: Path) -> None:
     assert omp_link.is_symlink()
     assert os.readlink(omp_link) == "adapters/omp/.omp"
     assert (omp_link / "config.yml").is_file()
+    assert (omp_link / "extensions" / "skill-router.ts").is_file()
 
     proc2 = run_installer(isolated_repo, "--harness", "omp")
     assert proc2.returncode == 0
     assert omp_link.is_symlink()
+    assert (omp_link / "extensions" / "skill-router.ts").is_file()
 
+    proc_clean = run_installer(isolated_repo, "--harness", "clean")
+    assert proc_clean.returncode == 0
+    assert not omp_link.exists()
+    assert not (isolated_repo / ".omp" / "extensions" / "skill-router.ts").exists()
+    assert (isolated_repo / "adapters" / "omp" / ".omp" / "extensions" / "skill-router.ts").is_file()
+    assert (isolated_repo / ".agents" / "skills").is_dir()
 
 def test_installer_opencode_harness(isolated_repo: Path) -> None:
     """Test --harness opencode installs opencode.json and .opencode prompts idempotently."""
@@ -276,6 +287,7 @@ def test_installer_all_and_clean_lifecycle(isolated_repo: Path) -> None:
     assert proc_all.returncode == 0
 
     assert (isolated_repo / ".omp").is_symlink()
+    assert (isolated_repo / ".omp" / "extensions" / "skill-router.ts").is_file()
     assert (isolated_repo / "opencode.json").is_symlink()
     assert (isolated_repo / ".opencode" / "prompts").is_symlink()
     assert (isolated_repo / ".claude" / "skills").is_symlink()
@@ -285,11 +297,13 @@ def test_installer_all_and_clean_lifecycle(isolated_repo: Path) -> None:
     assert proc_clean.returncode == 0
 
     assert not (isolated_repo / ".omp").exists()
+    assert not (isolated_repo / ".omp" / "extensions" / "skill-router.ts").exists()
     assert not (isolated_repo / "opencode.json").exists()
     assert not (isolated_repo / ".opencode" / "prompts").exists()
     assert not (isolated_repo / ".claude" / "skills").exists()
     assert not (isolated_repo / ".claude" / "settings.local.json").exists()
 
+    assert (isolated_repo / "adapters" / "omp" / ".omp" / "extensions" / "skill-router.ts").is_file()
     assert (isolated_repo / "AGENTS.md").is_file()
     assert (isolated_repo / "CLAUDE.md").is_file()
     assert (isolated_repo / ".agents" / "skills").is_dir()

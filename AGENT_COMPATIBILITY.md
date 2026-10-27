@@ -131,6 +131,15 @@ Run `uv run warden audit-check --run-id <RUN_ID> --json` and inspect `git diff` 
 
 ```
 
+#### `.omp/extensions/skill-router.ts` (Optional Dynamic Skill Router)
+
+For autonomous OMP sessions without manual `/skill:<name>` invocation, `adapters/omp/.omp/extensions/skill-router.ts` provides pre-turn skill selection and context injection:
+- **Main-Session Auto-Loader**: Intercepts `before_agent_start`, evaluates user intent against frontmatter metadata of all 61 skills in `.agents/skills/`, selects relevant skills ($p \ge 0.7$), resolves transitive prerequisite DAGs (e.g. `ml4t-run-backtest` $\to$ `ml4t-cost-model` $\to$ `ml4t-transaction-costs`), and injects complete skill bodies into the session.
+- **Per-Child Dynamic Rebinding**: When child sessions spawn via `task`, the extension factory rebinds (`ctx.agent.kind === "sub"`) and dynamically determines active skill coverage for the child's specific task.
+- **Ambiguity & Action Gate**: Conservative inclusion for ambiguous candidates ($0.3 \le p < 0.7$) tracked in `ambiguous` metadata. Blocks mutating tools (`write`, `edit`, `warden backtest/screen/qualify`) if skill routing fails, while leaving read-only tools (`read`, `grep`, `glob`) operational for diagnosis.
+- **Zero Third-Party SDK**: Reuses OMP's native judgment exports (`resolveJudge`, `findScopedSettings`, `getActiveSkills`) and standard `modelRoles.judge` configuration (`jev`), with an HTTP API fallback.
+```
+
 ## 4. Moving Enforcement from `opencode.json` to Deterministic Core (`warden` + OS/Git)
 
 Because harness-specific configuration files (`opencode.json`, `.omp/config.yml`, `.claude/settings.json`) are now optional adapters, **all security and scientific boundaries previously enforced in `opencode.json` are enforced in the harness-independent core**:

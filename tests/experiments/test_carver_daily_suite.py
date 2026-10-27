@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from warden.contracts import load_contract
 from warden.runner import load_module_from_path
 
 common = load_module_from_path(Path("strategies/candidates/carver_daily/carver_common.py"))
@@ -18,6 +19,7 @@ apply_buffer = common.apply_buffer
 cash_vol_positions = common.cash_vol_positions
 ewmac = common.ewmac
 forecast_from_trend = common.forecast_from_trend
+fill_held = common.fill_held
 observation_mask = common.observation_mask
 price_vol = common.price_vol
 value_matrix = common.value_matrix
@@ -111,3 +113,100 @@ def test_value_matrix_and_observation_mask_fill_closed_bars():
     assert np.allclose(values, np.array([[10.0, 20.0], [11.0, 0.0]]))
     assert mask.dtype == bool
     assert mask.tolist() == [[True, True], [True, False]]
+
+
+def test_fill_held_carries_position_across_closed_bars():
+    target = np.array([[0.5, 0.5], [0.5, 0.5], [0.2, 0.5]])
+    observed = np.array([[True, True], [True, False], [True, True]])
+
+    got = fill_held(target, observed)
+
+    assert np.allclose(got, np.array([[0.5, 0.5], [0.5, 0.5], [0.2, 0.5]]))
+    # a bar before the first observation starts flat, not at the first later weight
+    assert fill_held(np.array([[0.3], [0.4]]), np.array([[False], [True]]))[0, 0] == 0.0
+
+
+# --- S01-S04 buy-and-hold family -------------------------------------------------
+
+s01 = load_module_from_path(Path("strategies/candidates/carver_daily/s01_buy_hold_single.py"))
+s02 = load_module_from_path(Path("strategies/candidates/carver_daily/s02_buy_hold_risk_scaled.py"))
+s03 = load_module_from_path(Path("strategies/candidates/carver_daily/s03_buy_hold_variable_risk.py"))
+s04 = load_module_from_path(Path("strategies/candidates/carver_daily/s04_buy_hold_portfolio_scaling.py"))
+CONTRACT = load_contract(Path("contracts/multi_asset_1d_v1.yaml"))
+
+
+def _panel(closes_by_asset: dict[str, list[float]]) -> pl.DataFrame:
+    rows = []
+    for asset, closes in closes_by_asset.items():
+        for i, close in enumerate(closes):
+            rows.append({
+                "timestamp": datetime(2020, 1, 1, tzinfo=UTC) + timedelta(days=i),
+                "asset": asset, "open": close, "high": close * 1.001,
+                "low": close * 0.999, "close": close, "volume": 100.0, "funding_rate": 0.0,
+            })
+    return pl.DataFrame(rows).sort("timestamp", "asset")
+
+
+def _alternating(n: int, base: float, step: float) -> list[float]:
+    """Prices whose close-to-close returns are exactly +/-step."""
+    prices = [base]
+    for i in range(1, n):
+        prices.append(prices[-1] * (1.0 + (step if i % 2 else -step)))
+    return prices
+
+
+def test_s01_positions_are_constant_and_price_scale_free():
+    flat = _panel({"AAA": [100.0] * 40, "BBB": [50.0] * 40})
+    scaled = _panel({"AAA": [300.0] * 40, "BBB": [150.0] * 40})
+
+    pos = s01.generate_positions(flat, CONTRACT)["positions"]
+    pos_scaled = s01.generate_positions(scaled, CONTRACT)["positions"]
+
+    assert np.allclose(pos[1:], 0.5)
+    assert np.allclose(pos, pos_scaled)
+
+
+def test_s01_does_not_exit_on_a_40_percent_crash():
+    closes = [100.0] * 100 + [60.0] + [60.0] * 10
+    pos = s01.generate_positions(_panel({"AAA": closes}), CONTRACT)["positions"][:, 0]
+
+    assert pos[99] == 1.0
+    assert pos[100] == 1.0  # a 3x ATR stop would have flattened here
+    assert pos[-1] == 1.0
+
+
+def test_s03_weights_are_inversely_proportional_to_realised_volatility():
+    # AAA alternates +/-1%, BBB +/-2%: identical construction, double the risk.
+    panel = _panel({"AAA": _alternating(160, 100.0, 0.01), "BBB": _alternating(160, 100.0, 0.02)})
+    pos = s03.generate_positions(panel, CONTRACT, vol_target=0.16, vol_window=60)["positions"]
+
+    assert pos[-1, 0] > 0.0 and pos[-1, 1] > 0.0
+    assert math.isclose(pos[-1, 1] / pos[-1, 0], 0.5, rel_tol=1e-9)  # double vol, half the weight
+
+
+def test_s02_long_term_volatility_reacts_less_than_s03_to_a_short_spike():
+    calm = _alternating(320, 100.0, 0.002)
+    spike = [calm[-1] * (1.2 if i % 2 else 0.8) for i in range(5)]
+    closes = calm + spike
+    panel = _panel({"AAA": closes})
+
+    common = {"vol_target": 0.01, "per_instrument_cap": 0.5, "warmup": 60}
+    pos02 = s02.generate_positions(panel, CONTRACT, vol_window=1260, **common)["positions"][:, 0]
+    pos03 = s03.generate_positions(panel, CONTRACT, vol_window=60, **common)["positions"][:, 0]
+
+    drop02 = pos02[-1] / pos02[319]
+    drop03 = pos03[-1] / pos03[319]
+    assert drop02 < 1.0 and drop03 < 1.0
+    assert drop03 < drop02  # the 60-day estimate de-risks harder than the 5-year one
+
+
+def test_s04_is_s03_scaled_by_the_table16_idm():
+    panel = _panel({"AAA": _alternating(160, 100.0, 0.01), "BBB": _alternating(160, 100.0, 0.02)})
+
+    # vol_target 0.05 keeps both books below the 0.5 per-instrument cap
+    pos03 = s03.generate_positions(panel, CONTRACT, vol_target=0.05, vol_window=60)["positions"]
+    pos04 = s04.generate_positions(panel, CONTRACT, vol_target=0.05, vol_window=60, idm=2.30)["positions"]
+
+    assert np.allclose(pos04, np.clip(pos03 * 2.30, -0.5, 0.5))
+    assert np.allclose(pos04, pos03 * 2.30)
+    assert np.abs(pos04).max() < 0.5

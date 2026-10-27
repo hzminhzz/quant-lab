@@ -84,7 +84,7 @@ def value_matrix(df: pl.DataFrame, col: str, assets: list[str]) -> np.ndarray:
     missing = [a for a in assets if a not in frame.columns]
     if missing:
         frame = frame.with_columns([pl.lit(0.0).alias(a) for a in missing])
-    return frame.select(assets).fill_null(0.0).to_numpy()
+    return frame.select(assets).fill_null(0.0).to_numpy().copy()  # callers mask the warmup
 
 
 def observation_mask(df: pl.DataFrame, assets: list[str]) -> np.ndarray:
@@ -94,3 +94,10 @@ def observation_mask(df: pl.DataFrame, assets: list[str]) -> np.ndarray:
     if missing:
         frame = frame.with_columns([pl.lit(False).alias(a) for a in missing])
     return frame.select(assets).fill_null(False).to_numpy().astype(bool)
+
+
+def fill_held(target: np.ndarray, observed: np.ndarray) -> np.ndarray:
+    """Carry the last weight across closed bars; a closed bar is not a trade."""
+    held = np.where(observed, target, np.nan)
+    frame = pl.DataFrame(held, schema=[f"a{i}" for i in range(held.shape[1])], nan_to_null=True)
+    return frame.select(pl.all().forward_fill().fill_null(0.0)).to_numpy()

@@ -1,0 +1,12 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-097
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s03_buy_hold_variable_risk.py
+strategy_name: CARVER_S03_SCREEN
+parameters:
+  vol_target: 0.16
+  vol_window: 60
+  min_samples: 2
+  per_instrument_cap: 0.5
+  warmup: 60

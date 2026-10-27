@@ -147,6 +147,26 @@ def grid_sharpes_for(con: sqlite3.Connection, hypothesis_id: str,
     return out
 
 
+def _run_id_problems(run_id: str, hypothesis_id: str, trial_number: int) -> list[str]:
+    """Pin the campaign's run_id convention so a typo cannot mint an arbitrary trial.
+
+    Every trial of a preregistered hypothesis is `RUN-HYP<suffix>-<trial number>`, and the
+    number must equal the slot the registry is about to hand out. That is what stops a
+    revision from being spent as the baseline, or T3 from running when T2 never did.
+    """
+    prefix = f"RUN-HYP{hypothesis_id.rsplit('-', 1)[-1]}-"
+    if not run_id.startswith(prefix):
+        return [f"run_id '{run_id}' does not follow the campaign convention '{prefix}NNN'"]
+    try:
+        index = int(run_id[len(prefix):])
+    except ValueError:
+        return [f"run_id '{run_id}' does not end in a trial number"]
+    if index != trial_number:
+        return [(f"run '{run_id}' is numbered trial {index} but would run as trial {trial_number}; "
+                 "trials run in sequence and a revision must run as its own number")]
+    return []
+
+
 def _canonical(mapping: dict[str, Any]) -> str:
     return json.dumps({k: mapping[k] for k in sorted(mapping)}, sort_keys=True, default=str)
 
@@ -167,9 +187,37 @@ def check(prereg_path: Path, spec_path: Path | None = None, db_path: Path | None
     if not spec_path.is_file():
         return [f"trial spec not found: {spec_path}"]
     spec = yaml.safe_load(spec_path.read_text(encoding="utf-8")) or {}
-    for key in ("hypothesis_id", "contract_id", "run_id", "parameters"):
-        if key not in spec:
-            return [f"trial spec {spec_path} is missing '{key}'"]
+    missing = [k for k in ("hypothesis_id", "contract_id", "run_id", "parameters") if k not in spec]
+    if missing:
+        return [f"trial spec {spec_path} is missing {missing}"]
+    return _check_spec(data, spec, db_path)
+
+
+def admit(prereg_path: Path, run_id: str, db_path: Path | None = None) -> list[str]:
+    """Judge a sealed revision on its own terms, without materialising a trial spec for it.
+
+    This is how an unrun revision is refused in writing: the parameters come from the seal,
+    so nothing new is authored just to be rejected.
+    """
+    if not prereg_path.is_file():
+        return [f"preregistration file not found: {prereg_path}"]
+    try:
+        data = load_prereg(prereg_path)
+    except (ValueError, yaml.YAMLError) as exc:
+        return [str(exc)]
+    errors = validate_prereg(data)
+    if errors:
+        return errors
+    sealed = {rev["run_id"]: rev for rev in data["revisions"]}
+    revision = sealed.get(run_id)
+    if revision is None:
+        return [f"run_id '{run_id}' is not in the preregistration; only {sorted(sealed)} may run"]
+    spec = {"hypothesis_id": data["hypothesis_id"], "contract_id": data["contract_id"],
+            "run_id": run_id, "parameters": revision["parameters"]}
+    return _check_spec(data, spec, db_path)
+
+
+def _check_spec(data: dict[str, Any], spec: dict[str, Any], db_path: Path | None) -> list[str]:
     if spec["hypothesis_id"] != data["hypothesis_id"]:
         return [f"spec hypothesis {spec['hypothesis_id']} does not match preregistration {data['hypothesis_id']}"]
     if spec["contract_id"] != data["contract_id"]:
@@ -191,11 +239,17 @@ def check(prereg_path: Path, spec_path: Path | None = None, db_path: Path | None
         if int(hyp["trials_used"]) >= 3:
             return [f"{spec['hypothesis_id']} has no trial budget left ({hyp['trials_used']}/3)"]
         if trial_number == 1:
-            # A baseline trial is not a revision and needs no failing axis, but a sealed
-            # revision must never be spent as the baseline.
+            # A baseline trial is not a revision and needs no failing axis, but it must still
+            # be the baseline: the sealed revisions must never be spent as it, and the run_id
+            # must follow the campaign convention so a typo cannot mint an arbitrary trial.
             if spec["run_id"] in sealed:
                 return [f"'{spec['run_id']}' is a sealed revision and cannot run as the baseline trial"]
-            return []
+            for rev in data["revisions"]:
+                if _canonical(spec["parameters"]) == _canonical(rev["parameters"]):
+                    return [(f"baseline parameters match sealed revision '{rev['run_id']}'; a revision "
+                             "configuration cannot be spent as the baseline trial")]
+            problems = _run_id_problems(spec["run_id"], data["hypothesis_id"], trial_number)
+            return problems
         row = con.execute(
             "SELECT * FROM trials WHERE hypothesis_id=? AND trial_number_in_hyp=?",
             (spec["hypothesis_id"], trial_number - 1)).fetchone()
@@ -213,10 +267,9 @@ def check(prereg_path: Path, spec_path: Path | None = None, db_path: Path | None
     finally:
         con.close()
 
-    index = int(str(spec["run_id"]).rsplit("-", 1)[-1])
-    if index != trial_number:
-        return [(f"run '{spec['run_id']}' would be trial {trial_number} for this hypothesis; a sealed "
-                 f"revision must run as trial {index}, so T3 cannot run when T2 did not")]
+    problems = _run_id_problems(spec["run_id"], data["hypothesis_id"], trial_number)
+    if problems:
+        return problems
 
     revision = sealed.get(spec["run_id"])
     if revision is None:
@@ -236,15 +289,22 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check S05 revision preregistration admissibility.")
     parser.add_argument("--prereg", type=Path, default=DEFAULT_PREREG)
     parser.add_argument("--spec", type=Path, default=None, help="trial spec to admit against the registry")
+    parser.add_argument("--admit", default=None, metavar="RUN_ID",
+                        help="judge one sealed revision by run_id, without a trial spec on disk")
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     args = parser.parse_args(argv)
-    errors = check(args.prereg, args.spec, args.db)
+    if args.admit:
+        errors = admit(args.prereg, args.admit, args.db)
+        target = f"{args.prereg} admits {args.admit}"
+    else:
+        errors = check(args.prereg, args.spec, args.db)
+        target = f"{args.prereg}" + (f" admits {args.spec}" if args.spec else "")
     if errors:
         print("INADMISSIBLE", file=sys.stderr)
         for err in errors:
             print(f"  - {err}", file=sys.stderr)
         return 1
-    print(f"ADMISSIBLE: {args.prereg}" + (f" admits {args.spec}" if args.spec else ""))
+    print(f"ADMISSIBLE: {target}")
     return 0
 
 

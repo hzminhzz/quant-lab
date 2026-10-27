@@ -122,6 +122,23 @@ def test_sealed_revision_cannot_be_spent_as_the_baseline(tmp_path):
     assert any("cannot run as the baseline trial" in e for e in check(prereg, spec, db))
 
 
+def test_baseline_run_id_must_follow_the_campaign_convention(tmp_path):
+    prereg = write_prereg(tmp_path / "p.md")
+    db = make_registry(tmp_path)
+    wrong_number = write_spec(tmp_path / "t1.yaml", run_id="RUN-HYP099-777", parameters=BASE_PARAMS)
+    assert any("is numbered trial 777" in e for e in check(prereg, wrong_number, db))
+    foreign = write_spec(tmp_path / "t1b.yaml", run_id="RUN-FOO-001", parameters=BASE_PARAMS)
+    assert any("does not follow the campaign convention" in e for e in check(prereg, foreign, db))
+
+
+def test_baseline_cannot_spend_a_sealed_configuration(tmp_path):
+    prereg = write_prereg(tmp_path / "p.md")
+    db = make_registry(tmp_path)
+    sealed_params = {**BASE_PARAMS, "fast": 62}  # revision 002's sealed parameters
+    spec = write_spec(tmp_path / "t1.yaml", run_id="RUN-HYP099-001", parameters=sealed_params)
+    assert any("cannot be spent as the baseline trial" in e for e in check(prereg, spec, db))
+
+
 def test_unsealed_parameters_are_refused(tmp_path):
     prereg = write_prereg(tmp_path / "p.md")
     db = make_registry(tmp_path, rows=[{}])
@@ -165,7 +182,7 @@ def test_third_revision_cannot_skip_an_unrun_second(tmp_path):
     spec = write_spec(tmp_path / "t3.yaml", run_id="RUN-HYP099-003",
                       parameters={**BASE_PARAMS, "fast": 63})
     errors = check(prereg, spec, db)
-    assert any("must run as trial 3" in e for e in errors)
+    assert any("is numbered trial 3" in e for e in errors)
 
 
 def test_third_revision_admitted_after_second_fails_its_axis(tmp_path):
@@ -216,3 +233,22 @@ def test_exhausted_budget_is_refused(tmp_path):
     spec = write_spec(tmp_path / "t3.yaml", run_id="RUN-HYP099-003",
                       parameters={**BASE_PARAMS, "fast": 63})
     assert any("no trial budget left" in e for e in check(prereg, spec, db))
+
+
+def test_admit_judges_a_sealed_revision_without_a_spec_file(tmp_path):
+    """The refusal record must not require authoring a spec for a run that never happens."""
+    prereg = write_prereg(tmp_path / "p.md")
+    admit = GATE["admit"]
+
+    passing = make_registry(tmp_path / "a", rows=[{"stress_2x_cost_sharpe": 0.86}])
+    errors = admit(prereg, "RUN-HYP099-002", passing)
+    assert any("does not fail it" in e and "0.8600" in e for e in errors)
+
+    failing = make_registry(tmp_path / "b", rows=[{"stress_2x_cost_sharpe": 0.30}])
+    assert admit(prereg, "RUN-HYP099-002", failing) == []
+
+
+def test_admit_refuses_an_unsealed_run_id(tmp_path):
+    prereg = write_prereg(tmp_path / "p.md")
+    db = make_registry(tmp_path, rows=[{}])
+    assert any("is not in the preregistration" in e for e in GATE["admit"](prereg, "RUN-HYP099-009", db))

@@ -59,7 +59,7 @@ describe("skill-router extension integration", () => {
     const mockContext: Partial<ExtensionContext> = {
       cwd,
       agent: { kind: "main", id: "1", name: "main", depth: 0 },
-      ui: { notify: () => {} } as any,
+      ui: { notify: () => {} } as unknown as ExtensionContext["ui"],
     };
 
     const event: BeforeAgentStartEvent = {
@@ -129,7 +129,7 @@ describe("skill-router extension integration", () => {
     const mockContext: Partial<ExtensionContext> = {
       cwd,
       agent: { kind: "main", id: "1", name: "main", depth: 0 },
-      ui: { notify: () => {} } as any,
+      ui: { notify: () => {} } as unknown as ExtensionContext["ui"],
     };
 
     // Prompt fails routing
@@ -194,7 +194,7 @@ describe("skill-router extension integration", () => {
     const mockContext: Partial<ExtensionContext> = {
       cwd,
       agent: { kind: "main", id: "1", name: "main", depth: 0 },
-      ui: { notify: () => {} } as any,
+      ui: { notify: () => {} } as unknown as ExtensionContext["ui"],
     };
 
     // Route docs prompt -> zero skills selected
@@ -283,7 +283,7 @@ describe("skill-router extension integration", () => {
     const mockContext: Partial<ExtensionContext> = {
       cwd,
       agent: { kind: "main", id: "1", name: "main", depth: 0 },
-      ui: { notify: () => {} } as any,
+      ui: { notify: () => {} } as unknown as ExtensionContext["ui"],
     };
 
     await handlers.before_agent_start(

@@ -106,7 +106,12 @@ async function tryNativeJudge(
           sessionId: ctx.sessionManager?.getSessionId(),
           purpose: "skill-routing",
         });
-        const nativeQuestions: Record<string, unknown> = {};
+        interface NativeNoulQuestion {
+          type: "noul";
+          instructions: string;
+          criteria?: { true?: string; false?: string };
+        }
+        const nativeQuestions: Record<string, NativeNoulQuestion> = {};
         for (const [k, q] of Object.entries(questions)) {
           nativeQuestions[k] = {
             type: "noul",
@@ -116,7 +121,7 @@ async function tryNativeJudge(
         }
         const res = await judge.judge({
           state: JSON.stringify(state),
-          questions: nativeQuestions as any,
+          questions: nativeQuestions,
         });
         const answers: Answers = {};
         for (const [k, ans] of Object.entries(res.answers || {})) {

@@ -21,7 +21,7 @@ TRIAL = {"run_id": "RUN-HYP095-001", "hypothesis_id": HYP, "contract_id": "MULTI
          "trial_number_in_hyp": 1, "net_sharpe": 1.317, "stress_2x_cost_sharpe": 1.317,
          "delay_plus1_sharpe": 1.317, "deflated_sharpe_prob": 0.663, "total_trials_n": 29,
          "effective_trials_keff": 11.61, "expected_max_sharpe_noise": 1.0567,
-         "diagnostics_json": json.dumps({"selection": {"unvectorized_attempts": 17}}),
+         "diagnostics_json": json.dumps({"selection": {"unvectorized_attempts": 17, "prior_max_keff": 2.8345}}),
          "breakeven_cost_bps": 2728.6, "annualized_turnover": 0.39,
          "param_neighbor_stability": 1.0, "stage_reached": "STAGE_3_STRESS", "verdict": "REVISE"}
 SCREEN = {"attempt_id": "ATT-1", "attempt_base": "base-1", "hypothesis_id": HYP,
@@ -33,7 +33,8 @@ SCREEN = {"attempt_id": "ATT-1", "attempt_base": "base-1", "hypothesis_id": HYP,
 
 
 def build_registry(tmp_path: Path, *, with_trial: bool = True, with_screen: bool = True,
-                   screen_metrics: dict[str, float] | None = None) -> Path:
+                   screen_metrics: dict[str, float] | None = None,
+                   trial_overrides: dict[str, object] | None = None) -> Path:
     db = tmp_path / "registry.db"
     ResearchRegistry(db)
     con = sqlite3.connect(db)
@@ -46,8 +47,9 @@ def build_registry(tmp_path: Path, *, with_trial: bool = True, with_screen: bool
         (HYP, "MULTI_ASSET_1D_V1", "AF30 S01 Buy and Hold", "rules_ts", "mechanism", "friction",
          312, "profit factor < 1.15", 1 if with_trial else 0, "ACTIVE"))
     if with_trial:
-        con.execute(f"INSERT INTO trials ({','.join(TRIAL)}) VALUES ({','.join('?' * len(TRIAL))})",
-                    tuple(TRIAL.values()))
+        trial = {**TRIAL, **(trial_overrides or {})}
+        con.execute(f"INSERT INTO trials ({','.join(trial)}) VALUES ({','.join('?' * len(trial))})",
+                    tuple(trial.values()))
     if with_screen:
         screen = dict(SCREEN)
         if screen_metrics:
@@ -108,8 +110,8 @@ def test_stage1_pass_without_a_trial_is_not_reported_as_falsified(tmp_path):
 def test_screen_only_record_estimates_the_next_gate_not_the_stored_one(tmp_path):
     db = build_registry(tmp_path, with_trial=False)
     text = render_one(tmp_path, db, audit_dir(tmp_path))
-    assert "`max(k_dedup, 11.6100) + 0.50 x 1 = 12.1100`" in text
-    assert "not the stored value" in text
+    assert "at least `max(k_dedup, 11.6100) + 0.50 x 1 = 12.1100`" in text
+    assert "That is a lower bound, not the stored value" in text
 
 
 def test_missing_evidence_aborts_before_writing_anything(tmp_path):
@@ -156,6 +158,34 @@ def test_trial_record_quotes_its_own_selection_state(tmp_path):
     text = render_one(tmp_path, db, audit_dir(tmp_path))
     assert "`k_eff_gate` 11.6100" in text and "noise floor 1.0567" in text
     assert "20.1000" not in text
+
+
+def test_campaign_report_agrees_with_the_decision_records(tmp_path):
+    db = build_registry(tmp_path)
+    audits = audit_dir(tmp_path)
+    summary = BUILDER["campaign_summary"](db, audits, tmp_path / "revisions", (HYP,))
+    record = render_one(tmp_path, db, audits)
+    verdict = next(l for l in record.splitlines() if l.startswith("- **Verdict**"))
+    verdict = verdict.split("**Verdict**: ")[1].split(" — ")[0]
+    gate = next(l for l in record.splitlines() if l.startswith("- **Binding gate**"))
+    assert verdict in summary
+    assert gate.split("**Binding gate**: ")[1] in summary
+    assert "Qualified: 0 of 1" in summary
+    assert "Contract raw N went from 1 to 2" in summary
+
+
+def test_campaign_report_counts_a_qualified_trial(tmp_path):
+    db = build_registry(tmp_path, trial_overrides={"verdict": "CANDIDATE_FOR_QUALIFICATION"})
+    summary = BUILDER["campaign_summary"](db, audit_dir(tmp_path), tmp_path / "revisions", (HYP,))
+    assert "Qualified: 1 of 1" in summary
+
+
+def test_report_disclosure_numbers_come_from_the_rows(tmp_path):
+    db = build_registry(tmp_path)
+    summary = BUILDER["campaign_summary"](db, audit_dir(tmp_path), tmp_path / "revisions", (HYP,))
+    assert "2.8345 before this work unit" in summary
+    assert "11.6100 after S01" in summary
+    assert "0.50 x 1 penalty" in summary
 
 
 def test_stage_gate_rules_match_the_runner():

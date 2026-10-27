@@ -71,9 +71,12 @@ streams and screen rows are still the same objects they were when the screens ra
    return length equals the length of the existing 1D streams (806 bars) — and a failing
    preflight means no live invocation. No half-applied state: `trials_used` is incremented
    exactly once per `run_id`, under `BEGIN IMMEDIATE`.
-9. **Governance intact.** `uv run warden check-worktree` exits 0; `git status --porcelain` shows
-   no change under `src/warden/`, `contracts/`, or `data/`; no invocation passed
-   `--unseal-holdout`; `data/holdout/` is untouched.
+9. **Governance intact.** `uv run warden check-worktree` exits 0; the branch itself adds no
+   change to `src/warden/`, `contracts/`, or `data/` —
+   `git diff --name-only $(git merge-base origin/main HEAD)...HEAD -- src/warden contracts data`
+   is empty. The working tree may carry unrelated uncommitted changes from other agents; those
+   are neither created nor relied on by this work unit and are reported, not cleaned. No
+   invocation passed `--unseal-holdout`; `data/holdout/` is untouched.
 10. **No overclaiming.** No `DECISION.md` uses the word "falsified" for a strategy that passed
     Stage 1. Each trialled record states both that its registered falsification criteria are
     Stage-1-only and were met, and that the Stage-3 verdict is `REVISE` / `NOT QUALIFIED AT

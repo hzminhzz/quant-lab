@@ -241,8 +241,11 @@ disclosure that no production holdout was read. If any S05 revision ran, the rep
 the axis and the failing predecessor value; if none ran, it says so and says why.
 
 Verification: `uv run pytest -q` passes with zero failures; `uv run warden check-worktree`
-exits 0; `git status --porcelain src/warden contracts data` is empty; the report contains a
-qualified count and a per-strategy gate line for all 17; `SELECT SUM(trials_used) FROM
+exits 0; `git diff --name-only $(git merge-base origin/main HEAD)...HEAD -- src/warden
+contracts data` is empty, i.e. this branch adds nothing to the protected paths — the
+working tree may carry unrelated uncommitted changes from other agents, which are
+reported rather than cleaned; the report contains a qualified count and a per-strategy
+gate line for all 17; `SELECT SUM(trials_used) FROM
 hypotheses WHERE hypothesis_id BETWEEN 'HYP-2026-095' AND 'HYP-2026-111'` equals the number
 of trials the report claims and is ≤ 4.
 

@@ -221,10 +221,10 @@ def render(hyp: dict[str, Any], trial: dict[str, Any] | None, screen: dict[str, 
         state_label = "last stored on the contract"
     if trial is None:
         lines += [
-            (f"- A trial started now would compute `max(k_dedup, {k_eff:.4f}) + 0.50 x {unvec} = "
-             f"{k_eff + 0.5 * unvec:.4f}` as its gate, because the unvectorized penalty is added on top "
-             f"of the stored floor rather than replacing it. That is an estimate of the next run's gate, "
-             f"not the stored value."),
+            (f"- A trial started now would compute at least `max(k_dedup, {k_eff:.4f}) + 0.50 x {unvec} = "
+             f"{k_eff + 0.5 * unvec:.4f}` as its gate, because the unvectorized penalty is added on top of "
+             f"the stored floor rather than replacing it. That is a lower bound, not the stored value: a "
+             f"new candidate with a higher effective rank would raise it further."),
         ]
     lines += [
         (f"- Selection state {state_label} on `{CONTRACT_ID}`: `k_eff_gate` {k_eff:.4f}, "
@@ -239,6 +239,124 @@ def render(hyp: dict[str, Any], trial: dict[str, Any] | None, screen: dict[str, 
     ]
     return "\n".join(lines)
 
+
+def classify(hyp: dict[str, Any], trial: dict[str, Any] | None,
+             screen: dict[str, Any] | None) -> tuple[str, str]:
+    """Return (verdict, binding gate) exactly as the decision records state them."""
+    if trial is not None:
+        fails = stage3_failures(trial)
+        return ("NOT QUALIFIED AT STAGE 3", "; ".join(fails) if fails else "no runner gate failed")
+    assert screen is not None, "a hypothesis without a trial must have a Stage-1 screen"
+    fails = stage1_failures(json.loads(screen["diagnostics_json"] or "{}"))
+    if fails:
+        return ("REJECTED AT STAGE 1", "; ".join(fails))
+    return ("STAGE-1 PASS — NOT ADVANCED TO STAGE 3",
+            "no Stage-1 criterion failed; this work unit advanced only S01 and S05 to Stage 3")
+
+
+def campaign_summary(db_path: Path, audit_dir: Path, revisions_dir: Path,
+                     hyp_ids: tuple[str, ...] = HYPOTHESES) -> str:
+    """Render the campaign-level report from the same rows the records cite."""
+    con = connect(db_path)
+    try:
+        rows = []
+        trial_rows: dict[str, Any] = {}
+        for hyp_id in hyp_ids:
+            hyp = con.execute("SELECT * FROM hypotheses WHERE hypothesis_id=?", (hyp_id,)).fetchone()
+            if hyp is None:
+                raise ValueError(f"{hyp_id} is not registered; refusing to summarise a partial set")
+            trial = con.execute("SELECT * FROM trials WHERE hypothesis_id=? "
+                                "ORDER BY trial_number_in_hyp DESC LIMIT 1", (hyp_id,)).fetchone()
+            screen = con.execute("SELECT * FROM selection_attempts WHERE hypothesis_id=? "
+                                 "AND kind='standalone_screen'", (hyp_id,)).fetchone()
+            verdict, gate = classify(dict(hyp), dict(trial) if trial else None,
+                                     dict(screen) if screen else None)
+            if trial is not None:
+                trial_rows[hyp_id] = dict(trial)
+            rows.append((hyp_id, hyp["title"], verdict, gate, int(hyp["trials_used"]),
+                         trial["verdict"] if trial else ""))
+        total = con.execute("SELECT (SELECT COUNT(*) FROM trials WHERE contract_id=?) + "
+                            "(SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?)",
+                            (CONTRACT_ID, CONTRACT_ID)).fetchone()[0]
+        ours = con.execute(
+            f"SELECT (SELECT COUNT(*) FROM trials WHERE hypothesis_id IN ({','.join('?' * len(hyp_ids))})) + "
+            f"(SELECT COUNT(*) FROM selection_attempts WHERE hypothesis_id IN ({','.join('?' * len(hyp_ids))}) "
+            f"AND kind='param_grid')", (*hyp_ids, *hyp_ids)).fetchone()[0]
+        qualified = sum(1 for r in rows if r[5] == "CANDIDATE_FOR_QUALIFICATION")
+        con_screens = con.execute("SELECT COUNT(*) FROM selection_attempts WHERE contract_id=? "
+                                  "AND kind='standalone_screen'", (CONTRACT_ID,)).fetchone()[0]
+        floor_now = con.execute("SELECT max_keff_gate FROM contract_search_state WHERE contract_id=?",
+                                (CONTRACT_ID,)).fetchone()[0]
+        s05_grid = [json.loads(r[0]).get("net_sharpe") for r in con.execute(
+            "SELECT diagnostics_json FROM selection_attempts WHERE hypothesis_id='HYP-2026-099' "
+            "AND kind='param_grid' ORDER BY created_at").fetchall()]
+        s01_sel = json.loads(trial_rows.get("HYP-2026-095", {}).get("diagnostics_json") or "{}").get("selection", {})
+
+    finally:
+        con.close()
+
+    lines = ["# AF30 daily strategy suite — campaign decision report", "",
+             ("Derived from `registry/registry.db` by `scripts/build_carver_daily_decisions.py --report`. "
+             "Every number below is queried, not transcribed; the per-strategy verdicts are the same "
+             "classifier that writes each `DECISION.md`."), "",
+             "## Outcome", "",
+             (f"- **Qualified: {qualified} of {len(rows)}.** No AF30 daily strategy cleared the Stage-3 gate "
+             "on `MULTI_ASSET_1D_V1`."),
+             f"- **Trial spend:** {sum(r[4] for r in rows)} of a possible {3 * len(rows)} — "
+             + ", ".join(f"{r[0]} {r[4]}/3" for r in rows if r[4]) + ".",
+             (f"- **Selection attempts added by this work unit:** {ours} "
+             f"({sum(1 for r in rows if r[4])} trials + {ours - sum(1 for r in rows if r[4])} param-grid "
+             f"points). Contract raw N went from {total - ours} to {total}."),
+             ("- **Production holdout:** not read. `data/holdout/` was never opened and no invocation "
+             "passed `--unseal-holdout`."), "",
+             "## Per-strategy decisions", "",
+             "| Hypothesis | Strategy | Verdict | Binding gate | Trials |",
+             "|---|---|---|---|---|"]
+    for hyp_id, title, verdict, gate, used, _run in rows:
+        short = title.split(" ", 2)[-1] if title.startswith("AF30") else title
+        lines.append(f"| `{hyp_id}` | {short} | {verdict} | {gate} | {used}/3 |")
+    def fmt(hyp_id: str, key: str, spec: str) -> str:
+        row = trial_rows.get(hyp_id)
+        return format(float(row[key]), spec) if row else "n/a"
+
+    screens = con_screens
+    lines += ["", "## Why nothing qualified", "",
+              (f"The two trialled strategies failed the deflated-Sharpe gate, not the cost or latency gates: "
+               f"S01 recorded net Sharpe {fmt('HYP-2026-095', 'net_sharpe', '.3f')} with DSR "
+               f"{fmt('HYP-2026-095', 'deflated_sharpe_prob', '.3f')}, S05 net Sharpe "
+               f"{fmt('HYP-2026-099', 'net_sharpe', '.3f')} with DSR "
+               f"{fmt('HYP-2026-099', 'deflated_sharpe_prob', '.3f')}, against a {DSR_HURDLE} hurdle. That "
+               f"hurdle is set by the contract-wide selection family, which already held {screens} "
+               f"unvectorized Stage-1 screens before this work unit ran."), "",
+              (f"S05 could not be revised: all four admissible revision axes passed on its baseline "
+               f"(2x-cost {fmt('HYP-2026-099', 'stress_2x_cost_sharpe', '.3f')} vs {STRESS_SR_HURDLE}, "
+               f"latency {fmt('HYP-2026-099', 'delay_plus1_sharpe', '.3f')} vs {DELAY_SR_HURDLE}, "
+               f"breakeven {fmt('HYP-2026-099', 'breakeven_cost_bps', '.1f')} bps vs 1.0, neighbour "
+               f"stability {fmt('HYP-2026-099', 'param_neighbor_stability', '.3f')} with "
+               f"{sum(1 for g in s05_grid if g is not None and g > 0)} of {len(s05_grid)} grid points "
+               f"positive), and its actual failure — net Sharpe and DSR — is outside the closed axis "
+               f"set. Both sealed revisions were refused before any spec was authored; see "
+               f"`.workspace/af30_campaign/revisions/HYP-2026-099.refusals.md`."), "",
+              "## Disclosures", "",
+              (f"- **The selection floor ratchets.** `compute_selection_report` computes "
+               f"`max(k_dedup, prior_max_keff) + 0.50 * unvectorized`, and `prior_max_keff` is the previous "
+               f"run's already-penalised gate, so the 0.50 x {con_screens} penalty is re-applied on every "
+               f"trial. Measured gates: {s01_sel.get('prior_max_keff', float('nan')):.4f} before this work "
+               f"unit, {fmt('HYP-2026-095', 'effective_trials_keff', '.4f')} after S01, "
+               f"{fmt('HYP-2026-099', 'effective_trials_keff', '.4f')} after S05, and the next trial's gate "
+               f"is estimated at no less than {floor_now + 0.5 * con_screens:.4f} — a lower bound that "
+               f"assumes the new candidate's effective rank does not exceed the stored floor. This is "
+               f"recorded, not fixed — "
+               f"`src/warden/` is out of scope and changing the formula is a contract decision."),
+              ("- **A `REVISE` verdict is not a falsification.** The registered falsification criteria for "
+              "all 17 hypotheses are Stage-1-only. S01 and S05 met theirs; they are NOT QUALIFIED at Stage 3."),
+              ("- **The audit status is separate.** `warden audit-check` returns `REJECTED` for a `REVISE` "
+              "trial because check 2 requires a `CANDIDATE_FOR_QUALIFICATION` verdict. That is an audit "
+              "status, not evidence that the mechanism has no edge."),
+              ("- **Worktree scope.** This branch changes no file under `src/warden/`, `contracts/` or "
+              "`data/`; the working tree also carries uncommitted changes from other agents, which this "
+              "work unit neither created nor relies on."), ""]
+    return "\n".join(lines)
 
 def collect(db_path: Path, audit_dir: Path, revisions_dir: Path,
             hyp_ids: tuple[str, ...] = HYPOTHESES) -> list[tuple[Path, str]]:
@@ -294,6 +412,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--audit-dir", type=Path, default=DEFAULT_AUDIT)
     parser.add_argument("--revisions-dir", type=Path, default=DEFAULT_REVISIONS)
+    parser.add_argument("--report", type=Path, default=None,
+                        help="also write the campaign-level report here")
     args = parser.parse_args(argv)
     try:
         records = collect(args.db, args.audit_dir, args.revisions_dir)
@@ -301,7 +421,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"DECISIONS_FAILED: {exc}", file=sys.stderr)
         return 1
     written = write_all(records, args.out)
-    print(json.dumps({"records": len(written), "out": str(args.out)}, indent=2))
+    summary = {"records": len(written), "out": str(args.out)}
+    if args.report is not None:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(campaign_summary(args.db, args.audit_dir, args.revisions_dir), encoding="utf-8")
+        summary["report"] = str(args.report)
+    print(json.dumps(summary, indent=2))
     return 0
 
 

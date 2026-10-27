@@ -6,5 +6,4 @@ task:
   maxRecursionDepth: 2
   structured: true
 modelRoles:
-  default: magpie/antigravity/gemini-3.8-flash
-  judge: magpie/antigravity/gemini-3.8-flash
+  judge: typesafe/jev-1.14

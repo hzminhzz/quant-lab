@@ -106,3 +106,27 @@ def fill_held(target: np.ndarray, observed: np.ndarray) -> np.ndarray:
     held = np.where(observed, target, np.nan)
     frame = pl.DataFrame(held, schema=[f"a{i}" for i in range(held.shape[1])], nan_to_null=True)
     return frame.select(pl.all().forward_fill().fill_null(0.0)).to_numpy()
+
+def normalised_step(close: pl.Expr, vol_bar: pl.Expr, scale: float = 100.0) -> pl.Expr:
+    """Carver S17 increment: 100 risk-adjusted returns; call with .over("asset")."""
+    return pl.when(vol_bar > 0).then(scale * close.pct_change() / vol_bar).otherwise(0.0)
+
+
+def normalised_price(close: pl.Expr, vol_bar: pl.Expr, scale: float = 100.0) -> pl.Expr:
+    """Cumulative normalised price PN; call with .over("asset")."""
+    return normalised_step(close, vol_bar, scale).cum_sum()
+
+
+def class_index(df: pl.DataFrame, classes: dict[str, str] | None = None) -> pl.DataFrame:
+    """Carver S18 asset-class index: equal-weighted mean of member normalised-price
+    increments, cumulated per class. Returns timestamp, cls, level."""
+    mapping = pl.DataFrame(
+        {"asset": list((classes or ASSET_CLASSES).keys()), "cls": list((classes or ASSET_CLASSES).values())}
+    )
+    long = df.join(mapping, on="asset", how="inner").with_columns(dp=pl.col("pn").diff().over("asset"))
+    return (
+        long.group_by(["timestamp", "cls"])
+        .agg(pl.col("dp").mean().alias("r"))
+        .sort("timestamp")
+        .with_columns(level=pl.col("r").cum_sum().over("cls"))
+    )

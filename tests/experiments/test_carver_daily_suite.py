@@ -430,3 +430,92 @@ def test_s17_normalised_price_uses_risk_adjusted_increments():
         feat["pn"].to_numpy()[5:], np.nancumsum(np.nan_to_num(feat["step"].to_numpy()))[5:],
         rtol=1e-12, atol=1e-9,
     )
+
+
+# --- S18, S19 --------------------------------------------------------------------
+
+s18 = load_module_from_path(Path("strategies/candidates/carver_daily/s18_trend_asset_classes.py"))
+s19 = load_module_from_path(Path("strategies/candidates/carver_daily/s19_xs_momentum.py"))
+CLASS_INDEX = common.class_index
+NORMALISED_PRICE = common.normalised_price
+
+
+def _fx_panel(tail_crash: bool = False) -> pl.DataFrame:
+    # distinct drifts so per-instrument volatility, and hence sizing, differs
+    closes = {sym: _ramp(300, step) for sym, step in
+              (("AUDUSD", 0.002), ("EURUSD", 0.005), ("USDJPY", 0.008))}
+    if tail_crash:
+        for sym, series in closes.items():
+            closes[sym] = series + [series[-1] * 0.9] + series[-1:] * 9
+        closes["USDJPY"] = closes["USDJPY"][:-1] + [closes["USDJPY"][-2] * 0.35]
+    return _panel(closes)
+
+
+def test_s18_class_index_is_the_mean_of_member_normalised_prices():
+    panel = _fx_panel()
+    instr = s17.pipeline.compute(panel, CONTRACT).select("timestamp", "asset", "pn")
+    index = CLASS_INDEX(instr.sort("timestamp", "asset"))
+
+    pn = instr.pivot(index="timestamp", on="asset", values="pn").sort("timestamp")
+    members = [c for c in pn.columns if c != "timestamp"]
+    increments = np.nan_to_num(np.diff(pn.select(members).to_numpy(), axis=0))
+    expected = np.nancumsum(increments.mean(axis=1))
+
+    assert index["cls"].unique().to_list() == ["fx"]
+    assert np.allclose(index["level"].to_numpy()[1:], expected, rtol=1e-12)
+
+
+def test_s18_members_share_the_class_forecast():
+    panel = _fx_panel()
+    # small risk target so the per-instrument cap does not flatten the comparison
+    feat = s18.TrendAssetClassesPipeline(vol_target=0.01).compute(panel, CONTRACT)
+    last = feat.filter(pl.col("timestamp") == feat["timestamp"].max())
+
+    assert last["forecast"].n_unique() == 1  # one latent class trend, shared forecast
+    assert last["weight"].n_unique() > 1  # sizing still differs by instrument volatility
+
+
+def test_s18_a_single_distressed_member_cannot_flip_a_trending_class():
+    panel = _fx_panel(tail_crash=True)
+    feat = s18.pipeline.compute(panel, CONTRACT)
+    tail = feat.filter(pl.col("timestamp") >= feat["timestamp"].max() - pl.duration(days=1))
+    crash = tail.filter(pl.col("asset") == "USDJPY")
+
+    assert crash["close"].to_numpy()[-1] < crash["close"].to_numpy()[-2]  # the crash landed
+    assert (crash["forecast"].to_numpy() > 0).all()
+
+
+def test_s19_relative_price_removes_the_class_mean():
+    panel = _fx_panel()
+    feat = s19.pipeline.compute(panel, CONTRACT)
+
+    totals = (
+        feat.group_by("timestamp")
+        .agg(pl.col("relative").sum().alias("total"))
+        .filter(pl.col("total").is_not_null())
+    )
+    assert np.allclose(totals["total"].to_numpy()[5:], 0.0, atol=1e-9)
+
+
+def test_s19_constants_match_tables_80_and_84():
+    assert s19.HORIZONS == (5, 10, 20, 40, 80, 160)
+    assert s19.SMOOTH_SPANS == {5: 2, 10: 3, 20: 5, 40: 10, 80: 20, 160: 40}
+    assert s19.FORECAST_SCALARS == {5: 56.1, 10: 79.0, 20: 108.5, 40: 153.5, 80: 217.1, 160: 296.8}
+    assert s19.FDM == 1.49
+
+
+def test_s19_a_one_member_class_has_no_relative_signal():
+    panel = _panel({"XAUUSD": _noisy(200, 0.0005, 0.006, seed=29)})
+    feat = s19.pipeline.compute(panel, CONTRACT)
+
+    assert np.allclose(feat["relative"].to_numpy()[1:], 0.0, atol=1e-9)
+    assert np.allclose(feat["forecast"].to_numpy(), 0.0)
+
+
+def test_s19_positions_are_invariant_to_row_order():
+    panel = _fx_panel()
+    shuffled = panel.sample(fraction=1.0, shuffle=True, seed=3)
+    assert np.allclose(
+        s19.generate_positions(panel, CONTRACT)["positions"],
+        s19.generate_positions(shuffled, CONTRACT)["positions"],
+    )

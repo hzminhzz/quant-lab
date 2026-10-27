@@ -228,7 +228,7 @@ export default function skillRouterExtension(
   let lastCoverage: Coverage | null = null;
   let lastRoutingError: string | null = null;
 
-  const judgeFn = options?.judge ?? ((st: RoutingState, qs: Record<string, Question>) => executeJudge(st, qs));
+  const judgeFn = options?.judge ?? ((st: RoutingState, qs: Record<string, Question>, c?: ExtensionContext) => executeJudge(st, qs, c));
 
   pi.on(
     "before_agent_start",
@@ -256,7 +256,7 @@ export default function skillRouterExtension(
           context: `cwd: ${ctx.cwd}, agent: ${ctx.agent?.name ?? "main"} (${ctx.agent?.kind ?? "main"})`,
         };
 
-        const coverage = await selectSkills(cachedCatalog, routingState, (st, qs) => judgeFn(st, qs));
+        const coverage = await selectSkills(cachedCatalog, routingState, (st, qs) => judgeFn(st, qs, ctx));
         lastCoverage = coverage;
         lastRoutingError = null;
 

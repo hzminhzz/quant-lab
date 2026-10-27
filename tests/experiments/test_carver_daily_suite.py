@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import math
 import warnings
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import polars as pl
+import pytest
 
-from warden.contracts import load_contract
-from warden.runner import load_module_from_path
+from warden.contracts import HypothesisSpec, load_contract
+from warden.runner import ExperimentRunner, load_module_from_path
 
 common = load_module_from_path(Path("strategies/candidates/carver_daily/carver_common.py"))
 ASSET_CLASSES = common.ASSET_CLASSES
@@ -607,3 +609,47 @@ def test_s23_is_the_scaled_change_in_each_ewmac_forecast():
     assert s23.ACCELERATION_SCALARS == {8: 1.87, 16: 1.90, 32: 1.98, 64: 2.05}
     assert s23.FDM == 1.55
     assert np.allclose(feat["forecast"].to_numpy()[200:], expected[200:], equal_nan=True)
+
+
+# --- screen path: atomicity and failed-reservation behaviour ---------------------
+
+
+
+
+def test_a_raising_strategy_leaves_no_screen_row_and_no_trial(tiny_repo):
+    case = tiny_repo(
+        module_source="def generate_positions(*a, **k):\n    raise RuntimeError('boom')\n",
+        module_name="boom",
+    )
+    runner = ExperimentRunner(registry=case.registry, repo_root=case.repo)
+
+    with pytest.raises(RuntimeError):
+        runner.run_stage1_screen(case.spec)
+
+    with case.registry._connect() as conn:
+        attempts = conn.execute(
+            "SELECT COUNT(*) FROM selection_attempts WHERE hypothesis_id='HYP-TINY'"
+        ).fetchone()[0]
+        trials = conn.execute("SELECT COUNT(*) FROM trials WHERE hypothesis_id='HYP-TINY'").fetchone()[0]
+        trials_used = conn.execute(
+            "SELECT trials_used FROM hypotheses WHERE hypothesis_id='HYP-TINY'"
+        ).fetchone()[0]
+    assert (attempts, trials, trials_used) == (0, 0, 0)
+
+
+def test_registering_a_second_hypothesis_for_the_same_module_is_refused(tiny_repo):
+    case = tiny_repo()
+    first = HypothesisSpec(
+        "HYP-TINY-A", case.contract.contract_id, "First", "rules_ts",
+        "Mechanism explanation of twenty chars", "Friction explanation of twenty chars",
+        8, "Reject net Sharpe below one", strategy_module="strategies/flat.py",
+    )
+    case.registry.register_hypothesis(first)
+
+    with pytest.raises(ValueError, match="already registered"):
+        case.registry.register_hypothesis(replace(first, hypothesis_id="HYP-TINY-B"))
+
+    with case.registry._connect() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM hypotheses WHERE hypothesis_id='HYP-TINY-B'"
+        ).fetchone()[0] == 0

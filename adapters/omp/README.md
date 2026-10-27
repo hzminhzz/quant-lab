@@ -2,7 +2,7 @@
 
 This directory provides the optional Oh My Pi (OMP) harness adapter for `quant-lab`, including subagent definitions and automatic skill routing.
 
-## Architecture & Dynamic Skill Routing
+## Architecture & Dynamic Skill Routing (Experimental Preview)
 
 ### 1. Main-Session Auto-Loader
 The skill router extension (`.omp/extensions/skill-router.ts`) intercepts user turns in the primary OMP interactive session. Rather than requiring manual skill invocation, the auto-loader:
@@ -30,8 +30,8 @@ The skill router extension (`.omp/extensions/skill-router.ts`) intercepts user t
     judge: "jev" # or provider-qualified identifier configured via standard OMP model registry
   ```
 - Uses standard OMP authentication (environment variables or OMP auth credentials). No standalone API clients, third-party SDK packages, or additional SDK credentials are required.
-### 5. Scope Changes, Ambiguity Handling & Action Gate
-- **Scope Changes & Fresh Coverage**: When user intent or tool actions transition to a new task scope (e.g., shifting from exploratory data reads to model fitting or code modifications), the router evaluates the updated state to determine fresh skill coverage.
+### 5. Stale-Scope Backstop, Ambiguity Handling & Action Gate
+- **Stale-Scope Gate**: If active coverage was established for a non-strategy task (e.g. documentation edits) and the agent subsequently attempts to mutate strategy code (`strategies/candidates/`) or execute backtest evaluations (`warden backtest/screen/qualify`), `tool_call` catches the scope mismatch and blocks the mutating action, requiring a fresh prompt stating strategy/backtest objectives.
 - **Conservative Inclusion**: Skills scoring $p \ge 0.7$ are selected. Ambiguous skills ($0.3 \le p < 0.7$) are conservatively included in active coverage and tracked in metadata (`ambiguous`) without prompting manual user interrupts.
 - **Mutating Action Gate**: If newly required skill coverage cannot be resolved, or if routing encounters errors, cycles, or missing dependencies during mutating operations (file edits, git commits, code execution), the action gate pauses execution to prevent unguided mutations.
 - **Read-Only Inspection During Failures**: Read-only tools (`read`, `grep`, `glob`, inspection commands) remain fully functional during routing failures to allow diagnostics and manual investigation.

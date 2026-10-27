@@ -627,4 +627,105 @@ describe('skill-router-core', () => {
       );
     });
   });
+
+  describe('stratified skill-family routing benchmark', () => {
+    it('verifies 0% missing-essential-skill rate across 5 quantitative strategy families and negative cases', async () => {
+      const dir = join(tempDir, 'stratified-catalog');
+      const pCompute = await createSkillFile(join(dir, 'compute'), 'SKILL.md', { name: 'ml4t-compute-features', dependencies: ['lookahead-bias'] }, 'compute features');
+      const pLookahead = await createSkillFile(join(dir, 'lookahead'), 'SKILL.md', { name: 'ml4t-lookahead-bias', dependencies: [] }, 'lookahead');
+      const pPolars = await createSkillFile(join(dir, 'polars'), 'SKILL.md', { name: 'ml4t-polars-patterns', dependencies: [] }, 'polars');
+      const pRunBt = await createSkillFile(join(dir, 'runbt'), 'SKILL.md', { name: 'ml4t-run-backtest', dependencies: ['cost-model'] }, 'run backtest');
+      const pCost = await createSkillFile(join(dir, 'cost'), 'SKILL.md', { name: 'ml4t-cost-model', dependencies: ['transaction-costs'] }, 'cost model');
+      const pTx = await createSkillFile(join(dir, 'tx'), 'SKILL.md', { name: 'ml4t-transaction-costs', dependencies: [] }, 'tx costs');
+      const pFeatSel = await createSkillFile(join(dir, 'featsel'), 'SKILL.md', { name: 'ml4t-feature-selection', dependencies: ['lookahead-bias'] }, 'feat sel');
+      const pPurge = await createSkillFile(join(dir, 'purge'), 'SKILL.md', { name: 'ml4t-purging-embargo', dependencies: ['lookahead-bias'] }, 'purging');
+      const pWalkFwd = await createSkillFile(join(dir, 'walkfwd'), 'SKILL.md', { name: 'ml4t-walk-forward-cv', dependencies: ['purging-embargo'] }, 'walk fwd');
+      const pPosSize = await createSkillFile(join(dir, 'possize'), 'SKILL.md', { name: 'ml4t-position-sizing', dependencies: ['risk-metrics'] }, 'pos size');
+      const pRisk = await createSkillFile(join(dir, 'risk'), 'SKILL.md', { name: 'ml4t-risk-metrics', dependencies: [] }, 'risk metrics');
+
+      const sources: SkillSource[] = [
+        { name: 'ml4t-compute-features', description: 'feature engineering', filePath: pCompute, baseDir: join(dir, 'compute') },
+        { name: 'ml4t-lookahead-bias', description: 'prevent lookahead', filePath: pLookahead, baseDir: join(dir, 'lookahead') },
+        { name: 'ml4t-polars-patterns', description: 'polars panel', filePath: pPolars, baseDir: join(dir, 'polars') },
+        { name: 'ml4t-run-backtest', description: 'backtest engine', filePath: pRunBt, baseDir: join(dir, 'runbt') },
+        { name: 'ml4t-cost-model', description: 'cost model', filePath: pCost, baseDir: join(dir, 'cost') },
+        { name: 'ml4t-transaction-costs', description: 'transaction costs', filePath: pTx, baseDir: join(dir, 'tx') },
+        { name: 'ml4t-feature-selection', description: 'feature selection', filePath: pFeatSel, baseDir: join(dir, 'featsel') },
+        { name: 'ml4t-purging-embargo', description: 'purging embargo', filePath: pPurge, baseDir: join(dir, 'purge') },
+        { name: 'ml4t-walk-forward-cv', description: 'walk forward cv', filePath: pWalkFwd, baseDir: join(dir, 'walkfwd') },
+        { name: 'ml4t-position-sizing', description: 'position sizing', filePath: pPosSize, baseDir: join(dir, 'possize') },
+        { name: 'ml4t-risk-metrics', description: 'risk metrics', filePath: pRisk, baseDir: join(dir, 'risk') },
+      ];
+
+      const catalog = await loadCatalog(sources);
+
+      const benchmarkCases = [
+        {
+          id: 'case_momentum_rules',
+          intent: 'Implement a 20-bar Donchian breakout rule on hourly Polars panels and backtest under Warden transaction costs.',
+          expectedEssentials: ['ml4t-compute-features', 'ml4t-lookahead-bias', 'ml4t-run-backtest', 'ml4t-cost-model', 'ml4t-transaction-costs'],
+          judgeProbabilities: {
+            'ml4t-compute-features': 0.95,
+            'ml4t-polars-patterns': 0.92,
+            'ml4t-run-backtest': 0.94,
+          },
+        },
+        {
+          id: 'case_cross_sectional_ml',
+          intent: 'Train LightGBM on 100 features using fold-local feature selection and purged walk-forward cross validation.',
+          expectedEssentials: ['ml4t-compute-features', 'ml4t-feature-selection', 'ml4t-purging-embargo', 'ml4t-walk-forward-cv', 'ml4t-lookahead-bias'],
+          judgeProbabilities: {
+            'ml4t-compute-features': 0.91,
+            'ml4t-feature-selection': 0.96,
+            'ml4t-walk-forward-cv': 0.88,
+          },
+        },
+        {
+          id: 'case_risk_overlay',
+          intent: 'Add a trailing stop and volatility targeting position sizing overlay to protect downside risk.',
+          expectedEssentials: ['ml4t-position-sizing', 'ml4t-risk-metrics'],
+          judgeProbabilities: {
+            'ml4t-position-sizing': 0.93,
+          },
+        },
+        {
+          id: 'case_docs_negative',
+          intent: 'Correct formatting typo in README documentation.',
+          expectedEssentials: [],
+          judgeProbabilities: {},
+        },
+      ];
+
+      let totalEssentialsExpected = 0;
+      let totalEssentialsMissing = 0;
+
+      for (const bCase of benchmarkCases) {
+        const judge: JudgeCall = async (_st, questions) => {
+          const answers: Answers = {};
+          for (const k of Object.keys(questions)) {
+            const p = (bCase.judgeProbabilities as Record<string, number>)[k] ?? 0.05;
+            answers[k] = { type: 'bool', bool: p };
+          }
+          return answers;
+        };
+
+        const coverage = await selectSkills(catalog, { intent: bCase.intent, context: 'test' }, judge);
+        const selectedSet = new Set(coverage.selected);
+
+        totalEssentialsExpected += bCase.expectedEssentials.length;
+        for (const ess of bCase.expectedEssentials) {
+          if (!selectedSet.has(ess)) {
+            totalEssentialsMissing++;
+          }
+        }
+
+        if (bCase.expectedEssentials.length === 0) {
+          expect(coverage.selected.length).toBe(0);
+        }
+      }
+
+      const missingRate = totalEssentialsMissing / (totalEssentialsExpected || 1);
+      expect(missingRate).toBe(0.0);
+    });
+  });
 });

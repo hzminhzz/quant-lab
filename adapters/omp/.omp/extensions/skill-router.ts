@@ -85,14 +85,78 @@ export async function discoverSkillSources(baseCwd: string): Promise<SkillSource
 /**
  * Execute typed Jev judgment through TypeSafe System One HTTP API.
  */
+async function tryNativeJudge(
+  state: RoutingState,
+  questions: Record<string, Question>,
+  ctx?: ExtensionContext
+): Promise<Answers | null> {
+  if (!ctx || !ctx.modelRegistry) {
+    return null;
+  }
+  try {
+    const judgmentMod = await import("@oh-my-pi/pi-coding-agent/judgment");
+    const settingsMod = await import("@oh-my-pi/pi-coding-agent/config/settings");
+    if (typeof judgmentMod.resolveJudge === "function" && typeof settingsMod.findScopedSettings === "function") {
+      const settings = settingsMod.findScopedSettings(ctx.cwd);
+      if (settings) {
+        const judge = judgmentMod.resolveJudge({
+          settings,
+          registry: ctx.modelRegistry,
+          sessionModel: ctx.model,
+          sessionId: ctx.sessionManager?.getSessionId(),
+          purpose: "skill-routing",
+        });
+        const nativeQuestions: Record<string, unknown> = {};
+        for (const [k, q] of Object.entries(questions)) {
+          nativeQuestions[k] = {
+            type: "noul",
+            instructions: q.instructions,
+            criteria: q.criteria,
+          };
+        }
+        const res = await judge.judge({
+          state: JSON.stringify(state),
+          questions: nativeQuestions as any,
+        });
+        const answers: Answers = {};
+        for (const [k, ans] of Object.entries(res.answers || {})) {
+          if (ans && typeof ans === "object" && "noul" in ans) {
+            const noulVal = (ans as { noul: unknown }).noul;
+            if (typeof noulVal === "number" && Number.isFinite(noulVal)) {
+              answers[k] = { type: "bool", bool: noulVal };
+            }
+          }
+        }
+        if (Object.keys(answers).length > 0) {
+          return answers;
+        }
+      }
+    }
+  } catch {
+    // Fallback to HTTP client when native judge unavailable
+  }
+  return null;
+}
+
+/**
+ * Execute typed Jev judgment through native OMP judge resolver if available, falling back to TypeSafe System One HTTP API.
+ */
 export async function executeJudge(
   state: RoutingState,
-  questions: Record<string, Question>
+  questions: Record<string, Question>,
+  ctx?: ExtensionContext
 ): Promise<Answers> {
+  // 1. Try native OMP resolveJudge chain first (reuses modelRoles.judge, auth credentials, session registry)
+  const nativeAnswers = await tryNativeJudge(state, questions, ctx);
+  if (nativeAnswers !== null) {
+    return nativeAnswers;
+  }
+
+  // 2. Direct HTTP System One API fallback
   const apiKey = process.env.TYPESAFE_API_KEY;
   if (!apiKey) {
     throw new Error(
-      "Skill router: No judge available. Configure TYPESAFE_API_KEY or modelRoles.judge."
+      "Skill router: No judge available. Configure modelRoles.judge in OMP settings or set TYPESAFE_API_KEY."
     );
   }
 
@@ -164,7 +228,7 @@ export default function skillRouterExtension(
   let lastCoverage: Coverage | null = null;
   let lastRoutingError: string | null = null;
 
-  const judgeFn: JudgeCall = options?.judge ?? ((st, qs) => executeJudge(st, qs));
+  const judgeFn = options?.judge ?? ((st: RoutingState, qs: Record<string, Question>) => executeJudge(st, qs));
 
   pi.on(
     "before_agent_start",
@@ -192,7 +256,7 @@ export default function skillRouterExtension(
           context: `cwd: ${ctx.cwd}, agent: ${ctx.agent?.name ?? "main"} (${ctx.agent?.kind ?? "main"})`,
         };
 
-        const coverage = await selectSkills(cachedCatalog, routingState, judgeFn);
+        const coverage = await selectSkills(cachedCatalog, routingState, (st, qs) => judgeFn(st, qs));
         lastCoverage = coverage;
         lastRoutingError = null;
 
@@ -236,18 +300,45 @@ export default function skillRouterExtension(
       _ctx: ExtensionContext
     ): Promise<ToolCallEventResult | undefined> => {
       const isMutation = event.toolName === "write" || event.toolName === "edit";
-      let isWardenRun = false;
-      if (event.toolName === "bash" && event.input && typeof event.input === "object" && "command" in event.input) {
-        const cmd = typeof event.input.command === "string" ? event.input.command : "";
-        isWardenRun = /warden\s+(backtest|screen|qualify|verify)/.test(cmd);
+      let isStrategyMutation = false;
+      let targetPath = "";
+      if (isMutation && event.input && typeof event.input === "object" && "path" in event.input) {
+        targetPath = typeof event.input.path === "string" ? event.input.path : "";
+        isStrategyMutation = targetPath.startsWith("strategies/") || targetPath.startsWith("experiments/active/");
       }
 
-      // Fail closed: if there was an active routing error, pause code mutation and research runs
-      if ((isMutation || isWardenRun) && lastRoutingError) {
+      let isWardenEvalRun = false;
+      let isWardenScreenOrBacktest = false;
+      if (event.toolName === "bash" && event.input && typeof event.input === "object" && "command" in event.input) {
+        const cmd = typeof event.input.command === "string" ? event.input.command : "";
+        isWardenEvalRun = /warden\s+(backtest|screen|qualify|verify)/.test(cmd);
+        isWardenScreenOrBacktest = /warden\s+(backtest|screen|qualify)/.test(cmd);
+      }
+
+      // 1. Fail closed on unresolved routing error
+      if ((isMutation || isWardenEvalRun) && lastRoutingError) {
         return {
           block: true,
           reason: `Skill router blocked action: unresolved skill coverage (${lastRoutingError}). Resolve skill requirements before mutating code or running evaluations.`,
         };
+      }
+
+      // 2. Generic scope backstop: verify active coverage exists for research actions
+      const isResearchAction = isStrategyMutation || isWardenScreenOrBacktest;
+      if (isResearchAction) {
+        if (lastCoverage === null) {
+          return {
+            block: true,
+            reason: `Skill router action gate: no active skill coverage loaded. Prompt with research objectives before mutating strategy code or running evaluations.`,
+          };
+        }
+        if (lastCoverage.selected.length === 0) {
+          const actionDesc = isStrategyMutation ? `modifying strategy code at ${targetPath}` : "running Warden evaluation";
+          return {
+            block: true,
+            reason: `Skill router stale-scope gate: active session has zero loaded research skills (classified for non-strategy/documentation scope), but attempted ${actionDesc}. Prompt with research objectives first.`,
+          };
+        }
       }
 
       return undefined;

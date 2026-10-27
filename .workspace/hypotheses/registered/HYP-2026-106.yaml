@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-106
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S17 Normalised Trend
+strategy_family: rules_ts
+economic_mechanism: Normalising the price itself (cumulative risk-adjusted returns) before applying EWMAC
+  produces a signal whose volatility is stable across regimes.
+counterparty_or_friction: Constant-volatility input means the rule trades equally in calm and volatile
+  markets; friction is the higher turnover this uniform sensitivity creates.
+expected_holding_bars: 80
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 344-355
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s17_normalised_trend.py

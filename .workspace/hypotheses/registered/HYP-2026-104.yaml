@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-104
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S12 Adjusted Trend Forecasts
+strategy_family: rules_ts
+economic_mechanism: Reshaping the forecast mapping where the linear forecast/return relationship breaks
+  (double V for EWMAC2, scale-and-cap for EWMAC4/64) keeps the six-speed ensemble honest at extreme forecasts.
+counterparty_or_friction: Extreme forecasts are where the counterparty has already moved; friction is
+  the turnover of the ensemble after the mapping changes.
+expected_holding_bars: 80
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 280-300
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s12_adjusted_trend.py

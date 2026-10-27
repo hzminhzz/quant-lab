@@ -1,0 +1,14 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-110
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s22_value.py
+strategy_name: CARVER_S22_SCREEN
+parameters:
+  smooth_span: 30
+  scalar: 7.27
+  vol_span: 35
+  vol_target: 0.16
+  per_instrument_cap: 0.5
+  buffer_fraction: 0.10
+  warmup: 1

@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-100
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S06 Slow Trend Following, Long and Short
+strategy_family: rules_ts
+economic_mechanism: The same 64/256-day filter traded symmetrically also captures persistent downtrends,
+  not just the long-run risk premium.
+counterparty_or_friction: Short trades are paid by holders who keep buying into downtrends; friction doubles
+  because every reversal now trades through zero.
+expected_holding_bars: 200
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 164-178
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s06_slow_trend_long_short.py

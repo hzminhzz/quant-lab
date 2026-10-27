@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-098
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S04 Buy and Hold Portfolio with Scaling
+strategy_family: rules_ts
+economic_mechanism: Combining variable-risk sub-strategies with equal capital weights and an instrument
+  diversification multiplier reaches the portfolio risk target despite diversification.
+counterparty_or_friction: Diversification lowers portfolio risk below the sum of parts, so leverage is
+  raised; friction is the resulting turnover and the cost of holding every instrument.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 119-146
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s04_buy_hold_portfolio_scaling.py

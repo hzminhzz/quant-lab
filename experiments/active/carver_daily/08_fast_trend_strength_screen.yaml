@@ -1,0 +1,15 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-102
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s08_fast_trend_strength.py
+strategy_name: CARVER_S08_SCREEN
+parameters:
+  fast: 16
+  slow: 64
+  scalar: 4.10
+  vol_span: 35
+  vol_target: 0.16
+  per_instrument_cap: 0.5
+  buffer_fraction: 0.10
+  warmup: 1

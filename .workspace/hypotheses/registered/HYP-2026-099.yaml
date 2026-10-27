@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-099
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S05 Slow Trend Following, Long Only
+strategy_family: rules_ts
+economic_mechanism: A 64/256-day EWMAC uptrend filter avoids bear markets while keeping the long-run equity
+  and commodity risk premium.
+counterparty_or_friction: Trend followers buy strength from mean-reversion sellers; the long-only constraint
+  forgoes short trends and friction is two round trips per filter reversal.
+expected_holding_bars: 200
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 149-164
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s05_slow_trend_long_only.py

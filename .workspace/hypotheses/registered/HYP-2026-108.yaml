@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-108
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S19 Cross-Sectional Momentum
+strategy_family: rules_ts
+economic_mechanism: Within an asset class, instruments that recently outperformed their class keep outperforming
+  over multi-day horizons (relative momentum).
+counterparty_or_friction: The rule buys relative strength and sells relative weakness inside one class,
+  so the common trend cancels; friction is the high turnover of six short horizons.
+expected_holding_bars: 20
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 367-380
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s19_xs_momentum.py

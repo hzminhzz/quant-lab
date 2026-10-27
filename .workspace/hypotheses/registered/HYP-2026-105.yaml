@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-105
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S14 Spot Trend
+strategy_family: rules_ts
+economic_mechanism: Trend following a synthetic spot price, with carry returns deducted, isolates the
+  spot-driven part of the trend and decorrelates it from carry strategies.
+counterparty_or_friction: Removing carry strips the bond-like premium from uptrends; with no carry series
+  in this panel the rule collapses to the adjusted-price trend, and friction is the same as S07.
+expected_holding_bars: 150
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 308-317
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s14_spot_trend.py

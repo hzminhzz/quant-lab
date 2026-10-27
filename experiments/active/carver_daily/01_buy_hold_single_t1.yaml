@@ -1,0 +1,9 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-095
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s01_buy_hold_single.py
+strategy_name: CARVER_S01_1D
+run_id: RUN-HYP095-001
+parameters:
+  warmup: 1

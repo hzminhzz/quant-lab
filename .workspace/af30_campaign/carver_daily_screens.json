@@ -1,0 +1,576 @@
+[
+  {
+    "hypothesis_id": "HYP-2026-095",
+    "strategy": "s01",
+    "module": "strategies/candidates/carver_daily/s01_buy_hold_single.py",
+    "strategy_name": "CARVER_S01_SCREEN",
+    "passed": true,
+    "verdict": "PASS",
+    "exit_code": 0,
+    "metrics": {
+      "avg_holding_bars": 1612.0000000000002,
+      "bootstrap_p_value": 0.0,
+      "conditional_edge": 0.0003385349208335493,
+      "profit_factor": 1.258246522354388,
+      "time_in_market": 1.0,
+      "trade_edge": 0.5457182923836815
+    },
+    "notes": "from existing screen record",
+    "raw_payload": {
+      "passed": true,
+      "metrics": {
+        "avg_holding_bars": 1612.0000000000002,
+        "bootstrap_p_value": 0.0,
+        "conditional_edge": 0.0003385349208335493,
+        "profit_factor": 1.258246522354388,
+        "time_in_market": 1.0,
+        "trade_edge": 0.5457182923836815
+      },
+      "notes": "from existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-096",
+    "strategy": "s02",
+    "module": "strategies/candidates/carver_daily/s02_buy_hold_risk_scaled.py",
+    "strategy_name": "CARVER_S02_SCREEN",
+    "passed": true,
+    "verdict": "PASS",
+    "exit_code": 0,
+    "metrics": {
+      "avg_holding_bars": 981.0681424259612,
+      "bootstrap_p_value": 0.0,
+      "conditional_edge": 0.0002807672248399746,
+      "profit_factor": 1.25183264101008,
+      "time_in_market": 1.0,
+      "trade_edge": 0.2754517797278461
+    },
+    "notes": "PF=1.25, Edge=2.8bps, TiM=100.0%, Holding=981.1h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 981.0681424259612,
+        "bootstrap_p_value": 0.0,
+        "conditional_edge": 0.0002807672248399746,
+        "profit_factor": 1.25183264101008,
+        "time_in_market": 1.0,
+        "trade_edge": 0.2754517797278461
+      },
+      "notes": "PF=1.25, Edge=2.8bps, TiM=100.0%, Holding=981.1h",
+      "passed": true,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-097",
+    "strategy": "s03",
+    "module": "strategies/candidates/carver_daily/s03_buy_hold_variable_risk.py",
+    "strategy_name": "CARVER_S03_SCREEN",
+    "passed": true,
+    "verdict": "PASS",
+    "exit_code": 0,
+    "metrics": {
+      "avg_holding_bars": 109.56441775598506,
+      "bootstrap_p_value": 0.01,
+      "conditional_edge": 0.00028467674641152263,
+      "profit_factor": 1.212947494797098,
+      "time_in_market": 1.0,
+      "trade_edge": 0.031190441969246686
+    },
+    "notes": "PF=1.21, Edge=2.8bps, TiM=100.0%, Holding=109.6h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 109.56441775598506,
+        "bootstrap_p_value": 0.01,
+        "conditional_edge": 0.00028467674641152263,
+        "profit_factor": 1.212947494797098,
+        "time_in_market": 1.0,
+        "trade_edge": 0.031190441969246686
+      },
+      "notes": "PF=1.21, Edge=2.8bps, TiM=100.0%, Holding=109.6h",
+      "passed": true,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-098",
+    "strategy": "s04",
+    "module": "strategies/candidates/carver_daily/s04_buy_hold_portfolio_scaling.py",
+    "strategy_name": "CARVER_S04_SCREEN",
+    "passed": true,
+    "verdict": "PASS",
+    "exit_code": 0,
+    "metrics": {
+      "avg_holding_bars": 47.74955346623738,
+      "bootstrap_p_value": 0.01,
+      "conditional_edge": 0.0006546149395180719,
+      "profit_factor": 1.212896645096085,
+      "time_in_market": 1.0,
+      "trade_edge": 0.031257571054315925
+    },
+    "notes": "PF=1.21, Edge=6.5bps, TiM=100.0%, Holding=47.7h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 47.74955346623738,
+        "bootstrap_p_value": 0.01,
+        "conditional_edge": 0.0006546149395180719,
+        "profit_factor": 1.212896645096085,
+        "time_in_market": 1.0,
+        "trade_edge": 0.031257571054315925
+      },
+      "notes": "PF=1.21, Edge=6.5bps, TiM=100.0%, Holding=47.7h",
+      "passed": true,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-099",
+    "strategy": "s05",
+    "module": "strategies/candidates/carver_daily/s05_slow_trend_long_only.py",
+    "strategy_name": "CARVER_S05_SCREEN",
+    "passed": true,
+    "verdict": "PASS",
+    "exit_code": 0,
+    "metrics": {
+      "avg_holding_bars": 53.530153618681766,
+      "bootstrap_p_value": 0.045,
+      "conditional_edge": 0.00016969382537468752,
+      "profit_factor": 1.154128903974128,
+      "time_in_market": 1.0,
+      "trade_edge": 0.009083736540448781
+    },
+    "notes": "PF=1.15, Edge=1.7bps, TiM=100.0%, Holding=53.5h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 53.530153618681766,
+        "bootstrap_p_value": 0.045,
+        "conditional_edge": 0.00016969382537468752,
+        "profit_factor": 1.154128903974128,
+        "time_in_market": 1.0,
+        "trade_edge": 0.009083736540448781
+      },
+      "notes": "PF=1.15, Edge=1.7bps, TiM=100.0%, Holding=53.5h",
+      "passed": true,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-100",
+    "strategy": "s06",
+    "module": "strategies/candidates/carver_daily/s06_slow_trend_long_short.py",
+    "strategy_name": "CARVER_S06_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 35.07395353139077,
+      "bootstrap_p_value": 0.31,
+      "conditional_edge": 4.4065403281703034e-05,
+      "profit_factor": 1.0344149553906543,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0015455479070444467
+    },
+    "notes": "PF=1.03, Edge=0.4bps, TiM=100.0%, Holding=35.1h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 35.07395353139077,
+        "bootstrap_p_value": 0.31,
+        "conditional_edge": 4.4065403281703034e-05,
+        "profit_factor": 1.0344149553906543,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0015455479070444467
+      },
+      "notes": "PF=1.03, Edge=0.4bps, TiM=100.0%, Holding=35.1h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-101",
+    "strategy": "s07",
+    "module": "strategies/candidates/carver_daily/s07_slow_trend_strength.py",
+    "strategy_name": "CARVER_S07_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 32.838415891107765,
+      "bootstrap_p_value": 0.235,
+      "conditional_edge": 7.034172041964815e-05,
+      "profit_factor": 1.053897802945393,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0023099106696364336
+    },
+    "notes": "PF=1.05, Edge=0.7bps, TiM=100.0%, Holding=32.8h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 32.838415891107765,
+        "bootstrap_p_value": 0.235,
+        "conditional_edge": 7.034172041964815e-05,
+        "profit_factor": 1.053897802945393,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0023099106696364336
+      },
+      "notes": "PF=1.05, Edge=0.7bps, TiM=100.0%, Holding=32.8h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-102",
+    "strategy": "s08",
+    "module": "strategies/candidates/carver_daily/s08_fast_trend_strength.py",
+    "strategy_name": "CARVER_S08_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 24.630615154131846,
+      "bootstrap_p_value": 0.335,
+      "conditional_edge": 5.249161096463907e-05,
+      "profit_factor": 1.032345698191365,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0012929006684904325
+    },
+    "notes": "PF=1.03, Edge=0.5bps, TiM=100.0%, Holding=24.6h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 24.630615154131846,
+        "bootstrap_p_value": 0.335,
+        "conditional_edge": 5.249161096463907e-05,
+        "profit_factor": 1.032345698191365,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0012929006684904325
+      },
+      "notes": "PF=1.03, Edge=0.5bps, TiM=100.0%, Holding=24.6h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-103",
+    "strategy": "s09",
+    "module": "strategies/candidates/carver_daily/s09_ewmac_multi.py",
+    "strategy_name": "CARVER_S09_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 11.01977896067459,
+      "bootstrap_p_value": 0.34,
+      "conditional_edge": 4.457761694472953e-05,
+      "profit_factor": 1.0203509787670997,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0004912354853245415
+    },
+    "notes": "PF=1.02, Edge=0.4bps, TiM=100.0%, Holding=11.0h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 11.01977896067459,
+        "bootstrap_p_value": 0.34,
+        "conditional_edge": 4.457761694472953e-05,
+        "profit_factor": 1.0203509787670997,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0004912354853245415
+      },
+      "notes": "PF=1.02, Edge=0.4bps, TiM=100.0%, Holding=11.0h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-104",
+    "strategy": "s12",
+    "module": "strategies/candidates/carver_daily/s12_adjusted_trend.py",
+    "strategy_name": "CARVER_S12_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 8.423155818755443,
+      "bootstrap_p_value": 0.28,
+      "conditional_edge": 6.173019074093938e-05,
+      "profit_factor": 1.0301842340339122,
+      "time_in_market": 1.0,
+      "trade_edge": 0.000519963015332427
+    },
+    "notes": "PF=1.03, Edge=0.6bps, TiM=100.0%, Holding=8.4h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 8.423155818755443,
+        "bootstrap_p_value": 0.28,
+        "conditional_edge": 6.173019074093938e-05,
+        "profit_factor": 1.0301842340339122,
+        "time_in_market": 1.0,
+        "trade_edge": 0.000519963015332427
+      },
+      "notes": "PF=1.03, Edge=0.6bps, TiM=100.0%, Holding=8.4h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-105",
+    "strategy": "s14",
+    "module": "strategies/candidates/carver_daily/s14_spot_trend.py",
+    "strategy_name": "CARVER_S14_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 32.83841589319431,
+      "bootstrap_p_value": 0.235,
+      "conditional_edge": 7.034172035821372e-05,
+      "profit_factor": 1.0538978028978108,
+      "time_in_market": 1.0,
+      "trade_edge": 0.002309910667765795
+    },
+    "notes": "PF=1.05, Edge=0.7bps, TiM=100.0%, Holding=32.8h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 32.83841589319431,
+        "bootstrap_p_value": 0.235,
+        "conditional_edge": 7.034172035821372e-05,
+        "profit_factor": 1.0538978028978108,
+        "time_in_market": 1.0,
+        "trade_edge": 0.002309910667765795
+      },
+      "notes": "PF=1.05, Edge=0.7bps, TiM=100.0%, Holding=32.8h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-106",
+    "strategy": "s17",
+    "module": "strategies/candidates/carver_daily/s17_normalised_trend.py",
+    "strategy_name": "CARVER_S17_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 18.34637540902668,
+      "bootstrap_p_value": 0.075,
+      "conditional_edge": 5.3726774077388614e-05,
+      "profit_factor": 1.135329469992905,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0009856915667397347
+    },
+    "notes": "PF=1.14, Edge=0.5bps, TiM=100.0%, Holding=18.3h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 18.34637540902668,
+        "bootstrap_p_value": 0.075,
+        "conditional_edge": 5.3726774077388614e-05,
+        "profit_factor": 1.135329469992905,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0009856915667397347
+      },
+      "notes": "PF=1.14, Edge=0.5bps, TiM=100.0%, Holding=18.3h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-107",
+    "strategy": "s18",
+    "module": "strategies/candidates/carver_daily/s18_trend_asset_classes.py",
+    "strategy_name": "CARVER_S18_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 11.101386811920023,
+      "bootstrap_p_value": 0.35,
+      "conditional_edge": 4.510310643549557e-05,
+      "profit_factor": 1.0224234900584517,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0005007070309596355
+    },
+    "notes": "PF=1.02, Edge=0.5bps, TiM=100.0%, Holding=11.1h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 11.101386811920023,
+        "bootstrap_p_value": 0.35,
+        "conditional_edge": 4.510310643549557e-05,
+        "profit_factor": 1.0224234900584517,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0005007070309596355
+      },
+      "notes": "PF=1.02, Edge=0.5bps, TiM=100.0%, Holding=11.1h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-108",
+    "strategy": "s19",
+    "module": "strategies/candidates/carver_daily/s19_xs_momentum.py",
+    "strategy_name": "CARVER_S19_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 6.134686327673339,
+      "bootstrap_p_value": 0.35,
+      "conditional_edge": 4.4730445693098917e-05,
+      "profit_factor": 1.0094127646997606,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0002744072536241887
+    },
+    "notes": "PF=1.01, Edge=0.4bps, TiM=100.0%, Holding=6.1h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 6.134686327673339,
+        "bootstrap_p_value": 0.35,
+        "conditional_edge": 4.4730445693098917e-05,
+        "profit_factor": 1.0094127646997606,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0002744072536241887
+      },
+      "notes": "PF=1.01, Edge=0.4bps, TiM=100.0%, Holding=6.1h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-109",
+    "strategy": "s21",
+    "module": "strategies/candidates/carver_daily/s21_breakout.py",
+    "strategy_name": "CARVER_S21_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 40.99246423681262,
+      "bootstrap_p_value": 0.125,
+      "conditional_edge": 0.00010272164230276492,
+      "profit_factor": 1.0854548864931197,
+      "time_in_market": 1.0,
+      "trade_edge": 0.00421081324844275
+    },
+    "notes": "PF=1.09, Edge=1.0bps, TiM=100.0%, Holding=41.0h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 40.99246423681262,
+        "bootstrap_p_value": 0.125,
+        "conditional_edge": 0.00010272164230276492,
+        "profit_factor": 1.0854548864931197,
+        "time_in_market": 1.0,
+        "trade_edge": 0.00421081324844275
+      },
+      "notes": "PF=1.09, Edge=1.0bps, TiM=100.0%, Holding=41.0h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-110",
+    "strategy": "s22",
+    "module": "strategies/candidates/carver_daily/s22_value.py",
+    "strategy_name": "CARVER_S22_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 59.55933250352949,
+      "bootstrap_p_value": 0.755,
+      "conditional_edge": -8.45346695345565e-05,
+      "profit_factor": 0.9333222678562096,
+      "time_in_market": 1.0,
+      "trade_edge": -0.005034828490884635
+    },
+    "notes": "PF=0.93, Edge=-0.8bps, TiM=100.0%, Holding=59.6h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 59.55933250352949,
+        "bootstrap_p_value": 0.755,
+        "conditional_edge": -8.45346695345565e-05,
+        "profit_factor": 0.9333222678562096,
+        "time_in_market": 1.0,
+        "trade_edge": -0.005034828490884635
+      },
+      "notes": "PF=0.93, Edge=-0.8bps, TiM=100.0%, Holding=59.6h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-111",
+    "strategy": "s23",
+    "module": "strategies/candidates/carver_daily/s23_acceleration.py",
+    "strategy_name": "CARVER_S23_SCREEN",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "metrics": {
+      "avg_holding_bars": 11.319225128348007,
+      "bootstrap_p_value": 0.335,
+      "conditional_edge": 6.912179863851082e-05,
+      "profit_factor": 1.034739436873894,
+      "time_in_market": 1.0,
+      "trade_edge": 0.0007824052000656428
+    },
+    "notes": "PF=1.03, Edge=0.7bps, TiM=100.0%, Holding=11.3h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 11.319225128348007,
+        "bootstrap_p_value": 0.335,
+        "conditional_edge": 6.912179863851082e-05,
+        "profit_factor": 1.034739436873894,
+        "time_in_market": 1.0,
+        "trade_edge": 0.0007824052000656428
+      },
+      "notes": "PF=1.03, Edge=0.7bps, TiM=100.0%, Holding=11.3h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  }
+]

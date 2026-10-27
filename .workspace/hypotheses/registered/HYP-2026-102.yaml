@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-102
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S08 Fast Trend with Trend Strength
+strategy_family: rules_ts
+economic_mechanism: The faster 16/64-day EWMAC with scalar 4.10 and 10% buffering reacts to shorter trends
+  and rolls over sooner than the slow filter.
+counterparty_or_friction: Fast trends are driven by slower-moving institutional flows; the buffer suppresses
+  small forecast changes, and friction is the cost of the remaining faster turnover.
+expected_holding_bars: 40
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 191-202
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s08_fast_trend_strength.py

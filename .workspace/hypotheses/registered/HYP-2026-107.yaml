@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-107
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S18 Trend Following Asset Classes
+strategy_family: rules_ts
+economic_mechanism: A latent trend drives all instruments in an asset class, so trend following the equal-weighted
+  class price index is a cleaner signal than following each instrument.
+counterparty_or_friction: The class index averages out idiosyncratic noise but also averages away single-name
+  trends; friction is the ensemble turnover paid on every member.
+expected_holding_bars: 120
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 356-366
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s18_trend_asset_classes.py

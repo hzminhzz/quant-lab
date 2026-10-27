@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-110
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S22 Value
+strategy_family: rules_ts
+economic_mechanism: Instruments that outperformed their asset class over five years tend to underperform
+  afterwards, so value buys relative losers and sells relative winners.
+counterparty_or_friction: The counterparty is the momentum trader chasing the multi-year winner; the effect
+  is slow and weak, so friction is small but so is the edge.
+expected_holding_bars: 600
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 404-409
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s22_value.py

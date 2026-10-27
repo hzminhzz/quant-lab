@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-095
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S01 Buy and Hold, Single Contract
+strategy_family: rules_ts
+economic_mechanism: Buying and holding a fixed equal-notional position captures the long-run risk premium
+  of each instrument without any timing or risk-scaling rule.
+counterparty_or_friction: Position is held regardless of price, so the strategy pays for the premium with
+  full drawdown exposure; friction is one round trip per instrument at 1 bp one-way.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 21-63
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s01_buy_hold_single.py

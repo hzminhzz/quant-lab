@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-097
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S03 Buy and Hold with Variable Risk Scaling
+strategy_family: rules_ts
+economic_mechanism: Re-estimating volatility over 60 days keeps the realised risk near target when instrument
+  volatility changes, cutting exposure after shocks.
+counterparty_or_friction: The position is reduced after volatile periods, so the strategy gives up some
+  rebound; friction is the additional turnover from daily risk updates.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 94-116
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s03_buy_hold_variable_risk.py

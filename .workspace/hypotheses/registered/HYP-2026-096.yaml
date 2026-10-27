@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-096
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S02 Buy and Hold with Risk Scaling
+strategy_family: rules_ts
+economic_mechanism: Scaling each holding to a fixed 16% cash volatility target equalises the risk contributed
+  by instruments with different volatility.
+counterparty_or_friction: Risk targeting transfers leverage between calm and volatile instruments; friction
+  is daily rebalance turnover plus one-way costs on each trade.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 67-92
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s02_buy_hold_risk_scaled.py

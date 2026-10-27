@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-109
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S21 Breakout 80
+strategy_family: rules_ts
+economic_mechanism: 'The position within an 80-day closing-price range predicts continuation: near the
+  top of the range the trend is likely to break out, scaled by 0.73 and smoothed over 20 days.'
+counterparty_or_friction: Breakout faders who sell the range edges provide the entry; the range already
+  normalises volatility, so friction is the turnover of the buffered book.
+expected_holding_bars: 40
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 389-402
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s21_breakout.py

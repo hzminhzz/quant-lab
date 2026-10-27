@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-101
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S07 Slow Trend with Trend Strength
+strategy_family: rules_ts
+economic_mechanism: Scaling the slow trend by its risk-adjusted strength (scalar 1.91) increases exposure
+  in strong trends and reduces it in weak ones.
+counterparty_or_friction: The forecast sells strength to the counterparty who fades trends; friction rises
+  with the extra turnover caused by continuous forecast adjustment.
+expected_holding_bars: 100
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 178-191
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s07_slow_trend_strength.py

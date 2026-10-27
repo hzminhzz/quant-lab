@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-111
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S23 Acceleration
+strategy_family: rules_ts
+economic_mechanism: The rate of change of an EWMAC forecast (its acceleration) anticipates trend reversals
+  earlier than the forecast level itself.
+counterparty_or_friction: Acceleration is a second-order signal paid by traders who only react to the
+  trend level; friction is high because the rule differences an already fast signal.
+expected_holding_bars: 20
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 411-419
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s23_acceleration.py

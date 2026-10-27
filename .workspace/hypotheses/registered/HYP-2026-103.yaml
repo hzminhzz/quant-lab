@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-103
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 S09 Multiple EWMAC Trend Rules
+strategy_family: rules_ts
+economic_mechanism: Averaging six EWMAC speeds (2,8 to 64,256) with Table 29 scalars and the Table 36
+  FDM diversifies timing and raises risk-adjusted return over any single speed.
+counterparty_or_friction: Each speed is paid by traders fading a trend at a different horizon; friction
+  is the summed turnover of six rules, partly offset by the 10% buffer.
+expected_holding_bars: 80
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 202-225
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s09_ewmac_multi.py

@@ -59,3 +59,12 @@ These are the target rollout interfaces; bootstrap initially provides only `--he
 - Simulation/costs: `.agents/skills/ml4t-run-backtest/SKILL.md`, `.agents/skills/ml4t-transaction-costs/SKILL.md` (`skill://ml4t-run-backtest`, `skill://ml4t-transaction-costs`).
 
 Skills are Markdown only: no scripts, hooks or executable dependencies. Install optional UX with `scripts/setup_agent_adapter.sh --harness omp|opencode|claude|codex|all`; `--harness clean` removes only installer-owned links. Deleting adapters must not affect Warden or tests.
+
+### Automatic skill routing (OMP adapter)
+
+When running under the OMP adapter (`scripts/setup_agent_adapter.sh --harness omp`), `.omp/extensions/skill-router.ts` provides automatic pre-turn skill selection:
+- Evaluates incoming task intent against frontmatter metadata of all 61 skills using Jev / System One (`modelRoles.judge`).
+- Resolves transitive prerequisite DAGs in topological order (e.g. `run-backtest` $\to$ `cost-model` $\to$ `transaction-costs`) and injects complete skill bodies into session context before turn execution starts.
+- Rebinds dynamically in subagent child sessions (`task` tool).
+- Enforces a generic action gate in `tool_call`: if skill routing fails or if current active coverage has zero research skills loaded (e.g. documentation edits), mutating actions (`write`, `edit` to strategy files, and `warden backtest/screen/qualify`) are blocked fail-closed, while read-only tools (`read`, `grep`, `glob`) remain operational for diagnosis.
+- In non-OMP harnesses (or when the adapter is unlinked), manual skill reading (`skill://<name>` or `.agents/skills/ml4t-*/SKILL.md`) remains the standard interface.

@@ -5,3 +5,5 @@ skills:
 task:
   maxRecursionDepth: 2
   structured: true
+modelRoles:
+  judge: typesafe/jev-1.14

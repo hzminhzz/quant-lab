@@ -210,3 +210,127 @@ def test_s04_is_s03_scaled_by_the_table16_idm():
     assert np.allclose(pos04, np.clip(pos03 * 2.30, -0.5, 0.5))
     assert np.allclose(pos04, pos03 * 2.30)
     assert np.abs(pos04).max() < 0.5
+
+
+# --- S05-S09 trend family --------------------------------------------------------
+
+s05 = load_module_from_path(Path("strategies/candidates/carver_daily/s05_slow_trend_long_only.py"))
+s06 = load_module_from_path(Path("strategies/candidates/carver_daily/s06_slow_trend_long_short.py"))
+s07 = load_module_from_path(Path("strategies/candidates/carver_daily/s07_slow_trend_strength.py"))
+s08 = load_module_from_path(Path("strategies/candidates/carver_daily/s08_fast_trend_strength.py"))
+s09 = load_module_from_path(Path("strategies/candidates/carver_daily/s09_ewmac_multi.py"))
+
+BPY = 312
+
+
+def _ramp(n: int, step: float, base: float = 100.0) -> list[float]:
+    prices = [base]
+    for _ in range(1, n):
+        prices.append(prices[-1] * (1.0 + step))
+    return prices
+
+
+def _noisy(n: int, drift: float, sigma: float, seed: int = 11) -> list[float]:
+    rets = np.random.default_rng(seed).normal(drift, sigma, n)
+    return list(100.0 * np.cumprod(1.0 + rets))
+
+
+def _feature_columns(panel: pl.DataFrame, fast: int, slow: int) -> tuple[np.ndarray, np.ndarray]:
+    """Independent EMA-ratio trend and per-bar EWMA volatility, per asset."""
+    trend = (pl.col("close").ewm_mean(span=fast) - pl.col("close").ewm_mean(span=slow)) / pl.col("close")
+    vol_ann = (pl.col("close").pct_change().pow(2).ewm_mean(span=35).sqrt() * math.sqrt(BPY)).shift(1)
+    out = panel.sort("timestamp", "asset").with_columns(trend=trend, vol_bar=vol_ann / math.sqrt(BPY))
+    return out["trend"].to_numpy(), out["vol_bar"].to_numpy()
+
+
+def test_s05_long_only_never_shorts_and_holds_flat_in_a_downtrend():
+    panel = _panel({"UP": _ramp(120, 0.004), "DOWN": _ramp(120, -0.004)})
+    pos = s05.generate_positions(panel, CONTRACT)["positions"]
+    assets = sorted(panel["asset"].unique().to_list())
+
+    assert pos.min() >= 0.0
+    assert pos[-1, assets.index("UP")] > 0.0
+    assert pos[-1, assets.index("DOWN")] == 0.0
+
+
+def test_s06_sign_matches_the_ewma_crossover():
+    panel = _panel({"UP": _ramp(120, 0.004), "DOWN": _ramp(120, -0.004)})
+    pos = s06.generate_positions(panel, CONTRACT)["positions"]
+    assets = sorted(panel["asset"].unique().to_list())
+    trend, _ = _feature_columns(panel, 64, 256)
+
+    for asset in assets:
+        assert np.sign(pos[-1, assets.index(asset)]) == np.sign(trend[-1] if asset == "UP" else -1.0)
+    assert pos[-1, assets.index("UP")] > 0.0
+    assert pos[-1, assets.index("DOWN")] < 0.0
+
+
+def test_s07_forecast_is_trend_over_bar_volatility_times_1_91():
+    panel = _panel({"AAA": _noisy(200, 0.0005, 0.005)})
+    feat = s07.pipeline.compute(panel, CONTRACT)
+    trend, vol_bar = _feature_columns(panel, 64, 256)
+    expected = np.clip(trend / vol_bar * 1.91, -20.0, 20.0)
+
+    assert s07.SCALAR == 1.91
+    assert np.allclose(feat["forecast"].to_numpy(), expected, equal_nan=True)
+
+
+def test_s07_and_s08_forecasts_clip_at_20_on_a_steep_ramp():
+    steep = _panel({"AAA": _ramp(200, 0.01)})
+    f07 = s07.pipeline.compute(steep, CONTRACT)["forecast"].to_numpy()[-1]
+    f08 = s08.pipeline.compute(steep, CONTRACT)["forecast"].to_numpy()[-1]
+
+    assert f07 == 20.0
+    assert f08 == 20.0
+    assert s08.SCALAR == 4.10  # Table 29 EWMAC16, p. 205 (p. 193 states 4.1 for this crossover)
+
+
+def test_s08_buffering_only_trades_outside_the_deadband():
+    panel = _panel({"AAA": _noisy(220, 0.0004, 0.006, seed=5)})
+    feat = s08.pipeline.compute(panel, CONTRACT)
+    target = value_matrix(feat, "weight", ["AAA"])[:, 0]
+    average = value_matrix(feat, "average", ["AAA"])[:, 0]
+    pos = s08.generate_positions(panel, CONTRACT)["positions"][:, 0]
+
+    moved = 0
+    for t in range(1, len(pos)):
+        if abs(target[t] - pos[t - 1]) <= 0.10 * average[t]:
+            assert pos[t] == pos[t - 1]
+        else:
+            assert pos[t] == target[t]
+            moved += 1
+    assert moved > 0  # the deadband is a filter, not a freeze
+
+
+def test_s09_is_the_six_speed_mean_times_the_table36_fdm_then_capped():
+    panel = _panel({"AAA": _noisy(260, 0.0004, 0.006, seed=9)})
+    feat = s09.pipeline.compute(panel, CONTRACT)
+
+    assert s09.SPEEDS == ((2, 8), (4, 16), (8, 32), (16, 64), (32, 128), (64, 256))
+    assert s09.FORECAST_SCALARS == {2: 12.1, 4: 8.53, 8: 5.95, 16: 4.10, 32: 2.79, 64: 1.91}
+
+    speeds = []
+    for fast, slow in s09.SPEEDS:
+        trend, vol_bar = _feature_columns(panel, fast, slow)
+        speeds.append(np.clip(trend / vol_bar * s09.FORECAST_SCALARS[fast], -20.0, 20.0))
+    expected = np.clip(np.mean(speeds, axis=0) * 1.26, -20.0, 20.0)
+
+    assert np.allclose(feat["forecast"].to_numpy(), expected, equal_nan=True)
+
+
+def test_trend_modules_do_not_stop_out_on_a_crash_bar():
+    closes = _ramp(120, 0.004) + [_ramp(120, 0.004)[-1] * 0.6] + [60.0] * 5
+    panel = _panel({"AAA": closes})
+
+    for module in (s05, s06, s07):
+        pos = module.generate_positions(panel, CONTRACT)["positions"][:, 0]
+        assert pos[120] != 0.0, module.__name__
+
+    # S08/S09 are buffered: the crash bar must land on the target or the deadband,
+    # never on an unconditional exit. S09's six speeds can cancel to a zero forecast.
+    for module in (s08, s09):
+        feat = module.pipeline.compute(panel, CONTRACT)
+        target = value_matrix(feat, "weight", ["AAA"])[:, 0]
+        average = value_matrix(feat, "average", ["AAA"])[:, 0]
+        pos = module.generate_positions(panel, CONTRACT)["positions"][:, 0]
+        assert abs(pos[120] - target[120]) <= 0.10 * average[120] + 1e-12, module.__name__

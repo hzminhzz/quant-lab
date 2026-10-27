@@ -53,6 +53,11 @@ def price_vol(close: pl.Expr, window: int, bars_per_year: int, min_samples: int 
     return ann_vol(close, window, bars_per_year, min_samples).shift(1)
 
 
+def ewma_price_vol(close: pl.Expr, span: int, bars_per_year: int) -> pl.Expr:
+    """Carver p. 206 volatility: EWMA span-35 std of returns, annualised, lagged one bar."""
+    return (close.pct_change().pow(2).ewm_mean(span=span).sqrt() * math.sqrt(bars_per_year)).shift(1)
+
+
 def forecast_from_trend(
     trend: pl.Expr, price_vol: pl.Expr, scalar: float, cap: float = FORECAST_CAP
 ) -> pl.Expr:

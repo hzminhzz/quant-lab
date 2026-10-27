@@ -1,0 +1,14 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-106
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s17_normalised_trend.py
+strategy_name: CARVER_S17_SCREEN
+parameters:
+  fast: 64
+  slow: 256
+  scalar: 1.91
+  vol_span: 35
+  vol_target: 0.16
+  per_instrument_cap: 0.5
+  warmup: 1

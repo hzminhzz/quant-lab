@@ -334,3 +334,99 @@ def test_trend_modules_do_not_stop_out_on_a_crash_bar():
         average = value_matrix(feat, "average", ["AAA"])[:, 0]
         pos = module.generate_positions(panel, CONTRACT)["positions"][:, 0]
         assert abs(pos[120] - target[120]) <= 0.10 * average[120] + 1e-12, module.__name__
+
+
+# --- S12, S14, S17 ---------------------------------------------------------------
+
+s12 = load_module_from_path(Path("strategies/candidates/carver_daily/s12_adjusted_trend.py"))
+s14 = load_module_from_path(Path("strategies/candidates/carver_daily/s14_spot_trend.py"))
+s17 = load_module_from_path(Path("strategies/candidates/carver_daily/s17_normalised_trend.py"))
+
+
+def test_s12_double_v_preserves_the_average_forecast_scale():
+    grid = np.linspace(-20.0, 20.0, 4001)
+    out = pl.DataFrame({"f": grid}).select(s12.double_v(pl.col("f")).alias("a"))["a"].to_numpy()
+
+    # below the knee the forecast doubles, at and beyond the cap it is zero
+    assert np.allclose(2.0 * grid[np.abs(grid) <= 10.0], out[np.abs(grid) <= 10.0])
+    assert np.all(out[np.abs(grid) >= 20.0] == 0.0)
+    # the prose requires the mapping to keep the average absolute size: E|F'| == E|F|.
+    # Trapezoid both sides so the comparison is the integral, not a sampled endpoint count.
+    assert math.isclose(
+        np.trapezoid(np.abs(out), grid), np.trapezoid(np.abs(grid), grid), rel_tol=1e-12
+    )
+
+
+def test_s12_scale_and_cap_only_touches_ewmac4_and_ewmac64():
+    grid = np.linspace(-25.0, 25.0, 501)
+    df = pl.DataFrame({"f": grid})
+    f4 = df.select(s12.adjust_speed(4, pl.col("f")).alias("a"))["a"].to_numpy()
+    f8 = df.select(s12.adjust_speed(8, pl.col("f")).alias("a"))["a"].to_numpy()
+    f64 = df.select(s12.adjust_speed(64, pl.col("f")).alias("a"))["a"].to_numpy()
+
+    assert np.allclose(f4, np.clip(1.25 * grid, -15.0, 15.0))
+    assert np.allclose(f64, np.clip(1.25 * grid, -15.0, 15.0))
+    assert np.allclose(f8, np.clip(grid, -20.0, 20.0))
+
+
+def test_s12_forecast_is_the_six_adjusted_speeds_times_the_fdm():
+    panel = _panel({"AAA": _noisy(260, 0.0004, 0.006, seed=13)})
+    feat = s12.pipeline.compute(panel, CONTRACT)
+    speeds = []
+    for fast, slow in s12.SPEEDS:
+        trend, vol_bar = _feature_columns(panel, fast, slow)
+        raw = trend / vol_bar * s12.FORECAST_SCALARS[fast]
+        if fast == 2:
+            size = np.abs(raw)
+            speeds.append(np.where(size <= 10, 2 * raw, np.where(size < 20, np.sign(raw) * 2 * (20 - size), 0.0)))
+        elif fast in (4, 64):
+            speeds.append(np.clip(1.25 * raw, -15.0, 15.0))
+        else:
+            speeds.append(np.clip(raw, -20.0, 20.0))
+    expected = np.clip(np.mean(speeds, axis=0) * 1.26, -20.0, 20.0)
+
+    assert np.allclose(feat["forecast"].to_numpy()[5:], expected[5:], equal_nan=True)
+
+
+def test_s14_synthetic_spot_follows_the_price_when_there_is_no_carry():
+    panel = _panel({"AAA": _noisy(120, 0.0004, 0.006, seed=17)})
+    feat = s14.pipeline.compute(panel, CONTRACT)
+    closes = feat["close"].to_numpy()[1:]
+    spots = feat["spot"].to_numpy()[1:]
+
+    # identical total return path, only the arbitrary starting level differs (S_0 = 100)
+    assert np.allclose(spots / spots[-1], closes / closes[-1], rtol=1e-12)
+
+
+def test_s14_synthetic_spot_deducts_the_annual_carry():
+    closes = _ramp(60, 0.01)
+    panel = _panel({"AAA": closes}).with_columns(annual_carry=pl.lit(0.10))
+    feat = s14.pipeline.compute(panel, CONTRACT)
+
+    expected = 100.0 * np.cumprod(np.concatenate([[1.0], np.full(59, 1.0 + 0.01 - 0.10 / BPY)]))
+    assert np.allclose(feat["spot"].to_numpy()[1:], expected[1:], rtol=1e-12)
+
+
+def test_s14_positions_ignore_high_and_low():
+    closes = _noisy(150, 0.0004, 0.006, seed=19)
+    base = _panel({"AAA": closes})
+    shocked = base.with_columns((pl.col("high") * 5.0).alias("high"), (pl.col("low") * 0.2).alias("low"))
+
+    assert np.allclose(
+        s14.generate_positions(base, CONTRACT)["positions"],
+        s14.generate_positions(shocked, CONTRACT)["positions"],
+    )
+
+
+def test_s17_normalised_price_uses_risk_adjusted_increments():
+    panel = _panel({"AAA": _noisy(200, 0.0005, 0.006, seed=23)})
+    feat = s17.pipeline.compute(panel, CONTRACT)
+    ret = panel.sort("timestamp", "asset")["close"].pct_change().to_numpy()
+    vol_bar = feat["vol_bar"].to_numpy()
+
+    # every increment is 100 risk-adjusted returns, and PN is their running sum
+    assert np.allclose(feat["step"].to_numpy()[5:], (100.0 * ret / vol_bar)[5:], rtol=1e-12)
+    assert np.allclose(
+        feat["pn"].to_numpy()[5:], np.nancumsum(np.nan_to_num(feat["step"].to_numpy()))[5:],
+        rtol=1e-12, atol=1e-9,
+    )

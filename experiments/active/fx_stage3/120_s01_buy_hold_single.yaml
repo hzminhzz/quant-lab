@@ -1,0 +1,15 @@
+contract_id: FX_MAJORS_1D_V2
+hypothesis_id: HYP-2026-120
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s01_buy_hold_single.py
+strategy_name: CARVER_S01_FX_1D_V2
+run_id: RUN-HYP120-001
+parameters: {warmup: 1}
+# S01 has no path-changing parameter: the book is a constant weight and is never resized. The only
+# knob generate_positions exposes is `warmup`, which delays the first held bar. The grid is therefore
+# degenerate by construction and exists only so param_neighbor_stability is measured rather than
+# left at the unmeasured default of 1.000. Recorded as such in the closure ledger.
+param_grid:
+  - {warmup: 1}
+  - {warmup: 2}

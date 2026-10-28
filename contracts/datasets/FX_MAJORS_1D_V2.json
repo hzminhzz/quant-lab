@@ -1,0 +1,34 @@
+{
+  "contract_id": "FX_MAJORS_1D_V2",
+  "path": "data/exploratory/fx_majors_1d_v2.parquet",
+  "sha256": "e1afda172b5ade9325cf524b8522977d185b994424016895560d3415dbd09764",
+  "provenance": "verified_market",
+  "source": "ml4t-data Dukascopy daily OHLCV store (forex_daily_*)",
+  "pipeline": "scripts/build_fx_majors_1d_v2.py",
+  "recorded_at": "2026-10-28T00:00:00+00:00",
+  "recorded_by": "agent:fx_stage3",
+  "attestation": "Dukascopy is the daily FX authority; OHLCV only, so execution_mode is NEXT_BAR. Digest verified independently against manifest and contract pin.",
+  "coverage": {
+    "rows": 28755,
+    "assets": 8,
+    "min": "2014-01-01 00:00:00+00:00",
+    "max": "2025-06-30 00:00:00+00:00",
+    "bars_per_year": 312.73,
+    "holdout_rows_available": 3232,
+    "per_asset": {
+      "AUDUSD": 3595,
+      "CADJPY": 3592,
+      "EURUSD": 3595,
+      "GBPJPY": 3594,
+      "GBPUSD": 3594,
+      "USDCAD": 3595,
+      "USDCHF": 3595,
+      "USDJPY": 3595
+    },
+    "source_symbol_label_mismatch": {
+      "USDJPY": [
+        "JPY"
+      ]
+    }
+  }
+}

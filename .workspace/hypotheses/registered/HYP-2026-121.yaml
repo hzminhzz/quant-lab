@@ -1,0 +1,21 @@
+hypothesis_id: HYP-2026-121
+contract_id: FX_MAJORS_1D_V2
+parent_hypothesis_id: HYP-2026-116
+title: AF30 S02 Buy and Hold with Risk Scaling on FX Majors (Dukascopy daily, V2)
+strategy_family: rules_ts
+economic_mechanism: Sizing each long holding by a fixed annualised cash volatility target
+  (weight = vol_target / trailing long-run volatility) equalises the risk contributed by majors of
+  different volatility, so one unit of the book carries the same risk whether it is in USDJPY or
+  EURUSD. The claim under test is that equalising risk across eight long FX legs improves the return
+  per unit of risk relative to the unresized S01 book.
+counterparty_or_friction: Risk targeting transfers leverage between calm and volatile currency pairs;
+  the friction is the rebalance turnover that the 1,260-bar trailing volatility estimate generates,
+  charged per side as fee plus slippage, and the quoted spread per turn under QUOTE_SIDE.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on FX_MAJORS_1D_V2 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+  Stage-3 rejects when net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or
+  the derived 1.5x-cost Sharpe <= 0.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 67-92
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s02_buy_hold_risk_scaled.py

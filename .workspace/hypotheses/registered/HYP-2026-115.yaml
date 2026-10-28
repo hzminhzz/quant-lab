@@ -1,0 +1,21 @@
+hypothesis_id: HYP-2026-115
+contract_id: FX_MAJORS_1D_V1
+title: AF30 S01 Buy and Hold, Single Contract, on FX Majors
+strategy_family: rules_ts
+economic_mechanism: A fixed equal-notional long position that is never resized is paid the full
+  buy-and-hold return of the pair; there is no exit rule, so the position is exposed to every
+  drawdown and collects whatever long-run spot drift the currency has.
+counterparty_or_friction: The counterparty is the flow that sells the foreign currency for
+  operational or hedging reasons and is therefore the side paying any persistent drift. Friction is
+  the quoted spread on the single entry and exit (QUOTE_SIDE charges a long the ask and pays it the
+  bid) plus the contract's per-side fee and slippage. Because the book never resizes, turnover is
+  near zero and cost cannot explain a negative result, so the mechanism is a pure bet on FX spot
+  drift over the window.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on FX_MAJORS_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+  Stage-3 rejects when net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or
+  the derived 1.5x-cost Sharpe <= 0.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 21-63
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s01_buy_hold_single.py

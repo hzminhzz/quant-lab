@@ -1,0 +1,20 @@
+hypothesis_id: HYP-2026-118
+contract_id: FX_MAJORS_1D_V1
+title: AF30 S04 Buy and Hold Portfolio with Scaling on FX Majors
+strategy_family: rules_ts
+economic_mechanism: Combining the variable-risk FX sub-books with equal capital weights and a
+  portfolio diversification multiplier (IDM) lets the book hold a larger total position for the same
+  portfolio risk than any single leg could. The claim under test is that FX majors diversify enough
+  to justify the multiplier, rather than being one common dollar factor wearing eight tickers.
+counterparty_or_friction: Diversification lowers portfolio risk below the sum of the parts, so
+  leverage is added back to the target; the friction is that the multiplier also multiplies
+  correlated drawdowns when the pairs converge on a single driver, and every rebalance pays the
+  QUOTE_SIDE spread per leg.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on FX_MAJORS_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+  Stage-3 rejects when net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or
+  the derived 1.5x-cost Sharpe <= 0.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 119-146
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s04_buy_hold_portfolio_scaling.py

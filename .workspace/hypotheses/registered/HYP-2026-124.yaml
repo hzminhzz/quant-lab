@@ -1,0 +1,21 @@
+hypothesis_id: HYP-2026-124
+contract_id: FX_MAJORS_1D_V2
+parent_hypothesis_id: HYP-2026-119
+title: AF30 S05 Slow Trend Following, Long Only, on FX Majors (Dukascopy daily, V2)
+strategy_family: rules_ts
+economic_mechanism: A slow EWMAC(64, 256) uptrend filter holds a long position in a currency pair
+  while the fast average is above the slow one and stays flat otherwise. The claim under test is
+  that slow trend persistence in FX lets a long-only filter avoid the down-trends of a currency
+  while keeping most of the up-trends.
+counterparty_or_friction: Trend followers buy strength from mean-reversion sellers at the point the
+  filter flips; the long-only form gives up every downtrend it cannot trade. Friction is the
+  QUOTE_SIDE spread on each flip plus fee and slippage, which is the cost of being wrong about
+  persistence at 64/256 bars.
+expected_holding_bars: 200
+falsification_criteria: Stage-1 on FX_MAJORS_1D_V2 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+  Stage-3 rejects when net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or
+  the derived 1.5x-cost Sharpe <= 0.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 149-164
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s05_slow_trend_long_only.py

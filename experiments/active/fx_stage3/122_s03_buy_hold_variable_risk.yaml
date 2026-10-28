@@ -1,0 +1,12 @@
+contract_id: FX_MAJORS_1D_V2
+hypothesis_id: HYP-2026-122
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s03_buy_hold_variable_risk.py
+strategy_name: CARVER_S03_FX_1D_V2
+run_id: RUN-HYP122-001
+parameters: {vol_target: 0.16, vol_window: 60, min_samples: 2, per_instrument_cap: 0.5, warmup: 60}
+# One factor at a time, +-15% on the only path-changing parameter.
+param_grid:
+  - {vol_target: 0.16, vol_window: 51, min_samples: 2, per_instrument_cap: 0.5, warmup: 60}
+  - {vol_target: 0.16, vol_window: 69, min_samples: 2, per_instrument_cap: 0.5, warmup: 60}

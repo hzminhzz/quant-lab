@@ -1,0 +1,20 @@
+hypothesis_id: HYP-2026-122
+contract_id: FX_MAJORS_1D_V2
+parent_hypothesis_id: HYP-2026-117
+title: AF30 S03 Buy and Hold with Variable Risk Scaling on FX Majors (Dukascopy daily, V2)
+strategy_family: rules_ts
+economic_mechanism: Re-estimating FX volatility over a short trailing window (60 bars) rather than a
+  five-year average keeps realised risk near the target through regime changes in currency
+  volatility. The claim under test is that a responsive volatility estimate, not a long-run average,
+  is what makes a constant long FX book hold its declared risk.
+counterparty_or_friction: The position is cut after volatile periods and restored after calm ones, so
+  the strategy gives up some participation in volatility spikes and pays twice for the round trip
+  across each regime change. Friction is that rebalance turnover plus the QUOTE_SIDE spread.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on FX_MAJORS_1D_V2 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+  Stage-3 rejects when net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or
+  the derived 1.5x-cost Sharpe <= 0.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), pp. 94-116
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s03_buy_hold_variable_risk.py

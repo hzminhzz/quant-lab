@@ -46,7 +46,9 @@ with bootstrap p ≥ 0.05. Stage 1 is a gate; these never reach Stage 3 and no S
    (`trade_edge > 1.5 * one_way_cost`), which is not a cost-stress simulation. No trial in the
    registry has a 1.5x Sharpe, and the column is therefore **unmeasured** for every run in this
    table — not merely for the six here. 2x is not a substitute: a higher multiplier need not lower
-   Sharpe monotonically, because it can reduce volatility as well as mean return.
+   Sharpe monotonically, because it can reduce volatility as well as mean return. A scratch script
+   that mirrors `run_spec` and calls `simulate_positions` directly would produce a number, but
+   AGENTS.md forbids research outside the harness, so no such number was produced or reported.
 4. **`indices_1d` holdout is not provisioned.** `INDICES_1D_V1` declares
    `data/holdout/indices_1d.parquet`; the file is staged only, and the dataset JSON has **no
    `holdout_sha256` pin**. Qualification would fail before reading. Step 4 cannot run.

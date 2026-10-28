@@ -1,10 +1,11 @@
 # AF30 Step 3 — evidence record for the 18 strategies
 
-Status: **Stage-3 evidence complete for the 6 strategies the funnel can reach; 12 were falsified at
-Stage 1 and never reach Stage 3.** Two measurements are missing harness-wide and are named below,
-not glossed: the 1.5x cost stress (unimplemented in `src/warden/`) and audit check 3 (unsatisfiable
-for rules-only contracts). Step 4 is blocked for the three `CANDIDATE` runs. Every number is read
-from `registry/registry.db` on 2026-10-28; no holdout read.
+Status: **Stage-3 evidence available but incomplete.** Six of the eighteen have Stage-3 rows; the
+other twelve were falsified at Stage 1 and never reach Stage 3. Of the six, none is complete against
+the written funnel: the mandatory 1.5x cost stress is unimplemented in `src/warden/`, and audit
+check 3 cannot be satisfied by a rules-only contract. Step 4 is blocked for the three `CANDIDATE`
+runs. Every number is read from `registry/registry.db` on 2026-10-28; no holdout read. This is not a
+finished Step 3 and should not be reported as one.
 
 The 18 are HYP-2026-094 (breakout 80) and HYP-2026-095..111 (the seventeen AF30 daily modules).
 

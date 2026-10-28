@@ -1,0 +1,11 @@
+hypothesis_id: HYP-2026-112
+contract_id: INDICES_1D_V1
+title: AF30 SBuy and Hold with Risk Scaling on Global Index Futures
+strategy_family: rules_ts
+economic_mechanism: 'Scaling each holding to a fixed 16% cash volatility target equalises the risk contributed by indices with different volatility, so a calmer index carries a larger notional.'
+counterparty_or_friction: Risk targeting transfers leverage between calm and volatile indices; friction is daily rebalance turnover plus one-way costs on each trade.
+expected_holding_bars: 312
+falsification_criteria: Stage-1 on INDICES_1D_V1 rejects the mechanism when profit factor < 1.15, time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), buy and hold chapters
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_daily/s02_buy_hold_risk_scaled.py

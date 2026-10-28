@@ -1,0 +1,8 @@
+contract_id: INDICES_1D_V1
+hypothesis_id: HYP-2026-112
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s02_buy_hold_risk_scaled.py
+strategy_name: CARVER_S02_INDICES_1D
+run_id: RUN-HYP112-001
+parameters: {vol_target: 0.16, vol_window: 1260, min_samples: 60, per_instrument_cap: 0.5, warmup: 60}

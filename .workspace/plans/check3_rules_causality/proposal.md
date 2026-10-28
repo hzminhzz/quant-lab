@@ -39,28 +39,42 @@ today's module would certify code that did not produce the trial.
 
 ### Changes
 
-1. `trials.strategy_module_sha256` — written at trial time from the module file.
-2. `causality_evidence` — one row per verification:
+1. `trials.strategy_code_sha256` — written at trial time as the digest of a **dependency snapshot**,
+   not of one file. Hashing the entry module alone misses the shared helpers: `s02`/`s03`/`s04` all
+   `from carver_common import ...`, so editing `carver_common.py` would leave every digest unchanged
+   while changing what ran. The snapshot is resolved with `ast` over the local closure (module-level
+   `import`/`from ... import`, followed through sibling files under `strategies/`), external packages
+   ignored because `uv.lock` pins them; the digest is over the sorted `{repo-relative path: sha256}`
+   manifest.
+
+2. `causality_evidence`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS causality_evidence (
-    run_id TEXT PRIMARY KEY, module_sha256 TEXT, config_digest TEXT,
+    run_id TEXT PRIMARY KEY, code_sha256 TEXT, config_digest TEXT,
     data_sha256 TEXT, cuts_json TEXT, passed INTEGER, recorded_at REAL);
 ```
 
 3. `warden verify-causality --run-id ID` recomputes positions on the full panel and on N truncated
-   panels, using the trial's recorded `config_json`, and records the module digest, config digest,
-   data digest and the exact cut points. Not a trial; no budget consumed; no holdout touched.
+   panels using the trial's **recorded** `config_json`, and records the code closure digest, the
+   digest of that same config, the data digest and the exact cut points. Not a trial; no budget
+   consumed; no holdout touched.
 
 4. Check 3 for `rules_ts`:
 
 ```python
 ev = causality_evidence(conn, trial["run_id"])
-bound = ev and ev["passed"] and trial["strategy_module_sha256"] and \
-        ev["module_sha256"] == trial["strategy_module_sha256"] and \
-        ev["data_sha256"] == trial["data_snapshot_sha256"]
+config_digest = sha256(canonical_json(json.loads(trial["config_json"]))).hexdigest()
+bound = bool(ev and ev["passed"]
+             and trial["strategy_code_sha256"]
+             and ev["code_sha256"]   == trial["strategy_code_sha256"]
+             and ev["config_digest"] == config_digest
+             and ev["data_sha256"]   == trial["data_snapshot_sha256"])
 "3_point_in_time_causality": bound and contract.execution_delay_bars >= 1,
 ```
+
+All three bindings are required: code closure, config, data. Any one of them missing or differing
+means the verification describes something other than the run being audited.
 
 Fitted families keep the `feature_sets` path, because there the features are the model's inputs.
 
@@ -105,9 +119,12 @@ governance record rather than silently inheriting their status either way.
 3. A look-ahead strategy is recorded as `passed = 0` and still fails.
 4. A rules run on a contract that *does* have unrelated `feature_sets` rows still fails check 3
    until `verify-causality` is run for that run — this is the false-pass the change removes.
-5. Evidence bound to a different module digest than the trial's does not satisfy check 3.
-6. Evidence bound to a different data digest than the trial's does not satisfy check 3.
-7. A historical trial with no `strategy_module_sha256` cannot satisfy check 3 at all.
+5. Evidence bound to a different code digest than the trial's does not satisfy check 3.
+6. Editing a shared helper (`carver_common.py`) changes the closure digest and invalidates the
+   evidence for a run whose entry module is untouched.
+7. Evidence bound to a different config digest than the trial's does not satisfy check 3.
+8. Evidence bound to a different data digest than the trial's does not satisfy check 3.
+9. A historical trial with no `strategy_code_sha256` cannot satisfy check 3 at all.
 5. `verify-causality` refuses a run whose module does not exist or whose panel is absent.
 6. No trial budget is consumed: `trials_used` is unchanged across `verify-causality`.
 

@@ -150,7 +150,7 @@ fix. `RUN-HYP094-002` ran with the stop disabled, so its recorded numbers are un
 | # | Item | Who | Effect |
 |---|---|---|---|
 | 1 | Apply `.workspace/plans/step3_1p5_cost_stress/cost_stress.patch` **together with** item 2, re-baseline the manifest, then re-run the six Stage-3 hypotheses | human approval, then agent | closes the last measurable Step-3 gap. Patch is apply-checked and has 3 isolated tests; no patched trial has run yet |
-| 2 | Adopt `.workspace/plans/check3_rules_causality/`: strategy- and code-bound check 3 | human | removes the false-pass path. Must be applied **before** any re-run: 112/113/114 have one slot each, and a run without `strategy_module_sha256` can never bind causality. Re-verifying today's module cannot certify the code that ran |
+| 2 | Adopt `.workspace/plans/check3_rules_causality/`: strategy- and code-bound check 3 | human | removes the false-pass path. Must be applied **before** any re-run: 112/113/114 have one slot each, and a run without a dependency-snapshot digest can never bind causality. Re-verifying today's module cannot certify the code that ran |
 | 3 | Seal **and pin** `indices_1d`, per `.workspace/plans/indices_1d_holdout_provisioning/` | human | unblocks Step 4. The pin is not a formality: an unpinned holdout resolves `eligible_market=True` with a missing digest, and still resolves `True` after the file's bytes are replaced |
 | 4 | Commit the re-baselined `.warden_manifest.sha256` and its `.meta.json` (both currently uncommitted) | human | `check-worktree` keeps passing for everyone |
 

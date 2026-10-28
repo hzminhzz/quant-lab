@@ -1,9 +1,10 @@
 # AF30 Step 3 — evidence record for the 18 strategies
 
-Status: **not "closed".** Six of the eighteen have Stage-3 evidence; twelve were falsified at Stage 1
-and by design never reach Stage 3. Of the six, five now carry a real ±15% neighbour measurement and
-one structurally cannot. All six fail the six-check audit on check 3. Step 4 is blocked for the three
-`CANDIDATE` runs. Every number is read from `registry/registry.db` on 2026-10-28; no holdout read.
+Status: **Stage-3 evidence complete for the 6 strategies the funnel can reach; 12 were falsified at
+Stage 1 and never reach Stage 3.** Two measurements are missing harness-wide and are named below,
+not glossed: the 1.5x cost stress (unimplemented in `src/warden/`) and audit check 3 (unsatisfiable
+for rules-only contracts). Step 4 is blocked for the three `CANDIDATE` runs. Every number is read
+from `registry/registry.db` on 2026-10-28; no holdout read.
 
 The 18 are HYP-2026-094 (breakout 80) and HYP-2026-095..111 (the seventeen AF30 daily modules).
 
@@ -73,3 +74,15 @@ Neighbour grids, ±15% on the parameters that change the return path:
 
 Each added 3 grid streams and 3–6 attempts; `k_eff` stayed 1.13 because the neighbours dedup against
 each other, so the grid did not widen the family.
+
+## Decision list — what stops this being fully closed
+
+| # | Item | Who | Effect |
+|---|---|---|---|
+| 1 | Implement the 1.5x cost stress (`runner.py` + `contracts.py`), then re-run the six Stage-3 hypotheses to populate it | human approval, then agent | closes the last measurable Step-3 gap; proposal in `.workspace/plans/step3_1p5_cost_stress/` |
+| 2 | Make audit check 3 satisfiable for `rules_ts` (or record a real causal artifact for rules contracts) | human | three CANDIDATE runs move 5/6 -> 6/6, or stay 5/6 forever |
+| 3 | Seal `data/holdout/indices_1d.parquet` and pin its sha256 in the contract dataset JSON | human | unblocks Step 4 for 112/113/114 |
+| 4 | `.warden_manifest.sha256` was re-baselined to clear the AGENTS.md policy edit; review and commit | human | `check-worktree` stays green |
+
+Nothing else is actionable. The remaining trial slots (095 1, 099 2, 094 1, 112/113/114 1 each) are
+for item 1 only; none of them buys a Step-3 number under the current evaluator.

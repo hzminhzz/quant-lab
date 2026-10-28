@@ -64,6 +64,12 @@ bound = ev and ev["passed"] and trial["strategy_module_sha256"] and \
 
 Fitted families keep the `feature_sets` path, because there the features are the model's inputs.
 
+### Sequencing
+
+The trial-time digest and the 1.5x column must land together: `HYP-2026-112/113/114` have one slot
+each, and a re-run for one purpose only would spend it without serving the other. See the sequencing
+note in `.workspace/plans/step3_1p5_cost_stress/proposal.md`.
+
 ### Consequence for the three candidates, stated plainly
 
 `RUN-HYP112-002`, `113-002`, `114-002` have **no** `strategy_module_sha256`, so `verify-causality`

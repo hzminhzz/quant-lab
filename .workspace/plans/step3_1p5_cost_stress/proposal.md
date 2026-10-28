@@ -71,6 +71,23 @@ retroactively invalidate every stored trial, which have no 1.5x figure.
 4. `test_registry_migrates_column`: an old registry without the column gains it on open, and existing
    rows read `NULL` — never `0.0`.
 
+## Sequencing: do not spend a trial slot on this alone
+
+`HYP-2026-112/113/114` each have **one** trial left (2/3 used). A re-run that only populates
+`stress_1p5_cost_sharpe` would consume that slot while the registry still has no
+`trials.strategy_module_sha256`, so the resulting row could never bind causal evidence and those
+three candidates could never reach 6/6 — the slot would be spent for one column and close the other
+door permanently.
+
+Both evaluator changes must be in the same tree before any re-run:
+
+1. this patch (`stress_1p5_cost_sharpe`, nullable), **and**
+2. `.workspace/plans/check3_rules_causality/` (`trials.strategy_module_sha256` + `causality_evidence`).
+
+Then one re-run per hypothesis produces the 1.5x column and the module digest together, and
+`verify-causality` can bind. Applying only the first patch and stopping there is the failure mode to
+avoid.
+
 ## Populating the column
 
 Existing trials read `NULL` and cannot be back-filled. To get real numbers, re-run at the same

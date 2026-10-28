@@ -31,10 +31,16 @@ existing signature changes, no verdict changes.
 1. `contracts.py`, `ExperimentResult`, in the defaulted tail so positional construction is unaffected:
 
 ```python
-    stress_1p5_cost_sharpe: float = 0.0
+    stress_1p5_cost_sharpe: float | None = None
 ```
 
-`registry.py::_ensure_columns` adds the column to `trials` automatically on next open.
+`None`, not `0.0`: zero is a legitimate measured Sharpe, so a `0.0` default would make every
+historical row, every `FAILED` row and every unmeasured trial indistinguishable from a real zero.
+`registry.py::_ensure_columns` maps non-`str`/`datetime` fields to `REAL`, so a nullable column needs
+either a `TEXT` type override or a `NULL`-permitting `REAL` with an explicit default of `NULL`;
+`ALTER TABLE ... ADD COLUMN stress_1p5_cost_sharpe REAL DEFAULT NULL` is the intended migration.
+Read paths must treat `None` as "not measured" rather than "measured zero" — specifically
+`trial.get("stress_1p5_cost_sharpe")` must not be compared with `>` without a `None` guard.
 
 2. `runner.py`, beside the 2.0 block at :359:
 
@@ -61,13 +67,13 @@ retroactively invalidate every stored trial, which have no 1.5x figure.
 2. `test_cost_stress_monotone_in_mean_not_sharpe`: with a real cost, `mean(net@2.0) < mean(net@1.5) <
    mean(net@1.0)`; assert on means, **not** on Sharpe, since Sharpe is not guaranteed monotone.
 3. `test_experiment_result_backward_compatible`: constructing `ExperimentResult` with the old
-   positional signature still works and yields `stress_1p5_cost_sharpe == 0.0`.
-4. `test_registry_migrates_column`: an old registry without the column gains it on open, existing
-   rows read 0.0.
+   positional signature still works and yields `stress_1p5_cost_sharpe is None`.
+4. `test_registry_migrates_column`: an old registry without the column gains it on open, and existing
+   rows read `NULL` — never `0.0`.
 
 ## Populating the column
 
-Existing trials read 0.0 and cannot be back-filled. To get real numbers, re-run at the same
+Existing trials read `NULL` and cannot be back-filled. To get real numbers, re-run at the same
 configuration (which consumes the remaining trial slot):
 
 | Hypothesis | Trials used | Remaining |

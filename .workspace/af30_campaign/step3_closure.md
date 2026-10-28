@@ -30,11 +30,14 @@ with bootstrap p ≥ 0.05. Stage 1 is a gate; these never reach Stage 3 and no S
 
 ## Open gaps, stated rather than closed
 
-1. **Check 3 (`3_point_in_time_causality`) fails on every rules-only run.** It requires a
-   `prefix_invariance_passed` row in `feature_sets` for the contract, and only the ML feature path
-   writes those. `INDICES_1D_V1` has none. This is a protocol gap: a rules strategy cannot satisfy
-   the check, and no row was inserted to fake it. The three `CANDIDATE` runs are therefore 5/6, not
-   approved.
+1. **Check 3 is contract-level, not strategy-level, and `INDICES_1D_V1` has no row.** The check
+   passes when *any* `prefix_invariance_passed` row exists for the contract — regardless of whether
+   that evidence relates to the strategy being audited. Fifteen `rules_ts` runs have passed it this
+   way (`RUN-HYP007-002`, `091-001/002`, `092-001/002/003`, `093-001/002`, `094-001/002`,
+   `095-001`, `099-001`, `007-003`), riding on feature sets recorded for ML runs on the same
+   contract. `INDICES_1D_V1` appears in no `feature_sets` row, so 112/113/114 fail. A row added
+   there would make them pass without proving anything about these three strategies — which is why
+   none was inserted. The three `CANDIDATE` runs are 5/6, not approved.
 2. **S01 has no path-changing parameter** (`warmup` only), so the ±15% neighbour axis is
    structurally unmeasurable — not "stable", simply not testable.
 3. **The 1.5x cost stress is not implemented, anywhere.** `AGENTS.md` step 3 requires "1.5x/2x

@@ -97,20 +97,28 @@ and 099 has no open axis, so for those two the re-run buys the missing column on
 
 ## Ready-to-apply patch
 
-`cost_stress.patch` beside this file. Verified:
+`cost_stress.patch` beside this file. What has actually been run:
 
 - `git apply --check cost_stress.patch` — applies cleanly to the current tree;
-- applied to a copy of `src/` and imported: `ExperimentResult` still constructs positionally with
-  the old signature and `stress_1p5_cost_sharpe` defaults to `None`;
-- the runner contains `cost_multiplier=1.5` and passes `stress_1p5_cost_sharpe=sr15` at the
-  Stage-3 call site only (the `cross_sectional_ml` early-return path is untouched).
+- applied to a throwaway copy of `src/`, then imported: `ExperimentResult` still constructs with
+  the old positional signature and `stress_1p5_cost_sharpe` defaults to `None`;
+- the runner contains `cost_multiplier=1.5` and passes the value at the Stage-3 call site only
+  (the `cross_sectional_ml` early-return path is untouched);
+- `tests/test_cost_stress.py` — three isolated tests, **3 passed** on the patched copy and skipped
+  on an unpatched tree: mean net return is strictly ordered across 1.0x/1.5x/2.0x (asserted on
+  means, not Sharpe, which is not monotone); the added column is `REAL` and backfills `NULL`, never
+  `0.0`; the constructor keeps its positional signature.
+
+**Not yet run, and this patch is not evidence until they are:** a patched `warden backtest` end to
+end, a real SQLite registry round-trip through `record_trial`, and any numerical comparison against
+a run's stored 2x figure. Those arrive with the six re-runs below.
 
 ```bash
 cd /home/quant/dev/quant-lab
 git apply .workspace/plans/step3_1p5_cost_stress/cost_stress.patch
-uv run python -m pytest tests/ -q            # expect 257 passed
+uv run python -m pytest tests/ -q            # expect 257 + 3 passed
 uv run warden generate-manifest --human-approve-manifest --json   # re-baseline, human gate
 ```
 
-Then the six re-runs listed above populate the column. Historical rows stay `NULL`, which is the
-point: unmeasured is not zero.
+Then the six re-runs populate the column. Historical rows stay `NULL`, which is the point:
+unmeasured is not zero.

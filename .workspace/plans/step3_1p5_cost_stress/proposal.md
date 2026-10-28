@@ -89,6 +89,15 @@ Two ways to make room, both requiring approval:
   >= 4 lines covers this patch; the check-3 change needs roughly 60-100, which is a much larger
   refactor or a cap raise.
 
+  This route is not a free win. A scan of `src/warden/` for public functions with no reference outside
+  their own definition finds exactly three, totalling 25 lines: `gates.py:100`
+  `evaluate_stage1_carry_rv`, `gates.py:111` `evaluate_stage1_meta_overlay`, and `leakage.py:76`
+  `call_ml4t_compute_features`. The first two are the Stage-1 gates for the `carry_rv` and
+  `meta_overlay` families, which `contracts.py:113` accepts as valid `strategy_family` values and
+  AGENTS.md funnel step 1 defines — they are unwired, not dead. The third is an ml4t adapter. Deleting
+  any of them is a design decision about declared-but-unimplemented families, not dead-code cleanup,
+  so freeing the four lines has to come from an actual refactor of live code.
+
 Either way the approval is on the governance side, not just on the patch.
 
 ## Sequencing: do not spend a trial slot on this alone

@@ -1,74 +1,68 @@
-# AF30 Step 3 — closure record for all 18 strategies
+# AF30 Step 3 — evidence record for the 18 strategies
 
-Status: **closed.** Every strategy in the AF30 set now has a recorded Step-3 disposition. Three carry
-`CANDIDATE_FOR_QUALIFICATION` on a clean indices contract. Every number below is read from
-`registry/registry.db` on 2026-10-28. No holdout was read.
+Status: **not "closed".** Six of the eighteen have Stage-3 evidence; twelve were falsified at Stage 1
+and by design never reach Stage 3. Of the six, five now carry a real ±15% neighbour measurement and
+one structurally cannot. All six fail the six-check audit on check 3. Step 4 is blocked for the three
+`CANDIDATE` runs. Every number is read from `registry/registry.db` on 2026-10-28; no holdout read.
 
-The 18 are HYP-2026-094 (breakout 80) plus HYP-2026-095..111 (the seventeen AF30 daily modules).
+The 18 are HYP-2026-094 (breakout 80) and HYP-2026-095..111 (the seventeen AF30 daily modules).
 
-## Disposition
+## Stage-3 evidence (6 of 18)
 
-| Strategy | Module | Stage 1 | Stage 3 run | netSR | DSR | Disposition |
-|---|---|---|---|---|---|---|
-| S01 buy & hold single | `s01_buy_hold_single` | PASS PF 1.258 | `RUN-HYP095-002` | 1.317 | 0.451 | REVISE — buy-and-hold beta, no mechanism to revise |
-| **S02 fixed risk scaling** | `s02_buy_hold_risk_scaled` | PASS PF 1.252 | **`RUN-HYP112-001`** (indices 1D) | **1.224** | **0.976** | **CANDIDATE_FOR_QUALIFICATION** |
-| **S03 variable risk scaling** | `s03_buy_hold_variable_risk` | PASS PF 1.213 | **`RUN-HYP113-001`** (indices 1D) | **1.243** | **0.973** | **CANDIDATE_FOR_QUALIFICATION** |
-| **S04 portfolio scaling** | `s04_buy_hold_portfolio_scaling` | PASS PF 1.213 | **`RUN-HYP114-001`** (indices 1D) | **1.247** | **0.973** | **CANDIDATE_FOR_QUALIFICATION** |
-| S05 slow trend long-only | `s05_slow_trend_long_only` | PASS PF 1.154 | `RUN-HYP099-001` | 0.879 | 0.314 | REVISE — all four revision axes passed, both revisions refused |
-| S06 slow trend long/short | `s06_slow_trend_long_short` | REJECT PF 1.034 | — | — | — | Falsified at Stage 1 |
-| S07 slow trend + strength | `s07_slow_trend_strength` | REJECT PF 1.054 | — | — | — | Falsified at Stage 1 |
-| S08 fast trend + strength | `s08_fast_trend_strength` | REJECT PF 1.032 | — | — | — | Falsified at Stage 1 |
-| S09 multi-EWMAC | `s09_ewmac_multi` | REJECT PF 1.020 | — | — | — | Falsified at Stage 1 |
-| S12 adjusted trends | `s12_adjusted_trend` | REJECT PF 1.030 | — | — | — | Falsified at Stage 1 |
-| S14 spot trend | `s14_spot_trend` | REJECT PF 1.054 | — | — | — | Falsified at Stage 1 |
-| S17 normalised trend | `s17_normalised_trend` | REJECT PF 1.135 | — | — | — | Falsified at Stage 1 (closest miss: 1.135 vs 1.15) |
-| S18 class composite | `s18_trend_asset_classes` | REJECT PF 1.022 | — | — | — | Falsified at Stage 1 |
-| S19 cross-sectional momentum | `s19_xs_momentum` | REJECT PF 1.009 | — | — | — | Falsified at Stage 1 |
-| S21 breakout 80 | `s21_breakout` | REJECT PF 1.085 | — | — | — | Falsified at Stage 1 |
-| S22 value | `s22_value` | REJECT PF 0.933 | — | — | — | Falsified at Stage 1 (negative edge) |
-| S23 acceleration | `s23_acceleration` | REJECT PF 1.035 | — | — | — | Falsified at Stage 1 |
-| Breakout 80 daily | `carver_breakout_daily` | n/a | `RUN-HYP094-002` | 0.534 | 0.098 | REVISE — no open axis; inert trailing stop fixed |
+| Strategy | Stage-3 run | netSR | 2× | +1 bar | turnover | breakeven | maxDD | stability | DSR | audit |
+|---|---|---|---|---|---|---|---|---|---|---|
+| S01 buy & hold single | `RUN-HYP095-002` | 1.317 | 1.317 | 1.317 | 0.4x | 2729 bps | 8.7% | **n/a** | 0.451 | 4/6 |
+| **S02 fixed vol scaling** | `RUN-HYP112-002` | **1.224** | 1.224 | 1.226 | 0.4x | 3325 bps | 14.9% | **0.996** | **0.976** | 5/6 |
+| **S03 variable vol scaling** | `RUN-HYP113-002` | **1.243** | 1.240 | 1.234 | 4.1x | 408 bps | 16.0% | **0.946** | **0.973** | 5/6 |
+| **S04 portfolio scaling** | `RUN-HYP114-002` | **1.247** | 1.245 | 1.239 | 6.8x | 546 bps | 33.7% | **0.944** | **0.973** | 5/6 |
+| S05 slow trend long-only | `RUN-HYP099-001` | 0.879 | 0.859 | 0.867 | 11.7x | 45 bps | 8.2% | 0.917 | 0.314 | 2/6 |
+| Breakout 80 daily | `RUN-HYP094-002` | 0.534 | 0.512 | 0.487 | 15.8x | 25 bps | 6.7% | 0.853 | 0.098 | 2/6 |
 
-Counts: 3 CANDIDATE, 3 REVISE with Stage-3 evidence, 12 falsified at Stage 1.
+Verdicts: three `CANDIDATE_FOR_QUALIFICATION` (112/113/114), three `REVISE` (095/099/094).
+
+## Stage 1 falsified (12 of 18, no Stage-3 evidence by design)
+
+S06 1.034, S07 1.054, S08 1.032, S09 1.020, S12 1.030, S14 1.054, S17 1.135, S18 1.022,
+S19 1.009, S21 1.085, S22 0.933, S23 1.035 — all below the registered profit-factor bar of 1.15
+with bootstrap p ≥ 0.05. Stage 1 is a gate; these never reach Stage 3 and no Stage-3 trial is owed.
+
+## Open gaps, stated rather than closed
+
+1. **Check 3 (`3_point_in_time_causality`) fails on every rules-only run.** It requires a
+   `prefix_invariance_passed` row in `feature_sets` for the contract, and only the ML feature path
+   writes those. `INDICES_1D_V1` has none. This is a protocol gap: a rules strategy cannot satisfy
+   the check, and no row was inserted to fake it. The three `CANDIDATE` runs are therefore 5/6, not
+   approved.
+2. **S01 has no path-changing parameter** (`warmup` only), so the ±15% neighbour axis is
+   structurally unmeasurable — not "stable", simply not testable.
+3. **`indices_1d` holdout is not provisioned.** `INDICES_1D_V1` declares
+   `data/holdout/indices_1d.parquet`; the file is staged only, and the dataset JSON has **no
+   `holdout_sha256` pin**. Qualification would fail before reading. Step 4 cannot run.
 
 ## Why S02–S04 were re-homed to indices
 
-They passed Stage 1 on `MULTI_ASSET_1D_V1` and were never advanced. That contract's inherited family
-gate is 45.61 — set by the seventeen screens plus four prior trials — and cannot fall, so any
-Stage-3 verdict there is uninterpretable. `INDICES_1D_V1` (6 index futures, 2015–2025, family gate
-clean at 1.0) is the natural home for Carver's sizing strategies and gives a first-time Stage-3
-measurement rather than a re-run of a falsified mechanism.
+They passed Stage 1 on `MULTI_ASSET_1D_V1` and were never advanced; that contract's inherited family
+gate is 45.61 and cannot fall, so any Stage-3 verdict there is uninterpretable. `INDICES_1D_V1`
+(6 index futures, 2015–2025, family gate clean at 1.0) is the natural home for Carver's sizing
+strategies and produced a first-time Stage-3 measurement, not a re-run of a falsified mechanism.
 
-These are new hypotheses (HYP-2026-112/113/114), not the multi-asset ones moved. The clean family
-gate is a consequence of that, and it is **not** a claim that the multi-asset versions now pass.
+They are new hypotheses (HYP-2026-112/113/114). The clean gate follows from that and is **not** a
+claim that the multi-asset versions pass.
 
-## What the three CANDIDATES actually are
+## What these three are
 
-All three are long-only index books with no forecast. Their 1x, 2x-cost and +1-bar Sharpes are
-identical to three decimals (S02: 1.224/1.224/1.226), turnover is 0.4–6.8x/yr and breakeven cost is
-408–3325 bps. There is no signal for costs or latency to bite. The measured Sharpe is index beta over
-2023-01..2025-07, not alpha.
+Long-only index books with no forecast. 1×, 2× and +1-bar Sharpes are identical to three decimals;
+turnover 0.4–6.8×/yr; breakeven 408–3325 bps. There is no signal for cost or latency to bite, so the
+measured Sharpe is index beta over 2023-01..2025-07, not alpha. S04 doubles S03's exposure via IDM
+2.30 and buys +0.004 Sharpe for +17.7 points of drawdown.
 
-| Run | netSR | 2x | +1 bar | turnover | breakeven | maxDD | PF | DSR |
-|---|---|---|---|---|---|---|---|---|
-| `RUN-HYP112-001` | 1.224 | 1.224 | 1.226 | 0.4x | 3325 bps | 14.9% | 1.250 | 0.976 |
-| `RUN-HYP113-001` | 1.243 | 1.240 | 1.234 | 4.1x | 408 bps | 16.0% | 1.230 | 0.973 |
-| `RUN-HYP114-001` | 1.247 | 1.245 | 1.239 | 6.8x | 546 bps | 33.7% | 1.232 | 0.973 |
+Neighbour grids, ±15% on the parameters that change the return path:
 
-S04 doubles S03's exposure via IDM 2.30: +0.004 Sharpe for +17.7 points of drawdown.
+| Run | grid points | min/max SR | stability |
+|---|---|---|---|
+| `RUN-HYP112-002` | `vol_window` 1071 / 1449 | 1.257 / 1.262 | 0.996 |
+| `RUN-HYP113-002` | `vol_window` 51 / 69 | 1.188 / 1.256 | 0.946 |
+| `RUN-HYP114-002` | `vol_window`×`idm` 51·1.955 / 69·2.645 | 1.185 / 1.255 | 0.944 |
 
-Two measurement caveats:
-
-- `param_neighbor_stability = 1.000` for all three is the **no-grid default**, not a measurement.
-  No `param_grid` was supplied, so the axis was not tested.
-- Six-check audit is **5/6** for all three, failing only `3_point_in_time_causality`, which requires
-  a `prefix_invariance_passed` row in `feature_sets` for the contract. Only the ML feature path
-  writes those, so a rules-only contract can never satisfy check 3. This is a protocol gap, not a
-  strategy failure — and it is not worked around by inserting a row.
-
-## Step 4 is blocked for these three
-
-`INDICES_1D_V1` declares `holdout_data_path: data/holdout/indices_1d.parquet`. That file is
-**staged, not sealed** (`data/holdout_staging/indices_1d.parquet`), and the contract's dataset JSON
-carries **no `holdout_sha256` pin**. Qualification would fail before reading anything. Unblocking it
-requires promoting the file and pinning its digest — a contract change, not a trial.
+Each added 3 grid streams and 3–6 attempts; `k_eff` stayed 1.13 because the neighbours dedup against
+each other, so the grid did not widen the family.

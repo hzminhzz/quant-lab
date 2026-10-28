@@ -53,7 +53,9 @@ def _fixture(tmp_path: Path) -> Path:
                     (f"HYP-2026-{hid}", f"RUN-Y-{hid}", 1.2, 1.2, 1.2, 1.0, 200, 10.0, 0.95, 0.97,
                      "CANDIDATE_FOR_QUALIFICATION", 1))
     con.execute("INSERT INTO selection_attempts VALUES ('HYP-2026-100','standalone_screen','REJECT',?)",
-                (json.dumps({"profit_factor": 1.03}),))
+                (json.dumps({"profit_factor": 1.03, "bootstrap_p_value": 0.31}),))
+    con.execute("INSERT INTO selection_attempts VALUES ('HYP-2026-101','standalone_screen','PASS',?)",
+                (json.dumps({"profit_factor": 1.20, "bootstrap_p_value": 0.01}),))
     con.commit()
     con.close()
     return db
@@ -64,8 +66,18 @@ def test_block_covers_every_strategy_and_counts_the_dispositions(tmp_path):
     block = mod.build(_fixture(tmp_path))
     for hyp in mod.STRATEGIES:
         assert hyp in block, f"{hyp} missing"
-    assert "3 CANDIDATE, 1 REVISE with a Stage-3 row, 14 falsified at Stage 1" in block
+    assert ("3 CANDIDATE, 1 REVISE with a Stage-3 row, 1 falsified at Stage 1, "
+            "1 Stage-1 PASS without a Stage-3 row, 12 unscreened") in block
     assert "1.5x" not in block, "the unmeasured 1.5x stress must not appear as a column"
+
+
+def test_absent_and_passing_screens_are_not_called_falsified(tmp_path):
+    """Only a recorded REJECT counts as a Stage-1 falsification."""
+    block = _load().build(_fixture(tmp_path))
+    falsified = [ln for ln in block.splitlines() if "Falsified at Stage 1" in ln]
+    assert len(falsified) == 1 and "`HYP-2026-100`" in falsified[0]
+    assert "Stage-1 PASS — no Stage-3 row" in block
+    assert "UNSCREENED" in block
 
 
 def test_rehomed_rows_are_attributed_to_their_indices_run(tmp_path):

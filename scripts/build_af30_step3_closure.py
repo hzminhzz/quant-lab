@@ -44,7 +44,7 @@ def _screen(con, hyp):
 def build(db: Path = DB) -> str:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     try:
-        rows, counts = [], {"candidate": 0, "revise": 0, "stage1": 0}
+        rows, counts = [], {"candidate": 0, "revise": 0, "stage1": 0, "passed": 0, "unknown": 0}
         for hyp in STRATEGIES:
             module = con.execute("SELECT strategy_module FROM hypotheses WHERE hypothesis_id=?",
                                  (hyp,)).fetchone()[0]
@@ -64,9 +64,17 @@ def build(db: Path = DB) -> str:
                 counts["revise"] += 1
                 disp = f"REVISE (`{s3[0]}`)"
                 metric = f"{s3[1]:.3f} | {s3[8]:.3f}"
-            else:
+            elif scr and scr[0] == "REJECT":
                 counts["stage1"] += 1
                 disp = "Falsified at Stage 1"
+                metric = "— | —"
+            elif scr and scr[0] == "PASS":
+                counts["passed"] += 1
+                disp = "Stage-1 PASS — no Stage-3 row"
+                metric = "— | —"
+            else:
+                counts["unknown"] += 1
+                disp = "UNSCREENED — no recorded Stage-1 outcome"
                 metric = "— | —"
             stage1 = "—"
             if scr:
@@ -117,7 +125,8 @@ def build(db: Path = DB) -> str:
         *rows,
         "",
         f"Counts: {counts['candidate']} CANDIDATE, {counts['revise']} REVISE with a Stage-3 row, "
-        f"{counts['stage1']} falsified at Stage 1 — {len(STRATEGIES)} total.",
+        f"{counts['stage1']} falsified at Stage 1, {counts['passed']} Stage-1 PASS without a "
+        f"Stage-3 row, {counts['unknown']} unscreened — {len(STRATEGIES)} total.",
         "",
         "| Stage-3 run | Source hyp | netSR | 2x | +1 bar | turnover | breakeven | maxDD | stability | DSR |",
         "|---|---|---|---|---|---|---|---|---|---|",

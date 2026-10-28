@@ -40,7 +40,7 @@ The 18 are HYP-2026-094 (breakout 80) and HYP-2026-095..111 (the seventeen AF30 
 | `HYP-2026-110` | `s22_value` | PF 0.933 · p 0.76 (fails PF, p) | — | — | Falsified at Stage 1 |
 | `HYP-2026-111` | `s23_acceleration` | PF 1.035 · p 0.34 (fails PF, p) | — | — | Falsified at Stage 1 |
 
-Counts: 3 CANDIDATE, 3 REVISE with a Stage-3 row, 12 falsified at Stage 1 — 18 total.
+Counts: 3 CANDIDATE, 3 REVISE with a Stage-3 row, 12 falsified at Stage 1, 0 Stage-1 PASS without a Stage-3 row, 0 unscreened — 18 total.
 
 | Stage-3 run | Source hyp | netSR | 2x | +1 bar | turnover | breakeven | maxDD | stability | DSR |
 |---|---|---|---|---|---|---|---|---|---|

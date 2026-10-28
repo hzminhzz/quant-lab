@@ -31,7 +31,8 @@ def _stage3(con, hyp):
     return con.execute(
         "SELECT run_id, net_sharpe, stress_2x_cost_sharpe, delay_plus1_sharpe, "
         "annualized_turnover, breakeven_cost_bps, max_drawdown_pct, param_neighbor_stability, "
-        "deflated_sharpe_prob, verdict, stress_1p5_cost_sharpe FROM trials WHERE hypothesis_id=? "
+        "deflated_sharpe_prob, verdict, stress_1p5_cost_sharpe, "
+        "(SELECT verdict FROM audit_evidence a WHERE a.run_id = trials.run_id) AS audit FROM trials WHERE hypothesis_id=? "
         "ORDER BY created_at DESC LIMIT 1", (hyp,)).fetchone()
 
 
@@ -114,8 +115,9 @@ def build(db: Path = DB) -> str:
                 continue
             nb = "n/a" if s3[7] in (None, 1.0) else f"{s3[7]:.3f}"
             s15 = "NULL" if s3[10] is None else f"{s3[10]:.3f}"
+            audit = s3[11] or "not audited"
             detail.append(f"| `{s3[0]}` | `{src}` | {s3[1]:.3f} | {s15} | {s3[2]:.3f} | {s3[3]:.3f} | "
-                          f"{s3[4]:.1f}x | {s3[5]:.0f} bps | {s3[6]:.1f}% | {nb} | {s3[8]:.3f} |")
+                          f"{s3[4]:.1f}x | {s3[5]:.0f} bps | {s3[6]:.1f}% | {nb} | {s3[8]:.3f} | {audit} |")
     finally:
         con.close()
 
@@ -129,8 +131,8 @@ def build(db: Path = DB) -> str:
         f"{counts['stage1']} falsified at Stage 1, {counts['passed']} Stage-1 PASS without a "
         f"Stage-3 row, {counts['unknown']} unscreened — {len(STRATEGIES)} total.",
         "",
-        "| Stage-3 run | Source hyp | netSR | 1.5x | 2x | +1 bar | turnover | breakeven | maxDD | stability | DSR |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Stage-3 run | Source hyp | netSR | 1.5x | 2x | +1 bar | turnover | breakeven | maxDD | stability | DSR | audit |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
         *detail,
         END,
     ])

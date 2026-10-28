@@ -28,6 +28,7 @@ CREATE TABLE trials (hypothesis_id TEXT, run_id TEXT, net_sharpe REAL,
     deflated_sharpe_prob REAL, verdict TEXT, created_at REAL, stress_1p5_cost_sharpe REAL);
 CREATE TABLE selection_attempts (hypothesis_id TEXT, kind TEXT, outcome TEXT,
     diagnostics_json TEXT);
+CREATE TABLE audit_evidence (run_id TEXT, verdict TEXT);
 """
 
 
@@ -52,6 +53,8 @@ def _fixture(tmp_path: Path) -> Path:
         con.execute("INSERT INTO trials VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (f"HYP-2026-{hid}", f"RUN-Y-{hid}", 1.2, 1.2, 1.2, 1.0, 200, 10.0, 0.95, 0.97,
                      "CANDIDATE_FOR_QUALIFICATION", 1, 1.19))
+    for hid in (112, 113, 114):
+        con.execute("INSERT INTO audit_evidence VALUES (?, 'APPROVED')", (f"RUN-Y-{hid}",))
     con.execute("INSERT INTO selection_attempts VALUES ('HYP-2026-100','standalone_screen','REJECT',?)",
                 (json.dumps({"profit_factor": 1.03, "bootstrap_p_value": 0.31}),))
     con.execute("INSERT INTO selection_attempts VALUES ('HYP-2026-101','standalone_screen','PASS',?)",

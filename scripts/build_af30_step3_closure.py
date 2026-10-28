@@ -68,15 +68,32 @@ def build(db: Path = DB) -> str:
                 counts["stage1"] += 1
                 disp = "Falsified at Stage 1"
                 metric = "— | —"
-            pf = "—"
+            stage1 = "—"
             if scr:
                 import json
                 try:
-                    v = json.loads(scr[1]).get("profit_factor")
-                    pf = f"{v:.3f}" if isinstance(v, (int, float)) else str(scr[0])
+                    diag = json.loads(scr[1])
                 except Exception:
-                    pf = str(scr[0])
-            rows.append(f"| `{hyp}` | `{Path(module).stem}` | {pf} | {metric} | {disp} |")
+                    diag = {}
+                pf = diag.get("profit_factor")
+                pval = diag.get("bootstrap_p_value")
+                tim = diag.get("time_in_market")
+                failed = []
+                if isinstance(pf, (int, float)) and pf < 1.15:
+                    failed.append("PF")
+                if isinstance(pval, (int, float)) and pval >= 0.05:
+                    failed.append("p")
+                if isinstance(tim, (int, float)) and tim < 0.05:
+                    failed.append("TiM")
+                parts = []
+                if isinstance(pf, (int, float)):
+                    parts.append(f"PF {pf:.3f}")
+                if isinstance(pval, (int, float)):
+                    parts.append(f"p {pval:.2f}")
+                stage1 = " · ".join(parts) or scr[0]
+                if failed:
+                    stage1 += f" (fails {', '.join(failed)})"
+            rows.append(f"| `{hyp}` | `{Path(module).stem}` | {stage1} | {metric} | {disp} |")
 
         detail = []
         for hyp in STRATEGIES:
@@ -95,7 +112,7 @@ def build(db: Path = DB) -> str:
 
     return "\n".join([
         BEGIN,
-        "| Strategy | Module | Stage-1 PF | netSR | DSR | Disposition |",
+        "| Strategy | Module | Stage-1 (vs PF 1.15 / p 0.05) | netSR | DSR | Disposition |",
         "|---|---|---|---|---|---|",
         *rows,
         "",

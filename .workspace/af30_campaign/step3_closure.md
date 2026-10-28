@@ -19,26 +19,26 @@ The 18 are HYP-2026-094 (breakout 80) and HYP-2026-095..111 (the seventeen AF30 
 ## Status tables (generated from `registry/registry.db` — do not hand-edit)
 
 <!-- BEGIN GENERATED -->
-| Strategy | Module | Stage-1 PF | netSR | DSR | Disposition |
+| Strategy | Module | Stage-1 (vs PF 1.15 / p 0.05) | netSR | DSR | Disposition |
 |---|---|---|---|---|---|
 | `HYP-2026-094` | `carver_breakout_daily` | — | 0.534 | 0.098 | REVISE (`RUN-HYP094-002`) |
-| `HYP-2026-095` | `s01_buy_hold_single` | 1.258 | 1.317 | 0.451 | REVISE (`RUN-HYP095-002`) |
-| `HYP-2026-096` | `s02_buy_hold_risk_scaled` | 1.252 | 1.224 (via `HYP-2026-112`) | 0.976 | CANDIDATE (via `HYP-2026-112`) |
-| `HYP-2026-097` | `s03_buy_hold_variable_risk` | 1.213 | 1.243 (via `HYP-2026-113`) | 0.973 | CANDIDATE (via `HYP-2026-113`) |
-| `HYP-2026-098` | `s04_buy_hold_portfolio_scaling` | 1.213 | 1.247 (via `HYP-2026-114`) | 0.973 | CANDIDATE (via `HYP-2026-114`) |
-| `HYP-2026-099` | `s05_slow_trend_long_only` | 1.154 | 0.879 | 0.314 | REVISE (`RUN-HYP099-001`) |
-| `HYP-2026-100` | `s06_slow_trend_long_short` | 1.034 | — | — | Falsified at Stage 1 |
-| `HYP-2026-101` | `s07_slow_trend_strength` | 1.054 | — | — | Falsified at Stage 1 |
-| `HYP-2026-102` | `s08_fast_trend_strength` | 1.032 | — | — | Falsified at Stage 1 |
-| `HYP-2026-103` | `s09_ewmac_multi` | 1.020 | — | — | Falsified at Stage 1 |
-| `HYP-2026-104` | `s12_adjusted_trend` | 1.030 | — | — | Falsified at Stage 1 |
-| `HYP-2026-105` | `s14_spot_trend` | 1.054 | — | — | Falsified at Stage 1 |
-| `HYP-2026-106` | `s17_normalised_trend` | 1.135 | — | — | Falsified at Stage 1 |
-| `HYP-2026-107` | `s18_trend_asset_classes` | 1.022 | — | — | Falsified at Stage 1 |
-| `HYP-2026-108` | `s19_xs_momentum` | 1.009 | — | — | Falsified at Stage 1 |
-| `HYP-2026-109` | `s21_breakout` | 1.085 | — | — | Falsified at Stage 1 |
-| `HYP-2026-110` | `s22_value` | 0.933 | — | — | Falsified at Stage 1 |
-| `HYP-2026-111` | `s23_acceleration` | 1.035 | — | — | Falsified at Stage 1 |
+| `HYP-2026-095` | `s01_buy_hold_single` | PF 1.258 · p 0.00 | 1.317 | 0.451 | REVISE (`RUN-HYP095-002`) |
+| `HYP-2026-096` | `s02_buy_hold_risk_scaled` | PF 1.252 · p 0.00 | 1.224 (via `HYP-2026-112`) | 0.976 | CANDIDATE (via `HYP-2026-112`) |
+| `HYP-2026-097` | `s03_buy_hold_variable_risk` | PF 1.213 · p 0.01 | 1.243 (via `HYP-2026-113`) | 0.973 | CANDIDATE (via `HYP-2026-113`) |
+| `HYP-2026-098` | `s04_buy_hold_portfolio_scaling` | PF 1.213 · p 0.01 | 1.247 (via `HYP-2026-114`) | 0.973 | CANDIDATE (via `HYP-2026-114`) |
+| `HYP-2026-099` | `s05_slow_trend_long_only` | PF 1.154 · p 0.04 | 0.879 | 0.314 | REVISE (`RUN-HYP099-001`) |
+| `HYP-2026-100` | `s06_slow_trend_long_short` | PF 1.034 · p 0.31 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-101` | `s07_slow_trend_strength` | PF 1.054 · p 0.23 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-102` | `s08_fast_trend_strength` | PF 1.032 · p 0.34 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-103` | `s09_ewmac_multi` | PF 1.020 · p 0.34 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-104` | `s12_adjusted_trend` | PF 1.030 · p 0.28 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-105` | `s14_spot_trend` | PF 1.054 · p 0.23 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-106` | `s17_normalised_trend` | PF 1.135 · p 0.07 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-107` | `s18_trend_asset_classes` | PF 1.022 · p 0.35 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-108` | `s19_xs_momentum` | PF 1.009 · p 0.35 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-109` | `s21_breakout` | PF 1.085 · p 0.12 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-110` | `s22_value` | PF 0.933 · p 0.76 (fails PF, p) | — | — | Falsified at Stage 1 |
+| `HYP-2026-111` | `s23_acceleration` | PF 1.035 · p 0.34 (fails PF, p) | — | — | Falsified at Stage 1 |
 
 Counts: 3 CANDIDATE, 3 REVISE with a Stage-3 row, 12 falsified at Stage 1 — 18 total.
 
@@ -51,6 +51,18 @@ Counts: 3 CANDIDATE, 3 REVISE with a Stage-3 row, 12 falsified at Stage 1 — 18
 | `RUN-HYP114-002` | `HYP-2026-114` | 1.247 | 1.245 | 1.239 | 6.8x | 546 bps | 33.7% | 0.944 | 0.973 |
 | `RUN-HYP099-001` | `HYP-2026-099` | 0.879 | 0.859 | 0.867 | 11.7x | 45 bps | 8.2% | 0.917 | 0.314 |
 <!-- END GENERATED -->
+
+## Stage-1 falsifications are auditable
+
+The twelve rows marked "Falsified at Stage 1" are not dismissals. Each shows the recorded
+`profit_factor` and `bootstrap_p_value` from its `standalone_screen`, and which of the registered
+criteria it fails (PF < 1.15, p >= 0.05, time-in-market < 5%). Their registered falsification
+criteria are Stage-1 only, so a passing screen would have been the next step and a failing one is a
+terminal result for the mechanism as registered. The closest miss is S17 at PF 1.135 / p 0.07.
+
+Twelve of the eighteen hypotheses remain `ACTIVE` with `trials_used = 0` in the registry, because
+nothing moves a hypothesis to a terminal status at the screen gate. That is a registry bookkeeping
+gap, not a live lead: no Stage-3 trial is owed to a mechanism that has failed its own Stage-1 bar.
 
 ## Open gaps, stated rather than closed
 

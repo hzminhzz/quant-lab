@@ -98,6 +98,25 @@ def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, asse
     return {"long": _aligned_matrix(df, "ret", assets), "short": None}
 
 
+def filter_target_symbols(panel_df: pl.DataFrame, params: dict, path: str = "") -> pl.DataFrame:
+    """Restrict the panel to declared symbols; the data fingerprint follows the subset.
+
+    Note: a one-symbol subset leaves n=1, so water-filling caps gross exposure at
+    min(gross, n*per_instrument_cap) — pass per_instrument_cap=1.0 for full single-name sizing.
+    """
+    if "target_symbols" not in params:
+        return panel_df
+    tgt = params["target_symbols"]
+    if not isinstance(tgt, (list, tuple, set)) or len(tgt) == 0:
+        raise ValueError(f"target_symbols must be a non-empty list of symbols, got {tgt!r}")
+    sym_col = "asset" if "asset" in panel_df.columns else "symbol"
+    available = set(panel_df[sym_col].unique().to_list())
+    unknown = set(tgt) - available
+    if unknown:
+        raise ValueError(f"target_symbols contains unknown symbols {sorted(unknown)}; available in {path or 'panel'}: {sorted(available)}")
+    return panel_df.filter(pl.col(sym_col).is_in(tgt))
+
+
 def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, contract: EvaluationContract, params: dict) -> dict[str, Any]:
     with tempfile.NamedTemporaryFile("wb", delete=False) as f:
         pickle.dump((str(strategy_module_path.resolve()), panel_df, contract, params), f)
@@ -213,6 +232,7 @@ class ExperimentRunner:
             raise
         panel_df = pl.read_parquet(self.repo_root / dataset.path)
         if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
+        panel_df = filter_target_symbols(panel_df, params, str(dataset.path))
         panel_df = panel_df.sort("timestamp", "asset")
         strat_file = self.repo_root / strat_module
         out = _run_strategy_isolated(strat_file, panel_df, contract, params)
@@ -279,14 +299,19 @@ class ExperimentRunner:
         except ValueError as exc:
             self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "DATA", exc)
             raise
+        try:
+            panel_df = pl.read_parquet(self.repo_root / dataset.path)
+            if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
+            panel_df = filter_target_symbols(panel_df, params, str(dataset.path))
+        except (ValueError, OSError) as exc:
+            self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "DATA", exc)
+            raise
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
         provenance_kw = {"data_provenance": dataset.provenance}
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
-            panel_df = pl.read_parquet(self.repo_root / dataset.path)
-            if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
             panel_df = panel_df.sort("timestamp", "asset")
             ts = sorted(panel_df["timestamp"].unique().to_list())
             assets = sorted(panel_df["asset"].unique().to_list())
@@ -325,6 +350,8 @@ class ExperimentRunner:
             sim1 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
                                       funding_mask=fund_mask, quote_returns=ret_p)
             net_ret, gross_ret, turnover = sim1["net_returns"], sim1["gross_returns"], sim1["turnover"]
+            net15 = net_ret - 0.5 * contract.total_one_way_cost_decimal() * turnover  # exact from the 1.0x run
+            sr15 = float(np.mean(net15) / (np.std(net15, ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
             m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)
             m.update(compute_trade_metrics(sim1["positions"], net_ret, ret_p["long"][v_slice],
                                            contract.bars_per_year, contract.total_one_way_cost_decimal()))
@@ -338,11 +365,12 @@ class ExperimentRunner:
             sr2 = float(np.mean(sim2["net_returns"]) / (np.std(sim2["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
             srd = float(np.mean(sim_d["net_returns"]) / (np.std(sim_d["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
 
-            ngrid, n_sr = cfg.get("param_grid", []), []
+            ngrid, n_sr, grid_streams = cfg.get("param_grid", []), [], []
             for grid_params in ngrid:
                 grid_sim = simulate_positions(_run_strategy_isolated(strat_file, panel_df, contract, grid_params)["positions"],
                                               ret_p["long"], fund_p, contract, v_slice, funding_mask=fund_mask,
                                               quote_returns=ret_p)
+                grid_streams.append(grid_sim["net_returns"])
                 n_sr.append(float(np.mean(grid_sim["net_returns"]) / (np.std(grid_sim["net_returns"], ddof=1) + 1e-12)
                                   * math.sqrt(contract.bars_per_year)))
                 # Grid configurations consume validation evidence: count them, never silently.
@@ -355,8 +383,8 @@ class ExperimentRunner:
                     diagnostics={"net_sharpe": n_sr[-1]})
             stability = float(min(n_sr) / (max(n_sr) + 1e-8)) if n_sr else 1.0
 
-            report = compute_selection_report(net_ret, hist["streams"], contract.bars_per_year,
-                                              raw_attempt_count=n_attempts, prior_max_keff=prior_keff,
+            report = compute_selection_report(net_ret, list(hist["streams"]) + grid_streams, contract.bars_per_year,
+                                              raw_attempt_count=n_attempts + len(ngrid), prior_max_keff=prior_keff,
                                               prior_max_noise=prior_noise)
             self.registry.update_search_floor(contract.contract_id, report["k_eff_gate"],
                                              report["expected_max_sharpe_noise"])
@@ -382,7 +410,7 @@ class ExperimentRunner:
             else:
                 verdict = "CANDIDATE_FOR_QUALIFICATION" if statistical else "REVISE"
             res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_3_STRESS", verdict, m["gross_sharpe"], m["net_sharpe"], dsr_p, float(exp_max), report["raw_attempt_count"], k_eff, mean_ic, ic_hac_t, m["hit_rate"], m["profit_factor"], m["max_drawdown_pct"], m["annualized_turnover"], m["breakeven_cost_bps"], sr2, stability, f"Simulated on {contract.contract_id}; 2xCostSR={sr2:.2f}.", srd, m["cvar_99_pct"], int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
-            res = dc_replace(res, **provenance_kw, diagnostics_json=canonical_json(diag))
+            res = dc_replace(res, **provenance_kw, diagnostics_json=canonical_json(diag), stress_1p5_cost_sharpe=sr15)
             self.registry.record_trial(res, params, net_ret, trial_number=trial_num, diagnostics=diag)
             return res
         except Exception as exc:

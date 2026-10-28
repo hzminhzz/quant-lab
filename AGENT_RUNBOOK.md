@@ -3,6 +3,9 @@
 One page. `AGENTS.md` states the invariants; this file is the procedure. When the two disagree,
 `AGENTS.md` wins and this file is wrong — say so instead of guessing.
 
+Running a whole strategy set through the funnel? The copy-paste brief for a new session is
+`STAGE3_CAMPAIGN_PROMPT.md`.
+
 Start every thesis with:
 
 ```bash

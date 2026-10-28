@@ -147,13 +147,16 @@ fix. `RUN-HYP094-002` ran with the stop disabled, so its recorded numbers are un
 
 ## Decision list — what stops this being fully closed
 
-| # | Item | Who | Effect |
-|---|---|---|---|
-| 1 | Apply `.workspace/plans/step3_1p5_cost_stress/cost_stress.patch` **together with** item 2, re-baseline the manifest, then re-run the six Stage-3 hypotheses | human approval, then agent | closes the last measurable Step-3 gap. Patch is apply-checked and has 3 isolated tests; no patched trial has run yet |
-| 2 | Adopt `.workspace/plans/check3_rules_causality/`: strategy- and code-bound check 3 | human | removes the false-pass path. Must be applied **before** any re-run: 112/113/114 have one slot each, and a run without a dependency-snapshot digest can never bind causality. Re-verifying today's module cannot certify the code that ran |
-| 3 | Seal **and pin** `indices_1d`, per `.workspace/plans/indices_1d_holdout_provisioning/` | human | unblocks Step 4. The pin is not a formality: an unpinned holdout resolves `eligible_market=True` with a missing digest, and still resolves `True` after the file's bytes are replaced |
-| 4 | Free lines in `src/warden/` (approved no-behaviour refactor) or raise `WARDEN_MAX_LOC`: the budget fails at `total >= 2400`, the tree is at 2399, and the 1.5x patch is net +4 | human | zero headroom today: any addition makes `check_loc_budget.py` fail, which blocks every `backtest`/`audit-check`/`qualify` |
-| 5 | Commit the re-baselined `.warden_manifest.sha256` and its `.meta.json` (both currently uncommitted) | human | `check-worktree` keeps passing for everyone |
+| # | Item | State |
+|---|---|---|
+| 1 | Raise `WARDEN_MAX_LOC` / free lines | **DONE 2026-10-28** — principal approved 2700 globally; `src/warden/` is 2402/2700 and `check-worktree` exits 0 |
+| 2a | 1.5x cost stress | **APPLIED** (`749a2ff`): nullable `stress_1p5_cost_sharpe`, derived exactly from the 1.0x run (`net1 - 0.5*c*turnover`, verified to 8.7e-19). Existing rows read `NULL`; the column is empty until the re-runs |
+| 2b | Code-bound causality (`strategy_code_sha256` + `causality_evidence`) | **NOT APPLIED** — proposal only |
+| 3 | Strategy-bound check 3, plus a separate decision on the fifteen historical passes and the two unaudited promotions | **NOT APPLIED** — proposal only |
+| 4 | Seal **and pin** `indices_1d` | open; the pin is what stops a substituted file resolving as verified |
+| 5 | Commit the re-baselined manifest | **DONE** — `749a2ff` |
 
-Nothing else is actionable. The remaining trial slots (095 1, 099 2, 094 1, 112/113/114 1 each) are
-for item 1 only; none of them buys a Step-3 number under the current evaluator.
+**Do not re-run any hypothesis yet.** `HYP-2026-112/113/114` have one trial slot each, and a re-run
+that only populates the 1.5x column would spend that slot while `strategy_code_sha256` still does not
+exist, so the resulting row could never bind causal evidence. Items 2b and 3 must land first, then one
+re-run per hypothesis serves both purposes.

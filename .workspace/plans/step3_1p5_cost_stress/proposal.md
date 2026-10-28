@@ -94,3 +94,23 @@ and 099 has no open axis, so for those two the re-run buys the missing column on
   currently missing from the working tree).
 - Re-signing the manifest afterwards covers any other agent's concurrent evaluator edits. Diff every
   protected file before signing.
+
+## Ready-to-apply patch
+
+`cost_stress.patch` beside this file. Verified:
+
+- `git apply --check cost_stress.patch` — applies cleanly to the current tree;
+- applied to a copy of `src/` and imported: `ExperimentResult` still constructs positionally with
+  the old signature and `stress_1p5_cost_sharpe` defaults to `None`;
+- the runner contains `cost_multiplier=1.5` and passes `stress_1p5_cost_sharpe=sr15` at the
+  Stage-3 call site only (the `cross_sectional_ml` early-return path is untouched).
+
+```bash
+cd /home/quant/dev/quant-lab
+git apply .workspace/plans/step3_1p5_cost_stress/cost_stress.patch
+uv run python -m pytest tests/ -q            # expect 257 passed
+uv run warden generate-manifest --human-approve-manifest --json   # re-baseline, human gate
+```
+
+Then the six re-runs listed above populate the column. Historical rows stay `NULL`, which is the
+point: unmeasured is not zero.

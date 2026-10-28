@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -74,8 +75,10 @@ def test_rehomed_rows_are_attributed_to_their_indices_run(tmp_path):
         assert f"`{src}`" in block and f"(via `{dst}`)" in block
 
 
-@pytest.mark.skipif(not (LIVE_DB.is_file() and LEDGER.is_file()),
-                    reason="needs the live registry and the committed ledger")
+LIVE = os.environ.get("AF30_LIVE_CHECKS") == "1"
+
+
+@pytest.mark.skipif(not LIVE, reason="set AF30_LIVE_CHECKS=1 to run live-registry checks")
 def test_committed_ledger_matches_the_live_registry():
-    """Opt-in: append-only trials legitimately change the ledger, so regenerate after any run."""
+    """Opt-in: the registry is append-only, so any legitimate new trial changes this ledger."""
     assert _load().main(["--check"]) == 0

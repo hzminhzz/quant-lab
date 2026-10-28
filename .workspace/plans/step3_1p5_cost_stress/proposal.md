@@ -73,14 +73,23 @@ retroactively invalidate every stored trial, which have no 1.5x figure.
 
 ## It does not currently fit the LOC budget
 
-`src/warden/` is at **2399 / 2400** LOC (`scripts/check_loc_budget.py`, `WARDEN_MAX_LOC = 2400`).
-This patch adds **5** lines, so applying it makes the tree 2404 and `check_loc_budget.py` fails —
-which means `check-worktree` fails, which means every `backtest`, `audit-check` and `qualify` refuses.
-The patch applies cleanly to the source; it does not pass the governance gate.
+`src/warden/` is at **2399 LOC** and `scripts/check_loc_budget.py` fails on `total >= 2400`, so the
+current ceiling of 2399 leaves **zero** headroom — even a one-line addition breaks it.
 
-Raising `WARDEN_MAX_LOC` is itself a governance control: the comment at `check_loc_budget.py:12-14`
-records that the 2400 limit was raised under the issue-4 mandate and that "ticket-10 operator cutover
-must ratify it". So this proposal needs two approvals, not one: the cap, and the change.
+This patch is 5 added lines and 1 deleted, net **+4** (2399 -> 2403). `check_loc_budget.py` then
+returns 1, `check-worktree` fails (it runs the same script), and every `backtest`, `audit-check` and
+`qualify` refuses. The patch applies cleanly to the source; it does not pass the governance gate.
+
+Two ways to make room, both requiring approval:
+
+- **Raise `WARDEN_MAX_LOC`.** Also a governance control: `check_loc_budget.py:12-14` records that the
+  2400 limit was raised under the issue-4 mandate and that "ticket-10 operator cutover must ratify
+  it". This is the option the earlier draft of this proposal assumed was the only one. It is not.
+- **Refactor to free the lines**, keeping the 2400 limit. A no-behaviour-change refactor freeing
+  >= 4 lines covers this patch; the check-3 change needs roughly 60-100, which is a much larger
+  refactor or a cap raise.
+
+Either way the approval is on the governance side, not just on the patch.
 
 ## Sequencing: do not spend a trial slot on this alone
 

@@ -79,6 +79,25 @@ Neighbour grids, ±15% on the parameters that change the return path:
 Each added 3 grid streams and 3–6 attempts; `k_eff` stayed 1.13 because the neighbours dedup against
 each other, so the grid did not widen the family.
 
+## Causality evidence, measured directly
+
+Because check 3 is contract-level and incidental, the property it exists to protect was verified
+directly instead: positions computed on a panel truncated at 70% must equal the prefix of positions
+computed on the full panel, exactly (`atol=0`).
+
+`tests/experiments/test_stage3_causality.py` — **6 passed**: S01, S02, S03, S04, S05, breakout 80.
+Every strategy carrying a Stage-3 row is prefix-invariant, so none of them reads data after the
+evaluation clock.
+
+This establishes the substantive property; it does **not** satisfy check 3 mechanically, because the
+check queries `feature_sets` by contract. The distinction matters: a passing test is real evidence
+about these strategies, whereas a `feature_sets` row on `INDICES_1D_V1` would not be.
+
+`strategies/candidates/carver_breakout_daily.py` was missing from the working tree (it had been
+untracked and lived only on the feature branch); it is restored at sha256 `e0b71a2b…`, which includes
+the trailing-stop fix. `RUN-HYP094-002` ran with the stop disabled, so its recorded numbers are
+unaffected.
+
 ## Decision list — what stops this being fully closed
 
 | # | Item | Who | Effect |

@@ -28,6 +28,13 @@ object.
 Pinning the digest is therefore not a formality that gates the run; it is the check that currently
 does not happen. It is a contract-record change and needs approval.
 
+### Demonstrated, not inferred
+
+A temporary contract with no `holdout_sha256` in its record was resolved against a file of arbitrary
+bytes: `eligible_market=True`, `reason="verified market data"`. Replacing the file's contents with
+different bytes and resolving again also returned `eligible_market=True`. So an unpinned holdout is
+accepted, and a substituted one is accepted too.
+
 ## Access disclosure
 
 To characterise the staged file I opened it with Polars and read **metadata** — row count (2,309),

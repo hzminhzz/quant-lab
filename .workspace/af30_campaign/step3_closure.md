@@ -35,7 +35,14 @@ with bootstrap p ≥ 0.05. Stage 1 is a gate; these never reach Stage 3 and no S
    approved.
 2. **S01 has no path-changing parameter** (`warmup` only), so the ±15% neighbour axis is
    structurally unmeasurable — not "stable", simply not testable.
-3. **`indices_1d` holdout is not provisioned.** `INDICES_1D_V1` declares
+3. **The 1.5x cost stress is not implemented, anywhere.** `AGENTS.md` step 3 requires "1.5x/2x
+   costs". `runner.py:359` simulates `cost_multiplier=2.0` and `runner.py:253/350` simulate `1.0`;
+   the only `1.5` in `src/warden/` is `gates.py:63`, the Stage-1 *trade-edge* threshold
+   (`trade_edge > 1.5 * one_way_cost`), which is not a cost-stress simulation. No trial in the
+   registry has a 1.5x Sharpe, and the column is therefore **unmeasured** for every run in this
+   table — not merely for the six here. 2x is not a substitute: a higher multiplier need not lower
+   Sharpe monotonically, because it can reduce volatility as well as mean return.
+4. **`indices_1d` holdout is not provisioned.** `INDICES_1D_V1` declares
    `data/holdout/indices_1d.parquet`; the file is staged only, and the dataset JSON has **no
    `holdout_sha256` pin**. Qualification would fail before reading. Step 4 cannot run.
 

@@ -2,7 +2,6 @@
 name: quant-lab-thesis
 description: "Start, gate, or resume a trading thesis in quant-lab: preflight the harness, register a hypothesis, verify causality, screen, backtest, audit. Use when a new idea, paper or clipping becomes an experiment, or when a warden command refuses."
 when_to_use: "Use before registering any hypothesis, editing experiments/active/, or running warden verify/screen/backtest"
-dependencies: [ml4t-strategy-workflow]
 paths: ["experiments/active/**", ".workspace/hypotheses/**", "strategies/candidates/**", "AGENT_RUNBOOK.md"]
 ---
 # quant-lab thesis intake

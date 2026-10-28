@@ -49,15 +49,15 @@ def test_missing_last_timestamp_cannot_be_judged_so_it_passes():
 
 
 def test_uncovered_validation_window_stops_and_names_the_gap():
-    contract = {"contract_id": "A", "validation_window_covered": False,
-                "validation_gap_days": 98.0}
+    contract = {"contract_id": "A", "dataset_eligible": True,
+                "validation_window_covered": False, "validation_gap_days": 98.0}
     step = next_step(_ok_state(), contract, None)
     assert step["command"] == "STOP"
     assert "98" in step["why"]
 
 
 def test_contract_hypothesis_mismatch_stops():
-    contract = {"contract_id": "A", "execution_columns_ok": True,
+    contract = {"contract_id": "A", "dataset_eligible": True, "execution_columns_ok": True,
                 "validation_window_covered": True}
     hypothesis = {"hypothesis_id": "HYP-X", "registered": True, "contract_id": "B",
                   "trials_remaining": 2}
@@ -77,7 +77,8 @@ def test_next_step_prefers_the_newest_spec_and_finds_trial_suffixes(tmp_path, mo
     (active / "hyp_2026_095.yaml").write_text("x")
     (active / "hyp_2026_095_t2.yaml").write_text("x")
     monkeypatch.chdir(tmp_path)
-    contract = {"contract_id": "C", "execution_columns_ok": True, "validation_window_covered": True}
+    contract = {"contract_id": "C", "dataset_eligible": True, "execution_columns_ok": True,
+                "validation_window_covered": True}
     hypothesis = {"hypothesis_id": "HYP-2026-095", "registered": True, "contract_id": "C",
                   "trials_remaining": 1}
     step = next_step(_ok_state(), contract, hypothesis)
@@ -87,7 +88,8 @@ def test_next_step_prefers_the_newest_spec_and_finds_trial_suffixes(tmp_path, mo
 def test_next_step_asks_for_the_spec_when_none_exists(tmp_path, monkeypatch):
     (tmp_path / "experiments" / "active").mkdir(parents=True)
     monkeypatch.chdir(tmp_path)
-    contract = {"contract_id": "C", "execution_columns_ok": True, "validation_window_covered": True}
+    contract = {"contract_id": "C", "dataset_eligible": True, "execution_columns_ok": True,
+                "validation_window_covered": True}
     hypothesis = {"hypothesis_id": "HYP-2026-777", "registered": True, "contract_id": "C",
                   "trials_remaining": 1}
     step = next_step(_ok_state(), contract, hypothesis)
@@ -112,8 +114,24 @@ def test_ineligible_dataset_with_digest_mismatch_stops():
 
 def test_synthetic_dataset_is_reported_but_not_a_hard_stop():
     contract = {"contract_id": "C", "dataset_eligible": False, "dataset_provenance": "synthetic",
-                "dataset_reason": "not market eligible"}
+                "dataset_reason": "not market eligible", "digest_matches_contract": True}
     hypothesis = {"hypothesis_id": "HYP-2026-777", "registered": True, "contract_id": "C",
                   "trials_remaining": 1}
     step = next_step(_ok_state(), contract, hypothesis)
     assert step["command"] != "STOP"
+
+
+def test_synthetic_dataset_with_a_digest_mismatch_stops():
+    contract = {"contract_id": "C", "dataset_eligible": False, "dataset_provenance": "synthetic",
+                "dataset_reason": "dataset digest differs from manifest (file changed or substituted)",
+                "digest_matches_contract": False}
+    step = next_step(_ok_state(), contract, None)
+    assert step["command"] == "STOP"
+    assert "digest differs" in step["why"]
+
+
+def test_synthetic_dataset_with_an_unverified_digest_stops():
+    contract = {"contract_id": "C", "dataset_eligible": False, "dataset_provenance": "synthetic",
+                "dataset_reason": "not market eligible"}
+    step = next_step(_ok_state(), contract, None)
+    assert step["command"] == "STOP"

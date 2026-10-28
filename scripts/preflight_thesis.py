@@ -177,6 +177,18 @@ def hypothesis_card(hid: str, registry: Path) -> dict:
     return card
 
 
+def _benign_synthetic(contract: dict) -> bool:
+    """Synthetic data is usable for non-promotable work only when nothing failed.
+
+    resolve_dataset substitutes the reason "not market eligible" exactly when every integrity
+    check passed but the provenance is not market data; a digest, path or manifest failure
+    carries a specific reason instead and must stop.
+    """
+    return (contract.get("dataset_provenance") == "synthetic"
+            and contract.get("dataset_reason") == "not market eligible"
+            and contract.get("digest_matches_contract") is True)
+
+
 def next_step(state: dict, contract: dict | None, hypothesis: dict | None) -> dict:
     if not state["ok"]:
         names = ", ".join(f"{u['path']} {u['state']}" for u in state["unsatisfied"]) or "manifest missing"
@@ -186,7 +198,7 @@ def next_step(state: dict, contract: dict | None, hypothesis: dict | None) -> di
         return {"command": "STOP", "why": f"contract not resolvable: {contract['contract_error']}"}
     if contract and contract.get("dataset_error"):
         return {"command": "STOP", "why": f"dataset unusable: {contract['dataset_error']}"}
-    if contract and contract.get("dataset_eligible") is False and contract.get("dataset_provenance") != "synthetic":
+    if contract and contract.get("dataset_eligible") is not True and not _benign_synthetic(contract):
         return {"command": "STOP",
                 "why": f"dataset not eligible ({contract.get('dataset_provenance')}): {contract.get('dataset_reason')}"}
     if (contract and hypothesis and hypothesis.get("registered")

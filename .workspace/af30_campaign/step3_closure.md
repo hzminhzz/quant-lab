@@ -66,6 +66,14 @@ Counts: 3 CANDIDATE, 3 REVISE with a Stage-3 row, 12 falsified at Stage 1 — 18
    Sharpe monotonically, because it can reduce volatility as well as mean return. A scratch script
    that mirrors `run_spec` and calls `simulate_positions` directly would produce a number, but
    AGENTS.md forbids research outside the harness, so no such number was produced or reported.
+
+   What the funnel *does* apply, and the ambiguity that follows: `gates.py:63` runs the Stage-1
+   trade-edge test with `edge_cost_multiplier=1.5` — a trade's edge must exceed 1.5x the one-way
+   cost — while `runner.py:359` applies 2.0 as the Stage-3 portfolio Sharpe stress. So both
+   multipliers are applied, at different stages. If AGENTS.md's "1.5x/2x costs" means "cost
+   multipliers appear in the funnel", nothing is missing; if it means a 1.5x **portfolio Sharpe
+   stress** alongside the 2x one, that column does not exist. The second reading is the one that
+   leaves a gap, and it is the reading this record assumes.
 4. **`indices_1d` holdout is not provisioned.** `INDICES_1D_V1` declares
    `data/holdout/indices_1d.parquet`; the file is staged only, and the dataset JSON has **no
    `holdout_sha256` pin**. Qualification would fail before reading. Step 4 cannot run.

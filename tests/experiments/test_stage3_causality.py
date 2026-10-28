@@ -25,6 +25,10 @@ import pytest
 from warden.contracts import load_contract
 from warden.runner import load_module_from_path
 
+pytestmark = pytest.mark.skipif(
+    not Path("registry/registry.db").is_file() or not Path("data/exploratory").is_dir(),
+    reason="needs the live registry and the market-data panels; opt-in integration check")
+
 # Exact Stage-3 runs; module and parameters are read back from the registry rather than retyped.
 RUN_IDS = ["RUN-HYP112-002", "RUN-HYP113-002", "RUN-HYP114-002",
            "RUN-HYP095-002", "RUN-HYP099-001", "RUN-HYP094-002"]

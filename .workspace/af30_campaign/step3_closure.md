@@ -9,24 +9,41 @@ finished Step 3 and should not be reported as one.
 
 The 18 are HYP-2026-094 (breakout 80) and HYP-2026-095..111 (the seventeen AF30 daily modules).
 
-## Stage-3 evidence (6 of 18)
+## Status tables (generated from `registry/registry.db` — do not hand-edit)
 
-| Strategy | Stage-3 run | netSR | 2× | +1 bar | turnover | breakeven | maxDD | stability | DSR | audit |
-|---|---|---|---|---|---|---|---|---|---|---|
-| S01 buy & hold single | `RUN-HYP095-002` | 1.317 | 1.317 | 1.317 | 0.4x | 2729 bps | 8.7% | **n/a** | 0.451 | 4/6 |
-| **S02 fixed vol scaling** | `RUN-HYP112-002` | **1.224** | 1.224 | 1.226 | 0.4x | 3325 bps | 14.9% | **0.996** | **0.976** | 5/6 |
-| **S03 variable vol scaling** | `RUN-HYP113-002` | **1.243** | 1.240 | 1.234 | 4.1x | 408 bps | 16.0% | **0.946** | **0.973** | 5/6 |
-| **S04 portfolio scaling** | `RUN-HYP114-002` | **1.247** | 1.245 | 1.239 | 6.8x | 546 bps | 33.7% | **0.944** | **0.973** | 5/6 |
-| S05 slow trend long-only | `RUN-HYP099-001` | 0.879 | 0.859 | 0.867 | 11.7x | 45 bps | 8.2% | 0.917 | 0.314 | 2/6 |
-| Breakout 80 daily | `RUN-HYP094-002` | 0.534 | 0.512 | 0.487 | 15.8x | 25 bps | 6.7% | 0.853 | 0.098 | 2/6 |
+<!-- BEGIN GENERATED -->
+| Strategy | Module | Stage-1 PF | netSR | DSR | Disposition |
+|---|---|---|---|---|---|
+| `HYP-2026-094` | `carver_breakout_daily` | — | 0.534 | 0.098 | REVISE (`RUN-HYP094-002`) |
+| `HYP-2026-095` | `s01_buy_hold_single` | 1.258 | 1.317 | 0.451 | REVISE (`RUN-HYP095-002`) |
+| `HYP-2026-096` | `s02_buy_hold_risk_scaled` | 1.252 | 1.224 (via `HYP-2026-112`) | 0.976 | CANDIDATE (via `HYP-2026-112`) |
+| `HYP-2026-097` | `s03_buy_hold_variable_risk` | 1.213 | 1.243 (via `HYP-2026-113`) | 0.973 | CANDIDATE (via `HYP-2026-113`) |
+| `HYP-2026-098` | `s04_buy_hold_portfolio_scaling` | 1.213 | 1.247 (via `HYP-2026-114`) | 0.973 | CANDIDATE (via `HYP-2026-114`) |
+| `HYP-2026-099` | `s05_slow_trend_long_only` | 1.154 | 0.879 | 0.314 | REVISE (`RUN-HYP099-001`) |
+| `HYP-2026-100` | `s06_slow_trend_long_short` | 1.034 | — | — | Falsified at Stage 1 |
+| `HYP-2026-101` | `s07_slow_trend_strength` | 1.054 | — | — | Falsified at Stage 1 |
+| `HYP-2026-102` | `s08_fast_trend_strength` | 1.032 | — | — | Falsified at Stage 1 |
+| `HYP-2026-103` | `s09_ewmac_multi` | 1.020 | — | — | Falsified at Stage 1 |
+| `HYP-2026-104` | `s12_adjusted_trend` | 1.030 | — | — | Falsified at Stage 1 |
+| `HYP-2026-105` | `s14_spot_trend` | 1.054 | — | — | Falsified at Stage 1 |
+| `HYP-2026-106` | `s17_normalised_trend` | 1.135 | — | — | Falsified at Stage 1 |
+| `HYP-2026-107` | `s18_trend_asset_classes` | 1.022 | — | — | Falsified at Stage 1 |
+| `HYP-2026-108` | `s19_xs_momentum` | 1.009 | — | — | Falsified at Stage 1 |
+| `HYP-2026-109` | `s21_breakout` | 1.085 | — | — | Falsified at Stage 1 |
+| `HYP-2026-110` | `s22_value` | 0.933 | — | — | Falsified at Stage 1 |
+| `HYP-2026-111` | `s23_acceleration` | 1.035 | — | — | Falsified at Stage 1 |
 
-Verdicts: three `CANDIDATE_FOR_QUALIFICATION` (112/113/114), three `REVISE` (095/099/094).
+Counts: 3 CANDIDATE, 3 REVISE with a Stage-3 row, 12 falsified at Stage 1 — 18 total.
 
-## Stage 1 falsified (12 of 18, no Stage-3 evidence by design)
-
-S06 1.034, S07 1.054, S08 1.032, S09 1.020, S12 1.030, S14 1.054, S17 1.135, S18 1.022,
-S19 1.009, S21 1.085, S22 0.933, S23 1.035 — all below the registered profit-factor bar of 1.15
-with bootstrap p ≥ 0.05. Stage 1 is a gate; these never reach Stage 3 and no Stage-3 trial is owed.
+| Stage-3 run | Source hyp | netSR | 2x | +1 bar | turnover | breakeven | maxDD | stability | DSR |
+|---|---|---|---|---|---|---|---|---|---|
+| `RUN-HYP094-002` | `HYP-2026-094` | 0.534 | 0.511 | 0.487 | 15.8x | 25 bps | 6.7% | 0.853 | 0.098 |
+| `RUN-HYP095-002` | `HYP-2026-095` | 1.317 | 1.317 | 1.317 | 0.4x | 2729 bps | 8.7% | n/a | 0.451 |
+| `RUN-HYP112-002` | `HYP-2026-112` | 1.224 | 1.224 | 1.226 | 0.4x | 3325 bps | 14.9% | 0.996 | 0.976 |
+| `RUN-HYP113-002` | `HYP-2026-113` | 1.243 | 1.240 | 1.234 | 4.1x | 408 bps | 16.0% | 0.946 | 0.973 |
+| `RUN-HYP114-002` | `HYP-2026-114` | 1.247 | 1.245 | 1.239 | 6.8x | 546 bps | 33.7% | 0.944 | 0.973 |
+| `RUN-HYP099-001` | `HYP-2026-099` | 0.879 | 0.859 | 0.867 | 11.7x | 45 bps | 8.2% | 0.917 | 0.314 |
+<!-- END GENERATED -->
 
 ## Open gaps, stated rather than closed
 

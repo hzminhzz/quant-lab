@@ -71,6 +71,17 @@ retroactively invalidate every stored trial, which have no 1.5x figure.
 4. `test_registry_migrates_column`: an old registry without the column gains it on open, and existing
    rows read `NULL` — never `0.0`.
 
+## It does not currently fit the LOC budget
+
+`src/warden/` is at **2399 / 2400** LOC (`scripts/check_loc_budget.py`, `WARDEN_MAX_LOC = 2400`).
+This patch adds **5** lines, so applying it makes the tree 2404 and `check_loc_budget.py` fails —
+which means `check-worktree` fails, which means every `backtest`, `audit-check` and `qualify` refuses.
+The patch applies cleanly to the source; it does not pass the governance gate.
+
+Raising `WARDEN_MAX_LOC` is itself a governance control: the comment at `check_loc_budget.py:12-14`
+records that the 2400 limit was raised under the issue-4 mandate and that "ticket-10 operator cutover
+must ratify it". So this proposal needs two approvals, not one: the cap, and the change.
+
 ## Sequencing: do not spend a trial slot on this alone
 
 `HYP-2026-112/113/114` each have **one** trial left (2/3 used). A re-run that only populates

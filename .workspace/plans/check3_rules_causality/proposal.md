@@ -25,6 +25,13 @@ the ML feature path (`leakage.py:178`). Two consequences, both observed:
 
 The check therefore measures the wrong thing and decides by accident.
 
+## It does not currently fit the LOC budget
+
+`src/warden/` is at **2399 / 2400** LOC. This change needs roughly 60-100 lines (closure resolver,
+`causality_evidence` accessors, the `verify-causality` command, the check-3 predicate), so it cannot
+land without raising `WARDEN_MAX_LOC`, which `check_loc_budget.py` records as a control the ticket-10
+cutover must ratify. That is a second, separate approval.
+
 ## Proposal
 
 Make the proof **strategy-bound and code-bound**, and stop accepting contract-level evidence.
@@ -39,10 +46,10 @@ today's module would certify code that did not produce the trial.
 
 ### Changes
 
-1. `trials.strategy_code_sha256` — written at trial time as the digest of a **dependency snapshot**,
+1. `trials.strategy_code_sha256` — **would be** written at trial time as the digest of a dependency snapshot,
    not of one file. Hashing the entry module alone misses the shared helpers: `s02`/`s03`/`s04` all
    `from carver_common import ...`, so editing `carver_common.py` would leave every digest unchanged
-   while changing what ran. The snapshot is resolved with `ast` over the local closure (module-level
+   while changing what ran. The snapshot would be resolved with `ast` over the local closure (module-level
    `import`/`from ... import`, followed through sibling files under `strategies/`), external packages
    ignored because `uv.lock` pins them; the digest is over the sorted `{repo-relative path: sha256}`
    manifest.
@@ -112,7 +119,7 @@ correcting its history.
 Recommended sequencing: adopt the strategy-bound check, run `verify-causality` on the three
 `INDICES_1D_V1` candidates, and treat the fifteen historical rows as an explicit open item in the
 governance record rather than silently inheriting their status either way.
-## Tests
+## Tests to be written
 
 1. A rules run with no `feature_sets` row and no `causality_evidence` still fails check 3.
 2. After `verify-causality`, the same run passes.

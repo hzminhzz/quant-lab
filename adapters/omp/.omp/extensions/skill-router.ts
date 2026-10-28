@@ -50,8 +50,11 @@ export async function discoverSkillSources(baseCwd: string): Promise<SkillSource
   const entries = await readdir(skillsDir, { withFileTypes: true });
   const sources: SkillSource[] = [];
 
+  // Upstream ML4T skills are namespaced `ml4t-*`; repo-local project skills are `quant-lab-*`.
+  const SKILL_PREFIXES = ["ml4t-", "quant-lab-"];
+
   for (const ent of entries) {
-    if (!ent.isDirectory() || !ent.name.startsWith("ml4t-")) {
+    if (!ent.isDirectory() || !SKILL_PREFIXES.some((p) => ent.name.startsWith(p))) {
       continue;
     }
     const skillPath = join(skillsDir, ent.name, "SKILL.md");

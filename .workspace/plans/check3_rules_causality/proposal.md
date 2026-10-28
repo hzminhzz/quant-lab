@@ -27,32 +27,54 @@ The check therefore measures the wrong thing and decides by accident.
 
 ## Proposal
 
-Make the proof **strategy-bound** and stop accepting contract-level evidence as a substitute.
+Make the proof **strategy-bound and code-bound**, and stop accepting contract-level evidence.
 
-1. Table (created on registry open, same pattern as the other bootstraps):
+### What the registry can bind today
+
+`trials` stores `strategy_module` (a path), `config_hash` and `data_snapshot_sha256`. It stores **no
+module digest**, so no stored trial can prove which bytes of its strategy ran. This is not
+hypothetical: `strategies/candidates/carver_breakout_daily.py` is `e0b71a2b…` today and was
+`047ddc1d…` when `RUN-HYP094-002` ran, after the trailing-stop fix. Re-running verification against
+today's module would certify code that did not produce the trial.
+
+### Changes
+
+1. `trials.strategy_module_sha256` — written at trial time from the module file.
+2. `causality_evidence` — one row per verification:
 
 ```sql
 CREATE TABLE IF NOT EXISTS causality_evidence (
-    run_id TEXT PRIMARY KEY, method TEXT, passed INTEGER,
-    cuts_checked INTEGER, artifact_sha256 TEXT, recorded_at REAL);
+    run_id TEXT PRIMARY KEY, module_sha256 TEXT, config_digest TEXT,
+    data_sha256 TEXT, cuts_json TEXT, passed INTEGER, recorded_at REAL);
 ```
 
-2. New command `warden verify-causality --run-id ID`: loads the trial's recorded `config_json` and
-   `strategy_module`, recomputes positions on the full panel and on N truncated panels, and records
-   `passed` plus the digest of the config it verified. Runs inside the harness — not a trial, no
-   budget consumed, no holdout touched.
+3. `warden verify-causality --run-id ID` recomputes positions on the full panel and on N truncated
+   panels, using the trial's recorded `config_json`, and records the module digest, config digest,
+   data digest and the exact cut points. Not a trial; no budget consumed; no holdout touched.
 
-3. Check 3 becomes:
+4. Check 3 for `rules_ts`:
 
 ```python
-is_rules = trial.get("strategy_family") == "rules_ts"
-proof = causality_verified(conn, trial["run_id"]) if is_rules else has_causal_proof
-"3_point_in_time_causality": proof and contract.execution_delay_bars >= 1,
+ev = causality_evidence(conn, trial["run_id"])
+bound = ev and ev["passed"] and trial["strategy_module_sha256"] and \
+        ev["module_sha256"] == trial["strategy_module_sha256"] and \
+        ev["data_sha256"] == trial["data_snapshot_sha256"]
+"3_point_in_time_causality": bound and contract.execution_delay_bars >= 1,
 ```
 
-For `rules_ts` the contract-level `feature_sets` row no longer counts at all. A rules strategy must
-earn the check on its own recorded configuration. Fitted families keep the feature-set path, because
-there the features *are* the model's inputs.
+Fitted families keep the `feature_sets` path, because there the features are the model's inputs.
+
+### Consequence for the three candidates, stated plainly
+
+`RUN-HYP112-002`, `113-002`, `114-002` have **no** `strategy_module_sha256`, so `verify-causality`
+run today cannot make them pass — the binding would be absent and the check would (correctly) fail.
+
+They reach 6/6 only if:
+- each is re-run once with the module digest recorded (one trial slot each, 2/3 used today), and
+- `verify-causality` then passes for that new run.
+
+So the honest description is "potentially 6/6 after one more trial each plus a passing verification",
+not "6/6 once the check changes".
 
 ## The historical reassessment is a separate decision, not a reason to keep the check wrong
 
@@ -77,6 +99,9 @@ governance record rather than silently inheriting their status either way.
 3. A look-ahead strategy is recorded as `passed = 0` and still fails.
 4. A rules run on a contract that *does* have unrelated `feature_sets` rows still fails check 3
    until `verify-causality` is run for that run — this is the false-pass the change removes.
+5. Evidence bound to a different module digest than the trial's does not satisfy check 3.
+6. Evidence bound to a different data digest than the trial's does not satisfy check 3.
+7. A historical trial with no `strategy_module_sha256` cannot satisfy check 3 at all.
 5. `verify-causality` refuses a run whose module does not exist or whose panel is absent.
 6. No trial budget is consumed: `trials_used` is unchanged across `verify-causality`.
 

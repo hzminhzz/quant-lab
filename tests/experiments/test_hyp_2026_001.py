@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from warden.registry import HypothesisBudgetExhaustedError
+from warden.registry import HypothesisBudgetExhaustedError, ResearchRegistry
 from warden.runner import ExperimentRunner
 
 
@@ -46,8 +46,16 @@ def test_hyp_2026_001_trials_recorded_in_registry() -> None:
     assert keff_progression[2] > keff_progression[1]
 
 
-def test_hyp_2026_001_fourth_attempt_budget_exhausted() -> None:
-    runner = ExperimentRunner(repo_root=Path("."))
+def test_hyp_2026_001_fourth_attempt_budget_exhausted(tmp_path: Path) -> None:
+    # Read the live ledger's budget state through a backup copy: the exhausted-budget path records
+    # a failed_reservation selection attempt, and that must never land in registry/registry.db.
+    db_copy = tmp_path / "registry.db"
+    src = sqlite3.connect(Path("registry") / "registry.db")
+    dst = sqlite3.connect(db_copy)
+    src.backup(dst)
+    src.close()
+    dst.close()
+    runner = ExperimentRunner(repo_root=Path("."), registry=ResearchRegistry(db_copy))
     spec_yaml = Path("experiments/active/hyp_2026_001.yaml")
 
     # Attempting to run a 4th trial on HYP-2026-001 must raise HypothesisBudgetExhaustedError

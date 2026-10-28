@@ -1,0 +1,16 @@
+# Experiment spec template. Every key here is read by src/warden/runner.py.
+# Place at experiments/active/<hypothesis_id_lowercased>.yaml
+contract_id: CONTRACT_ID_HERE
+hypothesis_id: HYP-2026-XXX
+strategy_name: Human-readable run name
+strategy_family: rules_ts          # must equal the registered hypothesis family or run_spec raises
+strategy_module: strategies/candidates/<module>.py
+model_type: rules                  # cross_sectional_ml must run a linear baseline first
+parameters:
+  # exactly the kwargs your generate_positions() accepts
+  holding_bars: 1
+param_grid: []
+# Shortcut: an empty grid records stability=1.0, which is vacuous.
+# The harness does NOT run 1.5x costs or +-15% neighbours. If you claim neighbour
+# robustness, list the neighbours here — they count as selection attempts, and each
+# one raises the DSR hurdle for the whole contract family.

@@ -149,10 +149,10 @@ fix. `RUN-HYP094-002` ran with the stop disabled, so its recorded numbers are un
 
 | # | Item | Who | Effect |
 |---|---|---|---|
-| 1 | Implement the 1.5x cost stress (`runner.py` + `contracts.py`), then re-run the six Stage-3 hypotheses to populate it | human approval, then agent | closes the last measurable Step-3 gap; proposal in `.workspace/plans/step3_1p5_cost_stress/` |
-| 2 | Make audit check 3 satisfiable for `rules_ts` (or record a real causal artifact for rules contracts) | human | three CANDIDATE runs move 5/6 -> 6/6, or stay 5/6 forever |
-| 3 | Seal `data/holdout/indices_1d.parquet` and pin its sha256 in the contract dataset JSON | human | unblocks Step 4 for 112/113/114 |
-| 4 | `.warden_manifest.sha256` was re-baselined to clear the AGENTS.md policy edit; review and commit | human | `check-worktree` stays green |
+| 1 | Apply `.workspace/plans/step3_1p5_cost_stress/cost_stress.patch`, re-baseline the manifest, re-run the six Stage-3 hypotheses | human approval, then agent | closes the last measurable Step-3 gap. Patch is apply-checked and has 3 isolated tests; no patched trial has run yet |
+| 2 | Adopt `.workspace/plans/check3_rules_causality/` so check 3 can be earned per run | human | three CANDIDATE runs move 5/6 -> 6/6 instead of staying there permanently |
+| 3 | Seal **and pin** `indices_1d`, per `.workspace/plans/indices_1d_holdout_provisioning/` | human | unblocks Step 4. The pin is not a formality: an unpinned holdout resolves `eligible_market=True` with a missing digest, and still resolves `True` after the file's bytes are replaced |
+| 4 | Commit the re-baselined `.warden_manifest.sha256` and its `.meta.json` (both currently uncommitted) | human | `check-worktree` keeps passing for everyone |
 
 Nothing else is actionable. The remaining trial slots (095 1, 099 2, 094 1, 112/113/114 1 each) are
 for item 1 only; none of them buys a Step-3 number under the current evaluator.

@@ -6,4 +6,7 @@ task:
   maxRecursionDepth: 2
   structured: true
 modelRoles:
-  judge: typesafe/jev-1.14
+  # `typesafe/jev-1.14` has no provider entry, so the judge never resolved. magpie's
+  # /v1/systemone with OpenCode Zen's free Jev answers; TokenRouter serves only
+  # /api/alpha/decisions, whose map-shaped questions no shipped omp codec emits.
+  judge: magpie-jev/opencode-zen/jev-1.13-free

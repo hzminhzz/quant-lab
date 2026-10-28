@@ -163,7 +163,8 @@ def compute_and_cache_features(pipeline: FeaturePipelineProtocol, bars_df: pl.Da
     except (TypeError, OSError):
         source_text = pipeline.__class__.__name__
     ver = "0.2.0"
-    fhash = hashlib.sha256(canonical_json({"contract": contract.spec_hash(), "source": hashlib.sha256(source_text.encode()).hexdigest(), "ver": ver}).encode()).hexdigest()[:16]
+    data_fp = f"{int(bars_df.hash_rows().sum()):016x}"
+    fhash = hashlib.sha256(canonical_json({"contract": contract.spec_hash(), "source": hashlib.sha256(source_text.encode()).hexdigest(), "data": data_fp, "ver": ver}).encode()).hexdigest()[:16]
     cpath = cache_dir / f"{fhash}.parquet"
     if cpath.is_file():
         return pl.read_parquet(cpath)

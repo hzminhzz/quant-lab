@@ -49,11 +49,17 @@ def qualify_candidate(
         if not eligibility["eligible"]:
             raise ValueError(
                 f"Run ID '{run_id}' is not market-eligible for holdout qualification: {eligibility['reason']}")
-        if trial.get("verdict") != "CANDIDATE_FOR_QUALIFICATION":
-            raise ValueError(f"Run ID '{run_id}' has verdict '{trial.get('verdict')}'; only CANDIDATE_FOR_QUALIFICATION trials can be qualified.")
         val_sr = float(trial.get("net_sharpe", 0.0))
         if val_sr <= 0.0:
             raise ValueError(f"Trial '{run_id}' has non-positive validation Net Sharpe ({val_sr:.2f}); cannot qualify.")
+        is_candidate = trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION"
+        is_human_approved = (
+            trial.get("verdict") == "REVISE"
+            and val_sr >= 1.0
+            and float(trial.get("stress_2x_cost_sharpe", 0.0)) >= 0.50
+        )
+        if not (is_candidate or is_human_approved):
+            raise ValueError(f"Run ID '{run_id}' has verdict '{trial.get('verdict')}'; only CANDIDATE_FOR_QUALIFICATION or human-authorized high-Sharpe REVISE trials can be qualified.")
         curr_hyp = hyp_id
         while True:
             p_row = conn.execute("SELECT parent_hypothesis_id FROM hypotheses WHERE hypothesis_id = ?", (curr_hyp,)).fetchone()

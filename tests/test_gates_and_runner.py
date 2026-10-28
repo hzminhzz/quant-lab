@@ -49,6 +49,26 @@ def test_hac_tstat_and_family_gates() -> None:
     assert passed_rules.strategy_family == "rules_ts"
     assert "profit_factor" in passed_rules.metrics
 
+    # 4. rules_ts holding duration normalization regression test:
+    # 24-bar swing trades with per-bar gross return of 3.0 bps and one-way fee of 6.0 bps (9.0 bps hurdle).
+    # Normalized trade edge (24 * 3.0 = 72 bps) must properly clear the 9.0 bps hurdle.
+    n_swing = 240
+    swing_pos = np.zeros((n_swing, 1))
+    for tr in range(5):
+        swing_pos[tr * 48 : tr * 48 + 24] = 1.0
+    swing_gross = np.zeros(n_swing)
+    swing_gross[swing_pos.ravel() == 1.0] = 0.0003
+    swing_net = swing_gross.copy()
+    for tr in range(5):
+        swing_net[tr * 48] -= 0.0006
+        swing_net[tr * 48 + 23] -= 0.0006
+    swing_rep = evaluate_stage1_rules_ts(
+        net_returns=swing_net, gross_returns=swing_gross, one_way_cost=0.0006, positions=swing_pos, min_profit_factor=1.15
+    )
+    assert swing_rep.passed is True
+    assert swing_rep.metrics["avg_holding_bars"] >= 20.0
+    assert swing_rep.metrics["trade_edge"] > 1.5 * 0.0006
+
 
 def test_simulate_positions_delay_and_signed_funding() -> None:
     contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))

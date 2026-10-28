@@ -38,7 +38,8 @@ def test_screens_grids_and_failed_reservations_are_all_counted(tiny_repo) -> Non
 
     spec = fixture.spec.read_text() + "param_grid:\n- {lookback_bars: 3}\n- {lookback_bars: 6}\n"
     fixture.spec.write_text(spec)
-    runner.run_spec(fixture.spec)
+    res = runner.run_spec(fixture.spec)
+    assert res.total_trials_n == 4  # 1 screen + 1 trial + 2 grid configurations
     with fixture.registry._connect() as conn:
         kinds = [r[0] for r in conn.execute("SELECT kind FROM selection_attempts ORDER BY created_at")]
         assert kinds.count("param_grid") == 2
@@ -54,6 +55,46 @@ def test_screens_grids_and_failed_reservations_are_all_counted(tiny_repo) -> Non
     with broken.registry._connect() as conn:
         trial = conn.execute("SELECT verdict, returns_json, returns_parquet_path FROM trials").fetchone()
     assert trial[0] == "FAILED" and trial[1] == "[]" and trial[2] == ""
+
+
+def test_prior_param_grid_vectorized_streams_in_selection_history(tiny_repo) -> None:
+    fixture = tiny_repo()
+    runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
+
+    # Run 1 with 2 param_grid configurations
+    spec1_text = fixture.spec.read_text() + "param_grid:\n- {lookback_bars: 3}\n- {lookback_bars: 6}\n"
+    fixture.spec.write_text(spec1_text)
+    res1 = runner.run_spec(fixture.spec)
+    assert res1.total_trials_n == 3  # 1 trial + 2 grid configurations
+
+    with fixture.registry._connect() as conn:
+        expected_len = len(json.loads(conn.execute("SELECT returns_json FROM trials WHERE run_id=?", (res1.run_id,)).fetchone()[0]))
+    hist1 = fixture.registry.selection_history(fixture.contract.contract_id, expected_len)
+    assert hist1["raw_attempt_count"] == 3
+    assert len(hist1["streams"]) == 3
+    assert hist1["unvectorized_attempts"] == 0
+
+    # Run 2 on the same contract with a second hypothesis and 1 grid configuration
+    from warden.contracts import HypothesisSpec
+    fixture.registry.register_hypothesis(HypothesisSpec(
+        "HYP-TINY2", fixture.contract.contract_id, "T2", "rules_ts",
+        "Mechanism explanation of twenty chars", "Friction explanation of twenty chars", 8, "Reject net Sharpe below one"
+    ))
+    import yaml
+    spec2_file = fixture.repo / "spec2.yaml"
+    spec2_dict = yaml.safe_load(fixture.spec.read_text())
+    spec2_dict["run_id"] = "RUN-RU-002"
+    spec2_dict["hypothesis_id"] = "HYP-TINY2"
+    spec2_dict["param_grid"] = [{"lookback_bars": 5}]
+    spec2_file.write_text(yaml.safe_dump(spec2_dict))
+
+    res2 = runner.run_spec(spec2_file)
+    # Total attempts seen by Run 2 must be 3 (from Run 1) + 1 (Run 2 trial) + 1 (Run 2 grid) = 5
+    assert res2.total_trials_n == 5
+    hist2 = fixture.registry.selection_history(fixture.contract.contract_id, expected_len)
+    assert hist2["raw_attempt_count"] == 5
+    assert len(hist2["streams"]) == 5
+    assert hist2["unvectorized_attempts"] == 0
 
 
 def test_duplicate_and_collinear_trials_never_relax_the_gate() -> None:

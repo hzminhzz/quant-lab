@@ -42,14 +42,14 @@ The 18 are HYP-2026-094 (breakout 80) and HYP-2026-095..111 (the seventeen AF30 
 
 Counts: 3 CANDIDATE, 3 REVISE with a Stage-3 row, 12 falsified at Stage 1, 0 Stage-1 PASS without a Stage-3 row, 0 unscreened — 18 total.
 
-| Stage-3 run | Source hyp | netSR | 2x | +1 bar | turnover | breakeven | maxDD | stability | DSR |
-|---|---|---|---|---|---|---|---|---|---|
-| `RUN-HYP094-002` | `HYP-2026-094` | 0.534 | 0.511 | 0.487 | 15.8x | 25 bps | 6.7% | 0.853 | 0.098 |
-| `RUN-HYP095-002` | `HYP-2026-095` | 1.317 | 1.317 | 1.317 | 0.4x | 2729 bps | 8.7% | n/a | 0.451 |
-| `RUN-HYP112-002` | `HYP-2026-112` | 1.224 | 1.224 | 1.226 | 0.4x | 3325 bps | 14.9% | 0.996 | 0.976 |
-| `RUN-HYP113-002` | `HYP-2026-113` | 1.243 | 1.240 | 1.234 | 4.1x | 408 bps | 16.0% | 0.946 | 0.973 |
-| `RUN-HYP114-002` | `HYP-2026-114` | 1.247 | 1.245 | 1.239 | 6.8x | 546 bps | 33.7% | 0.944 | 0.973 |
-| `RUN-HYP099-001` | `HYP-2026-099` | 0.879 | 0.859 | 0.867 | 11.7x | 45 bps | 8.2% | 0.917 | 0.314 |
+| Stage-3 run | Source hyp | netSR | 1.5x | 2x | +1 bar | turnover | breakeven | maxDD | stability | DSR |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `RUN-HYP094-002` | `HYP-2026-094` | 0.534 | NULL | 0.511 | 0.487 | 15.8x | 25 bps | 6.7% | 0.853 | 0.098 |
+| `RUN-HYP095-002` | `HYP-2026-095` | 1.317 | NULL | 1.317 | 1.317 | 0.4x | 2729 bps | 8.7% | n/a | 0.451 |
+| `RUN-HYP112-003` | `HYP-2026-112` | 1.224 | 1.224 | 1.224 | 1.226 | 0.4x | 3325 bps | 14.9% | n/a | 0.976 |
+| `RUN-HYP113-003` | `HYP-2026-113` | 1.243 | 1.241 | 1.240 | 1.234 | 4.1x | 408 bps | 16.0% | n/a | 0.973 |
+| `RUN-HYP114-003` | `HYP-2026-114` | 1.247 | 1.246 | 1.245 | 1.239 | 6.8x | 546 bps | 33.7% | n/a | 0.973 |
+| `RUN-HYP099-001` | `HYP-2026-099` | 0.879 | NULL | 0.859 | 0.867 | 11.7x | 45 bps | 8.2% | 0.917 | 0.314 |
 <!-- END GENERATED -->
 
 ## Stage-1 falsifications are auditable
@@ -63,6 +63,15 @@ terminal result for the mechanism as registered. The closest miss is S17 at PF 1
 Twelve of the eighteen hypotheses remain `ACTIVE` with `trials_used = 0` in the registry, because
 nothing moves a hypothesis to a terminal status at the screen gate. That is a registry bookkeeping
 gap, not a live lead: no Stage-3 trial is owed to a mechanism that has failed its own Stage-1 bar.
+
+## Neighbour stability lives on the earlier trials
+
+The approved runs (`112-003`, `113-003`, `114-003`) re-used the same parameters as `-002` without a
+`param_grid`, so their own `param_neighbor_stability` is the unmeasured default and reads `n/a` above.
+The measurement was made one trial earlier on identical parameters: `RUN-HYP112-002` 0.996,
+`RUN-HYP113-002` 0.946, `RUN-HYP114-002` 0.944. No trial slot remained to re-measure after the
+code-digest change landed, and re-running purely to re-measure would have spent the slot needed for
+the binding.
 
 ## Open gaps, stated rather than closed
 

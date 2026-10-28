@@ -177,6 +177,7 @@ class ExperimentResult:
     data_provenance: str = "unknown"
     diagnostics_json: str = "{}"
     stress_1p5_cost_sharpe: float | None = None
+    strategy_code_sha256: str = ""
 
     def to_dict(self):
         return asdict(self)

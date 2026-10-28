@@ -34,6 +34,7 @@ from warden.gates import (
     evaluate_stage1_rules_ts,
 )
 from warden.provenance import resolve_dataset
+from warden.codeid import code_closure
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
 
 
@@ -308,7 +309,6 @@ class ExperimentRunner:
             raise
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
-        provenance_kw = {"data_provenance": dataset.provenance}
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
@@ -321,6 +321,8 @@ class ExperimentRunner:
             fund_mask = _funding_settlement_mask(ts, contract)
 
             strat_file = self.repo_root / strat_module
+            code_sha, code_files = code_closure(self.repo_root, strat_module)
+            provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha}
             out = _run_strategy_isolated(strat_file, panel_df, contract, params)
             if int(out.get("signal_delay_bars", 0)) > 0:
                 raise DoubleLatencyError(
@@ -389,7 +391,7 @@ class ExperimentRunner:
             self.registry.update_search_floor(contract.contract_id, report["k_eff_gate"],
                                              report["expected_max_sharpe_noise"])
             dsr_p, exp_max, k_eff = report["probability"], report["expected_max_sharpe_noise"], report["k_eff_gate"]
-            diag = {"dataset": dataset, "family_key": family_key,
+            diag = {"dataset": dataset, "family_key": family_key, "strategy_code_files": code_files,
                     "selection": {k: report[k] for k in ("raw_attempt_count", "streams_used", "unvectorized_attempts",
                                                          "prior_max_keff", "k_eff_dedup", "k_eff_gate",
                                                          "noise_floor_applied", "correction_policy",

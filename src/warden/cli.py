@@ -19,12 +19,13 @@ from warden import __version__
 from warden.audit import AUDIT_LOG
 from warden.audit import fingerprint as audit_fingerprint
 from warden.audit import record as audit_record
+from warden.causality import config_digest, verify_run
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
 from warden.policy import Decision, authorize
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry
-from warden.runner import ExperimentRunner, load_module_from_path
+from warden.runner import ExperimentRunner, filter_target_symbols, load_module_from_path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
 STATE_FILE = Path(".workspace") / "state" / "current.json"
@@ -162,6 +163,7 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     mod = load_module_from_path(runner.repo_root / cfg["strategy_module"])
     dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
     panel = pl.read_parquet(runner.repo_root / dataset.path)
+    panel = filter_target_symbols(panel, cfg.get("parameters", {}), str(dataset.path))
     pipeline = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None) or (mod if hasattr(mod, "compute") else None)
     if not pipeline:
         print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
@@ -205,6 +207,19 @@ def cmd_backtest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         return 1
 
 
+def cmd_verify_causality(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    if not check_worktree():
+        return 2
+    try:
+        res = verify_run(args.run_id, runner)
+    except (ValueError, FileNotFoundError) as exc:
+        print(f"Causality verification failed: {exc}", file=sys.stderr)
+        return 1
+    print(canonical_json(res) if args.json else
+          f"Causality {'PASS' if res['passed'] else 'FAIL'} for {res['run_id']} over {len(res['cuts_checked'])} cut points")
+    return 0 if res["passed"] else 1
+
+
 def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     if not check_worktree():
         sys.exit(2)
@@ -216,6 +231,15 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         trial = dict(t)
         f_row = conn.execute("SELECT prefix_invariance_passed FROM feature_sets WHERE contract_id = ? AND prefix_invariance_passed = 1", (trial["contract_id"],)).fetchone()
         has_causal_proof = f_row is not None
+
+    if trial.get("strategy_family") == "rules_ts":
+        # Rules strategies must earn check 3 on their own recorded code, config and panel;
+        # a feature-set row for the contract says nothing about them.
+        ev = runner.registry.causality_evidence(args.run_id)
+        has_causal_proof = bool(ev and ev["passed"] and trial.get("strategy_code_sha256")
+                                and ev["code_sha256"] == trial["strategy_code_sha256"]
+                                and ev["config_digest"] == config_digest(trial.get("config_json") or "{}")
+                                and ev["data_sha256"] == trial.get("data_snapshot_sha256"))
 
     contract = runner.resolve_contract(trial["contract_id"])
     eligibility = runner.registry.effective_eligibility(args.run_id)
@@ -446,6 +470,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("register-hypothesis").add_argument("path")
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     s.add_parser("audit-check").add_argument("--run-id", required=True)
+    s.add_parser("verify-causality").add_argument("--run-id", required=True)
     h = s.add_parser("handoff")
     h.add_argument("--notes", default="Session transition checkpoint")
     h.add_argument("--ticket", default=None)
@@ -519,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(canonical_json(h.__dict__) if args.json else f"Registered hypothesis '{h.hypothesis_id}'")
                 code = 0
         else:
-            cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue, "qualify": cmd_qualify,
+            cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "verify-causality": cmd_verify_causality, "handoff": cmd_handoff, "continue": cmd_continue, "qualify": cmd_qualify,
                     "generate-manifest": cmd_generate_manifest}
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0

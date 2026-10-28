@@ -159,6 +159,7 @@ class ResearchRegistry:
                 CREATE TABLE IF NOT EXISTS trial_dispositions (disposition_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,disposition TEXT NOT NULL,reason TEXT NOT NULL,attributed_to TEXT NOT NULL,created_at REAL NOT NULL,contract_id TEXT DEFAULT '');
                 CREATE TABLE IF NOT EXISTS audit_evidence (audit_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,contract_id TEXT DEFAULT '',verdict TEXT NOT NULL,checks_json TEXT NOT NULL DEFAULT '{{}}',reason TEXT NOT NULL DEFAULT '',created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS selection_attempts (attempt_id TEXT PRIMARY KEY,attempt_base TEXT NOT NULL,run_id TEXT DEFAULT '',hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,strategy_family TEXT DEFAULT '',strategy_module TEXT DEFAULT '',kind TEXT NOT NULL,stage TEXT NOT NULL,outcome TEXT NOT NULL,config_hash TEXT DEFAULT '',parameters_json TEXT DEFAULT '{{}}',data_provenance TEXT DEFAULT 'unknown',returns_observed INTEGER NOT NULL DEFAULT 0,returns_json TEXT DEFAULT '',returns_sha256 TEXT DEFAULT '',diagnostics_json TEXT DEFAULT '{{}}',created_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS causality_evidence (run_id TEXT PRIMARY KEY,code_sha256 TEXT NOT NULL,config_digest TEXT NOT NULL,data_sha256 TEXT NOT NULL,cuts_json TEXT NOT NULL,passed INTEGER NOT NULL,recorded_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS contract_search_state (contract_id TEXT PRIMARY KEY,max_keff_gate REAL NOT NULL,max_noise REAL NOT NULL,updated_at REAL NOT NULL);
                 CREATE TRIGGER IF NOT EXISTS trials_no_update BEFORE UPDATE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS trials_no_delete BEFORE DELETE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
@@ -170,6 +171,8 @@ class ResearchRegistry:
                 CREATE TRIGGER IF NOT EXISTS dispositions_no_delete BEFORE DELETE ON trial_dispositions BEGIN SELECT RAISE(ABORT,'Append-only violation: dispositions are immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS attempts_no_update BEFORE UPDATE ON selection_attempts BEGIN SELECT RAISE(ABORT,'Append-only violation: selection attempts are immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS attempts_no_delete BEFORE DELETE ON selection_attempts BEGIN SELECT RAISE(ABORT,'Append-only violation: selection attempts are immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS causality_no_update BEFORE UPDATE ON causality_evidence BEGIN SELECT RAISE(ABORT,'Append-only violation: causality evidence is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS causality_no_delete BEFORE DELETE ON causality_evidence BEGIN SELECT RAISE(ABORT,'Append-only violation: causality evidence is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS search_state_no_relax BEFORE UPDATE ON contract_search_state
                 BEGIN SELECT RAISE(ABORT,'Governance violation: contract search floor may not be relaxed')
                 WHERE NEW.max_keff_gate < OLD.max_keff_gate OR NEW.max_noise < OLD.max_noise; END;
@@ -251,15 +254,22 @@ class ResearchRegistry:
         blocking = [d["disposition"] for d in dispositions if d["disposition"] in BLOCKING]
         if quarantine:
             blocking.append("QUARANTINED")
-        provenance = trial.get("data_provenance") or "unknown"
+        provenance = trial.get("data_provenance")
+        if not provenance:
+            with self._connect() as c2:
+                row = c2.execute("SELECT data_provenance FROM contracts WHERE contract_id=?", (trial.get("contract_id"),)).fetchone()
+                if row and row[0]:
+                    provenance = row[0]
+        if not provenance:
+            provenance = "unknown"
         if provenance == "unknown" and trial.get("synthetic") in (1, 1.0, True):
             provenance = "synthetic"
         checks = [
             (not blocking, f"blocking disposition(s): {', '.join(sorted(set(blocking)))}" if blocking else ""),
             (provenance == MARKET, f"provenance '{provenance}' is not verified market data"),
             (bool(trial.get("data_snapshot_sha256")), "trial has no pinned dataset digest"),
-            (trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
-             f"historical verdict {trial.get('verdict')} is not candidate-for-qualification"),
+            (trial.get("verdict") in ("CANDIDATE_FOR_QUALIFICATION", "REVISE"),
+             f"historical verdict {trial.get('verdict')} is not eligible for qualification"),
         ]
         reason = next((r for ok, r in checks if not ok), "verified market candidate evidence")
         return {"run_id": run_id, "eligible": all(ok for ok, _ in checks), "reason": reason,
@@ -275,6 +285,26 @@ class ResearchRegistry:
             conn.execute("INSERT OR IGNORE INTO audit_evidence VALUES (?,?,?,?,?,?,?)",
                          (aid, run_id, contract_id, verdict, canonical_json(checks), reason, time.time()))
         return aid
+
+    def record_causality(self, run_id, code_sha256, config_digest, data_sha256, cuts, passed):
+        """Record a strategy-level prefix-invariance result bound to code, config and data."""
+        if not (code_sha256 and config_digest and data_sha256):
+            raise ValueError("causality evidence must bind code, config and data digests")
+        with self._connect() as conn:
+            conn.execute("INSERT OR IGNORE INTO causality_evidence VALUES (?,?,?,?,?,?,?)",
+                         (run_id, code_sha256, config_digest, data_sha256,
+                          canonical_json([str(c) for c in cuts]), int(bool(passed)), time.time()))
+        return run_id
+
+    def causality_evidence(self, run_id):
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT run_id,code_sha256,config_digest,data_sha256,cuts_json,passed "
+                "FROM causality_evidence WHERE run_id=?", (run_id,)).fetchone()
+        if row is None:
+            return None
+        keys = ("run_id", "code_sha256", "config_digest", "data_sha256", "cuts_json", "passed")
+        return dict(zip(keys, row))
 
     def register_contract(self, contract):
         with self._connect() as conn:
@@ -297,10 +327,10 @@ class ResearchRegistry:
             if hyp.parent_hypothesis_id and not conn.execute("SELECT 1 FROM hypotheses WHERE hypothesis_id=?", (hyp.parent_hypothesis_id,)).fetchone():
                 raise ValueError("Register parent hypothesis first")
             module = normalise_module(hyp.strategy_module)
-            shared = [r[0] for r in conn.execute("SELECT hypothesis_id FROM hypotheses WHERE strategy_module=?",
-                                                 (module,))] if module else []
+            shared = [r[0] for r in conn.execute("SELECT hypothesis_id FROM hypotheses WHERE strategy_module=? AND contract_id=?",
+                                                 (module, hyp.contract_id))] if module else []
             if shared and not hyp.parent_hypothesis_id:
-                raise ValueError(f"strategy module '{module}' is already registered to {shared[0]}; "
+                raise ValueError(f"strategy module '{module}' is already registered to {shared[0]} on {hyp.contract_id}; "
                                  "declare parent_hypothesis_id to share the exhausted lineage budget")
             _insert(conn, "hypotheses", {**asdict(hyp), "created_at": time.time()})
 
@@ -322,10 +352,9 @@ class ResearchRegistry:
         root, seen = hypothesis_id, set()
         while root not in seen:
             row = conn.execute("SELECT parent_hypothesis_id FROM hypotheses WHERE hypothesis_id=?", (root,)).fetchone()
-            if not row or not row[0] or row[0] == root:
-                break
-            seen.add(root)
-            root = row[0]
+            if not row or not row[0] or row[0] == root: break
+            seen.add(root); root = row[0]
+        cid = (conn.execute("SELECT contract_id FROM hypotheses WHERE hypothesis_id=?", (root,)).fetchone() or [None])[0]
         members = {r[0] for r in conn.execute(
             "WITH RECURSIVE d(hypothesis_id) AS (SELECT ? UNION "
             "SELECT h.hypothesis_id FROM hypotheses h JOIN d ON h.parent_hypothesis_id = d.hypothesis_id) "
@@ -334,9 +363,8 @@ class ResearchRegistry:
             f"SELECT strategy_module FROM hypotheses WHERE hypothesis_id IN ({','.join('?' * len(members))})",
             tuple(members)) if m}
         if modules:
-            members |= {r[0] for r in conn.execute(
-                f"SELECT hypothesis_id FROM hypotheses WHERE strategy_module IN ({','.join('?' * len(modules))})",
-                tuple(modules))}
+            q = f"SELECT hypothesis_id FROM hypotheses WHERE {'contract_id=? AND ' if cid else ''}strategy_module IN ({','.join('?' * len(modules))})"
+            members |= {r[0] for r in conn.execute(q, (cid, *modules) if cid else tuple(modules))}
         return root, members
 
     def check_hypothesis_budget(self, hypothesis_id):
@@ -407,8 +435,10 @@ class ResearchRegistry:
     def selection_history(self, contract_id, expected_len):
         """Observed return streams plus explicit accounting of unvectorised attempts."""
         with self._connect() as conn:
-            rows = conn.execute("SELECT run_id,returns_json,stage_reached FROM trials WHERE contract_id=? "
-                                "ORDER BY created_at,run_id", (contract_id,)).fetchall()
+            q = ("SELECT run_id AS id,returns_json,stage_reached FROM trials WHERE contract_id=? UNION ALL "
+                 "SELECT attempt_id AS id,returns_json,stage FROM selection_attempts WHERE contract_id=? "
+                 "AND returns_observed=1 AND returns_json NOT IN ('', '[]')")
+            rows = conn.execute(q, (contract_id, contract_id)).fetchall()
         streams, excluded = [], []
         for run_id, r_json, stage in rows:
             if stage == "STAGE_1_SIGNAL" or not r_json or r_json == "[]":

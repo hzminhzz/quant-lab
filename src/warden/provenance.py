@@ -60,13 +60,17 @@ def resolve_dataset(contract: EvaluationContract, repo_root: Path = Path("."), r
         provenance, source = str(record.get("provenance", "unknown")), str(record.get("source", ""))
         if provenance not in PROVENANCES:
             reason = f"unknown dataset provenance {provenance!r}"
-        elif record.get("path") != rel:
-            reason = f"manifest path {record.get('path')!r} != contract path {rel!r}"
-        elif record.get("sha256") != sha:
+        exp_path = record.get(f"{role}_path") or (record.get("path") if role == "exploratory" else None)
+        exp_sha = record.get(f"{role}_sha256") or (record.get("sha256") if role == "exploratory" else None)
+        if provenance not in PROVENANCES:
+            reason = f"unknown dataset provenance {provenance!r}"
+        elif exp_path is not None and exp_path != rel:
+            reason = f"manifest path {exp_path!r} != contract path {rel!r}"
+        elif exp_sha is not None and exp_sha != sha:
             reason = "dataset digest differs from manifest (file changed or substituted)"
         elif contract.data_provenance != provenance:
             reason = f"contract provenance {contract.data_provenance!r} != manifest provenance {provenance!r}"
-        elif contract.data_snapshot_sha256 != sha:
+        elif role == "exploratory" and contract.data_snapshot_sha256 != sha:
             reason = "contract data_snapshot_sha256 differs from dataset digest"
     eligible = not reason and provenance == MARKET
     return DatasetResolution(contract.contract_id, role, rel, sha, provenance, source, eligible,

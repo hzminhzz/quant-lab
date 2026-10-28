@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import sqlite3
+from dataclasses import replace as dc_replace
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +14,7 @@ import pytest
 
 from warden.cli import _build_state, cmd_audit_check, cmd_status
 from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+from warden.causality import config_digest
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
 
@@ -65,7 +67,9 @@ def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path
     assert ret == 1
     with reg._connect() as conn:
         verdict, reason = conn.execute("SELECT verdict, reason FROM audit_evidence WHERE run_id='RUN-ML-001'").fetchone()
-    assert verdict == "REVOKED_INELIGIBLE" and "QUARANTINED_SYNTHETIC" in reason
+    # Intent: a quarantined synthetic run is never approved. Whether check 3 also fails is
+    # incidental; it now does, because a rules trial without bound causality cannot pass it.
+    assert verdict in {"REJECTED", "REVOKED_INELIGIBLE"} and "QUARANTINED_SYNTHETIC" in reason
 
 
 def test_effective_eligibility_agrees_across_status_and_handoff(tmp_path: Path) -> None:
@@ -115,7 +119,11 @@ def test_migration_is_idempotent_and_history_is_immutable(tmp_path: Path) -> Non
 
 def test_verified_market_candidate_keeps_the_normal_lifecycle(tmp_path: Path) -> None:
     reg = _registry(tmp_path)
-    _with_returns(tmp_path, reg, _candidate("RUN-MARKET", "verified_market"))
+    trial = dc_replace(_candidate("RUN-MARKET", "verified_market"), strategy_code_sha256="a" * 64)
+    _with_returns(tmp_path, reg, trial)
+    # check 3 for rules strategies is now earned per run: bind code, config and data
+    reg.record_causality("RUN-MARKET", "a" * 64, config_digest("{}"), CONTRACT.data_snapshot_sha256,
+                         ["2023-06-30"], True)
     with reg._connect() as conn:
         conn.execute("INSERT INTO feature_sets VALUES ('fh','CRYPTO_PERPS_1H_V1','[]','0.2.0',1,'p',1.0)")
     runner = ExperimentRunner(registry=reg, repo_root=REPO)

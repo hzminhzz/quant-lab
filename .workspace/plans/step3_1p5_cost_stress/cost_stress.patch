@@ -1,5 +1,5 @@
 --- a/src/warden/contracts.py	2026-10-27 11:18:29.463264436 +0100
-+++ b/src/warden/contracts.py	2026-10-28 09:39:17.878457001 +0100
++++ b/src/warden/contracts.py	2026-10-28 09:54:40.434301531 +0100
 @@ -176,6 +176,7 @@
      returns_sha256: str = ""
      data_provenance: str = "unknown"
@@ -9,21 +9,17 @@
      def to_dict(self):
          return asdict(self)
 --- a/src/warden/runner.py	2026-10-27 11:18:29.481264424 +0100
-+++ b/src/warden/runner.py	2026-10-28 09:39:48.623405707 +0100
-@@ -358,9 +358,12 @@
- 
-             sim2 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=2.0,
++++ b/src/warden/runner.py	2026-10-28 09:54:40.434795292 +0100
+@@ -350,6 +350,8 @@
+             sim1 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
                                        funding_mask=fund_mask, quote_returns=ret_p)
-+            sim15 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.5,
-+                                       funding_mask=fund_mask, quote_returns=ret_p)
-             sim_d = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, delay_offset=1,
-                                        funding_mask=fund_mask, quote_returns=ret_p)
-             sr2 = float(np.mean(sim2["net_returns"]) / (np.std(sim2["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
-+            sr15 = float(np.mean(sim15["net_returns"]) / (np.std(sim15["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
-             srd = float(np.mean(sim_d["net_returns"]) / (np.std(sim_d["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
- 
-             ngrid, n_sr, grid_streams = cfg.get("param_grid", []), [], []
-@@ -408,7 +411,7 @@
+             net_ret, gross_ret, turnover = sim1["net_returns"], sim1["gross_returns"], sim1["turnover"]
++            net15 = net_ret - 0.5 * contract.total_one_way_cost_decimal() * turnover  # exact from the 1.0x run
++            sr15 = float(np.mean(net15) / (np.std(net15, ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
+             m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)
+             m.update(compute_trade_metrics(sim1["positions"], net_ret, ret_p["long"][v_slice],
+                                            contract.bars_per_year, contract.total_one_way_cost_decimal()))
+@@ -408,7 +410,7 @@
              else:
                  verdict = "CANDIDATE_FOR_QUALIFICATION" if statistical else "REVISE"
              res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_3_STRESS", verdict, m["gross_sharpe"], m["net_sharpe"], dsr_p, float(exp_max), report["raw_attempt_count"], k_eff, mean_ic, ic_hac_t, m["hit_rate"], m["profit_factor"], m["max_drawdown_pct"], m["annualized_turnover"], m["breakeven_cost_bps"], sr2, stability, f"Simulated on {contract.contract_id}; 2xCostSR={sr2:.2f}.", srd, m["cvar_99_pct"], int(is_synthetic), data_sha, strat_module_str, str(model_type), "")

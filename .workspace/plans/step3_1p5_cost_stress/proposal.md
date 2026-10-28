@@ -42,19 +42,20 @@ either a `TEXT` type override or a `NULL`-permitting `REAL` with an explicit def
 Read paths must treat `None` as "not measured" rather than "measured zero" — specifically
 `trial.get("stress_1p5_cost_sharpe")` must not be compared with `>` without a `None` guard.
 
-2. `runner.py`, beside the 2.0 block at :359:
+2. `runner.py`, immediately after the 1.0x simulation — no third simulation:
 
 ```python
-            sim15 = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice,
-                                       cost_multiplier=1.5, funding_mask=fund_mask,
-                                       quote_returns=ret_p)
-            sr15 = float(np.mean(sim15["net_returns"])
-                         / (np.std(sim15["net_returns"], ddof=1) + 1e-12)
-                         * math.sqrt(contract.bars_per_year))
+            net15 = net_ret - 0.5 * contract.total_one_way_cost_decimal() * turnover  # exact from the 1.0x run
+            sr15 = float(np.mean(net15) / (np.std(net15, ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
 ```
 
-and pass `stress_1p5_cost_sharpe=sr15` at the `ExperimentResult(...)` construction site (or
-`dc_replace` alongside the existing `provenance_kw`).
+Since `net = gross - turnover*cost - funding`, the funding term and the gross term are shared, so
+`net15 = net1 - 0.5*c*turnover`. Verified numerically against a real `cost_multiplier=1.5` simulation
+on both `INDICES_1D_V1` and `MULTI_ASSET_1D_V1`: maximum absolute error `8.7e-19`, i.e. exact to
+floating point. This removes one full `simulate_positions` pass per trial as well as two lines.
+
+and pass `stress_1p5_cost_sharpe=sr15` at the `ExperimentResult(...)` construction site (the existing
+`dc_replace(res, **provenance_kw, ...)` call).
 
 3. Optional, and a semantics change that needs its own decision: extend audit check 5 to
 `stress_1p5_cost_sharpe > 0.50` as well. Recommend **not** doing this in the same change — it would
@@ -76,7 +77,7 @@ retroactively invalidate every stored trial, which have no 1.5x figure.
 `src/warden/` is at **2399 LOC** and `scripts/check_loc_budget.py` fails on `total >= 2400`, so the
 current ceiling of 2399 leaves **zero** headroom — even a one-line addition breaks it.
 
-This patch is 5 added lines and 1 deleted, net **+4** (2399 -> 2403). `check_loc_budget.py` then
+This patch is 4 added lines and 1 modified, net **+3** (2399 -> 2402). `check_loc_budget.py` then
 returns 1, `check-worktree` fails (it runs the same script), and every `backtest`, `audit-check` and
 `qualify` refuses. The patch applies cleanly to the source; it does not pass the governance gate.
 

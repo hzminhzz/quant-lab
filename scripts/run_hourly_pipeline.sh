@@ -48,7 +48,16 @@ fi
 
 for spec in "${QUEUE_SPECS[@]}"; do
     echo "=== [$(date -u)] Processing $spec ==="
-    
+
+    # Existing native Warden history AND open-PR scientific failures must
+    # block automatic repeats; new data does not replenish trial budgets.
+    # This check is read-only and fails closed if the index/registry is absent.
+    if ! uv run --frozen python -m scripts.research_outcome_memory --check-spec "$spec"; then
+        echo "[REJECTED/REVIEW] Already attempted, scientifically rejected, or unsupported lineage: $spec"
+        mv "$spec" experiments/active/failed/
+        continue
+    fi
+
     # Step A: Prefix-Invariance Causality Proof
     if ! uv run warden verify "$spec" --json; then
         echo "[FAIL] Lookahead leakage or invalid pipeline: $spec"

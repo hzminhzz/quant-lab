@@ -1,0 +1,11 @@
+hypothesis_id: HYP-ARXIV-CRYPTO-6H-EQUAL-20261102
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Crypto six-hour momentum equal-weight long short baseline
+strategy_family: rules_ts
+economic_mechanism: Medium-horizon directional momentum may persist across six-hour decision intervals. A fixed 96-hour signal and 30-day point-in-time liquidity selection avoid post-hoc pair selection.
+counterparty_or_friction: Trading the frozen 23-asset historical survivor universe can embed survivorship bias; per-trade costs and perpetual funding can absorb weak directional edge.
+expected_holding_bars: 6
+falsification_criteria: Frozen Stage 1 net PF >=1.15, time in market >=5 percent, gross edge >1.5 times one-way cost and active-bar bootstrap p <0.05.
+source_provenance: Adaptation of Nguyen, Systematic Trend-Following with Adaptive Portfolio Construction, arXiv:2602.11708v1 (2026). Core momentum only, fixed six-hour decisions, no market-cap or monthly Sharpe data.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_six_hour_crypto_trend.py

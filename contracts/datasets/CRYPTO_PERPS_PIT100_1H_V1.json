@@ -1,0 +1,22 @@
+{
+  "asof_rule": {
+    "lookback_days": 30,
+    "max_selected": 100,
+    "min_history_hours": 504,
+    "min_quote_usd_per_observed_hour": 25000.0,
+    "ranking": "Prior 30 calendar days quoted volume descending, ties by asset ascending",
+    "selection_time": "First UTC hour of each calendar month"
+  },
+  "contract_id": "CRYPTO_PERPS_PIT100_1H_V1",
+  "path": "data/exploratory/crypto_perps_pit100_1h_v1.parquet",
+  "pipeline": "scripts/build_pit_top100_proposal.py",
+  "provenance": "verified_market",
+  "qualification_limit": "Funding gaps and missing delisting price paths block venue PnL qualification",
+  "sha256": "c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a",
+  "source": "Historical Binance USD-M hourly raw quote-volume/OHLCV and funding store",
+  "source_membership_root_sha256": "479c024e689124a913257f49f8db1aafb6b14e46268f5fdeba84aeae60f13d70",
+  "status": "APPROVED_RESEARCH_STAGE1_ONLY",
+  "authorization": "2026-11-02 user approval to adopt the separate PIT contract and run Stage 1",
+  "approval_scope": "predictive research Stage 1; no venue PnL, Stage 3, holdout unsealing or live trading",
+  "cryptographic_attestation": "No human-held HMAC signing key was available; authorization is explicit interactive approval"
+}

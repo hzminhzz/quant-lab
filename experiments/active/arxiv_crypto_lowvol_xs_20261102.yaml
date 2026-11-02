@@ -1,0 +1,12 @@
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+hypothesis_id: HYP-ARXIV-XS-LOWVOL-20261102
+strategy_name: CryptoXS_Ridge_LowVol_4H
+strategy_family: cross_sectional_ml
+model_type: ridge
+strategy_module: strategies/candidates/arxiv_lowvol_xs_1h.py
+run_id: RUN-ARXIV-XS-LOWVOL-001
+parameters:
+  ridge_alpha: 100.0
+  rebalance_every: 4
+  top_k: 10
+  min_liquidity_usd: 25000.0

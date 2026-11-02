@@ -1,0 +1,71 @@
+{
+  "event_ledger": {
+    "distinct_assets": 364,
+    "event_count": 758641,
+    "funding_intervals": {
+      "1": 8997,
+      "2": 2065,
+      "4": 337290,
+      "8": 410288,
+      "None": 1
+    },
+    "observed_events_with_unknown_interval": 1,
+    "observed_events_with_unknown_rate": 0,
+    "original_event_count": 690399,
+    "overlapping_source_asset_names": 1,
+    "path": "data/exploratory/crypto_perps_pit100_event_ledger_v2.parquet",
+    "recovered_event_count": 68242,
+    "sha256": "c75fbef639d648e6dff23a943d446a220415151985c565b9e63333834b7ffb33",
+    "source_original_assets": 288,
+    "source_recovered_assets": 77
+  },
+  "execution_contract": "No registered Warden contract supports actual per-asset event-time settlement and missing event fail-closed; cannot Stage3 with existing fixed 8h.",
+  "input_canonical_sources": {
+    "original_events": 690399,
+    "original_source_receipt_sha256": "93d4af8a31fe2d4009fb59b2f7df29cae687fe20ad8002be1e41beac198b5326",
+    "source_sha_reverified": true,
+    "verified_original_source_files": 5874
+  },
+  "official_recovery_report_sha256": "64656affc7e0abb4808ffdc55c2ab905f3359c101b6001c4cb16211afc1bfee5",
+  "old_contract_proposal": "CRYPTO_PERPS_PIT100_1H_V1",
+  "original_market_store_modified": false,
+  "original_pit_sha256": "c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a",
+  "panel_overlay": {
+    "OHLCV_unchanged": true,
+    "after_overlay_missing_rows": 745,
+    "coverage_pct": 99.96593938490643,
+    "funding_missing_never_imputed": true,
+    "funding_source_counts": [
+      {
+        "funding_source": "CANONICAL_LOCAL",
+        "len": 1872624
+      },
+      {
+        "funding_source": "BINANCE_VISION_SHA_VERIFIED",
+        "len": 313908
+      },
+      {
+        "funding_source": null,
+        "len": 745
+      }
+    ],
+    "input_rows": 2187277,
+    "nonfuture_asof_join": true,
+    "original_missing_rows": 314653,
+    "path": "data/exploratory/crypto_perps_pit100_funding_overlay_v2.parquet",
+    "recovered_rows": 313908,
+    "remaining_missing_by_asset": [
+      {
+        "asset": "BNXUSDT",
+        "first_missing": "2023-01-01 00:00:00+00:00",
+        "last_missing": "2023-02-01 00:00:00+00:00",
+        "missing_rows": 745
+      }
+    ],
+    "sha256": "aa5f0757b64b03bf4ac250d0ed0849333b920bfca0bf276c84baec01b1ebaf8a"
+  },
+  "protected_holdout_read": false,
+  "schema": "quantlab-binance-pit-funding-overlay-v2",
+  "source_approval": false,
+  "status": "RESEARCH_ONLY_UNSIGNED_NOT_WARDEN_STAGE3"
+}

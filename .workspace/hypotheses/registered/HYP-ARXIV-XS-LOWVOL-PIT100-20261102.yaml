@@ -1,0 +1,12 @@
+hypothesis_id: HYP-ARXIV-XS-LOWVOL-PIT100-20261102
+contract_id: CRYPTO_PERPS_PIT100_1H_V1
+title: As-of monthly Top-100 crypto 24h inverse-volatility cross-sectional prediction
+strategy_family: cross_sectional_ml
+economic_mechanism: Under limited arbitrage and lottery demand, coins with lower trailing realized one-day volatility may have relatively higher executable future four-hour returns. This is a single point-in-time universe confirmation of a previously selected factor, not independent discovery.
+counterparty_or_friction: Liquidity/selection effects and spread, funding cadence, delistings, and live fills can defeat the predictive signal; 14.39 percent source funding gaps prevent economic qualification. Initial 2024 and 2026 future-selected universe biased the parent evidence.
+expected_holding_bars: 4
+falsification_criteria: One untouched PIT-contract Warden Stage 1 cross-sectional run, frozen mean out-of-sample Spearman IC >=0.015 and HAC t >=2, on next-bar executable four-hour open-to-open labels with purged training and 2-bar embargo. Use the original factor, fixed Ridge alpha 100, 4-hour rebalances, top/bottom 10 and $25000 per-hour liquidity threshold without tuning. Preserve parent and all selection attempts; not a new independent research family. Missing funding or delisting exit evidence forbids Stage 3 and any executable alpha claim even if this signal passes.
+parent_hypothesis_id: HYP-ARXIV-XS-LOWVOL-20261102
+source_provenance: Authorized PIT verification of existing arXiv lowvol experiment on observed Binance USD-M monthly as-of Top100 SHA c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a; inherited HYP-2026-031 and 10 train-only factor probes; user approval on 2026-11-02.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_lowvol_pit100_adapter.py

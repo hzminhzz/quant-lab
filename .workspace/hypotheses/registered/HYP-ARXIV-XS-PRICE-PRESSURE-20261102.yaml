@@ -1,0 +1,11 @@
+hypothesis_id: HYP-ARXIV-XS-PRICE-PRESSURE-20261102
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Top-100 crypto short-term liquidity-conditioned price-pressure forecast
+strategy_family: cross_sectional_ml
+economic_mechanism: Liquidity-constrained trades and slow cross-asset information diffusion may leave predictable four-hour relative return after the last 1h and 6h price moves, volatility, and volume imbalance. A simple causal pooled linear model tests these jointly without selecting validation winners.
+counterparty_or_friction: Short-lived relative information may be smaller than 6bps one-way cost and perpetual funding; thin altcoins, missing historical listings and survivorship bias may defeat live execution even if a cross-sectional IC threshold passes.
+expected_holding_bars: 4
+falsification_criteria: Frozen Warden cross-sectional Stage 1 must show out-of-sample mean per-hour IC >=0.015 and HAC t >=2.0 on purged four-hour executable open-to-open labels. Report signed exposure, net profitability, concentration, funding cost and selection debt before any Stage 3 claim. Fixed feature set and Ridge alpha, no retrospective validation tuning.
+source_provenance: Independent causal OHLCV-only test of delayed price pressure and information diffusion; overlapping search family with earlier HYP-2026-033 and HYP-2026-128, explicitly not an independent alpha claim. Context arXiv:2610.06947 FactorBench and arXiv:2606.00060 forecast versus trading performance.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_price_pressure_xs_1h.py

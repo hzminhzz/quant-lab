@@ -1,0 +1,12 @@
+hypothesis_id: HYP-ARXIV-CRYPTO-6H-VOLSCALE-20261102
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Crypto six-hour momentum inverse-volatility-weighted portfolio
+strategy_family: rules_ts
+economic_mechanism: Volatility-normalized weighting across a point-in-time liquid universe could reduce noisy exposure while preserving the medium-frequency directional trend captured by a fixed 96-hour momentum signal.
+counterparty_or_friction: Volatility-based weighting may underweight persistent high-volatility winners; historical fixed major-coin survivor universe, costs, funding and monthly market-cap data gaps limit inference.
+expected_holding_bars: 6
+falsification_criteria: Frozen Stage 1 net PF >=1.15, time in market >=5 percent, gross edge >1.5 times one-way cost and active-bar bootstrap p <0.05. Compare net outcomes to same forecast with equal weights.
+parent_hypothesis_id: HYP-ARXIV-CRYPTO-6H-EQUAL-20261102
+source_provenance: Nguyen, Systematic Trend-Following with Adaptive Portfolio Construction, arXiv:2602.11708v1 (2026), simplified six-hour fixed-cadence risk-weighting ablation.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_six_hour_crypto_trend.py

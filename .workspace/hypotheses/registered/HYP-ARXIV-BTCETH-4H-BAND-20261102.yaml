@@ -1,0 +1,12 @@
+hypothesis_id: HYP-ARXIV-BTCETH-4H-BAND-20261102
+contract_id: CRYPTO_MAJORS_1H_V1
+title: BTC ETH four-hour cost-aware Ridge position-change filter
+strategy_family: rules_ts
+economic_mechanism: Small forecast sign changes can incur avoidable fees. Suppressing changes below a fixed twice-cost forecast threshold may improve net performance on identical out-of-sample Ridge predictions.
+counterparty_or_friction: Filtering risks stale positions and missed reversals; one-way 6bps cost, actual recorded funding, and a one-bar execution lag apply identically to the unfiltered baseline.
+expected_holding_bars: 4
+falsification_criteria: Frozen Warden Stage 1 net profit factor >=1.15, market exposure >=5 percent, gross trade edge >1.5x one-way cost, active-bar bootstrap p <0.05. Report net and turnover delta versus baseline without tuning on validation.
+parent_hypothesis_id: HYP-ARXIV-BTCETH-4H-SIGN-20261102
+source_provenance: arXiv:2606.00060v1 Bysik and Slepaczuk (2026), adapted to BTC plus ETH and a four-hour horizon, fixed lambda 2.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_cost_aware_ridge_1h.py

@@ -1,0 +1,13 @@
+contract_id: CRYPTO_MAJORS_1H_V1
+hypothesis_id: HYP-ARXIV-BTCETH-4H-SIGN-20261102
+strategy_name: BTCETH_Ridge_4H_Immediate
+strategy_family: rules_ts
+model_type: ridge
+strategy_module: strategies/candidates/arxiv_cost_aware_ridge_1h.py
+run_id: RUN-ARXIV-BTCETH-SIGN-001
+parameters:
+  ridge_alpha: 10.0
+  cost_aware: false
+  cost_multiplier: 2.0
+  rebalance_every: 4
+  target_symbols: [BTCUSDT, ETHUSDT]

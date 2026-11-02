@@ -17,6 +17,10 @@ Improve the measured quality and diversity of quant-lab Stage 1 research without
 5. **Paper C: ES/NQ session regime**: https://arxiv.org/abs/2605.04004. Independently specify observable session-based mechanism before tests. Use pinned Syncster exploratory CME contracts only where matching source/window; validate continuous roll, timezone, costs and session gaps. No 1-minute microstructure requirements for preliminary directional screening.
 6. **Governed screens**: For each genuinely new source-complete hypothesis, source inspection -> preregister -> preflight -> verify -> Warden Stage 1. Advance only passers to Stage 3 with existing budgets, immutable full trial accounting and six-check audits.
 
+## Approved PIT signal confirmation (2026-11-02)
+
+Warden's interactive approval path adopted the unchanged PIT contract proposal as `CRYPTO_PERPS_PIT100_1H_V1` (SHA `c76266d4...`); no human-held HMAC key was present. The frozen inverse-volatility Ridge factor passed the unchanged cross-sectional Stage 1 gate with mean IC **0.05742364**, HAC t **11.5513** on **8,755** IC observations. Non-overlapping four-hour IC phases remain positive (IC 0.0550–0.0586). Historical evidence preserved with attempt `ATT-480df2ef5d8788f2-001`, no Stage 3 trial or holdout read. This is a *same-time-window corrected-universe confirmation*, not a new independent temporal holdout or executable-profit claim. Details: [ARXIV-PIT100-STAGE1-20261102.md](ARXIV-PIT100-STAGE1-20261102.md).
+
 ## Acceptance
 - A reproducible calibration matrix with data generation seed, sample sizes, observed Stage 1 metrics and caveats.
 - Candidate specifications declare mechanism, source, feature timestamps, universe, horizon, baseline, cost model, risk and reject criteria *before* validation results.

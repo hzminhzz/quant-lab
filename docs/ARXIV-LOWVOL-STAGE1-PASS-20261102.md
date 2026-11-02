@@ -2,6 +2,8 @@
 
 ## Verified disposition
 
+**PIT correction completed (subsequent gate):** The factor now also passed the newly approved monthly-as-of PIT Top-100 Warden Stage 1 (IC **0.05742**, HAC t **11.55**), with 364 historical assets and no change to the original Ridge predictor. This is a correlated confirmation during the previously inspected 2024–2025 window; economic and Stage 3 qualification remain absent. See [ARXIV-PIT100-STAGE1-20261102.md](ARXIV-PIT100-STAGE1-20261102.md).
+
 **Subsequent qualification caveat (2026-11-02):** The original Top-100 historical universe was selected using later 2024/2026 observations. A 30-month causal as-of membership reconstruction overlaps the original panel by only 54.1 coins per month on average. The 20 flagged missing-price asset-hours are all final-window terminal exposure, not interior feed gaps. The original 8-hour funding model also omits observed 4-hour funding events. The original Stage 1 PASS is therefore **conditional exploratory evidence only**, not PIT-confirmed or economically qualified. Full independent recovery: [ARXIV-LOWVOL-NEXT-PIT-RECOVERY-20261102.md](ARXIV-LOWVOL-NEXT-PIT-RECOVERY-20261102.md).
 
 **One new predictive factor achieved Warden Stage 1 PASS** on observed Binance Top-100 hourly crypto data. Its 24-hour rebalance descendant also records PASS, but **shares the identical IC vector** and therefore is **not a second independent discovery**. One preregistered Ridge price-pressure ensemble was rejected.

@@ -1,5 +1,7 @@
 # Quant-lab arXiv low-vol next-step recovery — November 2, 2026
 
+**Subsequent approved confirmation:** A separately approved, versioned PIT contract was activated and Warden Stage 1 was executed once. The unchanged low-vol model passed on 364 historically selected symbols (mean IC **0.05742**, HAC t **11.55**, attempt `ATT-480df2ef5d8788f2-001`). The 2024–2025 temporal window was previously examined, so this confirms a corrected universe rather than a virgin temporal holdout. Full governed receipt: [ARXIV-PIT100-STAGE1-20261102.md](ARXIV-PIT100-STAGE1-20261102.md). Statements below refer to the **prior source-recovery stage** and remain historically accurate for that stage.
+
 ## Scope and disposition
 
 The approved work investigated the 20 missing-price asset-hours, fixed terminal-close *diagnostic accounting* without touching Warden, reconstructed the historical Top-100 Binance USD-M universe using only past observations, and audited actual funding event cadence against the original frozen Warden crypto funding schedule.

@@ -1,0 +1,61 @@
+{
+  "constraint": "Observed historical RATE availability is now complete under a 16h as-of lookup. Settlement intervals for 93 API events remain UNKNOWN; no futures fill, delisting, data availability or live trading qualification.",
+  "data": {
+    "OHLCV_unchanged": true,
+    "after_overlay_missing_rows": 0,
+    "coverage_pct": 100.0,
+    "event_ledger_rows": 758734,
+    "event_ledger_sha256": "6ac0630855a88983cc9576cea0b7f094b50799fc8b0cea6ad0d92312e0e661aa",
+    "funding_missing_never_imputed": true,
+    "funding_source_counts": [
+      {
+        "funding_source": "CANONICAL_LOCAL",
+        "len": 1872624
+      },
+      {
+        "funding_source": "BINANCE_VISION_SHA_VERIFIED",
+        "len": 313908
+      },
+      {
+        "funding_source": "BINANCE_OFFICIAL_FUNDING_HISTORY_REST",
+        "len": 745
+      }
+    ],
+    "input_rows": 2187277,
+    "ledger_path": "data/exploratory/crypto_perps_pit100_event_ledger_v3.parquet",
+    "nonfuture_asof_join": true,
+    "original_missing_rows": 745,
+    "panel_path": "data/exploratory/crypto_perps_pit100_funding_overlay_v3.parquet",
+    "panel_rows": 2187277,
+    "panel_sha256": "187102bb1fc172351467a07b5cdac275be32f3f464af62b0a4023574a002abe8",
+    "read_only_unsigned": true,
+    "recovered_rows": 745,
+    "remaining_missing_by_asset": [],
+    "rest_interval_metadata_missing_events": 93,
+    "rest_rows": 93
+  },
+  "funding_execution_qualified": false,
+  "holdout_read": false,
+  "original_data_modified": false,
+  "schema": "quantlab-binance-pit-funding-rest-v3",
+  "sources": {
+    "official_rest": {
+      "acquisition": "OFFICIAL_BINANCE_REST",
+      "interval_metadata_present": false,
+      "not_published_monthly_archives": [
+        "BNXUSDT:2022-12",
+        "BNXUSDT:2023-01"
+      ],
+      "source_cache_path": "data/exploratory/pit_funding_vision_recovery_20261102/BNXUSDT/rest_fundingRate_2023-01.json",
+      "source_events": 93,
+      "source_kind": "OFFICIAL_HISTORICAL_REST_NOT_MONTHLY_ARCHIVE",
+      "source_response_sha256": "188714b0aa786064764c296d0f476d9e35e0d61eed573775abce5b88ec6936d1",
+      "source_url": "https://fapi.binance.com/fapi/v1/fundingRate?symbol=BNXUSDT&startTime=1672531200000&endTime=1675209599999&limit=1000"
+    },
+    "v2_ledger_sha256": "c75fbef639d648e6dff23a943d446a220415151985c565b9e63333834b7ffb33",
+    "v2_panel_sha256": "aa5f0757b64b03bf4ac250d0ed0849333b920bfca0bf276c84baec01b1ebaf8a",
+    "v2_receipt_sha256": "c558de1ae21ae333f0e43d9163b9f8ebcf1ef8e76394a9437cec2a7807bca7e3"
+  },
+  "status": "RESEARCH_ONLY_UNSIGNED_NOT_WARDEN",
+  "unapproved_8h_warden_model_not_used": true
+}

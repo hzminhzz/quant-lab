@@ -1,0 +1,10 @@
+contract_id: CME_ES_15M_SYNCSTER_V1
+hypothesis_id: HYP-CME-ES-DOWN-RTH-20261102
+run_id: RUN-CME-ES-DOWN-RTH-20261102-001
+strategy_family: rules_ts
+model_type: rules
+strategy_module: strategies/candidates/syncster_es_down_day_15m.py
+strategy_name: CME_ES_RTH_DOWN_DAY_EARLY_REVERSAL_V1
+parameters:
+  target_symbols: [ES]
+param_grid: []

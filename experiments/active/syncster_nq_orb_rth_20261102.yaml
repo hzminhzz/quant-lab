@@ -1,0 +1,10 @@
+contract_id: CME_NQ_15M_SYNCSTER_V1
+hypothesis_id: HYP-CME-NQ-ORB-RTH-20261102
+run_id: RUN-CME-NQ-ORB-RTH-20261102-001
+strategy_family: rules_ts
+model_type: rules
+strategy_module: strategies/candidates/syncster_nq_orb_15m.py
+strategy_name: CME_NQ_RTH_FIRST_HOUR_BREAKOUT_V1
+parameters:
+  target_symbols: [NQ]
+param_grid: []

@@ -58,6 +58,15 @@ attested individual-contract CME fills or roll-adjusted front-month streams.
 | `HYP-CME-ES-DOWN-RTH-20261102` | `ATT-784f9c92d0255f1d-001` | 1.002505 | +0.515750 bps / active bar | 3.7133% | 0.115 | **REJECT** |
 | `HYP-CME-NQ-ORB-RTH-20261102` | `ATT-539a07d8a34dab58-001` | 1.063367 | +0.832211 bps / active bar | 4.2710% | 0.020 | **REJECT** |
 
+Immutable Warden screen return streams (stored only in this isolated
+worktree's append-only SQLite, not in Git):
+ES SHA256 `40c79c06a71be4bbd69afc5a28151f187df0e23c1bc55bee25c33e07b25a7089`,
+NQ SHA256 `ec9bf49901bcf9ace69524a3b0edc89b9b86c90184068bb0e1d29780d5e9104b`.
+Research candidates and specs are committed in this branch and the local
+screens can be reproduced from pinned market data. Do **not** treat a
+future Git checkout with an empty registry as preserving the original
+selection history or these archived return streams.
+
 Native rules_ts gate requires **PF>=1.15, TiM>=5%, bootstrap p<.05,
 trade edge>1.5x one-way cost**, all conjunctive.
 ES fails PF, TiM, bootstrap; NQ fails PF and TiM.

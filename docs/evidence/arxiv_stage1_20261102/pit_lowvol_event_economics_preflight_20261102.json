@@ -1,0 +1,229 @@
+{
+  "event_ledger_sha256": "6ac0630855a88983cc9576cea0b7f094b50799fc8b0cea6ad0d92312e0e661aa",
+  "known_limitations": [
+    "Previously inspected 2024-25 validation set, not independent holdout",
+    "Next-bar open is hypothetical and cannot prove exchange order fills or impact",
+    "Funding observed at source event timestamps; 94 interval metadata unknown",
+    "Complete historical 16-hour previous-rate lookup is not proof of every actual settlement",
+    "Exchange archive may exclude early delisted instruments",
+    "No native Warden Stage3 on sparse time-indexed PIT panel"
+  ],
+  "market_price_bridge": {
+    "bridge_assets_distinct": 30,
+    "bridged_keys_sha256": "0bb188c39f818cbb98af659cf4b0f31aab981e71857f68aab58d2e3e04bf87f4",
+    "bridged_missing_asset_hour_opens": 120,
+    "fills_observed": false,
+    "raw_verified_source_files": 30,
+    "source_price_never_fabricated": true,
+    "source_verified_transition_count": 30,
+    "sources_sha256": "12651bdad116f4e2f3b4fcd791882fc84b1afa5dc4bfc3b61502fb718915b831"
+  },
+  "model_frozen_parameters": {
+    "min_liquidity_usd": 25000.0,
+    "rebalance_every": 4,
+    "ridge_alpha": 100.0,
+    "top_k": 10
+  },
+  "model_module": "strategies/candidates/arxiv_lowvol_pit100_adapter.py",
+  "native_warden_trial_created": false,
+  "original_contract_sha256": "c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a",
+  "original_hypothesis_id": "HYP-ARXIV-XS-LOWVOL-PIT100-20261102",
+  "original_sources_modified": false,
+  "original_stage1_attempt": "ATT-480df2ef5d8788f2-001",
+  "price_exit_evidence_sha256": "28bc41728a746c2571386baa2ce7da4cdd2272a28ae680900998456060e96aa8",
+  "scenarios": {
+    "base_cost": {
+      "additional_hours_delay": 0,
+      "cost_multiplier": 1.0,
+      "event_classification": {
+        "ambiguous_events_with_changed_position": 87,
+        "ambiguous_near_open": 419559,
+        "duplicate_asset_hour": 0,
+        "events_after_window": 0,
+        "events_before_window": 0,
+        "events_in_window": 419559,
+        "events_later_than_open_window": 0,
+        "invalid_event": 0,
+        "nonzero_ms_offset_in_boundary_window": 113653,
+        "unmapped_symbol": 0
+      },
+      "portfolio_coverage": {
+        "active_asset_hours": 175160,
+        "maximum_gross_exposure": 1.0000000000000002,
+        "missing_active_price_events": 0,
+        "sum_turnover": 701.5,
+        "terminal_position_gross": 0.0
+      },
+      "variants": {
+        "conservative_ordering_bound": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 44.59432902964296,
+          "net_sharpe": -0.20898293905112209,
+          "net_simple_return_pct": -19.872301496291843,
+          "observed_event_funding_equity_pct": 19.549950600000003,
+          "profit_factor": 0.993754965807817
+        },
+        "optimistic_ordering_bound": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 44.59432902964296,
+          "net_sharpe": -0.20627764415915079,
+          "net_simple_return_pct": -19.766713956987438,
+          "observed_event_funding_equity_pct": 19.4179567,
+          "profit_factor": 0.9938355911962521
+        },
+        "settlement_post_open": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 44.59432902964296,
+          "net_sharpe": -0.20821205447751973,
+          "net_simple_return_pct": -19.84209630611422,
+          "observed_event_funding_equity_pct": 19.512289550000002,
+          "profit_factor": 0.9937779336132547
+        },
+        "settlement_pre_open": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 44.59432902964296,
+          "net_sharpe": -0.20704852057596815,
+          "net_simple_return_pct": -19.796947496660245,
+          "observed_event_funding_equity_pct": 19.455617750000002,
+          "profit_factor": 0.9938126224608415
+        }
+      }
+    },
+    "delay_plus_one": {
+      "additional_hours_delay": 1,
+      "cost_multiplier": 1.0,
+      "event_classification": {
+        "ambiguous_events_with_changed_position": 124,
+        "ambiguous_near_open": 419559,
+        "duplicate_asset_hour": 0,
+        "events_after_window": 0,
+        "events_before_window": 0,
+        "events_in_window": 419559,
+        "events_later_than_open_window": 0,
+        "invalid_event": 0,
+        "nonzero_ms_offset_in_boundary_window": 113653,
+        "unmapped_symbol": 0
+      },
+      "portfolio_coverage": {
+        "active_asset_hours": 175140,
+        "maximum_gross_exposure": 1.0000000000000002,
+        "missing_active_price_events": 0,
+        "sum_turnover": 701.5,
+        "terminal_position_gross": 0.0
+      },
+      "variants": {
+        "conservative_ordering_bound": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 0.9978311719993584,
+          "max_drawdown_pct": 42.306184093297595,
+          "net_sharpe": -0.27398692049323997,
+          "net_simple_return_pct": -22.118941474750386,
+          "observed_event_funding_equity_pct": 19.517666800000004,
+          "profit_factor": 0.991826337615918
+        },
+        "optimistic_ordering_bound": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 0.9978311719993584,
+          "max_drawdown_pct": 42.22572361804154,
+          "net_sharpe": -0.26801344697760293,
+          "net_simple_return_pct": -21.89429737918345,
+          "observed_event_funding_equity_pct": 19.22893085,
+          "profit_factor": 0.9920040353918675
+        },
+        "settlement_post_open": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 0.9978311719993584,
+          "max_drawdown_pct": 42.297785934405525,
+          "net_sharpe": -0.2727050992907636,
+          "net_simple_return_pct": -22.0705931642563,
+          "observed_event_funding_equity_pct": 19.455617750000002,
+          "profit_factor": 0.9918644226360397
+        },
+        "settlement_pre_open": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 0.9978311719993584,
+          "max_drawdown_pct": 42.23413226510605,
+          "net_sharpe": -0.26929523124160054,
+          "net_simple_return_pct": -21.94275500214364,
+          "observed_event_funding_equity_pct": 19.2909799,
+          "profit_factor": 0.9919659471575744
+        }
+      }
+    },
+    "double_cost": {
+      "additional_hours_delay": 0,
+      "cost_multiplier": 2.0,
+      "event_classification": {
+        "ambiguous_events_with_changed_position": 87,
+        "ambiguous_near_open": 419559,
+        "duplicate_asset_hour": 0,
+        "events_after_window": 0,
+        "events_before_window": 0,
+        "events_in_window": 419559,
+        "events_later_than_open_window": 0,
+        "invalid_event": 0,
+        "nonzero_ms_offset_in_boundary_window": 113653,
+        "unmapped_symbol": 0
+      },
+      "portfolio_coverage": {
+        "active_asset_hours": 175160,
+        "maximum_gross_exposure": 1.0000000000000002,
+        "missing_active_price_events": 0,
+        "sum_turnover": 701.5,
+        "terminal_position_gross": 0.0
+      },
+      "variants": {
+        "conservative_ordering_bound": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 57.783444400311126,
+          "net_sharpe": -1.0699300767666282,
+          "net_simple_return_pct": -47.41118930884578,
+          "observed_event_funding_equity_pct": 19.549950600000003,
+          "profit_factor": 0.968440023389741
+        },
+        "optimistic_ordering_bound": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 57.783444400311126,
+          "net_sharpe": -1.0672170803835654,
+          "net_simple_return_pct": -47.34187189225653,
+          "observed_event_funding_equity_pct": 19.4179567,
+          "profit_factor": 0.9685189912065432
+        },
+        "settlement_post_open": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 57.783444400311126,
+          "net_sharpe": -1.0691611015229414,
+          "net_simple_return_pct": -47.39136047762443,
+          "observed_event_funding_equity_pct": 19.512289550000002,
+          "profit_factor": 0.9684623734801083
+        },
+        "settlement_pre_open": {
+          "annualized_turnover": 701.5,
+          "gross_sharpe": 1.0527583733783927,
+          "max_drawdown_pct": 57.783444400311126,
+          "net_sharpe": -1.0679860512481634,
+          "net_simple_return_pct": -47.36171933944823,
+          "observed_event_funding_equity_pct": 19.455617750000002,
+          "profit_factor": 0.9684966402174935
+        }
+      }
+    }
+  },
+  "schema": "quantlab-pit-lowvol-event-funded-economic-preflight-v1",
+  "sealed_holdout_read": false,
+  "status": "SOURCE_VERIFIED_RESEARCH_DIAGNOSTIC_NOT_WARDEN_STAGE3",
+  "user_authorization_to_trade": false,
+  "valuation_window": {
+    "asset_count": 364,
+    "begin": "2024-07-01T00:00:00+00:00",
+    "end_exclusive": "2025-07-01T00:00:00+00:00",
+    "hours": 8760
+  }
+}

@@ -20,6 +20,12 @@
       "commit": "7970657",
       "report": "docs/FOUR-XS4H-EXECUTION-20261102.md",
       "additional_report": "docs/FOUR-XS4H-POSTTEST-LEDGER-ADDENDUM-20261102.md"
+    },
+    {
+      "pr": 47,
+      "commit": "742e41d",
+      "report": "docs/PIT-LOWVOL-ECONOMIC-PREFLIGHT-20261102.md",
+      "additional_report": "docs/PIT-FUNDING-SOURCE-RECOVERY-20261102.md"
     }
   ],
   "notes": [
@@ -27,7 +33,8 @@
     "PREFLIGHT_FAIL is not a native Warden screen. Keep it separate from the signed contract and full-trial count.",
     "Only identical (hypothesis_id,contract_id) is denied automatically. Distinct mechanisms/authorized new contracts require lineage review, inherited attempts and independent data.",
     "The 24h lowvol revision has the same IC vector as its parent and did not complete Stage3. Do not treat it as independently qualified.",
-    "No outcome in this file is a claim of recovered source-registry append-only persistence; reconcile per-evidence through an approved import workflow."
+    "No outcome in this file is a claim of recovered source-registry append-only persistence; reconcile per-evidence through an approved import workflow.",
+    "The PIT100 lowvol native Stage1 PASS (ATT-480df2ef5d8788f2-001) on the same historical time interval has a separate negative exact-hour 4h event-funded economic preflight (PR47), not a native Stage3 trial. Block automatic repeats despite source refresh and keep all linked prior selection debt."
   ],
   "outcomes": [
     {
@@ -107,6 +114,29 @@
       "auto_retry": "DENY_SAME_CONFIG",
       "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
       "strategy_module": "strategies/candidates/arxiv_lowvol_xs_24h.py"
+    },
+    {
+      "hypothesis_id": "HYP-ARXIV-XS-LOWVOL-PIT100-20261102",
+      "contract_id": "CRYPTO_PERPS_PIT100_1H_V1",
+      "disposition": "STAGE1_PASS_UNQUALIFIED",
+      "stage": "STAGE_1_SIGNAL",
+      "source_pr": 41,
+      "evidence_id": "ATT-480df2ef5d8788f2-001",
+      "data_sha256": "c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a",
+      "summary": "Native PIT monthly-asof lowvol Stage1 IC=.057424 t=11.551 PASS (same already-seen 2024-25 validation window). Exact-hour 4h event-funded economic preflight 1x net Sharpe=-0.2082; 2x=-1.0692; +1h=-0.2727. No native Stage3, no holdout. Same low-vol original family selection debt.",
+      "auto_retry": "DENY_SAME_CONFIG",
+      "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+      "strategy_module": "strategies/candidates/arxiv_lowvol_pit100_adapter.py",
+      "economic_preflight": {
+        "status": "PRELIMINARY_ECONOMICS_REJECT",
+        "source_pr": 47,
+        "report": "docs/PIT-LOWVOL-ECONOMIC-PREFLIGHT-20261102.md",
+        "receipt_sha256": "5de4660add68bc42405f62160645b12a60adeeb8608c06ce0d82752207e45ada",
+        "base_net_sharpe": -0.20821205447751973,
+        "double_cost_net_sharpe": -1.0691611015229414,
+        "delay_plus_one_net_sharpe": -0.2727050992907636,
+        "full_native_stage3": false
+      }
     },
     {
       "hypothesis_id": "HYP-ARXIV-XS-PRICE-PRESSURE-20261102",

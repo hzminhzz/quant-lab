@@ -91,6 +91,9 @@ def prepare_panel(path: Path, symbol: str, frequency: str,
         raise ValueError("Duplicate minute timestamps: refusing to silently deduplicate")
     if df.select(pl.any_horizontal(pl.all().is_null()).sum()).item() != 0:
         raise ValueError("Null raw observations")
+    numeric = ("open", "high", "low", "close", "volume")
+    if df.select(pl.any_horizontal(*[~pl.col(c).is_finite() for c in numeric]).sum()).item():
+        raise ValueError("Non-finite raw OHLCV observations")
     inconsistent = df.filter(
         (pl.col("high") < pl.max_horizontal("open", "close", "low"))
         | (pl.col("low") > pl.min_horizontal("open", "close", "high"))
@@ -155,6 +158,9 @@ def write_once(path: Path, content: bytes) -> None:
 def stage(symbol: str, frequency: str, repo_root: Path, ml4t_root: Path | None = None,
           commit_files: bool = False) -> dict:
     symbol = symbol.upper()
+    if commit_files and frequency != "15m":
+        raise ValueError("Only the integrity-pinned 15m contract may be prepared; "
+                         "additional timeframes require a separately approved hash manifest")
     path = source_path(symbol, repo_root, ml4t_root)
     panel, audit = prepare_panel(path, symbol, frequency)
     key = f"CME_{symbol}_{frequency.upper()}_SYNCSTER_V1"

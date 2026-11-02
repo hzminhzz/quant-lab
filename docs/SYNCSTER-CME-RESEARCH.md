@@ -71,9 +71,10 @@ invalid OHLC, or zero/negative minute volume. Gap counts and incomplete
 aggregates are **reported**, never patched by interpolation.
 
 For new timeframes, start a new contract ID and pinned panel rather than
-overwriting these frozen 15m files. The CLI also supports `--frequency 1h`
-for a separately named, separately pinned future study, subject to the same
-research governance.
+overwriting these frozen 15m files. The CLI supports **read-only auditing** with `--frequency 1h`, but
+**refuses** `--prepare` for that timeframe until a separate versioned
+contract and protected integrity-manifest hash are approved. This prevents
+creating untracked Warden contracts implicitly.
 
 ### Selective remote discovery/downloads when genuinely needed
 

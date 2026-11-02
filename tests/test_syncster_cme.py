@@ -48,7 +48,7 @@ def test_mismatched_source_digest_fails_closed(tmp_path: Path) -> None:
         cme.prepare_panel(source, "ES", "15m", expected_sha="f" * 64)
 
 
-@pytest.mark.parametrize("issue", ["duplicate", "null", "bad_ohlc", "zero_volume"])
+@pytest.mark.parametrize("issue", ["duplicate", "null", "nan", "bad_ohlc", "zero_volume"])
 def test_invalid_source_fails_without_silent_repair(tmp_path: Path, issue: str) -> None:
     source = fixture_source(tmp_path)
     df = pl.read_parquet(source)
@@ -57,6 +57,9 @@ def test_invalid_source_fails_without_silent_repair(tmp_path: Path, issue: str) 
     elif issue == "null":
         df = df.with_columns(pl.when(pl.int_range(pl.len()) == 0)
                              .then(None).otherwise(pl.col("close")).alias("close"))
+    elif issue == "nan":
+        df = df.with_columns(pl.when(pl.int_range(pl.len()) == 0)
+                             .then(pl.lit(float("nan"))).otherwise(pl.col("close")).alias("close"))
     elif issue == "bad_ohlc":
         df = df.with_columns(pl.when(pl.int_range(pl.len()) == 0)
                              .then(pl.lit(98.0)).otherwise(pl.col("high")).alias("high"))
@@ -64,7 +67,7 @@ def test_invalid_source_fails_without_silent_repair(tmp_path: Path, issue: str) 
         df = df.with_columns(pl.when(pl.int_range(pl.len()) == 0)
                              .then(pl.lit(0.0)).otherwise(pl.col("volume")).alias("volume"))
     df.write_parquet(source)
-    with pytest.raises(ValueError, match="Duplicate|Null|Invalid"):
+    with pytest.raises(ValueError, match="Duplicate|Null|Non-finite|Invalid"):
         cme.prepare_panel(source, "ES", "15m", expected_sha=cme.sha256(source))
 
 
@@ -75,6 +78,8 @@ def test_write_once_and_warden_provenance(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setitem(cme.SOURCE_SHA256, "ES", cme.sha256(source))
     repo = tmp_path / "quant"
     repo.mkdir()
+    with pytest.raises(ValueError, match="Only the integrity-pinned 15m"):
+        cme.stage("ES", "1h", repo, source_root, commit_files=True)
     result = cme.stage("ES", "15m", repo, source_root, commit_files=True)
     contract = load_contract(repo / result["contract_path"])
     record = json.loads((repo / result["manifest_path"]).read_text())

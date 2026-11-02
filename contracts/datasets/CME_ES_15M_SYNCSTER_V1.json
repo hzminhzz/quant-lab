@@ -1,0 +1,17 @@
+{
+  "attestation": "Exact SHA-256 for provider-labeled CME series; independent exchange origin and continuous-roll economic fidelity are not yet attested.",
+  "contract_id": "CME_ES_15M_SYNCSTER_V1",
+  "costs": "assumed, not actual CME fill/commission TCA",
+  "cutoff_exclusive": "2025-07-01T00:00:00+00:00",
+  "execution_evidence": "OHLCV_NEXT_BAR_only",
+  "market_type": "cme_futures",
+  "path": "data/exploratory/cme_es_15m_syncster_v1.parquet",
+  "pipeline": "scripts/prepare_syncster_cme.py",
+  "provenance": "verified_market",
+  "raw_source_name": "data/futures/ES.parquet",
+  "raw_source_sha256": "e6320a6772fc5819b12605ffc63f88ac1861c26b8fa528d052e1b21d914438a8",
+  "roll_method": "provider_continuous_unverified",
+  "sha256": "9510c42b8172d300f8dbfd047a6561270c8b6e2e391f50fbc3d0ae28fd8cfb63",
+  "source": "syncster_market_data",
+  "source_repo": "syncster-data/historical-market-data"
+}

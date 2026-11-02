@@ -47,6 +47,21 @@ def load_index(path: Path = INDEX) -> dict:
             raise ValueError(f"Missing frozen strategy module identity: {key}")
         if row.get("auto_retry") != "DENY_SAME_CONFIG":
             raise ValueError(f"Missing replay prohibition: {key}")
+        economics = row.get("economic_preflight")
+        if economics is not None:
+            if (
+                row["disposition"] != "STAGE1_PASS_UNQUALIFIED"
+                or economics.get("status") != "PRELIMINARY_ECONOMICS_REJECT"
+                or economics.get("full_native_stage3") is not False
+                or not isinstance(economics.get("receipt_sha256"), str)
+                or len(economics["receipt_sha256"]) != 64
+            ):
+                raise ValueError(f"Inconsistent PIT economic preflight evidence: {key}")
+            for field in (
+                "base_net_sharpe", "double_cost_net_sharpe", "delay_plus_one_net_sharpe"
+            ):
+                if not isinstance(economics.get(field), (float, int)):
+                    raise TypeError(f"Missing preflight economic metric {field}: {key}")
     blockers = [r["hypothesis_id"] for r in data["original_unattempted"]]
     if len(set(blockers)) != len(blockers):
         raise ValueError("Duplicate original blocker ID")

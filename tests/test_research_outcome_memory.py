@@ -59,14 +59,21 @@ def spec(tmp_path: Path, hypothesis: str, contract: str = "CONTRACT-A",
 def test_branch_failure_index_is_complete_and_distinguishes_preflight() -> None:
     manifest = load_index()
     entries = manifest["outcomes"]
-    assert len(entries) == 15
+    assert len(entries) == 16
     assert len(manifest["original_unattempted"]) == 9
     status = {x["disposition"] for x in entries}
     assert status == {
         "STAGE1_REJECT", "STAGE3_REVISE", "PREFLIGHT_FAIL",
         "STAGE1_PASS_UNQUALIFIED",
     }
-    assert sum(x["disposition"] == "STAGE1_PASS_UNQUALIFIED" for x in entries) == 2
+    assert sum(x["disposition"] == "STAGE1_PASS_UNQUALIFIED" for x in entries) == 3
+    pit = next(x for x in entries if x["hypothesis_id"] == "HYP-ARXIV-XS-LOWVOL-PIT100-20261102")
+    assert pit["disposition"] == "STAGE1_PASS_UNQUALIFIED"
+    assert pit["evidence_id"] == "ATT-480df2ef5d8788f2-001"
+    assert pit["economic_preflight"]["status"] == "PRELIMINARY_ECONOMICS_REJECT"
+    assert pit["economic_preflight"]["full_native_stage3"] is False
+    assert pit["economic_preflight"]["base_net_sharpe"] < 0
+    assert pit["economic_preflight"]["double_cost_net_sharpe"] < -1
     assert {x["source_pr"] for x in entries} == {40, 41, 42}
     r = next(x for x in entries if x["hypothesis_id"] == "HYP-XS4H-SIGN-REV-20261102")
     assert r["disposition"] == "STAGE3_REVISE"
@@ -80,6 +87,7 @@ def test_branch_failure_index_is_complete_and_distinguishes_preflight() -> None:
     "HYP-ARXIV-XS-PRICE-PRESSURE-20261102",
     "HYP-ORDERFLOW-ATS-H72-20261102",
     "HYP-ARXIV-XS-LOWVOL-24H-20261102",
+    "HYP-ARXIV-XS-LOWVOL-PIT100-20261102",
 ])
 def test_open_pr_negative_and_unqualified_studies_deny_replay(tmp_path: Path, hid: str) -> None:
     db = tmp_path / "fresh.db"
@@ -88,6 +96,17 @@ def test_open_pr_negative_and_unqualified_studies_deny_replay(tmp_path: Path, hi
     result = check_spec(spec(tmp_path, hid, row["contract_id"]), db)
     assert not result["eligible"]
     assert result["status"] == "HISTORICAL_RESULT_LOCKED"
+
+
+def test_pit_lowvol_economics_preflight_missing_fields_fails_closed(tmp_path: Path) -> None:
+    source = json.loads(Path("docs/research-outcomes/branch-result-index-v1.json").read_text())
+    pit = next(x for x in source["outcomes"]
+               if x["hypothesis_id"] == "HYP-ARXIV-XS-LOWVOL-PIT100-20261102")
+    pit["economic_preflight"]["receipt_sha256"] = "0"
+    dest = tmp_path / "broken.json"
+    dest.write_text(json.dumps(source))
+    with pytest.raises(ValueError, match="Inconsistent PIT economic"):
+        load_index(dest)
 
 
 def test_contract_refresh_cannot_silently_reset_original_study(tmp_path: Path) -> None:
@@ -178,6 +197,7 @@ def test_inventory_counts_must_exclude_stage1_rejections_from_full_trial_backlog
     assert report["never_attempted_count"] == 1
     assert report["never_attempted"][0]["hypothesis_id"] == "HYP-TEST-NEVER"
     assert report["extra_outcomes_in_open_prs"]["negative"] == 13
+    assert report["extra_outcomes_in_open_prs"]["stage1_pass_unqualified"] == 3
 
 
 def test_hourly_runner_checks_failure_memory_before_screening() -> None:

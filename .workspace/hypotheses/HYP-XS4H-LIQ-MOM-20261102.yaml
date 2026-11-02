@@ -1,0 +1,15 @@
+hypothesis_id: HYP-XS4H-LIQ-MOM-20261102
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Liquidity-conditioned seven-day altcoin momentum predicts 4h continuation
+strategy_family: cross_sectional_ml
+economic_mechanism: >-
+  Liquid crypto assets may exhibit trend continuation due to slow institutional allocation; rank trailing 168-hour close-to-close return only for the 50 assets with highest as-of trailing 24-hour traded dollar volume. Test its sign against four-hour next-open relative performance without reoptimizing lookback or liquidity percentile.
+counterparty_or_friction: >-
+  Liquidity provision and delayed allocation generate persistence but rankings among surviving Binance perpetuals can overstate liquidity and alpha. Four-hour turnover pays exchange taker fees, spread and funding and may reverse the reported weekly horizon economics.
+expected_holding_bars: 4
+falsification_criteria: >-
+  Stage 1 Warden cross_sectional_ml mean rank IC must be at least 0.015 with HAC t-stat at least 2.0 on frozen 2024-07-01 through 2025-06-30 hourly Binance validation, using nonoverlapping UTC four-hour anchors, at least 30 current altcoins, exact next-hour open entry and open exit four hours later. Fixed selected top five long and bottom five short except sign-only equal cohorts; 6bps one-way plus contract funding in Stage3. No tuning after Stage1. Only genuine pass advances to native Stage3 (net Sharpe at least 1.0, DSR at least 0.90, stress costs/lag/neighbor survival); historical 149h/75t/230 selection attempts inherited via WAL snapshot. Never read protected holdout.
+source_provenance: >-
+  Ficura and Colak Impact of Size and Volume on Cryptocurrency Momentum and Reversal, SSRN 4378429 (2024 revision); the paper studies weekly crypto returns and market caps; this is an explicitly shorter-horizon 1h-perp adaptation, not a replica. Prior HYP-2026-023 and HYP-2026-038 related momentum searches remain selection debt.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/four_xs4h/liquid_weekly_momentum.py

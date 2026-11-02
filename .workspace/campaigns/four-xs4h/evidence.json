@@ -1,0 +1,234 @@
+{
+  "audit": {
+    "checks": {
+      "1_target_rebalance_alignment": true,
+      "2_outlier_sensitivity": false,
+      "3_point_in_time_causality": true,
+      "4_fold_local_fitting": true,
+      "5_cost_and_latency_survival": false,
+      "6_selection_bias_accounting": false
+    },
+    "verdict": "REJECTED"
+  },
+  "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+  "counts_after": {
+    "hypotheses": 153,
+    "selection_attempts": 234,
+    "trials": 76
+  },
+  "live_execution": false,
+  "protected_holdout_read": false,
+  "research_status": "REJECTED_FOR_TRADING",
+  "source_snapshot": {
+    "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+    "counts": {
+      "hypotheses": 149,
+      "selection_attempts": 230,
+      "trials": 75
+    },
+    "dataset_rows_source": "/home/quant/dev/quant-lab/data/exploratory/crypto_perps_top100_1h.parquet",
+    "dataset_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+    "protected_holdout_read": false,
+    "snapshot_sha256": "6088140643ff5d66733cd1008f8c3fbbcde0500c41401a92a3b9f258c8720d7f",
+    "source_is_not_modified": true,
+    "source_read_only": true,
+    "source_registry": "/home/quant/dev/quant-lab/registry/registry.db",
+    "wal_consistent": true
+  },
+  "stage1": {
+    "btc_spillover": {
+      "attempt_id": "ATT-55ee4a3397e01826-001",
+      "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+      "hypothesis_id": "HYP-XS4H-BTC-SPILLOVER-20261102",
+      "metrics": {
+        "dataset": {
+          "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+          "eligible_market": true,
+          "path": "data/exploratory/crypto_perps_top100_1h.parquet",
+          "provenance": "verified_market",
+          "reason": "verified market data",
+          "role": "exploratory",
+          "sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+          "source": "Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store) via scripts/salvage_crypto.py and scripts/salvage_multi_asset.py"
+        },
+        "ic_hac_tstat": -2.797829440880048,
+        "mean_ic": -0.016817913977188088
+      },
+      "outcome": "REJECT",
+      "returns_observed": 1,
+      "returns_sha256": "5bd9b6674463c91abf0580b4757f483ccdd121da029ff3abcf11481035b8c732",
+      "stage": "STAGE_1_SIGNAL"
+    },
+    "liquid_weekly_momentum": {
+      "attempt_id": "ATT-9d45a649dd34bb76-001",
+      "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+      "hypothesis_id": "HYP-XS4H-LIQ-MOM-20261102",
+      "metrics": {
+        "dataset": {
+          "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+          "eligible_market": true,
+          "path": "data/exploratory/crypto_perps_top100_1h.parquet",
+          "provenance": "verified_market",
+          "reason": "verified market data",
+          "role": "exploratory",
+          "sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+          "source": "Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store) via scripts/salvage_crypto.py and scripts/salvage_multi_asset.py"
+        },
+        "ic_hac_tstat": -8.940251655367298,
+        "mean_ic": -0.04121610996677814
+      },
+      "outcome": "REJECT",
+      "returns_observed": 1,
+      "returns_sha256": "adfb11ed3dbc5cb45a70ae5da3800aabdc8ac2a665311b795730d4b44a35c051",
+      "stage": "STAGE_1_SIGNAL"
+    },
+    "price_volume_confirm": {
+      "attempt_id": "ATT-5d6d2cf388e6a93c-001",
+      "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+      "hypothesis_id": "HYP-XS4H-PRICE-VOLUME-20261102",
+      "metrics": {
+        "dataset": {
+          "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+          "eligible_market": true,
+          "path": "data/exploratory/crypto_perps_top100_1h.parquet",
+          "provenance": "verified_market",
+          "reason": "verified market data",
+          "role": "exploratory",
+          "sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+          "source": "Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store) via scripts/salvage_crypto.py and scripts/salvage_multi_asset.py"
+        },
+        "ic_hac_tstat": -13.562807949927048,
+        "mean_ic": -0.03879576584435848
+      },
+      "outcome": "REJECT",
+      "returns_observed": 1,
+      "returns_sha256": "63cfd1b886f167226d5ee501c8caf2f5386235946eb29041832be34a45fa1332",
+      "stage": "STAGE_1_SIGNAL"
+    },
+    "sign_reversal": {
+      "attempt_id": "ATT-997670f59b65ec2b-001",
+      "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+      "hypothesis_id": "HYP-XS4H-SIGN-REV-20261102",
+      "metrics": {
+        "dataset": {
+          "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+          "eligible_market": true,
+          "path": "data/exploratory/crypto_perps_top100_1h.parquet",
+          "provenance": "verified_market",
+          "reason": "verified market data",
+          "role": "exploratory",
+          "sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+          "source": "Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store) via scripts/salvage_crypto.py and scripts/salvage_multi_asset.py"
+        },
+        "ic_hac_tstat": 7.544401868742949,
+        "mean_ic": 0.023199621520071958
+      },
+      "outcome": "PASS",
+      "returns_observed": 1,
+      "returns_sha256": "210925b46a8f28760d7192a87530089cbea31e3352861c56fe2f94b579390d57",
+      "stage": "STAGE_1_SIGNAL"
+    }
+  },
+  "stage3": {
+    "annualized_turnover": 2488.0221946506276,
+    "breakeven_cost_bps": 1.6582188940259512,
+    "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+    "data_snapshot_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+    "deflated_sharpe_prob": 1.5599585588012604e-53,
+    "delay_plus1_sharpe": -11.231821234841904,
+    "effective_trials_keff": 42.30183029271103,
+    "gross_sharpe": 3.1642815703207736,
+    "ic_hac_tstat": 7.544401868742949,
+    "max_drawdown_pct": 66.4727172397217,
+    "mean_ic": 0.023199621520071958,
+    "metrics_diagnostics": {
+      "dataset": "DatasetResolution(contract_id='CRYPTO_PERPS_TOP100_1H_V1', role='exploratory', path='data/exploratory/crypto_perps_top100_1h.parquet', sha256='a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc', provenance='verified_market', source='Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store) via scripts/salvage_crypto.py and scripts/salvage_multi_asset.py', eligible_market=True, reason='verified market data')",
+      "excluded_streams": [
+        {
+          "reason": "no observed return stream",
+          "run_id": "RUN-HYP037-001"
+        },
+        {
+          "reason": "no observed return stream",
+          "run_id": "RUN-HYP028-002"
+        },
+        {
+          "reason": "no observed return stream",
+          "run_id": "RUN-HYP057-002"
+        },
+        {
+          "reason": "no observed return stream",
+          "run_id": "RUN-HYP037-002"
+        },
+        {
+          "reason": "no observed return stream",
+          "run_id": "RUN-HYP025-002"
+        },
+        {
+          "reason": "no observed return stream",
+          "run_id": "RUN-HYP049-002"
+        }
+      ],
+      "family_key": "crypto_perps:1h",
+      "metrics": {
+        "active_bar_share": 0.0,
+        "active_sharpe": 0.0,
+        "annualized_turnover": 2488.0221946506276,
+        "bar_profit_factor": 0.7409186167229043,
+        "benchmark_conventions": "equal-weight buy-and-hold at 1/N, no costs; strategy net returns include fees",
+        "benchmark_net_sharpe": 0.062285472588447056,
+        "breakeven_cost_bps": 1.6582188940259512,
+        "closed_trade_count": 0,
+        "closed_trade_hit_rate": 0.0,
+        "closed_trade_profit_factor": 0.0,
+        "cvar_99_pct": 0.004357592820005924,
+        "gross_sharpe": 3.1642815703207736,
+        "hit_rate": 0.43012912482065996,
+        "information_ratio": -1.2915053044277482,
+        "max_drawdown_pct": 66.4727172397217,
+        "net_sharpe": -8.175412637463355,
+        "one_way_cost_decimal": 0.0006000000000000001,
+        "profit_factor": 0.7409186167229043,
+        "relative_return_annualized": -1.1371848072178745,
+        "trade_conventions": "closed_trade_profit_factor: maximal contiguous runs of same-sign non-zero net exposure; sign flips and flat gaps start a new trade; partial scale-ins/scale-outs stay inside their trade; fees are charged on the bar they occur (turnover based) and net returns are summed per trade; ratio = sum(positive trade returns) / |sum(negative trade returns)|"
+      },
+      "selection": {
+        "correction_policy": "dedup@0.9995 + max(prior floor) + 0.50/unvectorized",
+        "k_eff_dedup": 4.237843415920019,
+        "k_eff_gate": 42.30183029271103,
+        "noise_floor_applied": false,
+        "non_promotable_reason": "",
+        "prior_max_keff": 15.801830292711028,
+        "raw_attempt_count": 59,
+        "streams_used": 6,
+        "unvectorized_attempts": 53
+      },
+      "timing_skill": {
+        "caveat": "Exposure-aware circular-shift null: shifting preserves the declared position exposure (time-in-market and magnitudes) but assumes the return process is roughly stationary over the window. Under regimes/trends the empirical tail fraction is not an exact distribution-free p-value; read it as a labelled diagnostic, never as a gate.",
+        "exposure_preserved": true,
+        "gate_applied": false,
+        "k": 200,
+        "null_mean": 1.0437224144795482e-06,
+        "null_q05": -1.5776640821102233e-05,
+        "null_q95": 1.6675021412163087e-05,
+        "null_std": 1.0415118305138451e-05,
+        "observed_statistic": 4.709686543294047e-05,
+        "p_value": 0.004975124378109453,
+        "seed": 42,
+        "time_in_market": 0.7525114155251141,
+        "valid_shift_range": [
+          12,
+          8748
+        ]
+      }
+    },
+    "net_sharpe": -8.175412637463355,
+    "profit_factor": 0.7409186167229043,
+    "returns_parquet_path": "registry/returns/CRYPTO_PERPS_TOP100_1H_V1/RUN-XS4H-SIGN-REVERSAL-20261102-001.parquet",
+    "returns_sha256": "a9d87f73bcf47dc66ce49753f4247016b64df3bb0d0fbd2a2d651d157d10b56d",
+    "run_id": "RUN-XS4H-SIGN-REVERSAL-20261102-001",
+    "stress_2x_cost_sharpe": -18.249770389401945,
+    "total_trials_n": 59.0,
+    "verdict": "REVISE"
+  }
+}

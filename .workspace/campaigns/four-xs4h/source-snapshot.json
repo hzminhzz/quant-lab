@@ -1,0 +1,16 @@
+{
+  "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+  "counts": {
+    "hypotheses": 149,
+    "selection_attempts": 230,
+    "trials": 75
+  },
+  "dataset_rows_source": "/home/quant/dev/quant-lab/data/exploratory/crypto_perps_top100_1h.parquet",
+  "dataset_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+  "protected_holdout_read": false,
+  "snapshot_sha256": "6088140643ff5d66733cd1008f8c3fbbcde0500c41401a92a3b9f258c8720d7f",
+  "source_is_not_modified": true,
+  "source_read_only": true,
+  "source_registry": "/home/quant/dev/quant-lab/registry/registry.db",
+  "wal_consistent": true
+}

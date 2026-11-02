@@ -1,0 +1,15 @@
+hypothesis_id: HYP-XS4H-BTC-SPILLOVER-20261102
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: BTC-leader beta-continuation predicts relative altcoin returns at 4h
+strategy_family: cross_sectional_ml
+economic_mechanism: >-
+  A large BTC four-hour trend, when combined with an asset's strictly trailing 168-hour covariance beta to BTC, predicts the relative 4-hour next-open performance of that altcoin through delayed cross-crypto information diffusion. Fixed score beta_168(asset,BTC) multiplied by BTC trailing four-hour return; only observed OHLCV. This is not a full Guo et al LASSO replication.
+counterparty_or_friction: >-
+  Delayed attention-driven altcoin repricing is the proposed counterparty. Long higher beta under BTC uptrend and short lower beta pays fixed Binance perp taker cost, modeled spread and funding; beta timing, common-market exposure and exchange survivorship can destroy net profitability.
+expected_holding_bars: 4
+falsification_criteria: >-
+  Stage 1 Warden cross_sectional_ml mean rank IC must be at least 0.015 with HAC t-stat at least 2.0 on frozen 2024-07-01 through 2025-06-30 hourly Binance validation, using nonoverlapping UTC four-hour anchors, at least 30 current altcoins, exact next-hour open entry and open exit four hours later. Fixed selected top five long and bottom five short except sign-only equal cohorts; 6bps one-way plus contract funding in Stage3. No tuning after Stage1. Only genuine pass advances to native Stage3 (net Sharpe at least 1.0, DSR at least 0.90, stress costs/lag/neighbor survival); historical 149h/75t/230 selection attempts inherited via WAL snapshot. Never read protected holdout.
+source_provenance: >-
+  Guo Sang Tu Wang Cross-Cryptocurrency Return Predictability, SSRN 3974583, 2024 revision. Related prior HYP-2026-033 information diffusion was rejected; treat this alternate beta construction as additional selection debt, not independent replication.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/four_xs4h/btc_spillover.py

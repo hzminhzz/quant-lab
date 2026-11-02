@@ -1,0 +1,15 @@
+hypothesis_id: HYP-XS4H-PRICE-VOLUME-20261102
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Hourly price trend confirmed by accelerating own dollar volume predicts 4h drift
+strategy_family: cross_sectional_ml
+economic_mechanism: >-
+  A completed 24-hour price drift backed by increasing own 24-hour dollar turnover versus its previous 24-hour period can reflect progressively informed participation. The frozen factor is trailing 24-hour close return times max(log(current_24h_notional / preceding_24h_notional),0). Test following four-hour relative returns on available Binance altcoin perps.
+counterparty_or_friction: >-
+  Trend participation may be met by market makers repricing after information diffusion, but volume expansions also mark capitulation and crowded liquidation. Four-hour churn pays modeled taker fees, impact/slippage and funding, and surviving coin selection may bias the result.
+expected_holding_bars: 4
+falsification_criteria: >-
+  Stage 1 Warden cross_sectional_ml mean rank IC must be at least 0.015 with HAC t-stat at least 2.0 on frozen 2024-07-01 through 2025-06-30 hourly Binance validation, using nonoverlapping UTC four-hour anchors, at least 30 current altcoins, exact next-hour open entry and open exit four hours later. Fixed selected top five long and bottom five short except sign-only equal cohorts; 6bps one-way plus contract funding in Stage3. No tuning after Stage1. Only genuine pass advances to native Stage3 (net Sharpe at least 1.0, DSR at least 0.90, stress costs/lag/neighbor survival); historical 149h/75t/230 selection attempts inherited via WAL snapshot. Never read protected holdout.
+source_provenance: >-
+  Tan and Tao Trend-based Forecast of Cryptocurrency Returns (Economic Modelling 2023; SSRN 4222864) finds distinct price and volume predictability across horizons. The fixed 24-hour interaction is our adaptation, not an author-prescribed trading formula. Earlier HYP-2026-060, HYP-2026-038 volume studies add selection debt.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/four_xs4h/price_volume_confirm.py

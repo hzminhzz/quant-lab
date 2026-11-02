@@ -1,0 +1,15 @@
+hypothesis_id: HYP-XS4H-SIGN-REV-20261102
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Sign-only one-hour crypto reversal at four-hour follower horizon
+strategy_family: cross_sectional_ml
+economic_mechanism: >-
+  Recent aggressive directional price pressure can overshoot transient liquidity and reverse. Give every nonzero completed one-hour candle an identical opposite directional score -sign(close-open), ignoring magnitude. Test rank predictive power over the next four-hour open-to-open returns for all available altcoins; no bar magnitude cutoff.
+counterparty_or_friction: >-
+  The expected counterparty is urgent directional market taker flow versus liquidity providers. The cited 15-minute sign reversal edge was smaller than typical round-trip costs; at four-hour holding this adaptation is especially likely to be unprofitable once spread, funding and slippage are included.
+expected_holding_bars: 4
+falsification_criteria: >-
+  Stage 1 Warden cross_sectional_ml mean rank IC must be at least 0.015 with HAC t-stat at least 2.0 on frozen 2024-07-01 through 2025-06-30 hourly Binance validation, using nonoverlapping UTC four-hour anchors, at least 30 current altcoins, exact next-hour open entry and open exit four hours later. Fixed selected top five long and bottom five short except sign-only equal cohorts; 6bps one-way plus contract funding in Stage3. No tuning after Stage1. Only genuine pass advances to native Stage3 (net Sharpe at least 1.0, DSR at least 0.90, stress costs/lag/neighbor survival); historical 149h/75t/230 selection attempts inherited via WAL snapshot. Never read protected holdout.
+source_provenance: >-
+  Kitron and Wengrowicz Short-horizon mean reversion in cryptocurrency markets: a matched cross-market measurement, arXiv 2608.21888 (2026). Study reports 15-minute evidence, NOT this 4-hour rule; prior short-term pullback and reversal research counts toward multiplicity.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/four_xs4h/sign_reversal.py

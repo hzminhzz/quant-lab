@@ -2,7 +2,7 @@
 
 **Decision (2026-11-01):** The principal authorizes Dukascopy CFD price history as a **historical research proxy** when exact exchange-futures data or bid/ask quotes are unavailable. The target is mid-frequency strategy discovery and proxy-only robustness testing (5m, 15m, 1h, swing), not high-frequency execution. **Futures market data is not a mandatory input for exploratory screens or separately labeled proxy robustness. Future-dated information remains forbidden.**
 
-This guide is invoked by [BLOCKER-RECOVERY.md](BLOCKER-RECOVERY.md) whenever a dataset, quote, or futures-source requirement would otherwise block a research campaign.
+This guide is invoked by [BLOCKER-RECOVERY.md](BLOCKER-RECOVERY.md) whenever a dataset, quote, or futures-source requirement would otherwise block a research campaign. **Update (2026-11-02):** ES/NQ exchange-futures-labeled history has been SHA-pinned for separate 15-minute Warden exploratory contracts; see [SYNCSTER-CME-RESEARCH.md](SYNCSTER-CME-RESEARCH.md). Prefer that independent source when the hypothesis explicitly needs CME history, while preserving CFD lineage results.
 
 ## Contract-by-purpose, not blanket rejection
 

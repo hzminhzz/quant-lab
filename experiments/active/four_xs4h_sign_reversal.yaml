@@ -1,0 +1,11 @@
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+hypothesis_id: HYP-XS4H-SIGN-REV-20261102
+run_id: RUN-XS4H-SIGN-REVERSAL-20261102-001
+strategy_family: cross_sectional_ml
+model_type: linear
+strategy_module: strategies/candidates/four_xs4h/sign_reversal.py
+strategy_name: XS4H_SIGN_REVERSAL_FROZEN
+parameters:
+  rebalance_every: 4
+  top_k: 5
+param_grid: []

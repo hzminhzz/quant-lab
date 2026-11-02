@@ -1,0 +1,320 @@
+{
+  "assets": 364,
+  "contract_id": "CRYPTO_PERPS_PIT100_1H_V1",
+  "funding_interval_hours_counts": {
+    "1": 7115,
+    "2": 1247,
+    "4": 312496,
+    "8": 369540,
+    "None": 1
+  },
+  "missing_8h_settlement_rows": 39333,
+  "missing_funding_pct": 14.385603652395194,
+  "missing_funding_rows": 314653,
+  "monthly": [
+    {
+      "assets": 100,
+      "missing_funding": 14880,
+      "month": "2023-01-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 10738,
+      "month": "2023-02-01 00:00:00+00:00",
+      "rows": 67186
+    },
+    {
+      "assets": 100,
+      "missing_funding": 14880,
+      "month": "2023-03-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 15120,
+      "month": "2023-04-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 17856,
+      "month": "2023-05-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 16560,
+      "month": "2023-06-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 17112,
+      "month": "2023-07-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 11160,
+      "month": "2023-08-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 12960,
+      "month": "2023-09-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 12648,
+      "month": "2023-10-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 10800,
+      "month": "2023-11-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 11904,
+      "month": "2023-12-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 10416,
+      "month": "2024-01-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 10440,
+      "month": "2024-02-01 00:00:00+00:00",
+      "rows": 69600
+    },
+    {
+      "assets": 100,
+      "missing_funding": 5952,
+      "month": "2024-03-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 11520,
+      "month": "2024-04-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 8928,
+      "month": "2024-05-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 10080,
+      "month": "2024-06-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 10375,
+      "month": "2024-07-01 00:00:00+00:00",
+      "rows": 74359
+    },
+    {
+      "assets": 99,
+      "missing_funding": 10416,
+      "month": "2024-08-01 00:00:00+00:00",
+      "rows": 73656
+    },
+    {
+      "assets": 100,
+      "missing_funding": 11770,
+      "month": "2024-09-01 00:00:00+00:00",
+      "rows": 71530
+    },
+    {
+      "assets": 100,
+      "missing_funding": 8184,
+      "month": "2024-10-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 8640,
+      "month": "2024-11-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 5952,
+      "month": "2024-12-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 3720,
+      "month": "2025-01-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 4032,
+      "month": "2025-02-01 00:00:00+00:00",
+      "rows": 67200
+    },
+    {
+      "assets": 100,
+      "missing_funding": 5952,
+      "month": "2025-03-01 00:00:00+00:00",
+      "rows": 74400
+    },
+    {
+      "assets": 100,
+      "missing_funding": 7200,
+      "month": "2025-04-01 00:00:00+00:00",
+      "rows": 72000
+    },
+    {
+      "assets": 100,
+      "missing_funding": 9418,
+      "month": "2025-05-01 00:00:00+00:00",
+      "rows": 74146
+    },
+    {
+      "assets": 100,
+      "missing_funding": 5040,
+      "month": "2025-06-01 00:00:00+00:00",
+      "rows": 72000
+    }
+  ],
+  "no_protected_data_access": true,
+  "no_zero_funding_imputation": true,
+  "rows": 2187277,
+  "scope": "Source quality of a proposed dataset, NOT executable strategy performance",
+  "source_sha256": "c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a",
+  "top_missing_assets": [
+    {
+      "asset": "EOSUSDT",
+      "missing": 20194,
+      "rows": 20194
+    },
+    {
+      "asset": "FTMUSDT",
+      "missing": 18288,
+      "rows": 18288
+    },
+    {
+      "asset": "MATICUSDT",
+      "missing": 14866,
+      "rows": 14866
+    },
+    {
+      "asset": "MKRUSDT",
+      "missing": 13920,
+      "rows": 13920
+    },
+    {
+      "asset": "RNDRUSDT",
+      "missing": 12415,
+      "rows": 12415
+    },
+    {
+      "asset": "BNXUSDT",
+      "missing": 11650,
+      "rows": 11650
+    },
+    {
+      "asset": "WAVESUSDT",
+      "missing": 10968,
+      "rows": 10968
+    },
+    {
+      "asset": "STORJUSDT",
+      "missing": 10224,
+      "rows": 10224
+    },
+    {
+      "asset": "OMUSDT",
+      "missing": 9480,
+      "rows": 9480
+    },
+    {
+      "asset": "AGIXUSDT",
+      "missing": 8808,
+      "rows": 8808
+    },
+    {
+      "asset": "OCEANUSDT",
+      "missing": 8736,
+      "rows": 8736
+    },
+    {
+      "asset": "BAKEUSDT",
+      "missing": 8064,
+      "rows": 8064
+    },
+    {
+      "asset": "SXPUSDT",
+      "missing": 7368,
+      "rows": 7368
+    },
+    {
+      "asset": "HIGHUSDT",
+      "missing": 7344,
+      "rows": 7344
+    },
+    {
+      "asset": "ALPHAUSDT",
+      "missing": 6576,
+      "rows": 6576
+    },
+    {
+      "asset": "HOOKUSDT",
+      "missing": 5880,
+      "rows": 5880
+    },
+    {
+      "asset": "STMXUSDT",
+      "missing": 5856,
+      "rows": 5856
+    },
+    {
+      "asset": "XEMUSDT",
+      "missing": 5808,
+      "rows": 5808
+    },
+    {
+      "asset": "LEVERUSDT",
+      "missing": 5136,
+      "rows": 5136
+    },
+    {
+      "asset": "RDNTUSDT",
+      "missing": 5112,
+      "rows": 5112
+    }
+  ],
+  "yearly": [
+    {
+      "missing_funding": 166618,
+      "rows": 875986,
+      "year": 2023
+    },
+    {
+      "missing_funding": 112673,
+      "rows": 877145,
+      "year": 2024
+    },
+    {
+      "missing_funding": 35362,
+      "rows": 434146,
+      "year": 2025
+    }
+  ]
+}

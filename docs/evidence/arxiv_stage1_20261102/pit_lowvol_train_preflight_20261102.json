@@ -1,0 +1,26 @@
+{
+  "actual_train_last": "2024-06-30 23:00:00+00:00",
+  "assets_observed_training_only": 249,
+  "candidate": "frozen sign of inverse 24h realized volatility",
+  "contract_id": "CRYPTO_PERPS_PIT100_1H_V1",
+  "data_selection": "monthly asof only; last 30d volume, min 21 observed days",
+  "dataset_sha256": "c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a",
+  "preflight_halves": [
+    {
+      "hac_t": 10.981092506613715,
+      "hours_eligible": 6540,
+      "hours_total": 6564,
+      "mean_spearman_ic": 0.05306171357862128
+    },
+    {
+      "hac_t": 11.08646738501755,
+      "hours_eligible": 6559,
+      "hours_total": 6564,
+      "mean_spearman_ic": 0.05319166504404777
+    }
+  ],
+  "same_fixed_signal_as_hindsight_version": true,
+  "source_rows_training_only": 1312786,
+  "status": "TRAINING_ONLY_PREFLIGHT_NOT_WARDEN_VALIDATION",
+  "train_end_exclusive": "2024-07-01 00:00:00+00:00"
+}

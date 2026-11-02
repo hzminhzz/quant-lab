@@ -1,0 +1,159 @@
+{
+  "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+  "dataset_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+  "method": "Force zero target at t_end - delay - 1; execute at last observed open; pay full exit turnover cost",
+  "protected_period_accessed": false,
+  "scenarios": {
+    "base": {
+      "delta_net_sharpe": -0.0020504574705345613,
+      "original": {
+        "end_exposure": 1.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 369.7000000000001,
+          "breakeven_cost_bps": 15.098205443346787,
+          "cvar_99_pct": 0.008594643438230038,
+          "gross_sharpe": 1.9066846424833268,
+          "hit_rate": 0.5076501484357159,
+          "max_drawdown_pct": 15.175986085901213,
+          "net_sharpe": 0.9103965990278404,
+          "profit_factor": 1.0274524307139516
+        },
+        "net_simple_total_pct": 25.075069675575623,
+        "terminal_bar_net_bps": 0.0,
+        "terminal_bar_turnover": 0.0
+      },
+      "terminal_flat": {
+        "end_exposure": 0.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 370.70000000000005,
+          "breakeven_cost_bps": 15.057476537376065,
+          "cvar_99_pct": 0.008594643438230036,
+          "gross_sharpe": 1.9066846424833268,
+          "hit_rate": 0.5075921908893709,
+          "max_drawdown_pct": 15.175986085901261,
+          "net_sharpe": 0.9083461415573059,
+          "profit_factor": 1.0273889720330132
+        },
+        "net_simple_total_pct": 25.000024633770114,
+        "terminal_bar_net_bps": -6.000000000000001,
+        "terminal_bar_turnover": 1.0
+      }
+    },
+    "delay_plus_one": {
+      "delta_net_sharpe": -0.0020610815109505243,
+      "original": {
+        "end_exposure": 1.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 369.7000000000001,
+          "breakeven_cost_bps": 13.902084458536306,
+          "cvar_99_pct": 0.008630539578082182,
+          "gross_sharpe": 1.764935885508258,
+          "hit_rate": 0.5106771725476762,
+          "max_drawdown_pct": 17.2839966624937,
+          "net_sharpe": 0.7634983542360766,
+          "profit_factor": 1.0229911966730965
+        },
+        "net_simple_total_pct": 19.71901292636975,
+        "terminal_bar_net_bps": 0.0,
+        "terminal_bar_turnover": 0.0
+      },
+      "terminal_flat": {
+        "end_exposure": 0.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 370.70000000000005,
+          "breakeven_cost_bps": 13.86458220750168,
+          "cvar_99_pct": 0.00863053957808218,
+          "gross_sharpe": 1.764935885508258,
+          "hit_rate": 0.5106188627540534,
+          "max_drawdown_pct": 17.28399666249375,
+          "net_sharpe": 0.7614372727251261,
+          "profit_factor": 1.0229277623312059
+        },
+        "net_simple_total_pct": 19.64718151861402,
+        "terminal_bar_net_bps": -6.000000000000001,
+        "terminal_bar_turnover": 1.0
+      }
+    },
+    "double_cost": {
+      "delta_net_sharpe": -0.004088154546917161,
+      "original": {
+        "end_exposure": 1.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 369.7000000000001,
+          "breakeven_cost_bps": 15.098205443346787,
+          "cvar_99_pct": 0.008630539578082182,
+          "gross_sharpe": 1.9066846424833268,
+          "hit_rate": 0.5046814341173784,
+          "max_drawdown_pct": 18.720722962802007,
+          "net_sharpe": 0.15275164299549088,
+          "profit_factor": 1.0045477181593314
+        },
+        "net_simple_total_pct": 0.1720232417513845,
+        "terminal_bar_net_bps": 0.0,
+        "terminal_bar_turnover": 0.0
+      },
+      "terminal_flat": {
+        "end_exposure": 0.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 370.70000000000005,
+          "breakeven_cost_bps": 15.057476537376065,
+          "cvar_99_pct": 0.00863053957808218,
+          "gross_sharpe": 1.9066846424833268,
+          "hit_rate": 0.504623815504053,
+          "max_drawdown_pct": 18.72072296280212,
+          "net_sharpe": 0.14866348844857372,
+          "profit_factor": 1.0044255045272954
+        },
+        "net_simple_total_pct": 0.05181681386119408,
+        "terminal_bar_net_bps": -12.000000000000002,
+        "terminal_bar_turnover": 1.0
+      }
+    },
+    "triple_cost": {
+      "delta_net_sharpe": -0.0060951973979850305,
+      "original": {
+        "end_exposure": 1.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 369.7000000000001,
+          "breakeven_cost_bps": 15.098205443346787,
+          "cvar_99_pct": 0.008630539578082182,
+          "gross_sharpe": 1.9066846424833268,
+          "hit_rate": 0.5031970769582096,
+          "max_drawdown_pct": 25.707606912110453,
+          "net_sharpe": -0.6003424350136098,
+          "profit_factor": 0.9823407066381697
+        },
+        "net_simple_total_pct": -19.783991839416725,
+        "terminal_bar_net_bps": 0.0,
+        "terminal_bar_turnover": 0.0
+      },
+      "terminal_flat": {
+        "end_exposure": 0.0,
+        "last_hour": "2025-06-30T23:00:00+00:00",
+        "metrics": {
+          "annualized_turnover": 370.70000000000005,
+          "breakeven_cost_bps": 15.057476537376065,
+          "cvar_99_pct": 0.00863053957808218,
+          "gross_sharpe": 1.9066846424833268,
+          "hit_rate": 0.503139627811394,
+          "max_drawdown_pct": 25.707606912110908,
+          "net_sharpe": -0.6064376324115949,
+          "profit_factor": 0.9821642926745792
+        },
+        "net_simple_total_pct": -19.92838065410624,
+        "terminal_bar_net_bps": -18.0,
+        "terminal_bar_turnover": 1.0
+      }
+    }
+  },
+  "source_spec": "experiments/active/arxiv_crypto_lowvol_24h_20261102.yaml",
+  "status": "EXPLORATORY_ACCOUNTING_ONLY",
+  "validation_end_exclusive": "2025-07-01T00:00:00+00:00"
+}

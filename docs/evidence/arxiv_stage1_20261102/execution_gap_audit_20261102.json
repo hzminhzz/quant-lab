@@ -1,0 +1,183 @@
+{
+  "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+  "dataset_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+  "executable_gap_audit": {
+    "counts": {
+      "terminal_no_next_exploratory_open": 20
+    },
+    "events": [
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "ANKRUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "ARBUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "BNBUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "BTCUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "COTIUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "GALAUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "IMXUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "KAVAUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "LPTUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "LQTYUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "LTCUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "OPUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "ROSEUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "RUNEUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "SOLUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "SPELLUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": -0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "SSVUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "TRXUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "XLMUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      },
+      {
+        "current_observed": true,
+        "next_hour_observed": false,
+        "position_weight": 0.05,
+        "reason": "terminal_no_next_exploratory_open",
+        "symbol": "XRPUSDT",
+        "time_utc": "2025-06-30T23:00:00+00:00"
+      }
+    ],
+    "gross_exposure_by_reason": {
+      "terminal_no_next_exploratory_open": 1.0000000000000002
+    },
+    "total": 20
+  },
+  "holdout_read": false,
+  "n_assets": 100,
+  "n_hourly_observations": 8760,
+  "n_negative_or_zero_observed_opens": 0,
+  "nonconsecutive_global_hours": 0,
+  "source_mutated": false,
+  "validation_begin": "2024-07-01 00:00:00+00:00",
+  "validation_end_exclusive": "2025-07-01 00:00:00+00:00"
+}

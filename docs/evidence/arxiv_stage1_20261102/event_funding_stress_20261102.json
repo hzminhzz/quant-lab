@@ -1,0 +1,62 @@
+{
+  "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+  "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+  "diagnostics": {
+    "base": {
+      "missing_4h_event_adverse_1bp_net_sharpe": 0.42880588634426514,
+      "observed_events_only_net_return_pct": 20.567588814629456,
+      "observed_events_only_net_sharpe": 0.7852359436591337,
+      "observed_settlement_funding_cash_pct_of_equity": 10.581905050000001,
+      "original_8h_mask_net_sharpe": 0.9083461415573059,
+      "terminal_position_abs": 0.0,
+      "unknown_4h_event_adverse_cash_pct_of_equity": 10.436500000000002,
+      "unknown_funding_abs_exposure_event_units": 1043.65
+    },
+    "delay_plus_one": {
+      "missing_4h_event_adverse_1bp_net_sharpe": 0.28291973271503157,
+      "observed_events_only_net_return_pct": 15.526411953739384,
+      "observed_events_only_net_sharpe": 0.641263067933829,
+      "observed_settlement_funding_cash_pct_of_equity": 10.47670485,
+      "original_8h_mask_net_sharpe": 0.7614372727251261,
+      "terminal_position_abs": 0.0,
+      "unknown_4h_event_adverse_cash_pct_of_equity": 10.436500000000002,
+      "unknown_funding_abs_exposure_event_units": 1043.65
+    },
+    "double_cost": {
+      "missing_4h_event_adverse_1bp_net_sharpe": -0.32990557230442963,
+      "observed_events_only_net_return_pct": -3.4960747452393415,
+      "observed_events_only_net_sharpe": 0.02562401969993621,
+      "observed_settlement_funding_cash_pct_of_equity": 10.581905050000001,
+      "original_8h_mask_net_sharpe": 0.14866348844857372,
+      "terminal_position_abs": 0.0,
+      "unknown_4h_event_adverse_cash_pct_of_equity": 10.436500000000002,
+      "unknown_funding_abs_exposure_event_units": 1043.65
+    }
+  },
+  "event_classification": {
+    "duplicate_same_asset_hour": 0,
+    "event_intervals_hours": {
+      "1": 1941,
+      "2": 83,
+      "4": 9391,
+      "8": 104544
+    },
+    "observed_funding_event_hours": 115959,
+    "off_grid_events": 0
+  },
+  "funding_source": {
+    "source_assets": 100,
+    "source_events": 115959,
+    "source_file_count": 1200,
+    "source_file_sha256": "4501f9f80d3bad47473abf95343c220c94a1bfd3d7fe203fed550f71d5eda9ed"
+  },
+  "hypothesis": "HYP-ARXIV-XS-LOWVOL-24H-20261102",
+  "limitations": [
+    "No funding source events does not imply zero cost",
+    "The 1bp 4-hour missing-event penalty is a scenario, not actual historical funding",
+    "Event timestamps near simultaneous opens may cross market fill order",
+    "Fixed 100-coin panel is hindsight selected; source lacks verified delisting fills"
+  ],
+  "protected_data_accessed": false,
+  "status": "READ_ONLY_NOT_STAGE3"
+}

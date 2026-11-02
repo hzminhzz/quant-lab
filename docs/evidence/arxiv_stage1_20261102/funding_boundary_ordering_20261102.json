@@ -1,0 +1,158 @@
+{
+  "cases": {
+    "base_cost": {
+      "event_ordering": {
+        "adverse_bound": {
+          "funding_cash_pct_of_initial_equity": 10.592607200000002,
+          "max_drawdown_pct": 15.02649201895309,
+          "net_profit_factor": 1.0236227671183737,
+          "net_sharpe": 0.7848691625345424,
+          "simple_total_return_pct": 20.554669222392306
+        },
+        "optimistic_bound": {
+          "funding_cash_pct_of_initial_equity": 10.467299800000001,
+          "max_drawdown_pct": 15.02649201895309,
+          "net_profit_factor": 1.0237540394940892,
+          "net_sharpe": 0.7891859146103274,
+          "simple_total_return_pct": 20.706319961451868
+        },
+        "post_open_if_ambiguous": {
+          "funding_cash_pct_of_initial_equity": 10.581905050000001,
+          "max_drawdown_pct": 15.02649201895309,
+          "net_profit_factor": 1.0236340061524676,
+          "net_sharpe": 0.7852359436591337,
+          "simple_total_return_pct": 20.567588814629456
+        },
+        "pre_open_if_ambiguous": {
+          "funding_cash_pct_of_initial_equity": 10.47800195,
+          "max_drawdown_pct": 15.02649201895309,
+          "net_profit_factor": 1.0237427981855889,
+          "net_sharpe": 0.7888191101606088,
+          "simple_total_return_pct": 20.693385507399032
+        }
+      },
+      "event_statistics": {
+        "ambiguous_events_with_changed_position": 26,
+        "ambiguous_near_open": 115959,
+        "duplicate_asset_hour": 0,
+        "events_after_window": 0,
+        "events_before_window": 0,
+        "events_in_window": 115959,
+        "events_later_than_open_window": 0,
+        "invalid_event": 0,
+        "nonzero_ms_offset_in_boundary_window": 28846,
+        "unmapped_symbol": 0
+      },
+      "existing_fixed_8h_net_sharpe": 0.9083461415573059,
+      "terminal_gross_weight": 0.0
+    },
+    "delay_plus_one": {
+      "event_ordering": {
+        "adverse_bound": {
+          "funding_cash_pct_of_initial_equity": 10.492594,
+          "max_drawdown_pct": 17.13821775897285,
+          "net_profit_factor": 1.0192586416875429,
+          "net_sharpe": 0.640720036026114,
+          "simple_total_return_pct": 15.508095762357787
+        },
+        "optimistic_bound": {
+          "funding_cash_pct_of_initial_equity": 10.3710947,
+          "max_drawdown_pct": 17.13821775897285,
+          "net_profit_factor": 1.0193843238234885,
+          "net_sharpe": 0.6448683725413231,
+          "simple_total_return_pct": 15.648168334539324
+        },
+        "post_open_if_ambiguous": {
+          "funding_cash_pct_of_initial_equity": 10.47670485,
+          "max_drawdown_pct": 17.13821775897285,
+          "net_profit_factor": 1.019275084796176,
+          "net_sharpe": 0.641263067933829,
+          "simple_total_return_pct": 15.526411953739384
+        },
+        "pre_open_if_ambiguous": {
+          "funding_cash_pct_of_initial_equity": 10.38698385,
+          "max_drawdown_pct": 17.13821775897285,
+          "net_profit_factor": 1.01936788024627,
+          "net_sharpe": 0.6443253721017271,
+          "simple_total_return_pct": 15.629832842040138
+        }
+      },
+      "event_statistics": {
+        "ambiguous_events_with_changed_position": 29,
+        "ambiguous_near_open": 115959,
+        "duplicate_asset_hour": 0,
+        "events_after_window": 0,
+        "events_before_window": 0,
+        "events_in_window": 115959,
+        "events_later_than_open_window": 0,
+        "invalid_event": 0,
+        "nonzero_ms_offset_in_boundary_window": 28846,
+        "unmapped_symbol": 0
+      },
+      "existing_fixed_8h_net_sharpe": 0.7614372727251261,
+      "terminal_gross_weight": 0.0
+    },
+    "double_cost": {
+      "event_ordering": {
+        "adverse_bound": {
+          "funding_cash_pct_of_initial_equity": 10.592607200000002,
+          "max_drawdown_pct": 18.57747614952045,
+          "net_profit_factor": 1.0007505818460514,
+          "net_sharpe": 0.025259370016527925,
+          "simple_total_return_pct": -3.5064210401094753
+        },
+        "optimistic_bound": {
+          "funding_cash_pct_of_initial_equity": 10.467299800000001,
+          "max_drawdown_pct": 18.57747614952045,
+          "net_profit_factor": 1.0008775214008203,
+          "net_sharpe": 0.029529873831678533,
+          "simple_total_return_pct": -3.3849670115409847
+        },
+        "post_open_if_ambiguous": {
+          "funding_cash_pct_of_initial_equity": 10.581905050000001,
+          "max_drawdown_pct": 18.57747614952045,
+          "net_profit_factor": 1.000761423322252,
+          "net_sharpe": 0.02562401969993621,
+          "simple_total_return_pct": -3.4960747452393415
+        },
+        "pre_open_if_ambiguous": {
+          "funding_cash_pct_of_initial_equity": 10.47800195,
+          "max_drawdown_pct": 18.57747614952045,
+          "net_profit_factor": 1.0008666777533355,
+          "net_sharpe": 0.029165195911153925,
+          "simple_total_return_pct": -3.3953252150959456
+        }
+      },
+      "event_statistics": {
+        "ambiguous_events_with_changed_position": 26,
+        "ambiguous_near_open": 115959,
+        "duplicate_asset_hour": 0,
+        "events_after_window": 0,
+        "events_before_window": 0,
+        "events_in_window": 115959,
+        "events_later_than_open_window": 0,
+        "invalid_event": 0,
+        "nonzero_ms_offset_in_boundary_window": 28846,
+        "unmapped_symbol": 0
+      },
+      "existing_fixed_8h_net_sharpe": 0.14866348844857372,
+      "terminal_gross_weight": 0.0
+    }
+  },
+  "data_provenance": "original SHA-pinned 100-asset panel (hindsight selected)",
+  "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+  "event_sources": {
+    "source_assets": 100,
+    "source_events": 115959,
+    "source_file_count": 1200,
+    "source_file_sha256": "4501f9f80d3bad47473abf95343c220c94a1bfd3d7fe203fed550f71d5eda9ed"
+  },
+  "missing_events_are_unknown": true,
+  "not_a_venue_fills_simulation": true,
+  "ordering_window_ms": 1000,
+  "protected_holdout_accessed": false,
+  "schema": "binance-event-time-settlement-ordering-v1",
+  "scientific_status": "SENSITIVITY_ONLY__UNQUALIFIED",
+  "stage1_or_stage3_attempt_created": false,
+  "study": "HYP-ARXIV-XS-LOWVOL-24H-20261102"
+}

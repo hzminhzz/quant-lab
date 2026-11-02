@@ -1,0 +1,12 @@
+contract_id: CRYPTO_MAJORS_1H_V1
+hypothesis_id: HYP-ARXIV-CRYPTO-6H-VOLSCALE-20261102
+strategy_name: Crypto_6H_VolatilityWeight_Trend
+strategy_family: rules_ts
+model_type: rules
+strategy_module: strategies/candidates/arxiv_six_hour_crypto_trend.py
+run_id: RUN-ARXIV-CRYPTO-6H-VOL-001
+parameters:
+  risk_scaled: true
+  universe_size: 15
+  long_budget: 0.70
+  short_budget: 0.30

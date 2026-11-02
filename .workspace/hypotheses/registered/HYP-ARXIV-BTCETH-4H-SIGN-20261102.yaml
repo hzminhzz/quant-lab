@@ -1,0 +1,11 @@
+hypothesis_id: HYP-ARXIV-BTCETH-4H-SIGN-20261102
+contract_id: CRYPTO_MAJORS_1H_V1
+title: BTC ETH 4h pooled Ridge directional forecast baseline
+strategy_family: rules_ts
+economic_mechanism: Persistent multihorizon price and volatility features could contain a weak four-hour directional return forecast, even when simple sign trading turns over frequently.
+counterparty_or_friction: One-way 6 bps modeled taker fee and slippage plus the observed perpetual funding can consume the expected return of small hourly forecast reversals.
+expected_holding_bars: 4
+falsification_criteria: Frozen Warden Stage 1 requires net profit factor >= 1.15, time in market >= 5 percent, gross trade edge > 1.5 times one-way cost, and active-bar bootstrap p < 0.05. Do not adjust thresholds based on results.
+source_provenance: Adaptation of Bysik and Slepaczuk, Machine Learning-Based Bitcoin Trading Under Transaction Costs, arXiv:2606.00060v1, May 2026. Different instrument set (BTC+ETH) and four-hour horizon; no exact replication claim.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_cost_aware_ridge_1h.py

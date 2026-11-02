@@ -31,5 +31,13 @@ Improve the measured quality and diversity of quant-lab Stage 1 research without
 - Ruff passed on added tests; `warden check-worktree` verified protected hash/LOC integrity; `git diff --check` passed.
 - These tests use synthetic observations only and provide **no** strategy alpha or statistical qualification.
 
+## Continuation results — 2026-11-02
+
+Four paper-derived BTC/ETH and six-hour crypto variants were preregistered and evaluated on frozen observed-market hourly data with the real Warden Stage 1 runner: **4 REJECT, 0 PASS, 0 Stage 3 trials, 0 holdout reads**. Their separate experiment specifications, Warden attempt IDs and return-vector SHA-256 hashes are documented in [ARXIV-STAGE1-EXECUTION-20261102.md](ARXIV-STAGE1-EXECUTION-20261102.md).
+
+Independent gate calibration found a major frequency comparability concern: the unchanged Warden rules_ts profit factor is calculated on per-bar net returns, but its fixed PF=1.15 hurdle maps, in an iid normal counterexample, to annualized Sharpe roughly 0.885 for daily, 5.218 for hourly, and 10.436 for 15-minute sampling. Three reproducible diagnostic tests passed. **No frozen gate was modified, and previously rejected studies stay rejected.** Contract/evaluator approval is required before any corrected qualification rule.
+
+The ES/NQ Syncster 15m screens were already executed independently in PR #40 and both rejected; this work avoids duplicate aliases or resetting budgets.
+
 ## Disposition protocol
 Classify every candidate as SOURCE_INCOMPLETE / DATA_BLOCKED / IMPLEMENTATION_BLOCKED / SCREEN_REJECT / SCREEN_PASS / STRESS_REVISE / READY_FOR_HUMAN_HOLDOUT. Recover ordinary blockers and continue independent candidates. No live trading authorization.

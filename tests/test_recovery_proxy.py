@@ -1,5 +1,6 @@
 """Regression: CFD OHLCV is a valid separate NEXT_BAR research basis, not quote fills."""
 
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from warden.contracts import load_contract
 from warden.runner import (
     ExecutionDataError,
+    ExperimentRunner,
     execution_returns,
     require_execution_columns,
     simulate_positions,
@@ -68,3 +70,40 @@ def test_proxy_does_not_silently_override_quote_side_contract() -> None:
     assert proxy.contract_id != FX_QUOTE.contract_id
     assert proxy.spec_hash() != FX_QUOTE.spec_hash()
     require_execution_columns(cfd, proxy)  # explicit new lineage, no fake quotes
+
+
+def test_full_stage1_cfd_proxy_screen_records_pinned_evidence(tiny_repo) -> None:
+    """A proxy-only FX screen uses Warden's registered Stage 1 path, not a private simulator."""
+    fixture = tiny_repo(contract_overrides={"asset_class": "fx", "execution_mode": "NEXT_BAR"})
+    assert "bid" not in fixture.panel.columns and "ask" not in fixture.panel.columns
+    runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
+    report = runner.run_stage1_screen(fixture.spec)
+
+    with fixture.registry._connect() as conn:
+        attempts = conn.execute(
+            "SELECT stage, outcome, data_provenance, returns_observed, diagnostics_json "
+            "FROM selection_attempts"
+        ).fetchall()
+        assert conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0] == 0
+        assert conn.execute("SELECT trials_used FROM hypotheses").fetchone()[0] == 0
+
+    assert len(attempts) == 1
+    stage, outcome, provenance, observed, diagnostics_json = attempts[0]
+    assert stage == "STAGE_1_SIGNAL"
+    assert outcome == ("PASS" if report.passed else "REJECT")
+    assert provenance == "verified_market" and observed == 1
+    dataset = json.loads(diagnostics_json)["dataset"]
+    assert dataset["sha256"] == fixture.sha
+    assert dataset["eligible_market"] is True
+    assert dataset["contract_id"] == fixture.contract.contract_id
+
+
+def test_full_stage1_refuses_quotes_on_ohlcv_without_converting_contract(tiny_repo) -> None:
+    """A separate quote-based experiment remains blocked when source quotes are absent."""
+    fixture = tiny_repo(contract_overrides={"asset_class": "fx", "execution_mode": "QUOTE_SIDE"})
+    runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
+    with pytest.raises(ExecutionDataError, match="requires \\['bid', 'ask'\\]"):
+        runner.run_stage1_screen(fixture.spec)
+    assert runner.resolve_contract(fixture.contract.contract_id).execution_mode == "QUOTE_SIDE"
+    with fixture.registry._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0] == 0

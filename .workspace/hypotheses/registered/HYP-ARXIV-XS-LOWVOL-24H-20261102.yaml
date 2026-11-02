@@ -1,0 +1,12 @@
+hypothesis_id: HYP-ARXIV-XS-LOWVOL-24H-20261102
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Low-volatility cross-sectional forecast with 24-hour capital turnover control
+strategy_family: cross_sectional_ml
+economic_mechanism: Realized-volatility quality changes slower than four hours, so daily portfolio changes may retain persistent relative-return structure while reducing taker fees and execution slippage compared with four-hour full rebalances.
+counterparty_or_friction: A slower rebalance will lag liquidations and abruptly changing risk regimes. It inherits the same frozen Top100 survivorship issue, funding uncertainty and price-impact risk; apparent cost recovery is not venue execution qualification.
+expected_holding_bars: 24
+falsification_criteria: Source low-volatility forecast must preserve Stage 1 IC >=0.015 and HAC t>=2.0. Economic improvement must be independently supported by Warden 1x and 2x cost execution with the identical hourly data and no skipped fee/funding. The 24h rebalance choice was made after the original 4h strategy failed net costs and is a correlated revision, not independent evidence.
+parent_hypothesis_id: HYP-ARXIV-XS-LOWVOL-20261102
+source_provenance: Recorded execution-only revision of HYP-ARXIV-XS-LOWVOL-20261102 based on 24-hour volatility measurement and reduced turnover; carries earlier HYP-2026-031 search lineage and ten training-only factor probes. Not independently discovered alpha.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_lowvol_xs_24h.py

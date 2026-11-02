@@ -39,5 +39,11 @@ Independent gate calibration found a major frequency comparability concern: the 
 
 The ES/NQ Syncster 15m screens were already executed independently in PR #40 and both rejected; this work avoids duplicate aliases or resetting budgets.
 
+## Stage 1 continuation — observed PASS, 2026-11-02
+
+A causal pooled Ridge model of price pressure (HYP-ARXIV-XS-PRICE-PRESSURE-20261102) failed Warden cross-sectional Stage 1 (IC=0.00482, HAC t=1.35). Ten **training-only** factor probes were explicitly disclosed. A selected low-realized-volatility factor, **HYP-ARXIV-XS-LOWVOL-20261102**, passed the unchanged Warden cross-sectional Stage 1 (IC=0.05282, HAC t=12.02) with the existing full selection history carried in a WAL-consistent isolated registry snapshot. This lineage descends from older rejected HYP-2026-031 and is not independent of historical factor mining.
+
+A single explicitly correlated economic revision—24h rather than 4h rebalance—retained the **same** Stage 1 IC PASS but improved base-cost net Sharpe from -0.040 to +0.910 and double-cost net Sharpe from -1.533 to +0.153; turnover fell about 52%. **Stage 3 is not qualified** (net Sharpe below 1.2, 2x cost below 0.5, incomplete executable price paths and historical selection debt). No full trial or holdout was consumed. Full receipt: [ARXIV-LOWVOL-STAGE1-PASS-20261102.md](ARXIV-LOWVOL-STAGE1-PASS-20261102.md). Original four Stage 1 REJECT attempts are unchanged.
+
 ## Disposition protocol
 Classify every candidate as SOURCE_INCOMPLETE / DATA_BLOCKED / IMPLEMENTATION_BLOCKED / SCREEN_REJECT / SCREEN_PASS / STRESS_REVISE / READY_FOR_HUMAN_HOLDOUT. Recover ordinary blockers and continue independent candidates. No live trading authorization.

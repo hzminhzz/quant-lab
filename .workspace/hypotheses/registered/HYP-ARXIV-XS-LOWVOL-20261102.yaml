@@ -1,0 +1,12 @@
+hypothesis_id: HYP-ARXIV-XS-LOWVOL-20261102
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Top-100 crypto low-realized-volatility cross-sectional anomaly
+strategy_family: cross_sectional_ml
+economic_mechanism: Cryptocurrencies with high recently realized volatility may be relatively overpriced due to retail lottery demand and constrained arbitrage; lower 24-hour realized volatility may predict higher four-hour subsequent relative returns among equally observable liquid instruments.
+counterparty_or_friction: Volatility is strongly associated with illiquidity and small-cap effects, so the apparent factor may vanish after minimum liquidity and futures taker fees, spread, funding and price-impact constraints. The frozen survivor universe is not a point-in-time listing oracle.
+expected_holding_bars: 4
+falsification_criteria: Frozen Warden Stage 1 cross-sectional IC >=0.015 and HAC t >=2.0 on purged OOS executable open-to-open four-hour labels. The factor and sign were frozen by a ten-factor TRAINING-ONLY competition (both halves IC >0.015 and HAC t >2, maximum lower-half IC); NO validation-derived modifications. Mandatory later cost, beta, delisting and DSR verification. Never claim independent discovery from parent lineage.
+parent_hypothesis_id: HYP-2026-031
+source_provenance: Derivative of prior HYP-2026-031 volatility-discount hypothesis and Cakici et al. Machine learning and the cross-section of cryptocurrency returns (IRFA, 2024, DOI 10.1016/j.irfa.2024.103244). Ten training-only factor probes disclosed, 2026-11-02. Reuses fixed 2023-2025 Top100 Binance contract.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/arxiv_lowvol_xs_1h.py

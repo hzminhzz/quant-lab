@@ -33,3 +33,6 @@ build/
 
 # Warden invocation audit log (operational, not evidence)
 .workspace/audit/
+
+# WAL-consistent private research snapshots and large validation vectors
+.workspace/stage1_optimization/

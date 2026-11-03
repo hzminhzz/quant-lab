@@ -1,0 +1,33 @@
+hypothesis_id: HYP-CME-NQ-ORB-RTH-20261102
+contract_id: CME_NQ_15M_SYNCSTER_V1
+title: NQ 15m first-hour regular-session breakout continuation
+strategy_family: rules_ts
+economic_mechanism: >-
+  Equity-index long-side trend and price breakout continuation can
+  generate positive returns after the first-hour cash-equity session
+  range breaks to the upside. Long NQ after the close of the first
+  completed 15m bar above the fully observed 09:30-10:30 New York
+  opening-range high, hold eight 15m decision bars then flatten in RTH.
+counterparty_or_friction: >-
+  Momentum-chasing and delayed institutional participation are the
+  counterparties. The study assumes 2bps one-way fee/slippage/spread
+  rather than observed target-venue fills. It excludes overnight and
+  incomplete first-hour sessions but cannot attest CME roll economics.
+expected_holding_bars: 8
+falsification_criteria: >-
+  Before Stage 1 freeze a 60-minute opening range, first upside close
+  breakout from 10:30 through 13:30 New York, one entry per RTH day,
+  eight 15m decision bars held, one-way 2bps cost, no stops, no shorts.
+  Reject if native Warden PF<1.15, gross trade edge<=1.5x one-way
+  cost, TiM<5%, or bootstrap p>=0.05. No after-result tuning.
+  Stage 3 only after a legitimate Stage 1 PASS; account for prior
+  related search attempts outside isolated registry.
+source_provenance: >-
+  Breakout Trading Academy 2022-11-30 general index breakout tendency
+  https://breakouttradingacademy.com/big-index-trading-secret-to-get-real-results/
+  DOES NOT supply this opening-range formula, holding period or sizing.
+  Researcher adaptation only. Earlier NQ CFD ADX/Bollinger/ORB source
+  variants were screened and rejected, which must be disclosed in
+  global multiple-testing interpretation rather than reset by CME ID.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/syncster_nq_orb_15m.py

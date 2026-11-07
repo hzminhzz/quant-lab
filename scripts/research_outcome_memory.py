@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -35,8 +36,18 @@ def load_index(path: Path = INDEX) -> dict:
     data = json.loads(path.read_text(encoding="utf-8"))
     if data.get("schema_version") != 1:
         raise ValueError("Unsupported research outcome memory schema")
+    refs = {}
+    for source in data.get("source_refs", []):
+        pr, commit = source.get("pr"), source.get("commit", "")
+        if not isinstance(pr, int) or pr in refs or not re.fullmatch(r"[0-9a-f]{7,40}", commit):
+            raise ValueError("Invalid or duplicate branch-result source provenance")
+        refs[pr] = commit
+    if not refs:
+        raise ValueError("Missing branch-result source provenance")
     seen = set()
     for row in data["outcomes"]:
+        if row.get("source_pr") not in refs:
+            raise ValueError("Unattributed branch-result source PR")
         key = row["hypothesis_id"], row["contract_id"]
         if key in seen or row["disposition"] not in KNOWN:
             raise ValueError(f"Duplicate or unknown research disposition: {key}")
@@ -163,7 +174,6 @@ def _blocked(reason: str, *, evidence: list[str], status: str) -> dict:
 
 
 def check_spec(spec: Path, registry: Path = REGISTRY, index: Path = INDEX) -> dict:
-    sidecar = load_index(index)
     config = yaml.safe_load(spec.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise TypeError("Candidate specification is not a YAML mapping")
@@ -174,6 +184,24 @@ def check_spec(spec: Path, registry: Path = REGISTRY, index: Path = INDEX) -> di
     module = config.get("strategy_module", "")
     if module and not isinstance(module, str):
         raise ValueError("strategy_module must be a string")
+    # Canonical SQLite wins when it already records this identity. Sidecar
+    # evidence may refuse an *unseen* rerun, never replace a native verdict.
+    with connect_registry(registry) as db:
+        registered = db.execute("SELECT contract_id,status FROM hypotheses WHERE hypothesis_id=?", (hid,)).fetchone()
+        if registered and registered["contract_id"] != cid:
+            return _blocked("Registered hypothesis is frozen under a different contract",
+                            evidence=[registered["contract_id"]], status="CONTRACT_ID_MISMATCH")
+        native_trials = db.execute("SELECT run_id,verdict FROM trials WHERE hypothesis_id=?", (hid,)).fetchall()
+        if native_trials:
+            return _blocked("Canonical Warden trial already recorded; sidecar is supplementary only",
+                            evidence=[f"{x['run_id']}:{x['verdict']}" for x in native_trials],
+                            status="HISTORICAL_TRIAL_ALREADY_RECORDED")
+        native_screens = db.execute("SELECT attempt_id,stage,outcome FROM selection_attempts WHERE hypothesis_id=?", (hid,)).fetchall()
+        if native_screens:
+            return _blocked("Canonical Warden selection attempt already recorded; no automatic repeat",
+                            evidence=[f"{x['attempt_id']}:{x['stage']}:{x['outcome']}" for x in native_screens],
+                            status="HISTORICAL_SELECTION_ATTEMPT_RECORDED")
+    sidecar = load_index(index)
     entry = [r for r in sidecar["outcomes"] if r["hypothesis_id"] == hid]
     identical = [r for r in entry if r["contract_id"] == cid]
     if identical:

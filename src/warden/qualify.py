@@ -14,6 +14,7 @@ from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
     calculate_metrics_from_returns,
+    execution_returns,
     load_module_from_path,
     simulate_positions,
 )
@@ -104,16 +105,13 @@ def qualify_candidate(
     params = cfg_data.get("parameters", cfg_data) if isinstance(cfg_data, dict) else {}
 
     out = mod.generate_positions(panel_df, contract, **params)
-    if "open" in panel_df.columns:
-        ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
-    else:
-        ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
     from warden.runner import _aligned_matrix, _funding_settlement_mask
-    ret_p = _aligned_matrix(ret_df, "ret", assets)
+    # Qualification and validation use exactly the same price-side, latency,
+    # turnover, funding-settlement and cost convention. No close fallback.
+    ret_p = execution_returns(panel_df, contract, assets)
     fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-    fund_mask = _funding_settlement_mask(ts, contract)
-
-    sim = simulate_positions(out["positions"], ret_p, fund_p, contract, slice(0, n_bars), cost_multiplier=1.0, funding_mask=fund_mask)
+    sim = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, slice(0, n_bars),
+                             funding_mask=_funding_settlement_mask(ts, contract), quote_returns=ret_p)
     m = calculate_metrics_from_returns(sim["gross_returns"], sim["net_returns"], sim["turnover"], contract.bars_per_year)
 
     h_net_sr = m["net_sharpe"]

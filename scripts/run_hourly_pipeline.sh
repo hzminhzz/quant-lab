@@ -77,15 +77,25 @@ for spec in "${QUEUE_SPECS[@]}"; do
     OUTPUT=$(uv run warden backtest "$spec" --json 2>&1) || BACKTEST_EXIT=$?
     echo "$OUTPUT"
 
-    # Step D: Require both a successful command and Warden's final-result
-    # sentinel and typed identifiers. Ambiguous completion is NOT a retry.
+    # Step D: The immutable SQLite+Parquet receipt, not CLI exit/sentinel,
+    # decides finality. A lost caller response can recover without re-running.
     RUN_ID=$(echo "$OUTPUT" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
     VERDICT=$(echo "$OUTPUT" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
-    if [ "$BACKTEST_EXIT" -ne 0 ] || [ -z "$RUN_ID" ] || [ -z "$VERDICT" ] || [[ "$OUTPUT" != *WARDEN_RUN_COMPLETE* ]]; then
-        echo "[REQUIRES_RECONCILIATION] Missing/ambiguous final Warden receipt: $spec (exit=$BACKTEST_EXIT)"
+    RECEIPT=""
+    if [ -n "$RUN_ID" ]; then
+        RECEIPT=$(uv run warden attempt-status --run-id "$RUN_ID" --json 2>&1) || true
+    fi
+    LEDGER_VERDICT=$(echo "$RECEIPT" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+    if [[ "$RECEIPT" != *'"source": "warden.attempt-status"'* ]] ||
+       [[ "$RECEIPT" != *'"state": "FINALIZED"'* ]] ||
+       [[ "$RECEIPT" != *'"eligible": true'* ]] ||
+       [ -z "$LEDGER_VERDICT" ] ||
+       { [ -n "$VERDICT" ] && [ "$VERDICT" != "$LEDGER_VERDICT" ]; }; then
+        echo "[REQUIRES_RECONCILIATION] No matching final Warden receipt: $spec (exit=$BACKTEST_EXIT)"
         mv "$spec" experiments/active/review/
         continue
     fi
+    VERDICT="$LEDGER_VERDICT"
 
     if [ "$VERDICT" == "CANDIDATE_FOR_QUALIFICATION" ]; then
         echo ">>> CANDIDATE FOUND! Executing 6-check adversarial audit for $RUN_ID"

@@ -82,8 +82,11 @@ def require_execution_columns(panel_df: pl.DataFrame, contract: EvaluationContra
                                  "a close-price fallback is not a valid execution basis")
     if contract.asset_class == "crypto_perps" and "funding_rate" not in panel_df.columns:
         raise ExecutionDataError(f"{contract.contract_id} is a perpetual contract without funding_rate data")
-    if panel_df.select(pl.col(needed[0]).is_null().any()).item():
-        raise ExecutionDataError(f"null {needed[0]} prices cannot be treated as a zero move")
+    for field in needed:
+        if panel_df.select(pl.col(field).is_null().any()).item():
+            raise ExecutionDataError(f"null {field} prices cannot be treated as a zero move")
+        if panel_df.select((~pl.col(field).is_finite() | (pl.col(field) <= 0)).any()).item():
+            raise ExecutionDataError(f"nonfinite or nonpositive {field} prices cannot be traded")
 
 
 def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, assets: list[str]) -> dict:

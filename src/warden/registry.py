@@ -3,7 +3,9 @@
 import hashlib
 import json
 import math
+import os
 import sqlite3
+import tempfile
 import time
 from contextlib import contextmanager
 from dataclasses import asdict, fields
@@ -155,6 +157,7 @@ class ResearchRegistry:
                 CREATE TABLE IF NOT EXISTS feature_sets (feature_hash TEXT PRIMARY KEY,contract_id TEXT,feature_names_json TEXT,ml4t_engineer_version TEXT,prefix_invariance_passed INTEGER,parquet_cache_path TEXT,created_at REAL);
                 CREATE TABLE IF NOT EXISTS qualifications (qual_id TEXT PRIMARY KEY,run_id TEXT,contract_id TEXT,hypothesis_id TEXT,lineage_id TEXT UNIQUE,holdout_gross_sharpe REAL,holdout_net_sharpe REAL,holdout_max_dd_pct REAL,val_to_holdout_sharpe_ratio REAL,approved_by_human TEXT,qualified_at REAL);
                 CREATE TABLE IF NOT EXISTS holdout_claims (lineage_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,state TEXT NOT NULL,claimed_at REAL NOT NULL,read_started_at REAL,finalized_at REAL);
+                CREATE TABLE IF NOT EXISTS attempt_receipts (run_id TEXT PRIMARY KEY,hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,trial_number INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('RESERVED','FINALIZED','INTERRUPTED_REVIEW')),artifact_path TEXT DEFAULT '',artifact_sha256 TEXT DEFAULT '',reason TEXT DEFAULT '',reserved_at REAL NOT NULL,finalized_at REAL);
                 CREATE TABLE IF NOT EXISTS trial_quarantine (run_id TEXT PRIMARY KEY,reason TEXT,quarantined_at REAL);
                 CREATE TABLE IF NOT EXISTS audit_reports (run_id TEXT PRIMARY KEY,contract_id TEXT,verdict TEXT,checks_json TEXT,created_at REAL);
                 CREATE TABLE IF NOT EXISTS trial_dispositions (disposition_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,disposition TEXT NOT NULL,reason TEXT NOT NULL,attributed_to TEXT NOT NULL,created_at REAL NOT NULL,contract_id TEXT DEFAULT '');
@@ -191,6 +194,20 @@ class ResearchRegistry:
             for table, cls in (("contracts", EvaluationContract), ("hypotheses", HypothesisSpec),
                                ("trials", ExperimentResult)):
                 _ensure_columns(conn, table, cls)
+            # Idempotent legacy reconstruction: never reset counters or overwrite
+            # old verdicts; unfinalized consumed attempts remain review-required.
+            conn.execute("""INSERT OR IGNORE INTO attempt_receipts
+                            (run_id,hypothesis_id,contract_id,trial_number,state,artifact_path,artifact_sha256,reserved_at,finalized_at)
+                            SELECT run_id,hypothesis_id,contract_id,COALESCE(trial_number_in_hyp,0),'FINALIZED',
+                                   COALESCE(returns_parquet_path,''),COALESCE(returns_sha256,''),
+                                   COALESCE(created_at,0),COALESCE(created_at,0) FROM trials""")
+            for hyp_id, contract_id, attempts_json in conn.execute(
+                    "SELECT hypothesis_id,contract_id,attempts_json FROM hypotheses"):
+                for run_id, number in json.loads(attempts_json or "{}").items():
+                    conn.execute("""INSERT OR IGNORE INTO attempt_receipts
+                                    (run_id,hypothesis_id,contract_id,trial_number,state,reason,reserved_at)
+                                    VALUES (?,?,?,?,'INTERRUPTED_REVIEW','legacy consumed attempt without trial',0)""",
+                                 (run_id, hyp_id, contract_id, int(number)))
             for r_id in LEGACY_RUNS:
                 conn.execute("INSERT OR IGNORE INTO trial_quarantine (run_id, reason, quarantined_at) VALUES (?, ?, ?)",
                              (r_id, LEGACY_REASON, time.time()))
@@ -288,17 +305,20 @@ class ResearchRegistry:
         provenance = trial.get("data_provenance") or "unknown"
         if provenance == "unknown" and trial.get("synthetic") in (1, 1.0, True):
             provenance = "synthetic"
+        receipt = self.reconcile_attempt(run_id)
         checks = [
             (not blocking, f"blocking disposition(s): {', '.join(sorted(set(blocking)))}" if blocking else ""),
             (provenance == MARKET, f"provenance '{provenance}' is not verified market data"),
             (bool(trial.get("data_snapshot_sha256")), "trial has no pinned dataset digest"),
             (trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
              f"historical verdict {trial.get('verdict')} is not candidate-for-qualification"),
+            (receipt["state"] == "FINALIZED", f"attempt receipt {receipt['state']}: {receipt['reason']}"),
         ]
         reason = next((r for ok, r in checks if not ok), "verified market candidate evidence")
         return {"run_id": run_id, "eligible": all(ok for ok, _ in checks), "reason": reason,
                 "historical_verdict": trial.get("verdict"),
                 "historical_audit_verdict": audit[0] if audit else None,
+                "attempt_evidence_state": receipt["state"],
                 "data_provenance": provenance, "contract_id": trial.get("contract_id"),
                 "dispositions": dispositions}
 
@@ -392,19 +412,61 @@ class ResearchRegistry:
                 f"{len(members)} hypothesis/module aliases)")
 
     def register_trial_start(self, hypothesis_id, run_id):
+        """Atomically reserve unique run identity and monotonic hypothesis/lineage budget."""
         valid_id(run_id)
         self.check_hypothesis_budget(hypothesis_id)
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT trials_used,status,attempts_json FROM hypotheses WHERE hypothesis_id=?", (hypothesis_id,)).fetchone()
+            row = conn.execute("SELECT trials_used,status,attempts_json,contract_id FROM hypotheses WHERE hypothesis_id=?",
+                               (hypothesis_id,)).fetchone()
+            if row is None:
+                raise ValueError("Unknown hypothesis")
             if row[0] >= PER_HYPOTHESIS_CAP or row[1] != "ACTIVE":
                 raise HypothesisBudgetExhaustedError(hypothesis_id)
+            root, members = self._lineage(conn, hypothesis_id)
+            used = sum(r[0] for r in conn.execute(
+                f"SELECT trials_used FROM hypotheses WHERE hypothesis_id IN ({','.join('?' * len(members))})",
+                tuple(members)))
+            if used >= LINEAGE_CAP:
+                raise HypothesisBudgetExhaustedError(f"{hypothesis_id}: lineage {root} exhausted ({used}/{LINEAGE_CAP})")
             attempts = json.loads(row[2])
-            if run_id in attempts or conn.execute("SELECT 1 FROM trials WHERE run_id=?", (run_id,)).fetchone():
+            if (run_id in attempts or
+                conn.execute("SELECT 1 FROM trials WHERE run_id=?", (run_id,)).fetchone() or
+                conn.execute("SELECT 1 FROM attempt_receipts WHERE run_id=?", (run_id,)).fetchone()):
                 raise ValueError("Duplicate run_id")
-            attempts[run_id] = row[0] + 1
-            conn.execute("UPDATE hypotheses SET trials_used=trials_used+1,attempts_json=? WHERE hypothesis_id=?", (canonical_json(attempts), hypothesis_id))
-            return row[0] + 1
+            number = int(row[0]) + 1
+            conn.execute("""INSERT INTO attempt_receipts
+                            (run_id,hypothesis_id,contract_id,trial_number,state,reserved_at)
+                            VALUES (?,?,?,?,?,?)""",
+                         (run_id, hypothesis_id, row[3], number, "RESERVED", time.time()))
+            attempts[run_id] = number
+            conn.execute("UPDATE hypotheses SET trials_used=trials_used+1,attempts_json=? WHERE hypothesis_id=?",
+                         (canonical_json(attempts), hypothesis_id))
+            return number
+
+    def reconcile_attempt(self, run_id: str, *, confirm_interrupted: bool = False) -> dict:
+        """Never rerun science: project receipt validity and optional durable review state."""
+        with self._connect() as conn:
+            receipt = conn.execute("SELECT * FROM attempt_receipts WHERE run_id=?", (run_id,)).fetchone()
+            if receipt is None:
+                return {"run_id": run_id, "state": "UNKNOWN", "reason": "no reservation", "eligible": False}
+            if confirm_interrupted and receipt["state"] == "RESERVED":
+                conn.execute("UPDATE attempt_receipts SET state='INTERRUPTED_REVIEW',reason=? WHERE run_id=? AND state='RESERVED'",
+                             ("interrupted before committed final result", run_id))
+                receipt = conn.execute("SELECT * FROM attempt_receipts WHERE run_id=?", (run_id,)).fetchone()
+            trial = conn.execute("SELECT returns_parquet_path,returns_sha256,verdict FROM trials WHERE run_id=?", (run_id,)).fetchone()
+        state, reason = receipt["state"], receipt["reason"] or ""
+        if state == "FINALIZED" and trial is None:
+            state, reason = "EVIDENCE_DRIFT", "finalized receipt has no immutable trial"
+        elif state == "FINALIZED" and trial and trial[0]:
+            path = Path(trial[0])
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != trial[1]:
+                state, reason = "EVIDENCE_DRIFT", "Parquet receipt missing or digest mismatched"
+        elif state == "RESERVED":
+            reason = "result uncommitted; reconcile after writer exits, never auto retry"
+        return {"run_id": run_id, "state": state, "reason": reason, "eligible": state == "FINALIZED",
+                "verdict": trial[2] if trial else None,
+                "artifact_sha256": receipt["artifact_sha256"] or ""}
 
     def record_selection_attempt(self, *, hypothesis_id, contract_id, kind, stage, outcome,
                                  strategy_family="", strategy_module="", config_hash="", parameters=None,
@@ -498,6 +560,7 @@ class ResearchRegistry:
             trial_number = self.register_trial_start(result.hypothesis_id, result.run_id)
         path = self.db_path.parent / "returns" / result.contract_id / f"{result.run_id}.parquet"
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT contract_id,attempts_json FROM hypotheses WHERE hypothesis_id=?", (result.hypothesis_id,)).fetchone()
             if row is None or row[0] != result.contract_id or json.loads(row[1]).get(result.run_id) != trial_number:
                 raise ValueError("Missing or mismatched trial reservation")
@@ -505,19 +568,26 @@ class ResearchRegistry:
             returns_sha256 = ""
             if observed:
                 path.parent.mkdir(parents=True, exist_ok=True)
-                with path.open("xb") as handle:
+                # Write, fsync, then atomically publish without replacing any
+                # previous artifact. A crash before commit remains reviewable.
+                with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".pending") as handle:
                     pl.DataFrame({"net_return": returns}).write_parquet(handle)
-            try:
-                if observed:
-                    returns_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
-                trial_dict = {**result.to_dict(), "config_json": canonical_json(config_dict),
-                              "returns_json": canonical_json(returns.tolist()),
-                              "returns_parquet_path": str(path) if observed else "",
-                              "returns_sha256": returns_sha256,
-                              "diagnostics_json": canonical_json(diagnostics or result.diagnostics_json),
-                              "trial_number_in_hyp": trial_number, "git_commit_sha": config_dict.get("git_commit_sha", ""), "created_at": time.time()}
-                _insert(conn, "trials", trial_dict)
-            except Exception:
-                if observed:
-                    path.unlink(missing_ok=True)
-                raise
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                    os.link(handle.name, path)
+            if observed:
+                returns_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+            trial_dict = {**result.to_dict(), "config_json": canonical_json(config_dict),
+                          "returns_json": canonical_json(returns.tolist()),
+                          "returns_parquet_path": str(path) if observed else "",
+                          "returns_sha256": returns_sha256,
+                          "diagnostics_json": canonical_json(diagnostics or result.diagnostics_json),
+                          "trial_number_in_hyp": trial_number, "git_commit_sha": config_dict.get("git_commit_sha", ""), "created_at": time.time()}
+            _insert(conn, "trials", trial_dict)
+            updated = conn.execute("""UPDATE attempt_receipts SET state='FINALIZED',artifact_path=?,
+                                      artifact_sha256=?,finalized_at=? WHERE run_id=? AND
+                                      hypothesis_id=? AND trial_number=? AND state='RESERVED'""",
+                                   (str(path) if observed else "", returns_sha256, time.time(),
+                                    result.run_id, result.hypothesis_id, trial_number)).rowcount
+            if updated != 1:
+                raise ValueError("Missing or mismatched durable attempt receipt")

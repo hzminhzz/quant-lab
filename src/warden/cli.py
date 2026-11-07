@@ -9,22 +9,18 @@ import hmac
 import json
 import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 import numpy as np
 
 from warden import __version__
-from warden.audit import AUDIT_LOG
-from warden.audit import fingerprint as audit_fingerprint
 from warden.audit import record as audit_record
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
 from warden.lease import MutationBusy, mutation_lease
 from warden.policy import Decision, authorize
 from warden.provenance import resolve_dataset
-from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner, load_module_from_path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
@@ -42,7 +38,7 @@ LEGACY_TRACE = {
     "uv run warden check-worktree": {"op": "worktree_check"},
 }
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
-MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "audit-check", "handoff", "qualify", "generate-manifest"})
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt"})
 
 
 def envelope(ok: bool, value, source: str, policy: str = "allow") -> dict:
@@ -51,73 +47,10 @@ def envelope(ok: bool, value, source: str, policy: str = "allow") -> dict:
             "policy": policy}
 
 
-def compute_file_sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def generate_manifest(repo_root: Path = Path(".")) -> str:
-    repo = Path(repo_root)
-    protected = (
-        sorted(repo.glob("src/warden/**/*.py"))
-        + sorted(repo.glob("contracts/*.yaml"))
-        + sorted(repo.glob("contracts/*.yml"))
-        + sorted(repo.glob("contracts/datasets/*.json"))
-    )
-    protected += [
-        p for p in (
-            repo / "AGENTS.md",
-            repo / "pyproject.toml",
-            repo / "uv.lock",
-            repo / "scripts" / "check_loc_budget.py",
-            repo / "scripts" / "lock_holdout_permissions.sh",
-            repo / "scripts" / "lock_governance_permissions.sh",
-            repo / "scripts" / "preflight_trust_boundary.py",
-            repo / "scripts" / "apply_trust_boundary.sh",
-        ) if p.is_file()
-    ]
-    protected = list(dict.fromkeys(protected))
-    content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected) + "\n"
-    (repo / MANIFEST_FILE).write_text(content, encoding="utf-8")
-    return content
-
-
-def manifest_approval_state(repo_root: Path = Path(".")) -> dict:
-    """Independent approval state. A self-written checksum is integrity, never authority."""
-    repo = Path(repo_root)
-    manifest, sig = repo / MANIFEST_FILE, repo / (MANIFEST_FILE + ".sig")
-    meta = repo / (MANIFEST_FILE + ".meta.json")
-    state = {"signed": False, "verified": False, "mode": "unsigned", "approver": ""}
-    if meta.is_file():
-        state.update({k: v for k, v in json.loads(meta.read_text(encoding="utf-8")).items()
-                      if k in {"mode", "approver", "approved_at"}})
-    if not sig.is_file():
-        return state
-    state["signed"] = True
-    key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
-    if not key:
-        state["verified"] = None  # cannot verify without the human-held key
-        return state
-    digest = hmac.new(key.encode(), manifest.read_bytes(), hashlib.sha256).hexdigest()
-    state["verified"] = hmac.compare_digest(digest, sig.read_text(encoding="utf-8").strip())
-    return state
-
-
-def check_worktree(repo_root: Path = Path(".")) -> bool:
-    repo = Path(repo_root)
-    manifest = repo / MANIFEST_FILE
-    if not manifest.is_file():
-        return False
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        expected, rel = line.strip().split(maxsplit=1)
-        target = repo / rel
-        if not target.is_file() or compute_file_sha256(target) != expected:
-            return False
-    loc = repo / "scripts" / "check_loc_budget.py"
-    if not loc.is_file():
-        return False
-    return subprocess.run([sys.executable, str(loc)], capture_output=True, check=False).returncode == 0
+from warden_ops.integrity import check_worktree as check_worktree  # noqa: PLC0414
+from warden_ops.integrity import compute_file_sha256 as compute_file_sha256  # noqa: PLC0414
+from warden_ops.integrity import generate_manifest as generate_manifest  # noqa: PLC0414
+from warden_ops.integrity import manifest_approval_state as manifest_approval_state  # noqa: PLC0414
 
 
 def cmd_check_worktree(args: argparse.Namespace, runner: ExperimentRunner | None = None) -> int:
@@ -132,10 +65,17 @@ def cmd_check_worktree(args: argparse.Namespace, runner: ExperimentRunner | None
 
 
 def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    if not runner.registry.db_path.is_file():
+        data = {"warden_version": __version__, "hypotheses_count": 0,
+                "trials_count": 0, "recent_trials": [], "uncertain_attempts": []}
+        print(json.dumps(envelope(True, data, "warden.status")) if args.json else
+              f"Warden v{__version__} | Hypotheses: 0 | Trials: 0")
+        return 0
     with runner.registry._connect() as conn:
         n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
         n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
         rows = conn.execute("SELECT run_id, hypothesis_id, strategy_family, net_sharpe, deflated_sharpe_prob, verdict, data_provenance FROM trials ORDER BY created_at DESC LIMIT 5").fetchall()
+        uncertain = [dict(r) for r in conn.execute("SELECT run_id,state,reason FROM attempt_receipts WHERE state!='FINALIZED' ORDER BY reserved_at DESC LIMIT 10")]
     recent = []
     for r in rows:
         elig = runner.registry.effective_eligibility(r[0])
@@ -143,7 +83,7 @@ def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
                        "deflated_sharpe_prob": float(r[4]), "verdict": r[5], "data_provenance": r[6],
                        "eligible": elig["eligible"], "eligibility_reason": elig["reason"]})
     data = {"warden_version": __version__, "hypotheses_count": n_hyp, "trials_count": n_trials,
-            "recent_trials": recent}
+            "recent_trials": recent, "uncertain_attempts": uncertain}
     if args.json:
         print(json.dumps(envelope(True, data, "warden.status")))
     else:
@@ -152,6 +92,28 @@ def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
             f"DSR={t['deflated_sharpe_prob']:.2f} -> {t['verdict']} | eligible={t['eligible']} "
             f"({t['eligibility_reason']})" for t in recent))
     return 0
+
+
+def cmd_attempt_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    state = runner.registry.reconcile_attempt(args.run_id,
+        confirm_interrupted=args.subcommand == "reconcile-attempt")
+    print(json.dumps(envelope(True, state, f"warden.{args.subcommand}")) if args.json else
+          f"Attempt {args.run_id}: {state['state']} ({state['reason']})")
+    return 0
+
+
+def cmd_verify_causality(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    # Legacy feature_sets proofs are contract-bound, not run-bound. Never infer
+    # promotion permission from a passing proof for an unrelated run.
+    with runner.registry._connect() as conn:
+        t = conn.execute("SELECT contract_id FROM trials WHERE run_id=?", (args.run_id,)).fetchone()
+        n = conn.execute("SELECT COUNT(*) FROM feature_sets WHERE contract_id=? AND prefix_invariance_passed=1",
+                         (t[0],)).fetchone()[0] if t else 0
+    status = "REQUIRES_RUN_BOUND_PROOF" if t else "RUN_NOT_FOUND"
+    payload = {"run_id": args.run_id, "verified": False, "status": status,
+               "contract_proofs": n, "reason": "legacy feature proof lacks run identity" if t else "no such run"}
+    print(json.dumps(envelope(False, payload, "warden.verify-causality", "deny")) if args.json else status)
+    return 1
 
 
 def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
@@ -255,141 +217,10 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     return 0 if approved else 1
 
 
-def _contract_pins(repo_root: Path) -> dict[str, str]:
-    import yaml
-    pins = {}
-    for p in sorted((repo_root / "contracts").glob("*.y*ml")):
-        doc = yaml.safe_load(p.read_text(encoding="utf-8"))
-        pins[doc["contract_id"]] = doc.get("data_snapshot_sha256", "")
-    return pins
-
-
-def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
-    """Typed, replayable checkpoint: evidence with timestamps, tool trace, explicit gates."""
-    now = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
-    head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-    registry = ResearchRegistry(repo_root / "registry" / "registry.db")
-    with registry._connect() as conn:
-        n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
-        n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
-    pins = _contract_pins(repo_root)
-    with registry._connect() as conn:
-        candidates = [r[0] for r in conn.execute(
-            "SELECT run_id FROM trials WHERE verdict='CANDIDATE_FOR_QUALIFICATION'")]
-    eligibility = {r: registry.effective_eligibility(r) for r in candidates}
-    trace = [
-        {"op": "git_head", "expect": head},
-        {"op": "registry_count", "table": "trials", "expect": str(n_trials)},
-        {"op": "worktree_check", "expect": WORKTREE_OK},
-    ]
-    return {
-        "schema": 1, "created_at": now, "ticket": ticket or "N/A", "notes": notes,
-        "evidence": [
-            {"source": "git", "kind": "head", "value": head, "observed_at": now},
-            {"source": "registry.db", "kind": "trials", "value": n_trials, "observed_at": now},
-            {"source": "registry.db", "kind": "hypotheses", "value": n_hyp, "observed_at": now},
-            {"source": "contracts", "kind": "pinned_snapshot_sha256", "value": pins, "observed_at": now},
-        {"source": "registry.db", "kind": "effective_eligibility",
-         "value": {r: {"eligible": e["eligible"], "reason": e["reason"], "provenance": e["data_provenance"]}
-                   for r, e in eligibility.items()}, "observed_at": now},
-            {"source": "audit", "kind": "toolcalls", "value": audit_fingerprint(repo_root / AUDIT_LOG), "observed_at": now},
-        ],
-        "tool_trace": trace,
-        "quality_gates": {"worktree_integrity": check_worktree(repo_root), "contracts_pinned": all(pins.values()),
-                          "eligibility_surface_reachable": all("reason" in e for e in eligibility.values())},
-    }
-
-
-def cmd_handoff(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    state = _build_state(runner.repo_root, args.ticket, args.notes)
-    current = runner.repo_root / STATE_FILE
-    current.parent.mkdir(parents=True, exist_ok=True)
-    current.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-    with (runner.repo_root / HISTORY_FILE).open("a", encoding="utf-8") as history:
-        history.write(json.dumps(state, sort_keys=True) + "\n")
-    print(f"Handoff checkpoint recorded: {STATE_FILE} (append-only log: {HISTORY_FILE})")
-    print(f"Gates: {json.dumps(state['quality_gates'])}")
-    return 0
-
-
-def _legacy_trace(text: str) -> list[dict]:
-    """Adapter for pre-schema-1 Markdown transitions: map known literals to typed ops."""
-    block = (re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL) or [""])[0].splitlines()
-    entries, i = [], 0
-    while i < len(block):
-        cmd = block[i].strip()
-        i += 1
-        if not cmd or cmd.startswith("#"):
-            continue
-        expect = block[i].strip()[9:].strip() if i < len(block) and block[i].strip().startswith("# expect:") else None
-        if expect is not None:
-            i += 1
-        entries.append({**LEGACY_TRACE.get(cmd, {"op": None, "raw": cmd}), "expect": expect})
-    return entries
-
-
-def _replay(entries: list[dict], runner: ExperimentRunner) -> bool:
-    """Re-execute typed trace ops. SQL text is never executed, so writefile() is unreachable."""
-    drift = False
-    for entry in entries:
-        op, expected = entry.get("op"), entry.get("expect")
-        if op not in TRACE_OPS:
-            shown = entry.get("raw") or op
-            print(f"REFUSED: trace op '{shown}' is not in the typed allowlist.", file=sys.stderr)
-            drift = True
-            continue
-        if op == "git_head":
-            actual = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=runner.repo_root, text=True).strip()
-        elif op == "registry_count":
-            table = entry.get("table")
-            if table not in REGISTRY_TABLES:
-                print(f"REFUSED: registry table '{table}' is not allowlisted.", file=sys.stderr)
-                drift = True
-                continue
-            with runner.registry._connect() as conn:
-                actual = str(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        else:
-            actual = WORKTREE_OK if check_worktree(runner.repo_root) else "worktree integrity FAILED"
-        if expected and str(actual) != str(expected):
-            hint = ""
-            if op == "registry_count" and str(actual).isdigit() and str(expected).isdigit() and int(actual) > int(expected):
-                hint = " (state advanced; regenerate with `uv run warden handoff` if legitimate)"
-            print(f"DRIFT: {op} expected '{expected}', got '{actual}'{hint}", file=sys.stderr)
-            drift = True
-    return drift
-
-
-def cmd_continue(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    if args.transition_path:
-        target = Path(args.transition_path)
-    elif (runner.repo_root / STATE_FILE).is_file():
-        target = runner.repo_root / STATE_FILE
-    else:
-        legacy = sorted(runner.repo_root.glob(".workspace/transitions/*/*.md"))
-        target = legacy[-1] if legacy else None
-    if not target or not target.is_file():
-        print("No handoff checkpoint found.", file=sys.stderr)
-        return 1
-    if target.suffix == ".json":
-        state = json.loads(target.read_text(encoding="utf-8"))
-        if state.get("schema") != 1:
-            print(f"REFUSED: unsupported state schema {state.get('schema')!r}", file=sys.stderr)
-            return 1
-        trace = [(LEGACY_TRACE.get(e["cmd"], e) if "op" not in e and "cmd" in e else e) for e in state.get("tool_trace", [])]
-        trace = [dict(t) for t in trace]
-        drift = _replay(trace, runner)
-        failed = sorted(k for k, v in state.get("quality_gates", {}).items() if not v)
-        if failed:
-            print(f"DRIFT: recorded quality gates failed at handoff: {failed}", file=sys.stderr)
-            drift = True
-    else:
-        drift = _replay(_legacy_trace(target.read_text(encoding="utf-8")), runner)
-    status = "FAILED" if drift else "SUCCESS"
-    if getattr(args, "json", False):
-        print(json.dumps(envelope(not drift, {"drift": drift, "checkpoint": target.name}, f"warden.continue.{status}")))
-    else:
-        print(f"Continue {status}: {'Drift detected.' if drift else f'zero drift from {target.name}.'}")
-    return 1 if drift else 0
+from warden_ops.checkpoint import _build_state as _build_state  # noqa: PLC0414
+from warden_ops.checkpoint import _legacy_trace as _legacy_trace  # noqa: PLC0414
+from warden_ops.checkpoint import _replay as _replay  # noqa: PLC0414
+from warden_ops.checkpoint import cmd_continue, cmd_handoff
 
 
 def cmd_qualify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
@@ -448,6 +279,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("register-hypothesis").add_argument("path")
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     s.add_parser("audit-check").add_argument("--run-id", required=True)
+    for name in ("attempt-status", "reconcile-attempt", "verify-causality"):
+        s.add_parser(name).add_argument("--run-id", required=True)
     h = s.add_parser("handoff")
     h.add_argument("--notes", default="Session transition checkpoint")
     h.add_argument("--ticket", default=None)
@@ -510,7 +343,11 @@ def main(argv: list[str] | None = None) -> int:
             active_lease = mutation_lease(Path("registry/registry.db"))
             active_lease.__enter__()
             lease_acquired = True
-        runner = ExperimentRunner()
+        if args.subcommand == "status":
+            from warden_ops.readonly import ReadOnlyResearchRegistry
+            runner = ExperimentRunner(registry=ReadOnlyResearchRegistry(Path("registry/registry.db")))
+        else:
+            runner = ExperimentRunner()
         if not decision.allow:
             print(f"REFUSED: {decision.reason}", file=sys.stderr)
             code = 2
@@ -531,7 +368,8 @@ def main(argv: list[str] | None = None) -> int:
                 code = 0
         else:
             cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue, "qualify": cmd_qualify,
-                    "generate-manifest": cmd_generate_manifest}
+                    "generate-manifest": cmd_generate_manifest, "attempt-status": cmd_attempt_status,
+                    "reconcile-attempt": cmd_attempt_status, "verify-causality": cmd_verify_causality}
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0
     except MutationBusy as exc:

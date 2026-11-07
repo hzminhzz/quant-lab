@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -68,6 +69,25 @@ def test_real_cli_denies_competing_mutation_but_allows_status(tmp_path: Path) ->
         if proc.is_alive():
             proc.terminate()
             proc.join()
+
+
+def test_status_read_does_not_need_write_lock(tmp_path: Path) -> None:
+    """WAL readers must remain available during a long uncommitted mutation."""
+    from warden.registry import ResearchRegistry
+
+    db = tmp_path / "registry" / "registry.db"
+    ResearchRegistry(db)
+    conn = sqlite3.connect(db, timeout=1)
+    conn.execute("BEGIN IMMEDIATE")
+    conn.execute("UPDATE hypotheses SET trials_used=trials_used WHERE 1=0")
+    try:
+        proc = subprocess.run([sys.executable, "-m", "warden.cli", "status", "--json"],
+                              cwd=tmp_path, capture_output=True, text=True, timeout=4, check=False)
+        assert proc.returncode == 0, proc.stderr
+        assert '"source": "warden.status"' in proc.stdout
+    finally:
+        conn.rollback()
+        conn.close()
 
 
 def test_sigkill_releases_lease(tmp_path: Path) -> None:

@@ -21,6 +21,7 @@ RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # (minimum and maximum path args, permitted flag/value types)
 COMMANDS = {
     "status": (0, 0, {}), "check-worktree": (0, 0, {}),
+    "spec-status": (1, 1, {}),
     "register-hypothesis": (1, 1, {}), "verify": (1, 1, {}),
     "screen": (1, 1, {}), "backtest": (1, 1, {}),
     "audit-check": (0, 0, {"--run-id": "run_id"}),
@@ -76,6 +77,7 @@ def _path_arg(root: Path, name: str, value: str) -> str:
         "verify": ("experiments/active", "experiments/queue"),
         "screen": ("experiments/active", "experiments/queue"),
         "backtest": ("experiments/active", "experiments/queue"),
+        "spec-status": ("experiments/active", "experiments/queue"),
         "continue": (".workspace/state", ".workspace/transitions"),
     }[name]
     if not target.is_file() or not any(target.is_relative_to((root / p).resolve()) for p in allowed):

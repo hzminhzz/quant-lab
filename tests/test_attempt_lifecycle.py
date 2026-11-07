@@ -10,6 +10,7 @@ import pytest
 
 from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
 from warden.registry import ResearchRegistry
+from warden.runner import default_run_id
 
 
 def _registry(tmp_path: Path) -> ResearchRegistry:
@@ -37,6 +38,23 @@ def _result() -> ExperimentResult:
         stress_2x_cost_sharpe=0.3, param_neighbor_stability=0.8,
         notes="Synthetic acceptance fixture only",
     )
+
+
+def test_default_run_ids_cannot_collide_across_same_family_hypotheses(tmp_path: Path) -> None:
+    registry = _registry(tmp_path)
+    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    registry.register_hypothesis(HypothesisSpec(
+        "HYP-OTHER", contract.contract_id, "Other mechanism", "rules_ts",
+        "A different economic supply-demand mechanism may produce a signal",
+        "Liquidity frictions may eliminate the effect before execution", 8,
+        "Reject when the effect cannot exceed executable costs",
+    ))
+    one = default_run_id("HYP-A", 1)
+    two = default_run_id("HYP-OTHER", 1)
+    assert one != two
+    assert one == default_run_id("HYP-A", 1)
+    assert registry.register_trial_start("HYP-A", one) == 1
+    assert registry.register_trial_start("HYP-OTHER", two) == 1
 
 
 def test_reservation_survives_restart_and_interruption_is_never_refunded(tmp_path: Path) -> None:

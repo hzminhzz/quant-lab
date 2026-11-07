@@ -14,7 +14,7 @@ from warden.registry import ResearchRegistry
 LEGACY = ("contracts", "hypotheses", "trials", "selection_attempts", "qualifications",
           "audit_evidence", "audit_reports", "trial_dispositions", "trial_quarantine",
           "contract_search_state", "feature_sets")
-ADDITIVE = ("attempt_receipts", "holdout_claims")
+ADDITIVE = ("attempt_receipts", "holdout_claims", "screen_receipts", "spec_causality")
 
 
 def table_hashes(path: Path, tables: tuple[str, ...]) -> dict[str, dict]:

@@ -49,27 +49,76 @@ fi
 for spec in "${QUEUE_SPECS[@]}"; do
     echo "=== [$(date -u)] Processing $spec ==="
 
-    # Existing native Warden history AND open-PR scientific failures must
-    # block automatic repeats; new data does not replenish trial budgets.
-    # This check is read-only and fails closed if the index/registry is absent.
-    if ! uv run --frozen python -m scripts.research_outcome_memory --check-spec "$spec"; then
-        echo "[REJECTED/REVIEW] Already attempted, scientifically rejected, or unsupported lineage: $spec"
+    # Reconcile first. Stage1/Stage3 evidence survives a crash or lost CLI response.
+    # Never rerun a validation-consuming screen merely because its YAML is queued.
+    STATUS=$(uv run warden spec-status "$spec" --json 2>&1) || true
+    if [[ "$STATUS" != *'"source": "warden.spec-status"'* ]]; then
+        echo "[REQUIRES_RECONCILIATION] Warden status unavailable for $spec"
+        mv "$spec" experiments/active/review/
+        continue
+    fi
+    SPEC_STAGE=$(echo "$STATUS" | grep -o '"state": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+    if [ "$SPEC_STAGE" = "STAGE3_FINAL" ]; then
+        RUN_ID=$(echo "$STATUS" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+        VERDICT=$(echo "$STATUS" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+        echo "[ALREADY_RECORDED] $spec: $RUN_ID $VERDICT"
+        if [ "$VERDICT" = "CANDIDATE_FOR_QUALIFICATION" ]; then
+            if ! uv run warden audit-check --run-id "$RUN_ID" --json; then
+                mv "$spec" experiments/active/review/
+                continue
+            fi
+        fi
+        mv "$spec" experiments/active/archive/
+        continue
+    fi
+    if [ "$SPEC_STAGE" = "STAGE1_REJECT" ]; then
+        echo "[STAGE1_REJECT] Existing Warden screen rejection: $spec"
         mv "$spec" experiments/active/failed/
         continue
     fi
-
-    # Step A: Prefix-Invariance Causality Proof
-    if ! uv run warden verify "$spec" --json; then
-        echo "[FAIL] Lookahead leakage or invalid pipeline: $spec"
-        mv "$spec" experiments/active/failed/
+    if [ "$SPEC_STAGE" != "NEW" ] && [ "$SPEC_STAGE" != "STAGE1_PASS" ]; then
+        echo "[REQUIRES_RECONCILIATION] $spec: $SPEC_STAGE"
+        mv "$spec" experiments/active/review/
         continue
     fi
 
-    # Step B: Stage 1 Signal Triage Gate (Fail-Fast)
-    if ! uv run warden screen "$spec" --json; then
-        echo "[REVISE] Failed Stage 1 screen: $spec. Halting before Stage 2 backtest."
-        mv "$spec" experiments/active/failed/
-        continue
+    if [ "$SPEC_STAGE" = "NEW" ]; then
+        # Off-main memory cannot override native SQLite; block genuine replay and
+        # unresolved source/contract conflicts before making a new reservation.
+        if ! uv run --frozen python -m scripts.research_outcome_memory --check-spec "$spec"; then
+            echo "[REVIEW] Existing conflicting research evidence: $spec"
+            mv "$spec" experiments/active/review/
+            continue
+        fi
+
+        if ! uv run warden verify "$spec" --json; then
+            echo "[REVIEW] Causality or provenance check failed: $spec"
+            mv "$spec" experiments/active/review/
+            continue
+        fi
+
+        SCREEN_EXIT=0
+        SCREEN_OUTPUT=$(uv run warden screen "$spec" --json 2>&1) || SCREEN_EXIT=$?
+        echo "$SCREEN_OUTPUT"
+        SCREEN_STATUS=$(uv run warden spec-status "$spec" --json 2>&1) || true
+        if [[ "$SCREEN_STATUS" != *'"source": "warden.spec-status"'* ]]; then
+            echo "[REQUIRES_RECONCILIATION] Stage1 result could not be checked: $spec"
+            mv "$spec" experiments/active/review/
+            continue
+        fi
+        SCREEN_STAGE=$(echo "$SCREEN_STATUS" | grep -o '"state": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+        if [ "$SCREEN_STAGE" = "STAGE1_REJECT" ]; then
+            echo "[STAGE1_REJECT] $spec (screen process exit=$SCREEN_EXIT)"
+            mv "$spec" experiments/active/failed/
+            continue
+        fi
+        if [ "$SCREEN_STAGE" != "STAGE1_PASS" ]; then
+            echo "[REQUIRES_RECONCILIATION] Stage1 $SCREEN_STAGE: $spec (exit=$SCREEN_EXIT)"
+            mv "$spec" experiments/active/review/
+            continue
+        fi
+    else
+        echo "[STAGE1_RESUME] Reusing committed screen PASS; not screening again."
     fi
 
     # Step C: Stage 2 & 3 Walk-Forward Backtest, 2x Cost Stress, and DSR
@@ -96,6 +145,11 @@ for spec in "${QUEUE_SPECS[@]}"; do
         continue
     fi
     VERDICT="$LEDGER_VERDICT"
+    if [ "$VERDICT" = "FAILED" ] || [ "$VERDICT" = "REJECTED_EARLY" ]; then
+        echo "[REQUIRES_RECONCILIATION] Recorded incomplete/early verdict: $RUN_ID $VERDICT"
+        mv "$spec" experiments/active/review/
+        continue
+    fi
 
     if [ "$VERDICT" == "CANDIDATE_FOR_QUALIFICATION" ]; then
         echo ">>> CANDIDATE FOUND! Executing 6-check adversarial audit for $RUN_ID"

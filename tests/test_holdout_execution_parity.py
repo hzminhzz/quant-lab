@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -74,19 +75,42 @@ def test_holdout_returns_are_identical_to_validation_simulator(tiny_repo, tmp_pa
             "PROMOTED", "REJECTED_ON_HOLDOUT"}
 
 
-def test_missing_bid_or_ask_cannot_be_replaced_by_close(tiny_repo, tmp_path: Path) -> None:
+def test_missing_frozen_strategy_never_burns_one_shot_holdout(tiny_repo, tmp_path: Path) -> None:
+    f = tiny_repo()
+    unavailable = replace(_candidate(f), strategy_module="strategies/candidates/never_registered.py")
+    f.registry.record_trial(unavailable, {"parameters": {}}, np.linspace(-0.002, 0.003, 40))
+    hpath = tmp_path / "fixture.parquet"
+    f.panel.write_parquet(hpath)
+    with pytest.raises(FileNotFoundError, match="Frozen strategy"):
+        qualify_candidate("RUN-FIX-QUAL", "YES_UNSEAL_HOLDOUT",
+                          ExperimentRunner(registry=f.registry, repo_root=f.repo),
+                          holdout_override_path=hpath)
+    with f.registry._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM holdout_claims").fetchone()[0] == 0
+
+
+def test_missing_bid_or_ask_cannot_be_replaced_by_close(tiny_repo, tmp_path: Path, monkeypatch) -> None:
     f = tiny_repo(contract_overrides={"execution_mode": "QUOTE_SIDE"})
     f.registry.record_trial(_candidate(f), {}, np.linspace(-0.002, 0.003, 40))
     panel = f.panel.with_columns(bid=pl.col("open") - 0.01)
     hpath = tmp_path / "incomplete_quote.parquet"
     panel.write_parquet(hpath)
     runner = ExperimentRunner(registry=f.registry, repo_root=f.repo)
+    reads = []
+    real_read = pl.read_parquet
+
+    def counted_read(path, *args, **kwargs):
+        reads.append(str(path))
+        return real_read(path, *args, **kwargs)
+
+    monkeypatch.setattr(pl, "read_parquet", counted_read)
     with pytest.raises(ExecutionDataError, match="requires"):
         qualify_candidate("RUN-FIX-QUAL", "YES_UNSEAL_HOLDOUT", runner,
                           holdout_override_path=hpath)
     with pytest.raises(HoldoutAlreadyUnsealedError):
         qualify_candidate("RUN-FIX-QUAL", "YES_UNSEAL_HOLDOUT", runner,
                           holdout_override_path=hpath)
+    assert reads == [str(hpath)]  # duplicate request made no second protected read
     with f.registry._connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM qualifications").fetchone()[0] == 0
         assert conn.execute("SELECT state FROM holdout_claims").fetchone()[0] == "READ_STARTED"

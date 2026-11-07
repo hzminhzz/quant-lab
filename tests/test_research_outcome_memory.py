@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -167,6 +168,27 @@ def test_reusing_a_failed_module_under_new_id_requires_lineage_review(tmp_path: 
         db,
     )
     assert result["status"] == "MODULE_ALIAS_REVIEW_REQUIRED"
+
+
+def test_changed_parameter_revision_is_not_blocked_by_old_config_only(tmp_path: Path) -> None:
+    db = tmp_path / "source.db"
+    source_registry(db)
+    old = {"window": 10}
+    new = {"window": 20}
+    old_hash = hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest()[:12]
+    with sqlite3.connect(db) as conn:
+        conn.execute("ALTER TABLE trials ADD COLUMN config_hash TEXT")
+        conn.execute("UPDATE trials SET config_hash=? WHERE run_id='RUN-TEST-FAIL'", (old_hash,))
+    candidate = spec(tmp_path, "HYP-TEST-FAIL")
+    config = yaml.safe_load(candidate.read_text())
+    config["parameters"] = old
+    candidate.write_text(yaml.safe_dump(config))
+    assert check_spec(candidate, db)["status"] == "HISTORICAL_TRIAL_ALREADY_RECORDED"
+    config["parameters"] = new
+    candidate.write_text(yaml.safe_dump(config))
+    decision = check_spec(candidate, db)
+    assert decision["eligible"], decision
+    assert decision["status"] == "NOT_PREVIOUSLY_ATTEMPTED_ON_THIS_ID"
 
 
 def test_contract_id_mismatch_is_not_a_retry(tmp_path: Path) -> None:

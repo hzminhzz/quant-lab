@@ -22,6 +22,7 @@ from warden.lease import MutationBusy, mutation_lease
 from warden.policy import Decision, authorize
 from warden.provenance import resolve_dataset
 from warden.runner import ExperimentRunner, load_module_from_path
+from warden_evidence.feature_cache import verified_feature_evidence
 
 MANIFEST_FILE = ".warden_manifest.sha256"
 STATE_FILE = Path(".workspace") / "state" / "current.json"
@@ -94,6 +95,16 @@ def cmd_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     return 0
 
 
+def cmd_spec_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
+    import yaml
+    cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
+    value = runner.registry.spec_status(cfg["hypothesis_id"], cfg["contract_id"],
+                                        cfg.get("strategy_module", ""), cfg.get("parameters", {}))
+    print(json.dumps(envelope(True, value, "warden.spec-status")) if args.json else
+          f"{value['state']}: {value['reason']}")
+    return 0
+
+
 def cmd_attempt_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     state = runner.registry.reconcile_attempt(args.run_id,
         confirm_interrupted=args.subcommand == "reconcile-attempt")
@@ -103,17 +114,17 @@ def cmd_attempt_status(args: argparse.Namespace, runner: ExperimentRunner) -> in
 
 
 def cmd_verify_causality(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    # Legacy feature_sets proofs are contract-bound, not run-bound. Never infer
-    # promotion permission from a passing proof for an unrelated run.
-    with runner.registry._connect() as conn:
-        t = conn.execute("SELECT contract_id FROM trials WHERE run_id=?", (args.run_id,)).fetchone()
-        n = conn.execute("SELECT COUNT(*) FROM feature_sets WHERE contract_id=? AND prefix_invariance_passed=1",
-                         (t[0],)).fetchone()[0] if t else 0
-    status = "REQUIRES_RUN_BOUND_PROOF" if t else "RUN_NOT_FOUND"
-    payload = {"run_id": args.run_id, "verified": False, "status": status,
-               "contract_proofs": n, "reason": "legacy feature proof lacks run identity" if t else "no such run"}
-    print(json.dumps(envelope(False, payload, "warden.verify-causality", "deny")) if args.json else status)
-    return 1
+    # Contract-wide feature rows are not proof of this run's causal strategy.
+    if not runner.registry.db_path.is_file():
+        proof = {"verified": False, "reason": "run not found", "proof_key": ""}
+    else:
+        proof = runner.registry.causal_proof_for_run(args.run_id, runner.repo_root)
+    state = "PASS" if proof["verified"] else "RUN_NOT_FOUND" if proof["reason"] == "run not found" else "NO_RUN_BOUND_PROOF"
+    payload = {"run_id": args.run_id, "status": state, **proof}
+    print(json.dumps(envelope(proof["verified"], payload, "warden.verify-causality",
+                              "allow" if proof["verified"] else "deny")) if args.json else
+          f"{payload['status']}: {proof['reason']}")
+    return 0 if proof["verified"] else 1
 
 
 def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
@@ -124,17 +135,29 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
     contract = runner.resolve_contract(cfg["contract_id"])
     mod = load_module_from_path(runner.repo_root / cfg["strategy_module"])
-    dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
-    panel = pl.read_parquet(runner.repo_root / dataset.path)
     pipeline = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None) or (mod if hasattr(mod, "compute") else None)
     if not pipeline:
         print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
         return 1
+    dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
+    panel = pl.read_parquet(runner.repo_root / dataset.path)
     verify_prefix_invariance(pipeline, panel, contract)
-    compute_and_cache_features(pipeline, panel, contract, registry=runner.registry)
+    cache_dir = runner.repo_root / "cache" / "features"
+    compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry)
+    proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir)
+    if not proof["verified"]:
+        raise ValueError("Causal cache artifact could not be independently reconciled")
+    evidence = runner.registry.record_spec_causality(
+        hypothesis_id=cfg["hypothesis_id"], contract_id=contract.contract_id,
+        strategy_module=cfg["strategy_module"],
+        config_hash=hashlib.sha256(canonical_json(cfg.get("parameters", {})).encode()).hexdigest()[:12],
+        data_sha256=dataset.sha256,
+        module_sha256=hashlib.sha256((runner.repo_root / cfg["strategy_module"]).read_bytes()).hexdigest(),
+        feature_identity=proof["feature_identity"], artifact_sha256=proof["artifact_sha256"],
+        proof_sha256=hashlib.sha256((cache_dir / f"{proof['feature_identity']}.proof.json").read_bytes()).hexdigest())
     res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),
            "data_provenance": dataset.provenance, "market_eligible": dataset.eligible_market,
-           "provenance_reason": dataset.reason}
+           "provenance_reason": dataset.reason, "causal_evidence_key": evidence}
     print(json.dumps(res, indent=2) if args.json else
           f"PASS: Prefix-invariance verified. provenance={dataset.provenance} market_eligible={dataset.eligible_market}")
     return 0
@@ -178,9 +201,7 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
             print(f"Error: Run ID '{args.run_id}' not found.", file=sys.stderr)
             return 1
         trial = dict(t)
-        f_row = conn.execute("SELECT prefix_invariance_passed FROM feature_sets WHERE contract_id = ? AND prefix_invariance_passed = 1", (trial["contract_id"],)).fetchone()
-        has_causal_proof = f_row is not None
-
+    has_causal_proof = runner.registry.causal_proof_for_run(args.run_id, runner.repo_root)["verified"]
     contract = runner.resolve_contract(trial["contract_id"])
     eligibility = runner.registry.effective_eligibility(args.run_id)
     r_path = runner.repo_root / trial.get("returns_parquet_path", "")
@@ -279,6 +300,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("register-hypothesis").add_argument("path")
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     s.add_parser("audit-check").add_argument("--run-id", required=True)
+    s.add_parser("spec-status").add_argument("spec_yaml")
     for name in ("attempt-status", "reconcile-attempt", "verify-causality"):
         s.add_parser(name).add_argument("--run-id", required=True)
     h = s.add_parser("handoff")
@@ -343,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
             active_lease = mutation_lease(Path("registry/registry.db"))
             active_lease.__enter__()
             lease_acquired = True
-        if args.subcommand == "status":
+        if args.subcommand in {"status", "spec-status", "attempt-status", "verify-causality"}:
             from warden_ops.readonly import ReadOnlyResearchRegistry
             runner = ExperimentRunner(registry=ReadOnlyResearchRegistry(Path("registry/registry.db")))
         else:
@@ -369,7 +391,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             cmds = {"status": cmd_status, "check-worktree": cmd_check_worktree, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "handoff": cmd_handoff, "continue": cmd_continue, "qualify": cmd_qualify,
                     "generate-manifest": cmd_generate_manifest, "attempt-status": cmd_attempt_status,
-                    "reconcile-attempt": cmd_attempt_status, "verify-causality": cmd_verify_causality}
+                    "reconcile-attempt": cmd_attempt_status, "verify-causality": cmd_verify_causality,
+                    "spec-status": cmd_spec_status}
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0
     except MutationBusy as exc:

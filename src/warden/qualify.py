@@ -68,6 +68,16 @@ def qualify_candidate(
             raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row[1]}'.")
 
     contract = runner.resolve_contract(cid)
+    # Qualification may not silently execute an unrelated strategy when the
+    # original source was moved or never recorded.
+    module = trial.get("strategy_module") or ""
+    rel = Path(module)
+    strat_path = (runner.repo_root / rel).resolve()
+    allowed = (runner.repo_root / "strategies").resolve()
+    if not module or rel.is_absolute() or ".." in rel.parts or not strat_path.is_relative_to(allowed):
+        raise ValueError("Missing or unsafe frozen strategy module; holdout remains sealed")
+    if not strat_path.is_file():
+        raise FileNotFoundError(f"Frozen strategy module unavailable: {module}")
     holdout_override = holdout_override_path is not None
     h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
     if not h_path.is_file():
@@ -90,15 +100,13 @@ def qualify_candidate(
     window_df = raw_panel.filter(
         (pl.col("timestamp") >= contract.holdout_start) & (pl.col("timestamp") <= contract.holdout_end)
     )
+    if window_df.height < 20 and not holdout_override:
+        raise ValueError("No sufficient observations within the declared production holdout; no fallback window")
     panel_df = window_df if window_df.height >= 20 else raw_panel
     ts = sorted(panel_df["timestamp"].unique().to_list())
     assets = sorted(panel_df["asset"].unique().to_list())
     n_bars = len(ts)
 
-    mod_str = trial.get("strategy_module") or ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
-    strat_path = runner.repo_root / mod_str
-    if not strat_path.is_file():
-        strat_path = runner.repo_root / ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
     mod = load_module_from_path(strat_path)
     raw_cfg = trial.get("config_json", "{}")
     cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}

@@ -184,6 +184,12 @@ def calculate_metrics_from_returns(gross_returns, net_returns, bar_turnover, bar
     }
 
 
+def default_run_id(hypothesis_id: str, trial_number: int) -> str:
+    """Stable, globally unique default ID for a hypothesis's consumed trial slot."""
+    digest = hashlib.sha256(hypothesis_id.encode()).hexdigest()[:12]
+    return f"RUN-{hypothesis_id[:32]}-{digest}-{trial_number:03d}"
+
+
 class ExperimentRunner:
     def __init__(self, registry: ResearchRegistry | None = None, repo_root: Path = Path(".")):
         self.repo_root = Path(repo_root)
@@ -214,6 +220,7 @@ class ExperimentRunner:
         except ValueError as exc:
             self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc)
             raise
+        screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
         panel_df = pl.read_parquet(self.repo_root / dataset.path)
         if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
         panel_df = panel_df.sort("timestamp", "asset")
@@ -225,7 +232,8 @@ class ExperimentRunner:
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=out["ic_series"], diagnostics={**report.metrics, "dataset": dataset.to_dict()})
+                returns=out["ic_series"], diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                screen_key=screen_key)
             return report
         ts = sorted(panel_df["timestamp"].unique().to_list())
         assets = sorted(panel_df["asset"].unique().to_list())
@@ -241,7 +249,8 @@ class ExperimentRunner:
             hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
             stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
             strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-            returns=sim1["net_returns"], diagnostics={**report.metrics, "dataset": dataset.to_dict()})
+            returns=sim1["net_returns"], diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+            screen_key=screen_key)
         return report
 
     def run_spec(self, exp_yaml_path: Path, override_run_id: str | None = None) -> ExperimentResult:
@@ -276,7 +285,7 @@ class ExperimentRunner:
         except ValueError as exc:
             self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "STAGE_0", exc)
             raise
-        run_id = override_run_id or cfg.get("run_id") or f"RUN-{family[:2].upper()}-{trials_used+1:03d}"
+        run_id = override_run_id or cfg.get("run_id") or default_run_id(hyp_id, trials_used + 1)
         try:
             dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
         except ValueError as exc:

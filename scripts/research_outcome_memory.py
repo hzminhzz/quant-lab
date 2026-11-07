@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
@@ -191,15 +192,31 @@ def check_spec(spec: Path, registry: Path = REGISTRY, index: Path = INDEX) -> di
         if registered and registered["contract_id"] != cid:
             return _blocked("Registered hypothesis is frozen under a different contract",
                             evidence=[registered["contract_id"]], status="CONTRACT_ID_MISMATCH")
-        native_trials = db.execute("SELECT run_id,verdict FROM trials WHERE hypothesis_id=?", (hid,)).fetchall()
-        if native_trials:
-            return _blocked("Canonical Warden trial already recorded; sidecar is supplementary only",
-                            evidence=[f"{x['run_id']}:{x['verdict']}" for x in native_trials],
+        params = config.get("parameters", {})
+        frozen = json.dumps(params, sort_keys=True, default=str, allow_nan=False)
+        candidate_hash = hashlib.sha256(frozen.encode()).hexdigest()[:12]
+        trial_cols = {x[1] for x in db.execute("PRAGMA table_info(trials)")}
+        enriched = "config_hash" in trial_cols
+        native_trials = db.execute(
+            ("SELECT run_id,verdict,config_hash FROM trials WHERE hypothesis_id=?" if enriched else
+             "SELECT run_id,verdict FROM trials WHERE hypothesis_id=?"), (hid,)).fetchall()
+        matching_trials = [t for t in native_trials if not enriched or not t["config_hash"] or
+                           t["config_hash"] == candidate_hash]
+        if matching_trials:
+            return _blocked("Matching canonical trial already recorded; a distinct parameter revision is allowed only within Warden's budget",
+                            evidence=[f"{x['run_id']}:{x['verdict']}" for x in matching_trials],
                             status="HISTORICAL_TRIAL_ALREADY_RECORDED")
-        native_screens = db.execute("SELECT attempt_id,stage,outcome FROM selection_attempts WHERE hypothesis_id=?", (hid,)).fetchall()
-        if native_screens:
-            return _blocked("Canonical Warden selection attempt already recorded; no automatic repeat",
-                            evidence=[f"{x['attempt_id']}:{x['stage']}:{x['outcome']}" for x in native_screens],
+        screen_cols = {x[1] for x in db.execute("PRAGMA table_info(selection_attempts)")}
+        full_screen = {"strategy_module", "parameters_json"}.issubset(screen_cols)
+        native_screens = db.execute(
+            ("SELECT attempt_id,stage,outcome,strategy_module,parameters_json FROM selection_attempts WHERE hypothesis_id=?" if full_screen else
+             "SELECT attempt_id,stage,outcome FROM selection_attempts WHERE hypothesis_id=?"), (hid,)).fetchall()
+        matching_screens = [x for x in native_screens if not full_screen or
+                            (x["strategy_module"] == module and
+                             (x["parameters_json"] or "{}") == frozen)]
+        if matching_screens:
+            return _blocked("Same parameter configuration already screened; no automatic replay",
+                            evidence=[f"{x['attempt_id']}:{x['stage']}:{x['outcome']}" for x in matching_screens],
                             status="HISTORICAL_SELECTION_ATTEMPT_RECORDED")
     sidecar = load_index(index)
     entry = [r for r in sidecar["outcomes"] if r["hypothesis_id"] == hid]
@@ -250,27 +267,6 @@ def check_spec(spec: Path, registry: Path = REGISTRY, index: Path = INDEX) -> di
                 "Registered hypothesis is frozen under a different contract",
                 evidence=[row["contract_id"]],
                 status="CONTRACT_ID_MISMATCH",
-            )
-        tests = db.execute(
-            "SELECT stage_reached,verdict,run_id FROM trials WHERE hypothesis_id=?",
-            (hid,),
-        ).fetchall()
-        if tests:
-            return _blocked(
-                "Full or historical early trial already registered; do not auto-replay",
-                evidence=[f"{t['run_id']}:{t['verdict']}" for t in tests],
-                status="HISTORICAL_TRIAL_ALREADY_RECORDED",
-            )
-        old_screens = db.execute(
-            "SELECT attempt_id,stage,outcome FROM selection_attempts "
-            "WHERE hypothesis_id=?", (hid,),
-        ).fetchall()
-        if old_screens:
-            return _blocked(
-                "Previous Warden attempt exists; reuse evidence, do not repeat automatic screen",
-                evidence=[f"{x['attempt_id']}:{x['stage']}:{x['outcome']}"
-                          for x in old_screens],
-                status="HISTORICAL_SELECTION_ATTEMPT_RECORDED",
             )
         if row and row["status"] != "ACTIVE":
             return _blocked(

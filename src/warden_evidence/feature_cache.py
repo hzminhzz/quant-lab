@@ -65,6 +65,38 @@ def _register_proof(registry: ResearchRegistry, identity: str, cid: str, path: P
         raise UnverifiedFeatureCacheError("existing contradictory SQLite causal proof cannot be overwritten")
 
 
+def feature_identity(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame,
+                     contract: EvaluationContract) -> tuple[str, dict]:
+    """Exactly one identity formula for cache writes, audit and run-bound verification."""
+    try:
+        source = inspect.getsource(pipeline.__class__)
+    except (TypeError, OSError):
+        source = pipeline.__class__.__qualname__
+    params = json.dumps(vars(pipeline), sort_keys=True, default=str)
+    config = {"contract": contract.spec_hash(), "source": hashlib.sha256(source.encode()).hexdigest(),
+              "params": params, "polars": pl.__version__, "engine": "0.2.0",
+              "input": _hash_panel(bars_df)}
+    return hashlib.sha256(canonical_json(config).encode()).hexdigest()[:20], config
+
+
+def verified_feature_evidence(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame,
+                              contract: EvaluationContract, registry: ResearchRegistry,
+                              cache_dir: Path) -> dict:
+    """Read-only proof projection. Contract-only legacy feature rows are not sufficient."""
+    identity, config = feature_identity(pipeline, bars_df, contract)
+    path = Path(cache_dir) / f"{identity}.parquet"
+    proof = _read_proof(Path(cache_dir) / f"{identity}.proof.json")
+    valid = (isinstance(proof, dict) and proof.get("config") == config and
+             proof.get("causality") is True and proof.get("artifact_path") == str(path.resolve())
+             and path.is_file() and _registry_proof(registry, identity, contract.contract_id, path))
+    if valid:
+        valid = hashlib.sha256(path.read_bytes()).hexdigest() == proof.get("artifact_sha256")
+    return {"verified": bool(valid), "feature_identity": identity,
+            "artifact_sha256": proof.get("artifact_sha256") if valid else "",
+            "reason": "matching contract/source/input/cache+SQLite proof" if valid else
+                      "no matching verified feature evidence for this exact strategy/data"}
+
+
 def compute_and_cache_features(
     pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract,
     cache_dir: Path = Path("cache/features"), registry: ResearchRegistry | None = None,
@@ -74,22 +106,13 @@ def compute_and_cache_features(
 
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        source = inspect.getsource(pipeline.__class__)
-    except (TypeError, OSError):
-        source = pipeline.__class__.__qualname__
-    params = json.dumps(vars(pipeline), sort_keys=True, default=str)
-    config = {"contract": contract.spec_hash(), "source": hashlib.sha256(source.encode()).hexdigest(),
-              "params": params, "polars": pl.__version__, "engine": "0.2.0",
-              "input": _hash_panel(bars_df)}
-    identity = hashlib.sha256(canonical_json(config).encode()).hexdigest()[:20]
+    identity, config = feature_identity(pipeline, bars_df, contract)
     path = cache_dir / f"{identity}.parquet"
     proof_path = cache_dir / f"{identity}.proof.json"
     proof = _read_proof(proof_path)
     valid = (proof is not None and proof.get("config") == config and proof.get("causality") is True
              and proof.get("artifact_path") == str(path.resolve()) and path.is_file())
     if valid:
-        # Verify persisted bytes before allowing this result as causal evidence.
         valid = hashlib.sha256(path.read_bytes()).hexdigest() == proof.get("artifact_sha256")
     if valid and registry is not None:
         valid = _registry_proof(registry, identity, contract.contract_id, path)
@@ -115,6 +138,11 @@ def compute_and_cache_features(
             handle.flush()
             os.fsync(handle.fileno())
             os.link(handle.name, path)
+        dir_fd = os.open(cache_dir, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     if registry is not None:
         _register_proof(registry, identity, contract.contract_id, path)
@@ -128,4 +156,9 @@ def compute_and_cache_features(
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, proof_path)
+    dir_fd = os.open(cache_dir, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
     return feats

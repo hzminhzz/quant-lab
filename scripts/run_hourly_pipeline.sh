@@ -130,6 +130,22 @@ for spec in "${QUEUE_SPECS[@]}"; do
     # decides finality. A lost caller response can recover without re-running.
     RUN_ID=$(echo "$OUTPUT" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
     VERDICT=$(echo "$OUTPUT" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+    # Caller stdout can disappear *after* Warden atomically commits the trial.
+    # Resolve its immutable identity by spec, then verify the exact receipt.
+    AFTER=$(uv run warden spec-status "$spec" --json 2>&1) || true
+    if [[ "$AFTER" != *'"source": "warden.spec-status"'* ]] ||
+       [[ "$AFTER" != *'"state": "STAGE3_FINAL"'* ]]; then
+        echo "[REQUIRES_RECONCILIATION] No finalized trial for spec after backtest: $spec"
+        mv "$spec" experiments/active/review/
+        continue
+    fi
+    COMMITTED_ID=$(echo "$AFTER" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+    if [ -z "$COMMITTED_ID" ] || { [ -n "$RUN_ID" ] && [ "$RUN_ID" != "$COMMITTED_ID" ]; }; then
+        echo "[REQUIRES_RECONCILIATION] CLI and immutable spec run IDs disagree: $spec"
+        mv "$spec" experiments/active/review/
+        continue
+    fi
+    RUN_ID="$COMMITTED_ID"
     RECEIPT=""
     if [ -n "$RUN_ID" ]; then
         RECEIPT=$(uv run warden attempt-status --run-id "$RUN_ID" --json 2>&1) || true

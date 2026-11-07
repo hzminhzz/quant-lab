@@ -25,7 +25,10 @@ FAILED_RECEIPT = ('{"ok": true, "value": {"state": "FINALIZED", "eligible": true
         ('{"run_id":"RUN-A"}', 124, FINAL_RECEIPT, "archive", "", "STAGE1_PASS", 0, True, True),
         ('{"run_id":"RUN-A","verdict":"REVISE"}', 0, "", "review", "", "STAGE1_PASS", 0, True, True),
         ('{"run_id":"RUN-A","verdict":"REVISE"}', 0, STALE_RECEIPT, "review", "", "STAGE1_PASS", 0, True, True),
-        ('WARDEN_RUN_COMPLETE', 0, FINAL_RECEIPT, "review", "", "STAGE1_PASS", 0, True, True),
+        ('WARDEN_RUN_COMPLETE', 0, FINAL_RECEIPT, "archive", "", "STAGE1_PASS", 0, True, True),
+        ('', 124, FINAL_RECEIPT, "archive", "", "STAGE1_PASS", 0, True, True),
+        ('{"run_id":"RUN-OTHER","verdict":"REVISE"}', 0, FINAL_RECEIPT,
+         "review", "", "STAGE1_PASS", 0, True, True),
         ('{"run_id":"RUN-A","verdict":"FAILED"}', 1, FAILED_RECEIPT, "review", "",
          "STAGE1_PASS", 0, True, True),
         ("", 0, "", "archive", "STAGE3_FINAL", "STAGE1_PASS", 0, False, False),
@@ -50,7 +53,8 @@ case " $* " in
   *' warden backtest '*) touch "$FIXTURE_BACKTEST_MARKER"; printf '%s\\n' "$FIXTURE_OUTPUT"; exit "$FIXTURE_CODE" ;;
   *' warden attempt-status '*) printf '%s\n' "$FIXTURE_RECEIPT"; exit 0 ;;
   *' warden spec-status '*)
-     if [ -n "$FIXTURE_INITIAL_SPEC_STAGE" ]; then STATE="$FIXTURE_INITIAL_SPEC_STAGE"
+     if [ -f "$FIXTURE_BACKTEST_MARKER" ]; then STATE="$FIXTURE_FINAL_SPEC_STAGE"
+     elif [ -n "$FIXTURE_INITIAL_SPEC_STAGE" ]; then STATE="$FIXTURE_INITIAL_SPEC_STAGE"
      elif [ -f "$FIXTURE_SCREEN_MARKER" ]; then STATE="$FIXTURE_SCREEN_STAGE"
      else STATE=NEW; fi
      printf '{"ok": true, "value": {"state": "%s", "reason": "fixture", "run_id": "RUN-A", "verdict": "%s"}, "source": "warden.spec-status"}\n' "$STATE" "$FIXTURE_SPEC_VERDICT"
@@ -72,6 +76,7 @@ exit 5
            "FIXTURE_SCREEN_MARKER": str(tmp_path / "screen-done"),
            "FIXTURE_SCREEN_STAGE": after_screen, "FIXTURE_SCREEN_EXIT": str(screen_exit),
            "FIXTURE_INITIAL_SPEC_STAGE": initial, "FIXTURE_SPEC_VERDICT": "REVISE",
+           "FIXTURE_FINAL_SPEC_STAGE": "STAGE3_FINAL",
            "FIXTURE_BACKTEST_MARKER": str(tmp_path / "backtest-called")}
     proc = subprocess.run(["bash", str(SCRIPT)], cwd=repository, env=env,
                           capture_output=True, text=True, timeout=15, check=False)

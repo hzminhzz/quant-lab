@@ -9,7 +9,7 @@ Only Warden-owned admissions, claims, and evidence receipts are authoritative. F
 | ID | Authority / state | Admitted event -> transition | Failure / recovery (no auto-retry) | Fixture evidence / disposition |
 |---|---|---|---|---|
 | M01 | Warden hypothesis registry | Register frozen mechanism -> ACTIVE | Duplicate/contract drift -> deny | `test_registry.py`, `test_attempt_lifecycle.py` |
-| M02 | Stage1 + trial SQLite receipts; YAML is queue view | Spec-status NEW -> Stage1; PASS -> trial; REJECT -> failed; finalized -> archive | Lost CLI result -> reconcile via receipts | `test_hourly_queue_reconciliation.py`, `test_screen_receipts.py` |
+| M02 | Stage1 + trial SQLite receipts; YAML is queue view | Spec-status NEW -> Stage1; PASS -> trial; REJECT -> failed; finalized -> archive | Lost/empty stdout -> recover identity from spec-status then verify receipt; mismatched run IDs -> review | `test_hourly_queue_reconciliation.py`, `test_screen_receipts.py` |
 | M03 | Warden screening/trial immutable rows | Valid Stage1 or Stage3 computation -> persisted verdict | Partial/unknown -> REQUIRES_RECONCILIATION | `test_screen_receipts.py`, `test_attempt_lifecycle.py` |
 | M04 | `attempt_receipts` | RESERVED -> FINALIZED (atomic trial row and SHA) | Orphan, corrupted artifact -> INTERRUPTED_REVIEW/EVIDENCE_DRIFT | `test_attempt_lifecycle.py` |
 | M05 | `hypotheses.trials_used` + `attempts_json` | BEGIN IMMEDIATE reserves unique run, consumes 1 of 3 slots | Duplicate/lineage cap -> denial; no refund | Concurrent and restart lifecycle fixtures |

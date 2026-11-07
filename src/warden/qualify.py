@@ -79,6 +79,19 @@ def qualify_candidate(
     if not strat_path.is_file():
         raise FileNotFoundError(f"Frozen strategy module unavailable: {module}")
     holdout_override = holdout_override_path is not None
+    if not holdout_override:
+        # The six-check audit is a required production admission, not merely
+        # a suggested CLI step. Fail before opening or claiming the holdout.
+        with reg._connect() as conn:
+            approved = conn.execute(
+                "SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        if not approved or approved[0] != "APPROVED":
+            raise PermissionError("Production qualification requires an APPROVED six-check audit")
+        proof = reg.causal_proof_for_run(run_id, runner.repo_root)
+        if not proof["verified"]:
+            raise PermissionError(f"Production qualification requires run-bound causal proof: {proof['reason']}")
     h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
     if not h_path.is_file():
         raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")

@@ -75,6 +75,22 @@ def test_holdout_returns_are_identical_to_validation_simulator(tiny_repo, tmp_pa
             "PROMOTED", "REJECTED_ON_HOLDOUT"}
 
 
+def test_production_holdout_requires_audit_and_matching_causal_proof_before_claim(tiny_repo) -> None:
+    f = tiny_repo()
+    f.registry.record_trial(_candidate(f), {"parameters": {}}, np.linspace(-0.002, 0.003, 40))
+    runner = ExperimentRunner(registry=f.registry, repo_root=f.repo)
+    # No holdout file is provisioned. The audit must deny *before* checking or
+    # opening the protected file, and no one-shot claim may be consumed.
+    with pytest.raises(PermissionError, match="APPROVED six-check audit"):
+        qualify_candidate("RUN-FIX-QUAL", "YES_UNSEAL_HOLDOUT", runner)
+    f.registry.record_audit("RUN-FIX-QUAL", "TINY_V1", "APPROVED", {"fixture": True})
+    with pytest.raises(PermissionError, match="run-bound causal proof"):
+        qualify_candidate("RUN-FIX-QUAL", "YES_UNSEAL_HOLDOUT", runner)
+    with f.registry._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM holdout_claims").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM qualifications").fetchone()[0] == 0
+
+
 def test_missing_frozen_strategy_never_burns_one_shot_holdout(tiny_repo, tmp_path: Path) -> None:
     f = tiny_repo()
     unavailable = replace(_candidate(f), strategy_module="strategies/candidates/never_registered.py")

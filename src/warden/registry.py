@@ -549,6 +549,9 @@ class ResearchRegistry:
             if receipt["state"] != "FINALIZED" or trial[1] == "FAILED":
                 return {"state": "REQUIRES_RECONCILIATION", "reason": receipt["reason"] or f"trial {trial[1]}",
                         "run_id": trial[0], "screen": screen}
+            if trial[1] == "REJECTED_EARLY":
+                return {"state": "STAGE1_REJECT", "reason": "immutable early-rejection trial recorded",
+                        "run_id": trial[0], "verdict": trial[1], "screen": screen}
             return {"state": "STAGE3_FINAL", "reason": "immutable Warden trial recorded",
                     "run_id": trial[0], "verdict": trial[1], "screen": screen}
         if screen["state"] == "FINALIZED":

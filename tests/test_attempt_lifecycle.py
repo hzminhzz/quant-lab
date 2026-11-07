@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+from warden.contracts import ExperimentResult, HypothesisSpec, canonical_json, load_contract
 from warden.registry import ResearchRegistry
 from warden.runner import default_run_id
 
@@ -55,6 +57,19 @@ def test_default_run_ids_cannot_collide_across_same_family_hypotheses(tmp_path: 
     assert one == default_run_id("HYP-A", 1)
     assert registry.register_trial_start("HYP-A", one) == 1
     assert registry.register_trial_start("HYP-OTHER", two) == 1
+
+
+def test_finalized_early_rejection_remains_stage1_not_stage3(tmp_path: Path) -> None:
+    registry = _registry(tmp_path)
+    result = replace(_result(), stage_reached="STAGE_1_SIGNAL", verdict="REJECTED_EARLY",
+                     strategy_module="strategies/flat.py",
+                     config_hash=hashlib.sha256(canonical_json({}).encode()).hexdigest()[:12])
+    registry.record_trial(result, {}, np.zeros(0))
+    state = registry.spec_status("HYP-A", "CRYPTO_PERPS_1H_V1", "strategies/flat.py", {})
+    assert state["state"] == "STAGE1_REJECT"
+    assert state["verdict"] == "REJECTED_EARLY"
+    assert state["run_id"] == "RUN-A"
+    assert registry.reconcile_attempt("RUN-A")["state"] == "FINALIZED"
 
 
 def test_reservation_survives_restart_and_interruption_is_never_refunded(tmp_path: Path) -> None:

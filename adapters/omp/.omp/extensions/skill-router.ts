@@ -232,6 +232,9 @@ export default function skillRouterExtension(
   let cachedCatalog: Catalog | null = null;
   let lastCoverage: Coverage | null = null;
   let lastRoutingError: string | null = null;
+  let authorizedScope: string | null = null;
+  const scopeKey = (ctx: ExtensionContext): string =>
+    `${ctx.cwd}|${ctx.agent?.id ?? ""}|${ctx.agent?.kind ?? ""}|${ctx.sessionManager?.getSessionId?.() ?? ""}`;
 
   const judgeFn = options?.judge ?? ((st: RoutingState, qs: Record<string, Question>, c?: ExtensionContext) => executeJudge(st, qs, c));
 
@@ -241,7 +244,10 @@ export default function skillRouterExtension(
       event: BeforeAgentStartEvent,
       ctx: ExtensionContext
     ): Promise<BeforeAgentStartEventResult | undefined> => {
-      // Subagent revive turn or empty prompt: do not re-run full routing
+      // A revived or empty scope must not inherit a prior task's authority.
+      lastCoverage = null;
+      authorizedScope = null;
+      lastRoutingError = null;
       if (event.reason === "revive") {
         return undefined;
       }
@@ -263,6 +269,7 @@ export default function skillRouterExtension(
 
         const coverage = await selectSkills(cachedCatalog, routingState, (st, qs) => judgeFn(st, qs, ctx));
         lastCoverage = coverage;
+        authorizedScope = scopeKey(ctx);
         lastRoutingError = null;
 
         try {
@@ -302,7 +309,7 @@ export default function skillRouterExtension(
     "tool_call",
     async (
       event: ToolCallEvent,
-      _ctx: ExtensionContext
+      ctx: ExtensionContext
     ): Promise<ToolCallEventResult | undefined> => {
       const isMutation = event.toolName === "write" || event.toolName === "edit";
       let isStrategyMutation = false;
@@ -331,6 +338,9 @@ export default function skillRouterExtension(
       // 2. Generic scope backstop: verify active coverage exists for research actions
       const isResearchAction = isStrategyMutation || isWardenScreenOrBacktest;
       if (isResearchAction) {
+        if (authorizedScope !== null && authorizedScope !== scopeKey(ctx)) {
+          return { block: true, reason: "Skill router scope mismatch: re-route skills for this agent/session before mutation." };
+        }
         if (lastCoverage === null) {
           return {
             block: true,

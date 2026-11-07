@@ -68,13 +68,22 @@ def qualify_candidate(
 
     contract = runner.resolve_contract(cid)
     holdout_override = holdout_override_path is not None
+    h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
+    if not h_path.is_file():
+        raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")
+
+    # Critical ordering: resolve_dataset hashes the entire holdout file.
+    # Therefore even provenance verification must happen only after the
+    # exclusive claim and durable read-start record have committed.
+    try:
+        reg.reserve_holdout_lineage(lineage_id, run_id)
+    except PermissionError as exc:
+        raise HoldoutAlreadyUnsealedError(str(exc)) from exc
+    reg.mark_holdout_read_started(lineage_id, run_id)
     if not holdout_override:
         holdout_res = resolve_dataset(contract, runner.repo_root, role="holdout")
         if not holdout_res.eligible_market:
             raise ValueError(f"Holdout dataset for '{cid}' is not market-eligible: {holdout_res.reason}")
-    h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
-    if not h_path.is_file():
-        raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")
 
     raw_panel = pl.read_parquet(h_path).sort("timestamp", "asset")
     window_df = raw_panel.filter(
@@ -117,6 +126,8 @@ def qualify_candidate(
         conn.execute("INSERT INTO qualifications VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      (qual_id, run_id, cid, hyp_id, lineage_id, m["gross_sharpe"], h_net_sr, m["max_drawdown_pct"], ratio, "HUMAN_OPERATOR", time.time()))
         conn.execute("UPDATE hypotheses SET status = ? WHERE hypothesis_id = ?", (verdict, hyp_id))
+        conn.execute("UPDATE holdout_claims SET state=?,finalized_at=? WHERE lineage_id=? AND run_id=? AND state='READ_STARTED'",
+                     (verdict, time.time(), lineage_id, run_id))
 
     return {"qual_id": qual_id, "run_id": run_id, "lineage_id": lineage_id, "holdout_net_sharpe": h_net_sr,
             "val_to_holdout_ratio": ratio, "promoted": promoted, "verdict": verdict,

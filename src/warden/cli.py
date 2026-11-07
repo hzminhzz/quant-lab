@@ -21,6 +21,7 @@ from warden.audit import fingerprint as audit_fingerprint
 from warden.audit import record as audit_record
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
+from warden.lease import MutationBusy, mutation_lease
 from warden.policy import Decision, authorize
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry
@@ -41,6 +42,7 @@ LEGACY_TRACE = {
     "uv run warden check-worktree": {"op": "worktree_check"},
 }
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "audit-check", "handoff", "qualify", "generate-manifest"})
 
 
 def envelope(ok: bool, value, source: str, policy: str = "allow") -> dict:
@@ -494,12 +496,21 @@ def main(argv: list[str] | None = None) -> int:
     if not args.subcommand:
         parser.print_help()
         return 0
-    runner = ExperimentRunner()
+    # Acquire the writer lease before constructing the runner: its registry
+    # constructor may execute additive migrations on first access.
+    runner = None
     decision = authorize(args.subcommand)
     started = time.perf_counter()
     sink = _CountingWriter(sys.stdout)
     sys.stdout, code = sink, 1
+    active_lease = None
+    lease_acquired = False
     try:
+        if decision.allow and (not decision.approval_required or _human_approved(args)) and args.subcommand in MUTATING_COMMANDS:
+            active_lease = mutation_lease(Path("registry/registry.db"))
+            active_lease.__enter__()
+            lease_acquired = True
+        runner = ExperimentRunner()
         if not decision.allow:
             print(f"REFUSED: {decision.reason}", file=sys.stderr)
             code = 2
@@ -523,14 +534,22 @@ def main(argv: list[str] | None = None) -> int:
                     "generate-manifest": cmd_generate_manifest}
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0
+    except MutationBusy as exc:
+        code = 75
+        if getattr(args, "json", False):
+            print(json.dumps(envelope(False, {"status": "BUSY", "reason": str(exc)}, "warden.mutation-lease", "deny")))
+        else:
+            print(str(exc), file=sys.stderr)
     except SystemExit as exc:
         code = 0 if exc.code is None else (exc.code if isinstance(exc.code, int) else 1)
         raise
     finally:
+        if lease_acquired:
+            active_lease.__exit__(None, None, None)
         sys.stdout = sink.stream
         # Observability must never decide whether the command "worked".
         try:
-            audit_record(runner.repo_root, args.subcommand, argv or sys.argv[1:], decision, code,
+            audit_record(runner.repo_root if runner is not None else Path("."), args.subcommand, argv or sys.argv[1:], decision, code,
                          (time.perf_counter() - started) * 1000.0, sink.count)
         except OSError as exc:
             print(f"WARN: audit log unavailable ({exc}); command result unchanged", file=sys.stderr)

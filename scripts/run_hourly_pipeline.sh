@@ -5,14 +5,14 @@
 
 set -euo pipefail
 
-REPO_DIR="/home/quant/dev/quant-lab"
+REPO_DIR="${QUANT_LAB_REPO_DIR:-/home/quant/dev/quant-lab}"
 cd "$REPO_DIR"
 
 # 1. Enforce non-interactive security guard (blocks autonomous holdout unsealing)
 export WARDEN_NON_INTERACTIVE=1
 
 # 2. Concurrency lock (prevents overlapping cron/timer jobs from racing on registry.db)
-LOCK_FILE="/tmp/quant_lab_hourly.lock"
+LOCK_FILE="${QUANT_LAB_HOURLY_LOCK_FILE:-/tmp/quant_lab_hourly.lock}"
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then
     echo "[$(date -u)] Job already running. Exiting cleanly."
@@ -20,7 +20,7 @@ if ! flock -n 200; then
 fi
 
 # 3. Ensure required directories exist
-mkdir -p experiments/queue experiments/active/failed experiments/active/archive \
+mkdir -p experiments/queue experiments/active/failed experiments/active/archive experiments/active/review \
          .workspace/hypotheses/queue .workspace/hypotheses/registered .workspace/hypotheses/failed
 
 # 4. Enforce protected contracts, warden core, and LOC budgets
@@ -73,19 +73,30 @@ for spec in "${QUEUE_SPECS[@]}"; do
     fi
 
     # Step C: Stage 2 & 3 Walk-Forward Backtest, 2x Cost Stress, and DSR
-    OUTPUT=$(uv run warden backtest "$spec" --json || true)
+    BACKTEST_EXIT=0
+    OUTPUT=$(uv run warden backtest "$spec" --json 2>&1) || BACKTEST_EXIT=$?
     echo "$OUTPUT"
 
-    # Step D: Parse Results & Trigger Adversarial Audit for Qualifying Runs
+    # Step D: Require both a successful command and Warden's final-result
+    # sentinel and typed identifiers. Ambiguous completion is NOT a retry.
     RUN_ID=$(echo "$OUTPUT" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
     VERDICT=$(echo "$OUTPUT" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
-
-    if [ "$VERDICT" == "CANDIDATE_FOR_QUALIFICATION" ] && [ -n "$RUN_ID" ]; then
-        echo ">>> CANDIDATE FOUND! Executing 6-check adversarial audit for $RUN_ID"
-        uv run warden audit-check --run-id "$RUN_ID" --json
+    if [ "$BACKTEST_EXIT" -ne 0 ] || [ -z "$RUN_ID" ] || [ -z "$VERDICT" ] || [[ "$OUTPUT" != *WARDEN_RUN_COMPLETE* ]]; then
+        echo "[REQUIRES_RECONCILIATION] Missing/ambiguous final Warden receipt: $spec (exit=$BACKTEST_EXIT)"
+        mv "$spec" experiments/active/review/
+        continue
     fi
 
-    # Move processed spec to active archive
+    if [ "$VERDICT" == "CANDIDATE_FOR_QUALIFICATION" ]; then
+        echo ">>> CANDIDATE FOUND! Executing 6-check adversarial audit for $RUN_ID"
+        if ! uv run warden audit-check --run-id "$RUN_ID" --json; then
+            echo "[REQUIRES_RECONCILIATION] Audit incomplete/negative: $RUN_ID; backtest result remains recorded"
+            mv "$spec" experiments/active/review/
+            continue
+        fi
+    fi
+
+    # Archive only a Warden-reported successful final backtest.
     mv "$spec" experiments/active/archive/
 done
 

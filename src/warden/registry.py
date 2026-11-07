@@ -154,6 +154,7 @@ class ResearchRegistry:
                 CREATE TABLE IF NOT EXISTS trials ({_columns(ExperimentResult)},config_json TEXT,returns_json TEXT,returns_parquet_path TEXT,trial_number_in_hyp INTEGER,git_commit_sha TEXT,created_at REAL,PRIMARY KEY (run_id));
                 CREATE TABLE IF NOT EXISTS feature_sets (feature_hash TEXT PRIMARY KEY,contract_id TEXT,feature_names_json TEXT,ml4t_engineer_version TEXT,prefix_invariance_passed INTEGER,parquet_cache_path TEXT,created_at REAL);
                 CREATE TABLE IF NOT EXISTS qualifications (qual_id TEXT PRIMARY KEY,run_id TEXT,contract_id TEXT,hypothesis_id TEXT,lineage_id TEXT UNIQUE,holdout_gross_sharpe REAL,holdout_net_sharpe REAL,holdout_max_dd_pct REAL,val_to_holdout_sharpe_ratio REAL,approved_by_human TEXT,qualified_at REAL);
+                CREATE TABLE IF NOT EXISTS holdout_claims (lineage_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,state TEXT NOT NULL,claimed_at REAL NOT NULL,read_started_at REAL,finalized_at REAL);
                 CREATE TABLE IF NOT EXISTS trial_quarantine (run_id TEXT PRIMARY KEY,reason TEXT,quarantined_at REAL);
                 CREATE TABLE IF NOT EXISTS audit_reports (run_id TEXT PRIMARY KEY,contract_id TEXT,verdict TEXT,checks_json TEXT,created_at REAL);
                 CREATE TABLE IF NOT EXISTS trial_dispositions (disposition_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,disposition TEXT NOT NULL,reason TEXT NOT NULL,attributed_to TEXT NOT NULL,created_at REAL NOT NULL,contract_id TEXT DEFAULT '');
@@ -181,6 +182,12 @@ class ResearchRegistry:
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
             """)
+            # Additive legacy migration: a prior qualification is irrevocably
+            # spent even if the newer pre-read claim table did not yet exist.
+            conn.execute("""INSERT OR IGNORE INTO holdout_claims (lineage_id,run_id,state,claimed_at,read_started_at,finalized_at)
+                            SELECT lineage_id,run_id,'LEGACY_SPENT',COALESCE(qualified_at,0),
+                                   COALESCE(qualified_at,0),COALESCE(qualified_at,0)
+                              FROM qualifications WHERE lineage_id IS NOT NULL""")
             for table, cls in (("contracts", EvaluationContract), ("hypotheses", HypothesisSpec),
                                ("trials", ExperimentResult)):
                 _ensure_columns(conn, table, cls)
@@ -211,6 +218,33 @@ class ResearchRegistry:
                 yield conn
         finally:
             conn.close()
+
+    # --- exclusive pre-read admission of a one-shot holdout lineage --------
+
+    def reserve_holdout_lineage(self, lineage_id: str, run_id: str) -> None:
+        """Burn one immutable lineage claim before any holdout data is opened.
+
+        Crashes and uncertain executions intentionally remain claimed. There is
+        no automatic release API: all repeats require explicit operator review.
+        """
+        if not lineage_id or not run_id:
+            raise ValueError("lineage_id and run_id must be nonempty")
+        with self._connect() as conn:
+            try:
+                conn.execute("INSERT INTO holdout_claims (lineage_id,run_id,state,claimed_at) VALUES (?,?,?,?)",
+                             (lineage_id, run_id, "CLAIMED", time.time()))
+            except sqlite3.IntegrityError as exc:
+                prior = conn.execute("SELECT run_id,state FROM holdout_claims WHERE lineage_id=?", (lineage_id,)).fetchone()
+                raise PermissionError(f"Lineage '{lineage_id}' was already unsealed by run '{prior['run_id']}' (state={prior['state']}).") from exc
+
+    def mark_holdout_read_started(self, lineage_id: str, run_id: str) -> None:
+        """Commit a READ_STARTED event before opening holdout bytes."""
+        with self._connect() as conn:
+            updated = conn.execute("""UPDATE holdout_claims SET state='READ_STARTED',read_started_at=?
+                                      WHERE lineage_id=? AND run_id=? AND state='CLAIMED'""",
+                                   (time.time(), lineage_id, run_id)).rowcount
+            if updated != 1:
+                raise PermissionError("Holdout lineage has no fresh, matching exclusive claim")
 
     # --- dispositions, audit evidence, effective eligibility --------------
 

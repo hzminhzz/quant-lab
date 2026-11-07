@@ -148,7 +148,8 @@ def test_4_holdout_and_governance_isolation(tmp_path: Path) -> None:
                            "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 2.0, 1.5, 0.95, 0.5, 1, 1.0,
                            None, None, 0.5, 1.3, 3.0, 50.0, 15.0, 1.0, 1.0, "notes",
                            data_provenance="verified_market",
-                           data_snapshot_sha256=contract.data_snapshot_sha256)
+                           data_snapshot_sha256=contract.data_snapshot_sha256,
+                           strategy_module="strategies/candidates/vol_breakout_1h.py")
     reg.record_trial(res, {}, np.linspace(0.01, -0.005, 100))
 
     with reg._connect() as conn, pytest.raises(sqlite3.IntegrityError, match="Append-only violation"):
@@ -231,7 +232,10 @@ def test_6_research_ergonomics_and_throughput_funnel_timing(tmp_path: Path) -> N
     assert len(feat) == len(panel)
     assert stage1_cached_time < 2.0, f"Stage 1 cached screen took {stage1_cached_time:.3f}s (must be < 2.0s)"
 
-    # 3. Full Vertical Slice Simulation (< 60 s)
+    # 3. Full vertical slice is an integration benchmark requiring the exact
+    # pinned market snapshot; do not fabricate one in a clean source checkout.
+    if not Path(contract.exploratory_data_path).is_file():
+        pytest.skip("Historical pinned exploratory market Parquet not mounted; integration benchmark deferred")
     t2 = time.perf_counter()
     timing_reg = ResearchRegistry(tmp_path / "timing_reg.db")
     timing_reg.register_contract(contract)

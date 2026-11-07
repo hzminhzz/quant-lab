@@ -11,13 +11,21 @@ No `warden backtest` is executed and no holdout data is read.
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import sqlite3
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import yaml
+
+if __package__:
+    from scripts.campaign_projection import project as project_campaign
+else:
+    from campaign_projection import project as project_campaign
 
 SPEC_DIR = Path("experiments/active/carver_daily")
 OUT_DIR = Path(".workspace/af30_campaign")
@@ -45,7 +53,26 @@ def strategy_label(module: Path) -> str:
     return module.stem.split("_", 1)[0]
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--report-only", action="store_true", help="Rebuild report solely from SQLite, no Warden execution")
+    parser.add_argument("--spec-dir", type=Path, default=SPEC_DIR)
+    parser.add_argument("--registry", type=Path, default=DB)
+    parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
+    opts = parser.parse_args(argv)
+    if opts.report_only:
+        records = project_campaign(sorted(opts.spec_dir.glob("*.yaml")), opts.registry)
+        opts.out_dir.mkdir(parents=True, exist_ok=True)
+        target = opts.out_dir / "campaign_registry_projection.json"
+        with tempfile.NamedTemporaryFile("w", dir=opts.out_dir, suffix=".pending",
+                                         delete=False, encoding="utf-8") as handle:
+            temp = Path(handle.name)
+            handle.write(json.dumps({"source": "Warden SQLite", "records": records}, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, target)
+        print(f"Rebuilt {len(records)} statuses from SQLite only: {target}")
+        return 0
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     specs = sorted(SPEC_DIR.glob("*_screen.yaml"))
     if len(specs) != 17:

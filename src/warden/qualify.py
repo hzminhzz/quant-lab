@@ -14,6 +14,7 @@ from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
     calculate_metrics_from_returns,
+    execution_returns,
     load_module_from_path,
     simulate_positions,
 )
@@ -67,44 +68,71 @@ def qualify_candidate(
             raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row[1]}'.")
 
     contract = runner.resolve_contract(cid)
+    # Qualification may not silently execute an unrelated strategy when the
+    # original source was moved or never recorded.
+    module = trial.get("strategy_module") or ""
+    rel = Path(module)
+    strat_path = (runner.repo_root / rel).resolve()
+    allowed = (runner.repo_root / "strategies").resolve()
+    if not module or rel.is_absolute() or ".." in rel.parts or not strat_path.is_relative_to(allowed):
+        raise ValueError("Missing or unsafe frozen strategy module; holdout remains sealed")
+    if not strat_path.is_file():
+        raise FileNotFoundError(f"Frozen strategy module unavailable: {module}")
     holdout_override = holdout_override_path is not None
+    if not holdout_override:
+        # The six-check audit is a required production admission, not merely
+        # a suggested CLI step. Fail before opening or claiming the holdout.
+        with reg._connect() as conn:
+            approved = conn.execute(
+                "SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        if not approved or approved[0] != "APPROVED":
+            raise PermissionError("Production qualification requires an APPROVED six-check audit")
+        proof = reg.causal_proof_for_run(run_id, runner.repo_root)
+        if not proof["verified"]:
+            raise PermissionError(f"Production qualification requires run-bound causal proof: {proof['reason']}")
+    h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
+    if not h_path.is_file():
+        raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")
+
+    # Critical ordering: resolve_dataset hashes the entire holdout file.
+    # Therefore even provenance verification must happen only after the
+    # exclusive claim and durable read-start record have committed.
+    try:
+        reg.reserve_holdout_lineage(lineage_id, run_id)
+    except PermissionError as exc:
+        raise HoldoutAlreadyUnsealedError(str(exc)) from exc
+    reg.mark_holdout_read_started(lineage_id, run_id)
     if not holdout_override:
         holdout_res = resolve_dataset(contract, runner.repo_root, role="holdout")
         if not holdout_res.eligible_market:
             raise ValueError(f"Holdout dataset for '{cid}' is not market-eligible: {holdout_res.reason}")
-    h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
-    if not h_path.is_file():
-        raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")
 
     raw_panel = pl.read_parquet(h_path).sort("timestamp", "asset")
     window_df = raw_panel.filter(
         (pl.col("timestamp") >= contract.holdout_start) & (pl.col("timestamp") <= contract.holdout_end)
     )
+    if window_df.height < 20 and not holdout_override:
+        raise ValueError("No sufficient observations within the declared production holdout; no fallback window")
     panel_df = window_df if window_df.height >= 20 else raw_panel
     ts = sorted(panel_df["timestamp"].unique().to_list())
     assets = sorted(panel_df["asset"].unique().to_list())
     n_bars = len(ts)
 
-    mod_str = trial.get("strategy_module") or ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
-    strat_path = runner.repo_root / mod_str
-    if not strat_path.is_file():
-        strat_path = runner.repo_root / ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
     mod = load_module_from_path(strat_path)
     raw_cfg = trial.get("config_json", "{}")
     cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}
     params = cfg_data.get("parameters", cfg_data) if isinstance(cfg_data, dict) else {}
 
     out = mod.generate_positions(panel_df, contract, **params)
-    if "open" in panel_df.columns:
-        ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
-    else:
-        ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
     from warden.runner import _aligned_matrix, _funding_settlement_mask
-    ret_p = _aligned_matrix(ret_df, "ret", assets)
+    # Qualification and validation use exactly the same price-side, latency,
+    # turnover, funding-settlement and cost convention. No close fallback.
+    ret_p = execution_returns(panel_df, contract, assets)
     fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-    fund_mask = _funding_settlement_mask(ts, contract)
-
-    sim = simulate_positions(out["positions"], ret_p, fund_p, contract, slice(0, n_bars), cost_multiplier=1.0, funding_mask=fund_mask)
+    sim = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, slice(0, n_bars),
+                             funding_mask=_funding_settlement_mask(ts, contract), quote_returns=ret_p)
     m = calculate_metrics_from_returns(sim["gross_returns"], sim["net_returns"], sim["turnover"], contract.bars_per_year)
 
     h_net_sr = m["net_sharpe"]
@@ -117,6 +145,8 @@ def qualify_candidate(
         conn.execute("INSERT INTO qualifications VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                      (qual_id, run_id, cid, hyp_id, lineage_id, m["gross_sharpe"], h_net_sr, m["max_drawdown_pct"], ratio, "HUMAN_OPERATOR", time.time()))
         conn.execute("UPDATE hypotheses SET status = ? WHERE hypothesis_id = ?", (verdict, hyp_id))
+        conn.execute("UPDATE holdout_claims SET state=?,finalized_at=? WHERE lineage_id=? AND run_id=? AND state='READ_STARTED'",
+                     (verdict, time.time(), lineage_id, run_id))
 
     return {"qual_id": qual_id, "run_id": run_id, "lineage_id": lineage_id, "holdout_net_sharpe": h_net_sr,
             "val_to_holdout_ratio": ratio, "promoted": promoted, "verdict": verdict,

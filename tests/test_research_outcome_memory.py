@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -169,6 +170,27 @@ def test_reusing_a_failed_module_under_new_id_requires_lineage_review(tmp_path: 
     assert result["status"] == "MODULE_ALIAS_REVIEW_REQUIRED"
 
 
+def test_changed_parameter_revision_is_not_blocked_by_old_config_only(tmp_path: Path) -> None:
+    db = tmp_path / "source.db"
+    source_registry(db)
+    old = {"window": 10}
+    new = {"window": 20}
+    old_hash = hashlib.sha256(json.dumps(old, sort_keys=True).encode()).hexdigest()[:12]
+    with sqlite3.connect(db) as conn:
+        conn.execute("ALTER TABLE trials ADD COLUMN config_hash TEXT")
+        conn.execute("UPDATE trials SET config_hash=? WHERE run_id='RUN-TEST-FAIL'", (old_hash,))
+    candidate = spec(tmp_path, "HYP-TEST-FAIL")
+    config = yaml.safe_load(candidate.read_text())
+    config["parameters"] = old
+    candidate.write_text(yaml.safe_dump(config))
+    assert check_spec(candidate, db)["status"] == "HISTORICAL_TRIAL_ALREADY_RECORDED"
+    config["parameters"] = new
+    candidate.write_text(yaml.safe_dump(config))
+    decision = check_spec(candidate, db)
+    assert decision["eligible"], decision
+    assert decision["status"] == "NOT_PREVIOUSLY_ATTEMPTED_ON_THIS_ID"
+
+
 def test_contract_id_mismatch_is_not_a_retry(tmp_path: Path) -> None:
     db = tmp_path / "source.db"
     source_registry(db)
@@ -208,6 +230,31 @@ def test_hourly_runner_checks_failure_memory_before_screening() -> None:
     assert guard < verify < screen
     assert 'mv "$spec" experiments/active/failed/' in source
     assert "WARDEN_NON_INTERACTIVE=1" in source
+
+
+def test_sqlite_verdict_takes_priority_over_conflicting_sidecar(tmp_path: Path) -> None:
+    db = tmp_path / "source.db"
+    source_registry(db)
+    entry = load_index()["outcomes"][0]
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO trials VALUES (?,?,?,?)",
+                     (entry["hypothesis_id"], "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", "RUN-LIVE"))
+    decision = check_spec(spec(tmp_path, entry["hypothesis_id"], entry["contract_id"]), db)
+    assert decision["status"] == "HISTORICAL_TRIAL_ALREADY_RECORDED"
+    assert "RUN-LIVE:CANDIDATE_FOR_QUALIFICATION" in decision["evidence"]
+    assert not decision["eligible"]
+    missing_sidecar = tmp_path / "missing.json"
+    decision2 = check_spec(spec(tmp_path, entry["hypothesis_id"], entry["contract_id"]), db, missing_sidecar)
+    assert decision2 == decision
+
+
+def test_sidecar_unknown_source_provenance_fails_closed(tmp_path: Path) -> None:
+    data = json.loads(Path("docs/research-outcomes/branch-result-index-v1.json").read_text())
+    data["outcomes"][0]["source_pr"] = 999999
+    path = tmp_path / "unknown-source.json"
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="Unattributed"):
+        load_index(path)
 
 
 def test_corrupt_sidecar_or_duplicate_evidence_fails_closed(tmp_path: Path) -> None:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import inspect
 from collections.abc import Sequence
 from pathlib import Path
@@ -11,8 +10,7 @@ from typing import Protocol
 import numpy as np
 import polars as pl
 
-from warden.contracts import EvaluationContract, canonical_json
-from warden.registry import ResearchRegistry
+from warden.contracts import EvaluationContract
 
 
 class LookaheadLeakageError(ValueError): pass
@@ -155,26 +153,4 @@ def verify_fold_isolation(model: WalkForwardModelProtocol, train_df: pl.DataFram
     return preds
 
 
-def compute_and_cache_features(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract, cache_dir: Path = Path("cache/features"), registry: ResearchRegistry | None = None) -> pl.DataFrame:
-    cache_dir = Path(cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        source_text = inspect.getsource(pipeline.__class__)
-    except (TypeError, OSError):
-        source_text = pipeline.__class__.__name__
-    ver = "0.2.0"
-    fhash = hashlib.sha256(canonical_json({"contract": contract.spec_hash(), "source": hashlib.sha256(source_text.encode()).hexdigest(), "ver": ver}).encode()).hexdigest()[:16]
-    cpath = cache_dir / f"{fhash}.parquet"
-    if cpath.is_file():
-        return pl.read_parquet(cpath)
-    verify_prefix_invariance(pipeline, bars_df, contract)
-    feats = pipeline.compute(bars_df, contract).sort("timestamp", "asset")
-    feats.write_parquet(cpath)
-    if registry is not None:
-        import time
-        with registry._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO feature_sets (feature_hash, contract_id, feature_names_json, ml4t_engineer_version, prefix_invariance_passed, parquet_cache_path, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-                (fhash, contract.contract_id, "[]", ver, str(cpath), time.time()),
-            )
-    return feats
+from warden_evidence.feature_cache import compute_and_cache_features  # noqa: F401

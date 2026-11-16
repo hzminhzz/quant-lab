@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-008
+contract_id: CRYPTO_MAJORS_1H_V1
+title: London Opening Range Breakout (ORB) on Crypto Perps
+strategy_family: rules_ts
+economic_mechanism: >
+  European banking open capital deployment breaches compressed Asian session (00:00-08:00 UTC) range boundaries,
+  generating directional intraday order flow momentum held through the London session until 16:00 UTC close.
+counterparty_or_friction: >
+  Range-bound mean reversion market makers, overnight liquidity providers trapped off-side, and late liquidity takers.
+expected_holding_bars: 7
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_london_orb_breakout_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

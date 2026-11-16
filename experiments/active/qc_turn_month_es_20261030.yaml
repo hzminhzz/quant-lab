@@ -1,0 +1,14 @@
+{
+  "contract_id": "INDICES_1D_V1",
+  "hypothesis_id": "HYP-SOC-QC-TOM-ES-20261030",
+  "run_id": "RUN-SOC-QC-TOM-ES-20261030",
+  "model_type": "rules",
+  "strategy_family": "rules_ts",
+  "strategy_module": "strategies/candidates/quantconnect_turn_month_es_cfd_1d.py",
+  "strategy_name": "QC_TURN_MONTH_ES_CFD_3NYSE_SESSIONS_1D",
+  "parameters": {
+    "target_symbols": [
+      "ES"
+    ]
+  }
+}

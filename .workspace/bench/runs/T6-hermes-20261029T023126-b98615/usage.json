@@ -1,0 +1,47 @@
+{
+  "estimated_cost_usd": 0.0,
+  "cost_status": "unknown",
+  "cost_source": "none",
+  "input_tokens": 690591,
+  "output_tokens": 6718,
+  "cache_read_tokens": 643904,
+  "cache_write_tokens": 0,
+  "reasoning_tokens": 3658,
+  "total_tokens": 697309,
+  "api_calls": 16,
+  "model": "workbuddy-ai/deepseek-v4.1-flash",
+  "provider": "custom",
+  "session_id": "local-b85aaa5e7243e71a9f92f6deb83cad946d64628ff1a0c869c2a4f37b0a7b5c27",
+  "completed": true,
+  "partial": false,
+  "interrupted": false,
+  "turn_exit_reason": "text_response(finish_reason=stop)",
+  "failed": false,
+  "service_tier": null,
+  "auxiliary": {
+    "api_calls": 1,
+    "input_tokens": 422,
+    "output_tokens": 208,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "reasoning_tokens": 184,
+    "estimated_cost_usd": 0,
+    "total_tokens": 630,
+    "by_task": {
+      "title_generation": {
+        "api_calls": 1,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "estimated_cost_usd": 0,
+        "input_tokens": 422,
+        "output_tokens": 208,
+        "reasoning_tokens": 184
+      }
+    }
+  },
+  "total_including_auxiliary": {
+    "estimated_cost_usd": 0.0,
+    "total_tokens": 697939,
+    "api_calls": 17
+  }
+}

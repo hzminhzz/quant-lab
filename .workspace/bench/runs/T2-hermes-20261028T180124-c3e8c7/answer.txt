@@ -1,0 +1,21 @@
+Added `tests/test_carver_deadband_boundary.py` (4 tests, all passing).
+
+What it pins, with `buffer_fraction=0.5`, `weight=1.0` → width `0.5` (exact in binary):
+
+- `target=0.75`, `held=0.25` → drift is exactly `0.5` → held weight `0.25` is kept, and the negated mirror (`-0.75`/`-0.25`) behaves the same.
+- `math.nextafter(0.75, inf)` → one representable step past the boundary → target is taken (same for the negative side).
+- `target=-0.25`, `held=0.25` → equal drift on the other side of the held weight is also kept.
+
+The module path is resolved from `__file__` rather than CWD, and a first test asserts the premise (`0.75 - 0.25 == 0.5` exactly) so a later refactor can't turn the boundary case into a rounding coincidence.
+
+Run:
+```
+uv run pytest tests/test_carver_deadband_boundary.py -q   → 4 passed
+uv run ruff check tests/test_carver_deadband_boundary.py   → All checks passed
+```
+
+Falsifiability check: a strict-inequality variant (`<` instead of `<=`) returns `0.75` at the exact boundary, so the "kept" assertion would fail as intended. Nothing under `strategies/`, `src/warden/`, `contracts/` or `AGENTS.md` was touched — `git status` shows only the new untracked test file.
+
+One pre-existing issue, unrelated to this change: `tests/experiments/test_carver_daily_suite.py` fails at collection with `FileNotFoundError: contracts/multi_asset_1d_v1.yaml` — that contract is not tracked in this worktree (`git ls-files` returns nothing for it). My test doesn't depend on it.
+
+Memory: nothing durable from this test-only run, so no entries added or trimmed.

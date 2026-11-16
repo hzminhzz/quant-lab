@@ -1,0 +1,11 @@
+hypothesis_id: HYP-2026-054
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+strategy_family: cross_sectional_ml
+model_type: linear
+run_id: RUN-HYP054-001
+strategy_module: strategies/candidates/cs_taker_flow_imbalance_1h.py
+strategy_name: CSTakerFlowImbalanceRidge_1H
+parameters:
+  alpha: 10.0
+  rebalance_every: 72
+  top_k: 5

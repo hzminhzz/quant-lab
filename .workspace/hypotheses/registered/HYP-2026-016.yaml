@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-016
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Systematic Funding Beta and Deleveraging Risk Premium Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Systematic funding beta (beta^F_i = Cov(r_{i,t}, Delta F_{m,t}) / Var(Delta F_{m,t}) over trailing 30 days) non-parametrically quantifies an altcoin's price sensitivity to aggregate market leverage shocks; altcoins with elevated positive funding beta crash violently during market-wide deleveraging spirals, imposing severe collateral margin haircuts on investors. In equilibrium, rational market participants demand an elevated return premium to hold high-funding-beta assets. A dollar-neutral basket longing high-funding-beta altcoins and shorting low-funding-beta altcoins captures this systematic funding liquidity risk premium while neutralizing directional Bitcoin market beta.
+counterparty_or_friction: >
+  Risk-averse institutional desks overpaying for low-funding-beta tokens to protect collateral margins while dumping high-funding-beta tokens at deep fire-sale discounts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_funding_beta_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

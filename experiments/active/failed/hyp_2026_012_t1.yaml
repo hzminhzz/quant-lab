@@ -1,0 +1,29 @@
+hypothesis_id: HYP-2026-012
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP012-001
+strategy_module: strategies/candidates/ts_vol_managed_tsmom_1h.py
+strategy_name: VolManagedTSMOM_1H
+parameters:
+  lookback_bars: 72
+  vol_window: 24
+  target_vol: 0.015
+  max_leverage: 1.5
+  rebalance_every: 4
+param_grid:
+  - lookback_bars: 72
+    vol_window: 24
+    target_vol: 0.015
+    max_leverage: 1.5
+    rebalance_every: 4
+  - lookback_bars: 48
+    vol_window: 24
+    target_vol: 0.012
+    max_leverage: 1.2
+    rebalance_every: 4
+  - lookback_bars: 96
+    vol_window: 36
+    target_vol: 0.020
+    max_leverage: 2.0
+    rebalance_every: 4

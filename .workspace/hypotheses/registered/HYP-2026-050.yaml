@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-050
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Trade Size Granularity & Institutional Stealth Trading Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Average trade size (ATS = quote_volume / count) distinguishes institutional block execution from fragmented retail speculation; altcoins experiencing an expansion in 7-day ATS relative to their 30-day baseline reflect informed stealth accumulation with persistent forward drift, whereas tokens experiencing an explosion in trade count with shrinking ATS reflect retail mania tops. Longing high-ATS-ratio and shorting low-ATS-ratio altcoins in a dollar-neutral 72h basket captures institutional drift alpha. Grounded in Barclay & Warner (1993) stealth-trading theory.
+counterparty_or_friction: >
+  Fragmented retail speculators trading micro-lots at late-stage momentum tops and passive liquidity providers absorbing stealth order flow.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_stealth_trade_size_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

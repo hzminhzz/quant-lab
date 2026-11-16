@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-058
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Volatility Feedback Asymmetry and Downward Risk Premium Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  The return-volatility correlation (xi_i = Corr(r_{i,t}, Delta sigma_{i,t}) over trailing 14 days) measures the intensity of the volatility feedback effect; altcoins with strong negative return-volatility correlation experience severe downward volatility amplification, where price declines trigger surges in realized volatility and forced margin liquidation unwinds. In equilibrium, risk-averse investors demand an elevated risk premium to hold assets subject to downward volatility spirals. Conversely, altcoins with positive correlation experience volatility expansion during upward price pumps and trade at persistent valuation premiums. A dollar-neutral 72h basket longing negative-feedback altcoins (Quintile 1: lowest xi_i) and shorting positive-feedback altcoins (Quintile 5: highest xi_i) captures this volatility feedback risk premium while neutralizing directional Bitcoin market beta.
+counterparty_or_friction: >
+  Risk-averse institutional desks overpaying for volatility-resilient tokens while dumping tokens with violent downward volatility feedback at steep discounts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_volatility_feedback_asymmetry_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

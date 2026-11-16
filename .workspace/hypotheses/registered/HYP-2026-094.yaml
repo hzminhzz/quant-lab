@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-094
+contract_id: MULTI_ASSET_1D_V1
+title: Robert Carver AF30 Strategy 21 Breakout 80 on Daily Multi-Asset Panel
+strategy_family: rules_ts
+economic_mechanism: >
+  Robert Carver Advanced Futures Trading Strategies Chapter 21: price-within-range continuous forecast 40 * (price - midpoint) / range over 80-day rolling channel, smoothed by 20-day EWMA (span=h/4) and scaled by 0.73; cash volatility position sizing targets 20% annual risk with 10% buffering to suppress turnover.
+counterparty_or_friction: >
+  Range-bound mean reversion traders and short-horizon breakout faders pay medium-term trend continuation premia; friction is 1 bp one-way on liquid daily multi-asset instruments.
+expected_holding_bars: 40
+falsification_criteria: >
+  Reject if Net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, or +1-bar latency Sharpe <= 0 on MULTI_ASSET_1D_V1.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), Chapter 21 Breakout (pp. 389-402)
+llm_model_id: unspecified
+strategy_module: strategies/candidates/carver_breakout_daily.py

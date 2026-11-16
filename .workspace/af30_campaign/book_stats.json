@@ -1,0 +1,138 @@
+{
+  "contract_id": "MULTI_ASSET_1H_V1",
+  "run_id": "RUN-HYP091-001",
+  "weights": {
+    "AUDUSD": 0.03125,
+    "CADJPY": 0.03125,
+    "CL": 0.25,
+    "DAX": 0.041666666666666664,
+    "ES": 0.041666666666666664,
+    "EURUSD": 0.03125,
+    "EUSIDXEUR": 0.041666666666666664,
+    "GBPJPY": 0.03125,
+    "GBPUSD": 0.03125,
+    "HK33": 0.041666666666666664,
+    "NIKKEI225": 0.041666666666666664,
+    "NQ": 0.041666666666666664,
+    "USDCAD": 0.03125,
+    "USDCHF": 0.03125,
+    "USDJPY": 0.03125,
+    "XAGUSD": 0.125,
+    "XAUUSD": 0.125
+  },
+  "idm": 1.8761889165427499,
+  "vol_scale": 3.0,
+  "realised_train_vol": 0.0585875690074609,
+  "realised_val_vol": 0.04557936411653952,
+  "corr_mean_off_diag": 0.14459017088333273,
+  "corr_max_off_diag": 0.7583400946982274,
+  "strategy_contributions": {
+    "ts_s01_buy_hold_single_1h": {
+      "module": "strategies/candidates/ts_s01_buy_hold_single_1h.py",
+      "val_gross_pnl": -12.775942283198843,
+      "share_of_val_gross": -16.630454300512596
+    },
+    "ts_s02_buy_hold_risk_scaled_1h": {
+      "module": "strategies/candidates/ts_s02_buy_hold_risk_scaled_1h.py",
+      "val_gross_pnl": -44.37282025856916,
+      "share_of_val_gross": -57.76013566259071
+    },
+    "ts_s03_buy_hold_variable_risk_1h": {
+      "module": "strategies/candidates/ts_s03_buy_hold_variable_risk_1h.py",
+      "val_gross_pnl": -42.829930649934916,
+      "share_of_val_gross": -55.751755023546124
+    },
+    "ts_s04_buy_hold_portfolio_scaling_1h": {
+      "module": "strategies/candidates/ts_s04_buy_hold_portfolio_scaling_1h.py",
+      "val_gross_pnl": -42.83149193115148,
+      "share_of_val_gross": -55.753787344555946
+    },
+    "ts_s05_slow_trend_long_only_1h": {
+      "module": "strategies/candidates/ts_s05_slow_trend_long_only_1h.py",
+      "val_gross_pnl": 0.00046820091141101827,
+      "share_of_val_gross": 0.0006094575013006186
+    },
+    "ts_s06_slow_trend_long_short_1h": {
+      "module": "strategies/candidates/ts_s06_slow_trend_long_short_1h.py",
+      "val_gross_pnl": 0.03838709581172578,
+      "share_of_val_gross": 0.0499685133570017
+    },
+    "ts_s07_slow_trend_strength_1h": {
+      "module": "strategies/candidates/ts_s07_slow_trend_strength_1h.py",
+      "val_gross_pnl": 0.3566891334762802,
+      "share_of_val_gross": 0.46430253066871907
+    },
+    "ts_s08_fast_trend_strength_1h": {
+      "module": "strategies/candidates/ts_s08_fast_trend_strength_1h.py",
+      "val_gross_pnl": 1.2277195463819799,
+      "share_of_val_gross": 1.5981235166350036
+    },
+    "ts_ewmac_multi_1h": {
+      "module": "strategies/candidates/ts_ewmac_multi_1h.py",
+      "val_gross_pnl": -1.1471988664608423,
+      "share_of_val_gross": -1.493309683103862
+    },
+    "ts_s12_adjusted_trend_1h": {
+      "module": "strategies/candidates/ts_s12_adjusted_trend_1h.py",
+      "val_gross_pnl": 2.033958443953823,
+      "share_of_val_gross": 2.6476053352087074
+    },
+    "ts_s13_trend_carry_regimes_1h": {
+      "module": "strategies/candidates/ts_s13_trend_carry_regimes_1h.py",
+      "val_gross_pnl": 0.031409924400848555,
+      "share_of_val_gross": 0.04088632374441805
+    },
+    "ts_s14_spot_trend_1h": {
+      "module": "strategies/candidates/ts_s14_spot_trend_1h.py",
+      "val_gross_pnl": 0.028253941423048892,
+      "share_of_val_gross": 0.03677817817502905
+    },
+    "ts_s17_normalised_trend_1h": {
+      "module": "strategies/candidates/ts_s17_normalised_trend_1h.py",
+      "val_gross_pnl": 0.08765047736092176,
+      "share_of_val_gross": 0.11409469656777067
+    },
+    "ts_s18_trend_asset_classes_1h": {
+      "module": "strategies/candidates/ts_s18_trend_asset_classes_1h.py",
+      "val_gross_pnl": 0.03177211763193766,
+      "share_of_val_gross": 0.04135779096335685
+    },
+    "ts_s19_xs_momentum_1h": {
+      "module": "strategies/candidates/ts_s19_xs_momentum_1h.py",
+      "val_gross_pnl": 0.6992562219013023,
+      "share_of_val_gross": 0.9102223839858368
+    },
+    "ts_breakout_20_1h": {
+      "module": "strategies/candidates/ts_breakout_20_1h.py",
+      "val_gross_pnl": 0.07584979933646749,
+      "share_of_val_gross": 0.0987337445338192
+    },
+    "ts_s22_value_1h": {
+      "module": "strategies/candidates/ts_s22_value_1h.py",
+      "val_gross_pnl": 0.15634346515591557,
+      "share_of_val_gross": 0.2035124137871601
+    },
+    "ts_s23_acceleration_1h": {
+      "module": "strategies/candidates/ts_s23_acceleration_1h.py",
+      "val_gross_pnl": 4.738754663106998,
+      "share_of_val_gross": 6.1684407395749465
+    },
+    "ts_s26_fast_mean_reversion_1h": {
+      "module": "strategies/candidates/ts_s26_fast_mean_reversion_1h.py",
+      "val_gross_pnl": 5.632117773036471,
+      "share_of_val_gross": 7.331332215140224
+    },
+    "ts_s27_safer_fast_mean_reversion_1h": {
+      "module": "strategies/candidates/ts_s27_safer_fast_mean_reversion_1h.py",
+      "val_gross_pnl": 4.690356459120229,
+      "share_of_val_gross": 6.10544075868999
+    }
+  },
+  "net_sharpe": -0.29141509511370495,
+  "annualized_turnover": 287.9615650270184,
+  "breakeven_cost_bps": 0.45588951168422887,
+  "deflated_sharpe_prob": 0.01856033832869332,
+  "stress_2x_cost_sharpe": -0.8263928270985595,
+  "delay_plus1_sharpe": -0.4125816950891171,
+  "verdict": "REVISE"
+}

@@ -1,0 +1,11 @@
+contract_id: AUTO_INDICES_30M_V1_H24_E24_F5_S10_V1
+hypothesis_id: HYP-SOC-BTA-ADXNQ-20261031
+run_id: RUN-SOC-BTA-ADXNQ-20261031
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/bta_adx_nq_cfd_30m_20261031.py
+strategy_name: BTA_ADX_NQ_CFD_30M_NEXTBAR_FIXED_RESEARCH_ADAPTATION
+parameters:
+  target_symbols:
+    - NQ
+param_grid: []

@@ -1,0 +1,12 @@
+hypothesis_id: "HYP-AIR-20261029-114744"
+contract_id: "CRYPTO_PERPS_1H_V2"
+title: "Binance eight USDT perpetuals: 1h: HYP-AIR-20261029-114744"
+strategy_family: "rules_ts"
+economic_mechanism: "Follow a breakout of the prior 240h high or low with a 24h holding window."
+counterparty_or_friction: "Market impact from forced liquidation cascades during high volatility spikes can cause entry slippage beyond typical spread."
+expected_holding_bars: 24
+falsification_criteria: "Frozen pre-reviewed rule: Follow a breakout of the prior 240h high or low with a 24h holding window.; Native Warden Stage 1 rules_ts gates are authoritative; do not lower any thresholds; No hyperparameter search; a failed screen is a negative registered selection attempt"
+parent_hypothesis_id: null
+source_provenance: "Original practitioner content / untrusted code; current capture NOT historical, original URLs: https://github.com/freqtrade/freqtrade-strategies/blob/f3340ce11f5bdf62f598522e64d1f5638eaa13f5/user_data/strategies/TrendRiderStrategy.py; AI research forecast IDs: AIR-OR-20261029-114744"
+llm_model_id: "cohere/north-mini-code:free"
+strategy_module: ""

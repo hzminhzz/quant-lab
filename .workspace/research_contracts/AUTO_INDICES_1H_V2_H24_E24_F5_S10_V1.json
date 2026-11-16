@@ -1,0 +1,92 @@
+{
+  "contract_id": "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1",
+  "contract": {
+    "contract_id": "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1",
+    "asset_class": "indices",
+    "frequency": "1h",
+    "bars_per_year": 5850,
+    "exploratory_data_path": "data/exploratory/indices_1h.parquet",
+    "holdout_data_path": "data/holdout/indices_1h.parquet",
+    "train_start": "2015-01-01T00:00:00Z",
+    "val_start": "2023-01-01T00:00:00Z",
+    "val_end": "2025-07-01T00:00:00Z",
+    "holdout_start": "2025-07-01T00:00:00Z",
+    "holdout_end": "2026-10-24T00:00:00Z",
+    "n_folds": 4,
+    "label_horizon_bars": 24,
+    "embargo_bars": 24,
+    "execution_delay_bars": 1,
+    "execution_mode": "NEXT_BAR",
+    "taker_fee_bps": 0.5,
+    "slippage_bps": 1.0,
+    "funding_bps_per_8h": 0.0,
+    "min_expected_move_to_cost_ratio": 2.5,
+    "data_snapshot_sha256": "03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55",
+    "data_provenance": "verified_market"
+  },
+  "manifest": {
+    "bias_notice": "Research contracts sharing a dataset/validation period are NOT independent trials",
+    "contract_id": "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1",
+    "derivation": "no new data; same original independently pinned exploratory bytes",
+    "parent_contract_id": "INDICES_1H_V2",
+    "parent_dataset_manifest_sha256": "7d104bcbdd30d835ff09c62b5bb170c9565f9405fcaf1c423b851647d6c2de2a",
+    "path": "data/exploratory/indices_1h.parquet",
+    "pipeline": "scripts/salvage_multi_asset.py",
+    "prior_related_selection_attempts_at_proposal": 30,
+    "provenance": "verified_market",
+    "selection_group": "a0f838d2a1eca6e741617166b259d68c7a97b0f2e0b73532918e6a318aff12ef",
+    "sha256": "03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55",
+    "source": "ml4t-data minute OHLCV store (ml4t-data/.data/store) via scripts/salvage_multi_asset.py"
+  },
+  "provenance": {
+    "contract_id": "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1",
+    "embargo_bars": 24,
+    "existing_manifest_entries_checked": 86,
+    "expected_holding_bars": 23,
+    "holdout_accessed": false,
+    "label_horizon_bars": 24,
+    "market_data_sha256": "03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55",
+    "new_costs_bps": {
+      "slippage_bps": 1.0,
+      "taker_fee_bps": 0.5
+    },
+    "old_costs_bps": {
+      "slippage_bps": 0.5,
+      "taker_fee_bps": 0.5
+    },
+    "old_embargo_bars": 2,
+    "old_label_horizon_bars": 8,
+    "parent_contract_id": "INDICES_1H_V2",
+    "prior_related_selection_attempts": 30,
+    "reason": "Monday NASDAQ breakout may remain invested until 23:00 Chicago after a midnight-to-evening stop trigger; the approved 8-bar label and 2-bar embargo do not cover its possible 23-hour holding horizon. Preserve the original pinned NQ CFD snapshot, validation split and all prior selection attempts.",
+    "retrospective_source": true,
+    "selection_group": "a0f838d2a1eca6e741617166b259d68c7a97b0f2e0b73532918e6a318aff12ef",
+    "source_captured_at": "2026-10-30T07:25:00+00:00",
+    "source_published_at": "2026-07-16T18:44:44+00:00",
+    "source_text_sha256": "4b60f2ce4f0350e36016bf63f375fcc52bc8ca19649f1a5c9e03fa45944e15b4",
+    "source_url": "https://breakouttradingacademy.com/steal-this-monday-nasdaq-strategy-super-simple/",
+    "state": "PROPOSED_REQUIRES_WARDEN_MANIFEST_APPROVAL",
+    "strategy_family": "monday_nq_bollinger_atr"
+  },
+  "parent_contract_id": "INDICES_1H_V2",
+  "snapshot_sha256": "03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55",
+  "selection_group": "a0f838d2a1eca6e741617166b259d68c7a97b0f2e0b73532918e6a318aff12ef",
+  "requires_manifest_approval": true,
+  "source_after_validation": true,
+  "parent_selection_attempts": 30,
+  "activation": {
+    "mode": "bounded_principal_delegation_unsigned",
+    "approver": "principal explicit 2026-10-30 authorization",
+    "approved_at": "2026-10-30T07:26:21.626113+00:00",
+    "manifest_sha256": "30a98ca66d9b3127dfb7e23f30da6aa757696d44f93f099c525cae7ab026d106",
+    "previous_manifest_sha256": "f38e8901905f71d3b92d5be43c033148cfcb691174a59424f0d1a69e6ba9d473",
+    "added_paths": [
+      "contracts/auto_indices_1h_v2_h24_e24_f5_s10_v1.yaml",
+      "contracts/datasets/AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1.json"
+    ],
+    "previous_manifest_entries_verified": 86,
+    "independent_signature": "none",
+    "note": "Research contract creation delegated, never protected holdout unsealing or live execution"
+  },
+  "activation_status": "ENABLED_FOR_EXPLORATORY_WARDEN_USE"
+}

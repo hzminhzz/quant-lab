@@ -1,0 +1,29 @@
+Done. One new file, no implementation changes.
+
+What was added — `tests/experiments/test_carver_deadband_boundary.py`:
+
+  - width 0.5 * 0.5 = 0.25, held ±0.5, all binary-exact; a guard test asserts
+    `WIDTH == 0.25` and that each fixture's drift really equals the width, so the
+    cases cannot silently go stale.
+  - `test_drift_exactly_equal_to_deadband_keeps_held_weight` — drift exactly 0.25
+    keeps held: (0.75, 0.5), (0.25, 0.5), (-0.25, -0.5), (-0.75, -0.5).
+  - `test_drift_one_step_beyond_deadband_takes_target_weight` — drift 0.375
+    (one exact 0.125 step past) takes the target, both signs.
+  - Loaded via `warden.runner.load_module_from_path`, matching the existing
+    `test_carver_daily_suite.py` pattern (a `strategies.*` import fails under pytest).
+
+Verification:
+
+  - `uv run pytest tests/experiments/test_carver_deadband_boundary.py -v` → 9 passed.
+  - Falsification check: copied the module to scratch with `<=` changed to `<` and ran
+    the same assertions against it → the 4 boundary cases fail (`assert -0.75 == -0.5`),
+    past-boundary cases still pass. So the test discriminates exactly the inclusive
+    comparison. The repo copy of `carver_common.py` is untouched; `git status` shows
+    only the new untracked test file.
+
+One pre-existing issue you should know about: `tests/experiments/test_carver_daily_suite.py`
+cannot be collected on this checkout — line 141 loads `contracts/multi_asset_1d_v1.yaml`,
+which is not tracked in this worktree. That is unrelated to this change (my file imports
+only `warden.runner`) and I left `contracts/` alone.
+
+Memory: nothing durable came out of this task, so I made no memory changes.

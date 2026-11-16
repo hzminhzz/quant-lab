@@ -1,0 +1,1122 @@
+[
+  {
+    "index": 1,
+    "candidate_id": "alvarez_january_losers_rebound_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing US equity single-stock dataset (CRSP/Compustat) in quant-lab contracts",
+    "hypothesis": ""
+  },
+  {
+    "index": 2,
+    "candidate_id": "alvarez_sector_etf_middle_rank_1m_rotation_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing US equity single-stock dataset (CRSP/Compustat) in quant-lab contracts",
+    "hypothesis": ""
+  },
+  {
+    "index": 3,
+    "candidate_id": "alvarez_sp500_hilo40_breadth_mr_gate_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing US equity single-stock dataset (CRSP/Compustat) in quant-lab contracts",
+    "hypothesis": ""
+  },
+  {
+    "index": 4,
+    "candidate_id": "alvarez_sp500_ibs_filtered_oversold_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing US equity single-stock dataset (CRSP/Compustat) in quant-lab contracts",
+    "hypothesis": "Among heavily oversold constituents within a rising market, a close near the daily low may identify ..."
+  },
+  {
+    "index": 5,
+    "candidate_id": "audusd_policy_carry_cfd_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing dedicated CFD/FX daily/hourly contract",
+    "hypothesis": ""
+  },
+  {
+    "index": 6,
+    "candidate_id": "bta_nq_monday_bb10_atr5_cfd_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing dedicated CFD/FX daily/hourly contract",
+    "hypothesis": ""
+  },
+  {
+    "index": 7,
+    "candidate_id": "crypto_high_watermark_anchoring_v1",
+    "family": "time_series_trend_momentum",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Price proximity to the 90-day high isolates cognitive anchoring underreaction without the long-horiz..."
+  },
+  {
+    "index": 8,
+    "candidate_id": "crypto_liquidation_cascade_reversal_v1",
+    "family": "market_dislocation_reversal",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Non-economic automated exchange liquidation selling creates severe localized price dislocations that..."
+  },
+  {
+    "index": 9,
+    "candidate_id": "crypto_london_orb_breakout_v1",
+    "family": "intraday_momentum_breakout",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "European banking open capital deployment breaches compressed Asian session boundaries, generating di..."
+  },
+  {
+    "index": 10,
+    "candidate_id": "crypto_ml_alessandretti_pooled_xgboost_2018_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 11,
+    "candidate_id": "crypto_ml_anastasopoulos_world_orderflow_sgb_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing L2/L3 tick orderbook dataset (contracts provide OHLCV + funding)",
+    "hypothesis": ""
+  },
+  {
+    "index": 12,
+    "candidate_id": "crypto_ml_boyer_factorvae_cross_sectional_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 13,
+    "candidate_id": "crypto_ml_cakici_multicharacteristic_forecast_2024_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 14,
+    "candidate_id": "crypto_ml_cengizmandros_hmm_rank_ensemble_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 15,
+    "candidate_id": "crypto_ml_djienne_15m_btc_lgbm_hysteresis_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 16,
+    "candidate_id": "crypto_ml_fieberg_ctrend_price_volume_factor_2025_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 17,
+    "candidate_id": "crypto_ml_hamza_cross_sectional_rs_meta_gate_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 18,
+    "candidate_id": "crypto_ml_jia_seesaw_rolling_lasso_2023_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 19,
+    "candidate_id": "crypto_ml_kim_lim_tradability_gap_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 20,
+    "candidate_id": "crypto_ml_lebiedz_slepaczuk_recurrent_ppo_multipair_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 21,
+    "candidate_id": "crypto_ml_lee_chang_transformer_cluster_statarb_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 22,
+    "candidate_id": "crypto_ml_matthiola_xgbranker_20usdt_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 23,
+    "candidate_id": "crypto_ml_mingchelee_multicrypto_tft_onchain_2025_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing alternative on-chain/news/sentiment data provider",
+    "hypothesis": ""
+  },
+  {
+    "index": 24,
+    "candidate_id": "crypto_ml_ogwuche_garch_lstm_altseason_ethbtc_2025_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 25,
+    "candidate_id": "crypto_ml_peng_cryptogat_price_graph_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 26,
+    "candidate_id": "crypto_ml_tsoku_dynamic_coint_dwe_pairs_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 27,
+    "candidate_id": "crypto_ml_yang_direct_rank_mlp_2025_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 28,
+    "candidate_id": "crypto_ml_yicheng_hku_24h_decile_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 29,
+    "candidate_id": "crypto_pairs_copula_stationary_spread_20261018_v1",
+    "family": "nonlinear_cointegrated_pair_dislocation",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "1h; multiweek formation and roughly 1-week trading window",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 30,
+    "candidate_id": "crypto_pairs_hurst_antipersistence_20261018_v1",
+    "family": "anti_persistent_spread_hurst_pair_timing",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "1h Binance observations; source holds no longer than 72 hours in the quoted sample trading strategy",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 31,
+    "candidate_id": "crypto_rolling_vwap_pullback_v1",
+    "family": "quantitative_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Agency algorithms avoid buying far above 24h VWAP in active trends, concentrating passive limit buy ..."
+  },
+  {
+    "index": 32,
+    "candidate_id": "crypto_spot_perp_basis_dislocation_reversal_v1",
+    "family": "market_dislocation_reversal",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Retail leverage pushes perpetual prices into extreme statistical basis divergence relative to spot; ..."
+  },
+  {
+    "index": 33,
+    "candidate_id": "crypto_us_session_intraday_momentum_v1",
+    "family": "intraday_momentum_breakout",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Persistent institutional capital inflows during the US market session (13:00 to 21:00 UTC) drive dir..."
+  },
+  {
+    "index": 34,
+    "candidate_id": "crypto_vol_managed_tsmom_v1",
+    "family": "time_series_trend_momentum",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Scaling 20-day trend exposure out during high-volatility spikes eliminates momentum crash tails whil..."
+  },
+  {
+    "index": 35,
+    "candidate_id": "crypto_volatility_compression_breakout_v1",
+    "family": "quantitative_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Extreme 24h range compression (NR7) indicates temporary inventory balance; boundary breakouts with 1..."
+  },
+  {
+    "index": 36,
+    "candidate_id": "crypto_volume_anchored_drift_v1",
+    "family": "time_series_trend_momentum",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Abnormal trading volume surges indicate institutional re-allocation programs that the market systema..."
+  },
+  {
+    "index": 37,
+    "candidate_id": "crypto_weekend_dislocation_reversal_v1",
+    "family": "market_dislocation_reversal",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Weekend crypto moves driven by illiquid retail order flow disconnect from Friday institutional close..."
+  },
+  {
+    "index": 38,
+    "candidate_id": "crypto_xs_90d_high_anchoring_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Traders anchor cognitively on the trailing 90-day high-water mark, hesitating to bid prices higher w..."
+  },
+  {
+    "index": 39,
+    "candidate_id": "crypto_xs_amihud_asymmetry_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with higher price impact on negative return bars than on positive return bars (downside ill..."
+  },
+  {
+    "index": 40,
+    "candidate_id": "crypto_xs_amihud_illiquidity_premium_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": null,
+    "blocker": "Executed as HYP-2026-004 (Stage 1 REJECTED_EARLY)",
+    "hypothesis": "Altcoins undergoing elevated trailing 7-day Amihud price impact trade at significant liquidity risk ..."
+  },
+  {
+    "index": 41,
+    "candidate_id": "crypto_xs_betting_against_beta_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": null,
+    "blocker": "Executed as HYP-2026-005 (Stage 1 REJECTED_EARLY)",
+    "hypothesis": "Speculators treat high-beta altcoins as levered calls on Bitcoin, flattening the Security Market Lin..."
+  },
+  {
+    "index": 42,
+    "candidate_id": "crypto_xs_bipower_jump_variation_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Total realized quadratic variation decomposes into continuous diffusive Brownian motion and disconti..."
+  },
+  {
+    "index": 43,
+    "candidate_id": "crypto_xs_btc_regime_momentum_arnal_20261018_v1",
+    "family": "regime_sized_cross_sectional_momentum_ensemble",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Daily trailing lookbacks, daily gross/vol targeting; exact order/rebalance execution timestamp UNKNOWN",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 44,
+    "candidate_id": "crypto_xs_btc_residual_momentum_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": null,
+    "blocker": "Contaminated by un-pre-registered validation sweep (logged in LESSONS.md)",
+    "hypothesis": "Standard altcoin momentum suffers severe beta crashes; ranking by 14d standardized residual returns ..."
+  },
+  {
+    "index": 45,
+    "candidate_id": "crypto_xs_capital_gain_overhang_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "The disposition effect creates reference-dependent mispricing: retail traders sitting on paper gains..."
+  },
+  {
+    "index": 46,
+    "candidate_id": "crypto_xs_cojump_clustering_saef_20261018_v1",
+    "family": "high_frequency_cojump_clusters_multiexchange_crypto",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Tick-level source events with daily co-jump aggregation; 2019-04-12 to 2021-09-27",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 47,
+    "candidate_id": "crypto_xs_community_momentum_spillover_20261018_v1",
+    "family": "technology_community_return_propagation",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Daily predictive horizon; exact formation/lookback and rebalance UNKNOWN here.",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 48,
+    "candidate_id": "crypto_xs_corwin_schultz_spread_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with wide effective bid-ask spreads estimated via Corwin-Schultz high-low estimators compen..."
+  },
+  {
+    "index": 49,
+    "candidate_id": "crypto_xs_crosschain_attention_substitution_20261018_v1",
+    "family": "cross_chain_user_flow_substitution",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "On-chain timestamped events; exchange bar interval and holding horizon UNKNOWN.",
+    "contract": null,
+    "blocker": "Missing alternative on-chain/news/sentiment data provider",
+    "hypothesis": ""
+  },
+  {
+    "index": 50,
+    "candidate_id": "crypto_xs_downside_correlation_asymmetry_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with elevated downside correlation relative to upside correlation with Bitcoin (rho^- - rho..."
+  },
+  {
+    "index": 51,
+    "candidate_id": "crypto_xs_downside_risk_premium_zhang_20261018_v1",
+    "family": "cryptocurrency_asset_specific_downside_risk_premium",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Forward return relation; formation and holding lengths UNKNOWN",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 52,
+    "candidate_id": "crypto_xs_extreme_tail_beta_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with extreme sensitivity to the 5th percentile left-tail market shocks suffer severe crash ..."
+  },
+  {
+    "index": 53,
+    "candidate_id": "crypto_xs_funding_beta_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars + 8h funding settlements",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Systematic funding beta (beta^F_i = Cov(r_{i,t}, Delta F_{m,t}) / Var(Delta F_{m,t}) over trailing 3..."
+  },
+  {
+    "index": 54,
+    "candidate_id": "crypto_xs_funding_carry_exhaustion_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Shorting extreme positive funding altcoins whose price momentum has stalled and longing negative fun..."
+  },
+  {
+    "index": 55,
+    "candidate_id": "crypto_xs_funding_convexity_skew_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Positive funding rate skewness signals asymmetric bullish retail crowding; longing negative-skew and..."
+  },
+  {
+    "index": 56,
+    "candidate_id": "crypto_xs_funding_innovation_shock_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars + 8h funding settlements",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Predictable funding rates are priced into equilibrium spot-perpetual basis spreads; however, unantic..."
+  },
+  {
+    "index": 57,
+    "candidate_id": "crypto_xs_funding_kurtosis_tail_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Leptokurtic fat tails in funding rate distributions reveal fragile leverage; a dollar-neutral basket..."
+  },
+  {
+    "index": 58,
+    "candidate_id": "crypto_xs_funding_memory_persistence_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Exponentially weighted 14-day cumulative funding memory filters out noise; shorting persistent high-..."
+  },
+  {
+    "index": 59,
+    "candidate_id": "crypto_xs_funding_velocity_dislocation_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars + 8h funding settlements",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins undergoing extreme positive 24h funding rate acceleration whose price momentum has stalled ..."
+  },
+  {
+    "index": 60,
+    "candidate_id": "crypto_xs_hill_tail_index_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "The Hill (1975) tail index (alpha_i) non-parametrically estimates the Pareto power-law exponent of n..."
+  },
+  {
+    "index": 61,
+    "candidate_id": "crypto_xs_idiosyncratic_volatility_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with high idiosyncratic volatility relative to Bitcoin are systematically overpriced by ret..."
+  },
+  {
+    "index": 62,
+    "candidate_id": "crypto_xs_illiquidity_innovation_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Asset pricing reacts primarily to unanticipated innovations in liquidity rather than static illiquid..."
+  },
+  {
+    "index": 63,
+    "candidate_id": "crypto_xs_information_delay_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Macro news and institutional capital flows clear first in Bitcoin, diffusing sluggishly to the altco..."
+  },
+  {
+    "index": 64,
+    "candidate_id": "crypto_xs_information_discreteness_fip_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Momentum generated by continuous, frequent small price changes (low information discreteness) experi..."
+  },
+  {
+    "index": 65,
+    "candidate_id": "crypto_xs_kyles_lambda_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars (utilizing volume and taker_buy_volume fields)",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Kyle's Lambda (lambda_i = Cov(r_{i,t}, OFI_{i,t}) / Var(OFI_{i,t}) over trailing 7 days) non-paramet..."
+  },
+  {
+    "index": 66,
+    "candidate_id": "crypto_xs_liquidity_beta_lcapm_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins whose individual liquidity exhibits high positive covariance with aggregate market illiquid..."
+  },
+  {
+    "index": 67,
+    "candidate_id": "crypto_xs_liquidity_conditioned_weekly_trend_20261018_v1",
+    "family": "liquidity_interaction_momentum_reversal",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "unknown",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Cross-sectional serial dependence changes sign with coin size and trading activity: less-liquid/smal..."
+  },
+  {
+    "index": 68,
+    "candidate_id": "crypto_xs_liquidity_risk_return_interactions_20261018_v1",
+    "family": "interaction_double_sorts_liquidity_risk_past_returns",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Original evaluation period 2017-2023; exact signal lookback and rebalance frequency UNKNOWN",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 69,
+    "candidate_id": "crypto_xs_low_anchor_reversal_nakagawa_20261018_v1",
+    "family": "behavioral_low_price_anchored_cross_sectional_reversal",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Formation and holding periods varied; exact lengths, decision clock and exit UNKNOWN",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 70,
+    "candidate_id": "crypto_xs_max_return_salience_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars (with 24h rolling return aggregation)",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins exhibiting extreme maximum daily return spikes (high MAX) over the trailing 14 days are sys..."
+  },
+  {
+    "index": 71,
+    "candidate_id": "crypto_xs_momentum_lifecycle_turnover_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Price momentum accompanied by abnormally high trading turnover reflects retail attention saturation ..."
+  },
+  {
+    "index": 72,
+    "candidate_id": "crypto_xs_news_peer_opposite_shock_20261018_v1",
+    "family": "news_coupled_peer_competition_opposite_shock",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Weekly shock/reversal framing, mispricing decay over roughly three weeks; exact decision and fill clock UNKNOWN",
+    "contract": null,
+    "blocker": "Missing alternative on-chain/news/sentiment data provider",
+    "hypothesis": ""
+  },
+  {
+    "index": 73,
+    "candidate_id": "crypto_xs_pairwise_correlation_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Average pairwise return correlation across the cross-section (rho_bar_i = (1 / (N - 1)) * sum_{j != ..."
+  },
+  {
+    "index": 74,
+    "candidate_id": "crypto_xs_quadratic_market_beta_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with negative quadratic beta (concave exposure to Bitcoin returns) decline disproportionate..."
+  },
+  {
+    "index": 75,
+    "candidate_id": "crypto_xs_range_efficiency_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "The ratio of high-low Parkinson range volatility to close-to-close realized volatility (RVR = sigma_..."
+  },
+  {
+    "index": 76,
+    "candidate_id": "crypto_xs_realized_kurtosis_tail_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins exhibiting elevated fourth-order realized price kurtosis over trailing 7 days reflect lepto..."
+  },
+  {
+    "index": 77,
+    "candidate_id": "crypto_xs_realized_quarticity_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Realized Quarticity (RQ_i = (168 / 3) * sum(r_{i,t}^4) over trailing 7 days) non-parametrically esti..."
+  },
+  {
+    "index": 78,
+    "candidate_id": "crypto_xs_realized_semibeta_asymmetry_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Concordant downside semibeta beta^-- measures co-movement when both asset and market decline; altcoi..."
+  },
+  {
+    "index": 79,
+    "candidate_id": "crypto_xs_realized_skewness_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with extreme positive realized skewness over trailing 7 days are systematically overvalued ..."
+  },
+  {
+    "index": 80,
+    "candidate_id": "crypto_xs_relative_downside_beta_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with high relative downside beta (beta^- - beta) relative to Bitcoin crash harder during ma..."
+  },
+  {
+    "index": 81,
+    "candidate_id": "crypto_xs_return_synchronicity_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with low market model R^2 (low synchronicity) impound substantial asset-specific fundamenta..."
+  },
+  {
+    "index": 82,
+    "candidate_id": "crypto_xs_same_weekday_seasonality_20261018_v1",
+    "family": "cross_sectional_calendar_memory",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Daily day-of-week effect, not a sourced 1h/5m rule.",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 83,
+    "candidate_id": "crypto_xs_session_drift_divergence_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins whose returns are driven by daytime institutional trading sessions exhibit persistent forwa..."
+  },
+  {
+    "index": 84,
+    "candidate_id": "crypto_xs_signed_jump_variation_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "The continuous diffusive components of upside semivariance (RS^+) and downside semivariance (RS^-) a..."
+  },
+  {
+    "index": 85,
+    "candidate_id": "crypto_xs_size_rmom_interaction_han_20261018_v1",
+    "family": "size_conditioned_risk_adjusted_momentum_double_sort",
+    "status": "THESIS_CAPTURED",
+    "timeframe": "Weekly rebalancing/forward one-week returns; interaction windows 1/2/4 weeks. No source 5m/15m/1h rule.",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 86,
+    "candidate_id": "crypto_xs_stealth_trade_size_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars (utilizing quote_volume and count fields)",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Average trade size (ATS = quote_volume / count) distinguishes institutional block execution from fra..."
+  },
+  {
+    "index": 87,
+    "candidate_id": "crypto_xs_systematic_cokurtosis_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Systematic cokurtosis (K_{i,m} = mean((r_{i,t} - mean(r_i)) * (r_{m,t} - mean(r_m))^3) / (std(r_i) *..."
+  },
+  {
+    "index": 88,
+    "candidate_id": "crypto_xs_systematic_coskewness_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with negative systematic coskewness relative to Bitcoin decline sharply during market-wide ..."
+  },
+  {
+    "index": 89,
+    "candidate_id": "crypto_xs_systematic_jump_beta_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Discontinuous market jumps in Bitcoin cannot be dynamically hedged via continuous portfolio rebalanc..."
+  },
+  {
+    "index": 90,
+    "candidate_id": "crypto_xs_taker_flow_imbalance_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars (utilizing volume and taker_buy_volume fields)",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Aggressive taker orders cross the bid-ask spread to demand immediate execution, reflecting informed ..."
+  },
+  {
+    "index": 91,
+    "candidate_id": "crypto_xs_variance_ratio_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "The Lo-MacKinlay Variance Ratio (VR_i(24) = Var(r_{24h}) / (24 * Var(r_{1h})) over trailing 14 days)..."
+  },
+  {
+    "index": 92,
+    "candidate_id": "crypto_xs_vol_of_vol_risk_premium_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with high standard deviation of daily realized volatility over trailing 14 days exhibit sev..."
+  },
+  {
+    "index": 93,
+    "candidate_id": "crypto_xs_volatility_asymmetry_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with extreme downside semivariance relative to upside semivariance suffer temporary panic d..."
+  },
+  {
+    "index": 94,
+    "candidate_id": "crypto_xs_volatility_feedback_asymmetry_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "The return-volatility correlation (xi_i = Corr(r_{i,t}, Delta sigma_{i,t}) over trailing 14 days) me..."
+  },
+  {
+    "index": 95,
+    "candidate_id": "crypto_xs_volatility_of_liquidity_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins exhibiting highly volatile, unpredictable price impact (high standard deviation of the hour..."
+  },
+  {
+    "index": 96,
+    "candidate_id": "crypto_xs_volume_return_correlation_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins exhibiting positive Spearman rank correlation between hourly returns and volume changes ove..."
+  },
+  {
+    "index": 97,
+    "candidate_id": "crypto_xs_volume_volatility_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins with volatile, unpredictable trading volume (high CVV = std(vol)/mean(vol) over trailing 14..."
+  },
+  {
+    "index": 98,
+    "candidate_id": "crypto_xs_vpin_adverse_selection_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins undergoing high volume-bucketed taker flow toxicity (VPIN) suffer severe market maker quote..."
+  },
+  {
+    "index": 99,
+    "candidate_id": "crypto_xs_vwap_tracking_error_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Altcoins exhibiting high root-mean-square tracking error relative to their rolling 24-hour VWAP over..."
+  },
+  {
+    "index": 100,
+    "candidate_id": "crypto_xs_wick_asymmetry_basket_v1",
+    "family": "cross_sectional_risk_premia",
+    "status": "THESIS_READY_UNVERIFIED",
+    "timeframe": "1h bars",
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "blocker": null,
+    "hypothesis": "Persistent lower shadow dominance over upper shadows over trailing 7 days signals structural passive..."
+  },
+  {
+    "index": 101,
+    "candidate_id": "dax_monthend_liquidity_rebound_cfd_20261015_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing dedicated CFD/FX daily/hourly contract",
+    "hypothesis": ""
+  },
+  {
+    "index": 102,
+    "candidate_id": "etf_ml_areeb_crosssector_lgbm_direction_2026_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Unclassified venue/data requirement",
+    "hypothesis": ""
+  },
+  {
+    "index": 103,
+    "candidate_id": "fomc_overnight_uncertainty_premium_us500_cfd_20261015_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing dedicated CFD/FX daily/hourly contract",
+    "hypothesis": ""
+  },
+  {
+    "index": 104,
+    "candidate_id": "gbpusd_weekend_gap_reversal_cfd_20261015_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing dedicated CFD/FX daily/hourly contract",
+    "hypothesis": ""
+  },
+  {
+    "index": 105,
+    "candidate_id": "hanna_spx_vix_corise_friday_reversal_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Unclassified venue/data requirement",
+    "hypothesis": "When SPX and VIX both advance on a Friday despite their usual inverse relationship, demand for downs..."
+  },
+  {
+    "index": 106,
+    "candidate_id": "hanna_spy_bear_gap_fade_us500_cfd_20261017_1600_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing dedicated CFD/FX daily/hourly contract",
+    "hypothesis": ""
+  },
+  {
+    "index": 107,
+    "candidate_id": "oil_to_cad_daily_delayed_adjustment_20261015_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": "COMMODITIES_1M_V1",
+    "blocker": null,
+    "hypothesis": ""
+  },
+  {
+    "index": 108,
+    "candidate_id": "quantinsti_spy_monthturn_one_day_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Unclassified venue/data requirement",
+    "hypothesis": ""
+  },
+  {
+    "index": 109,
+    "candidate_id": "robotwealth_earnings_open_gap_intraday_drift_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Unclassified venue/data requirement",
+    "hypothesis": ""
+  },
+  {
+    "index": 110,
+    "candidate_id": "robotwealth_gdx_gld_kalman_spread_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Unclassified venue/data requirement",
+    "hypothesis": "An adaptive hedge ratio between GDX and GLD can isolate temporary price divergence between gold-mini..."
+  },
+  {
+    "index": 111,
+    "candidate_id": "robotwealth_spy_overnight_risk_premium_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Unclassified venue/data requirement",
+    "hypothesis": ""
+  },
+  {
+    "index": 112,
+    "candidate_id": "us500_european_open_uncertainty_resolution_cfd_v1",
+    "family": "unknown",
+    "status": "unknown",
+    "timeframe": "unknown",
+    "contract": null,
+    "blocker": "Missing dedicated CFD/FX daily/hourly contract",
+    "hypothesis": ""
+  }
+]

@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-051
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Systematic Cokurtosis Tail Contagion Risk Premium Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Systematic cokurtosis (K_{i,m} = mean((r_{i,t} - mean(r_i)) * (r_{m,t} - mean(r_m))^3) / (std(r_i) * std(r_m)^3) over trailing 30 days) non-parametrically quantifies fourth-order cross-moment market tail contagion; altcoins with elevated positive cokurtosis amplify extreme directional market crash shocks, inflicting severe non-diversifiable tail disutility on risk-averse investors with temperance preferences (U'''' < 0). In equilibrium, these tail-vulnerable altcoins trade at deep structural valuation discounts, yielding an elevated forward risk premium. A dollar-neutral basket longing high-cokurtosis altcoins and shorting low-cokurtosis altcoins captures this fourth-moment asset pricing premium.
+counterparty_or_friction: >
+  Risk-averse institutional desks overpaying for defensive tail-haven tokens while dumping market-crash-sensitive altcoins at steep discounts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_systematic_cokurtosis_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

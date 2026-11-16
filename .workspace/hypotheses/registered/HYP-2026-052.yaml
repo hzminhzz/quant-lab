@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-052
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Systematic Coskewness Risk Premium Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Altcoins with negative systematic coskewness relative to Bitcoin decline sharply during market-wide volatility spikes and must compensate investors with a substantial risk premium; longing negative-coskewness and shorting positive-coskewness tokens in a dollar-neutral 72h basket captures this third-moment asset pricing premium. Grounded in Harvey & Siddique (2000), negative coskewness represents non-diversifiable systematic tail risk requiring an enduring equilibrium return premium.
+counterparty_or_friction: >
+  Risk-averse market participants and hedgers overpaying for positive-coskewness safe havens and dumping volatility-amplifying altcoins at deep discounts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_systematic_coskewness_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

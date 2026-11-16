@@ -1,0 +1,12 @@
+hypothesis_id: "HYP-AIR-20261029-102247"
+contract_id: "CRYPTO_PERPS_1H_V2"
+title: "Binance eight USDT perpetuals: 1h: HYP-AIR-20261029-102247"
+strategy_family: "rules_ts"
+economic_mechanism: "The shock_reversal template exploits short-term return reversals driven by temporary demand-supply imbalances in crypto markets. Source alex_W3204386317 documents that cryptocurrencies with low prior-period returns significantly outperform those with high prior-period returns, attributing this to illiquidity-induced reversals. The template operationalizes this by fading large one-hour returns (beyond 2.5x prior 168h volatility) when hourly volume exceeds 1.5x its prior 168h mean, capturing the unwinding of overextended price moves. Source alex_W3197724220 supports the role of extreme returns (MAX effect) in cross-sectional pricing, reinforcing that large intraday moves are prone to reversal. The 4-hour horizon aligns with the documented short-term nature of these reversal patterns."
+counterparty_or_friction: "The primary friction is liquidity segmentation in crypto markets, where many tokens trade infrequently and experience price pressure from large trades. As alex_W3204386317 notes, illiquidity causes prices to overshoot and subsequently reverse. Market makers and arbitrageurs act as counterparties, stepping in after extreme moves to restore equilibrium. The volume filter (1.5x prior 168h average) ensures that only moves accompanied by elevated trading activity—indicative of informed or institutional flow—are faded, reducing the risk of fading a genuine fundamental shock."
+expected_holding_bars: 4
+falsification_criteria: "Frozen pre-reviewed rule: Fade a one-hour return beyond 2.5 times prior 168-hour volatility if hourly volume exceeds 1.5 times its prior 168-hour mean.; Native Warden Stage 1 rules_ts gates are authoritative; do not lower any thresholds; No hyperparameter search; a failed screen is a negative registered selection attempt"
+parent_hypothesis_id: null
+source_provenance: "OpenAlex publisher DOI abstracts as captured now; references: https://doi.org/10.1016/j.irfa.2021.101908, https://doi.org/10.1186/s40854-021-00291-9; AI research forecast IDs: AIR-OR-20261029-102247"
+llm_model_id: "poolside/laguna-s-2.1:free"
+strategy_module: ""

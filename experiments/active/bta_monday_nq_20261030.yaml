@@ -1,0 +1,14 @@
+{
+  "contract_id": "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1",
+  "hypothesis_id": "HYP-SOC-BTA-NQMON-20261030",
+  "run_id": "RUN-SOC-BTA-NQMON-20261030",
+  "model_type": "rules",
+  "strategy_family": "rules_ts",
+  "strategy_module": "strategies/candidates/bta_monday_nq_bollinger_cfd_1h.py",
+  "strategy_name": "BTA_MONDAY_NQ_BB10_ATR5_DELAYED_1H",
+  "parameters": {
+    "target_symbols": [
+      "NQ"
+    ]
+  }
+}

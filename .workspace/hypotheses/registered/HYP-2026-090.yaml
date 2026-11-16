@@ -1,0 +1,21 @@
+hypothesis_id: HYP-2026-090
+contract_id: MULTI_ASSET_1H_V1
+title: AF30 S27 Safer Fast Mean Reversion on 17-instrument multi-asset 1h panel
+strategy_family: rules_ts
+economic_mechanism: 'AF30 S27: Fast mean: 60-bar rolling mean of close shifted by
+  1; Fast std: 60-bar rolling std of close shifted by 1; Z-score: (close - mean_60)
+  / (std_60 + 1e-12); Reversion: -zscore_60; Volatility regime gating: vol_60 = 60-bar
+  return std shifted by 1,; Forecast: bounded linear scaling (reversion * reversion_gate
+  / 1.0).clip(-20.0, 20.0); Sizing: inverse volatility weighting based on 60-hour
+  rolling return std, water-filled to 0.5 cap; Trailing stop: 3.0x ATR-14; Rebalance
+  frequency: 24 hours'
+counterparty_or_friction: Counterparty pays a reversal risk premium; friction is 1
+  bp one-way taker+slippage on 17 liquid index, FX, metal and crude instruments, plus
+  3xATR-14 trailing-stop whipsaw.
+expected_holding_bars: 504
+falsification_criteria: Stage-1 on MULTI_ASSET_1H_V1 rejects the mechanism when profit_factor
+  < 1.15 or trade_edge < 2.5x round-trip cost, or when the 2x-cost stress Sharpe is
+  <= 0 or the +1-bar-latency Sharpe is <= 0.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), Strategy 27
+llm_model_id: unspecified
+strategy_module: strategies/candidates/ts_s27_safer_fast_mean_reversion_1h.py

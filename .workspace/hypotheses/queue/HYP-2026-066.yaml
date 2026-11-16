@@ -1,0 +1,20 @@
+hypothesis_id: HYP-2026-066
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Multi-Asset 24h Rolling VWAP Trend Pullback on Major Crypto Perpetuals
+strategy_family: rules_ts
+economic_mechanism: >
+  In an established macro uptrend across liquid crypto perpetuals (72h EMA rising),
+  agency algorithms and institutional accumulators concentrate limit buy depth near
+  the 24-hour rolling VWAP. When temporary retail selling pressure pushes price 1.7%
+  below VWAP, forced sell stops are absorbed by resting institutional liquidity,
+  generating a statistically robust 24-hour mean-reversion rebound.
+counterparty_or_friction: >
+  Late-stage short-sellers selling into oversold pullbacks and leveraged longs forced
+  to liquidate below 24-hour volume nodes into resting institutional limit depth.
+expected_holding_bars: 24
+falsification_criteria: >
+  Reject at Stage 1 if trade gross edge <= 1.5x one-way friction or Profit Factor < 1.15.
+  Reject at Stage 3 if Net Sharpe < 1.0, 2x Cost Stress Sharpe < 0.50, or DSR < 0.90.
+source_provenance: >
+  Synthesized from validated empirical vertical slices on CRYPTO_MAJORS_1H_V1 (HYP-2026-009).
+llm_model_id: claude-sonnet-4-6

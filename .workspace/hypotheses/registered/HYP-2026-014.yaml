@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-014
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Volume-Anchored Post-Spike Drift on Crypto Majors
+strategy_family: rules_ts
+economic_mechanism: >
+  Abnormal trading volume surges indicate institutional re-allocation programs or informed order execution
+  that the market systematically underreacts to, generating multi-bar directional drift in the direction of the volume shock.
+counterparty_or_friction: >
+  Contrarian retail fading initial sharp moves, risk-averse liquidity providers stepping back, and noise traders providing liquidity at unfavorable prices.
+expected_holding_bars: 24
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_volume_anchored_drift_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

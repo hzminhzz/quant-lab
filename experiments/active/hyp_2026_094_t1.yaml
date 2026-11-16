@@ -1,0 +1,17 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-094
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_breakout_daily.py
+strategy_name: Carver_Breakout_80_1D
+run_id: RUN-HYP094-001
+parameters:
+  channel_window: 80
+  smooth_span: 20
+  scalar: 0.73
+  vol_window: 60
+  vol_target: 0.20
+  rebalance_bars: 1
+  buffer_fraction: 0.10
+  stop_multiple: 3.0
+  per_instrument_cap: 0.5

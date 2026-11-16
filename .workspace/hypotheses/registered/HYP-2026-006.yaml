@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-006
+contract_id: CRYPTO_MAJORS_1H_V1
+title: 90-Day High-Water Mark Anchoring Momentum on Crypto Perps
+strategy_family: rules_ts
+economic_mechanism: >
+  Traders anchor on the trailing 90-day high and underreact when positive news pushes price
+  near historical peak levels, generating persistent continuation momentum while mitigating long-horizon reversal risk.
+counterparty_or_friction: >
+  Risk-averse hedgers, noise traders taking premature profits at round numbers, and forced margin liquidators.
+expected_holding_bars: 48
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_high_watermark_anchoring_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

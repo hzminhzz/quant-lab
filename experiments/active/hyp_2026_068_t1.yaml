@@ -1,0 +1,45 @@
+contract_id: INDICES_1H_V2
+hypothesis_id: HYP-2026-068
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/ts_breakout_20_1h.py
+strategy_name: AF30_S21_Breakout_1H
+run_id: RUN-HYP068-001
+parameters:
+  channel_window: 20
+  atr_window: 14
+  vol_window: 240
+  scale: 0.02
+  cap: 20.0
+  rebalance_bars: 24
+  stop_multiple: 3.0
+  per_instrument_cap: 0.5
+  gross_exposure: 1.0
+param_grid:
+  - channel_window: 20
+    atr_window: 14
+    vol_window: 240
+    scale: 0.02
+    cap: 20.0
+    rebalance_bars: 24
+    stop_multiple: 3.0
+    per_instrument_cap: 0.5
+    gross_exposure: 1.0
+  - channel_window: 17
+    atr_window: 14
+    vol_window: 200
+    scale: 0.02
+    cap: 20.0
+    rebalance_bars: 24
+    stop_multiple: 2.5
+    per_instrument_cap: 0.5
+    gross_exposure: 1.0
+  - channel_window: 23
+    atr_window: 14
+    vol_window: 280
+    scale: 0.02
+    cap: 20.0
+    rebalance_bars: 24
+    stop_multiple: 3.5
+    per_instrument_cap: 0.5
+    gross_exposure: 1.0

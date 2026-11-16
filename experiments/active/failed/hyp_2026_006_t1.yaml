@@ -1,0 +1,24 @@
+hypothesis_id: HYP-2026-006
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP006-001
+strategy_module: strategies/candidates/ts_high_watermark_1h.py
+strategy_name: HighWatermarkAnchoring_1H
+parameters:
+  high_window_bars: 2160
+  mom_window_bars: 24
+  long_threshold: 0.95
+  short_threshold: 0.70
+  max_holding_bars: 120
+param_grid:
+  - high_window_bars: 2160
+    mom_window_bars: 24
+    long_threshold: 0.95
+    short_threshold: 0.70
+    max_holding_bars: 120
+  - high_window_bars: 1440
+    mom_window_bars: 24
+    long_threshold: 0.96
+    short_threshold: 0.75
+    max_holding_bars: 72

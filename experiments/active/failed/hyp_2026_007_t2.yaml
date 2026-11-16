@@ -1,0 +1,18 @@
+hypothesis_id: HYP-2026-007
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP007-002
+strategy_module: strategies/candidates/ts_liquidation_reversal_1h.py
+strategy_name: LiquidationCascadeReversal_1H
+parameters:
+  holding_bars: 8
+  vol_mult: 1.5
+  volume_quantile: 0.90
+param_grid:
+- holding_bars: 7
+  vol_mult: 1.5
+  volume_quantile: 0.90
+- holding_bars: 9
+  vol_mult: 1.5
+  volume_quantile: 0.90

@@ -1,0 +1,11 @@
+contract_id: AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1
+hypothesis_id: HYP-SOC-QP-BTC-OVERNIGHT-20261031
+run_id: RUN-SOC-QP-BTC-OVERNIGHT-20261031
+strategy_family: rules_ts
+model_type: rules
+strategy_module: strategies/candidates/qp_btc_overnight_max10_1h_20261031.py
+strategy_name: QP_BTC_MAX10_MON_TUE_OVERNIGHT_PERP_ADAPTATION
+parameters:
+  target_symbols:
+    - BTCUSDT
+param_grid: []

@@ -1,0 +1,21 @@
+hypothesis_id: HYP-2026-025
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+strategy_family: cross_sectional_ml
+model_type: linear
+run_id: RUN-HYP025-002
+strategy_module: strategies/candidates/cs_bipower_jump_variation_1h.py
+strategy_name: CSBipowerJumpVariationRidge_1H
+parameters:
+  alpha: 10.0
+  invert_factor: true
+  rebalance_every: 72
+  top_k: 5
+param_grid:
+- alpha: 10.0
+  invert_factor: true
+  rebalance_every: 60
+  top_k: 5
+- alpha: 10.0
+  invert_factor: true
+  rebalance_every: 84
+  top_k: 5

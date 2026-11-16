@@ -1,0 +1,11 @@
+Added `tests/test_carver_deadband_boundary.py` — 8 parametrized cases, no implementation changes.
+
+**Coverage.** Four exact-binary configurations (`width = buffer_fraction * weight` is 0.25 and 0.75; held `0.5`, `-0.5`, `0.0`, `-0.75`):
+- drift exactly `== width` → `apply_buffer` returns `held`; the test asserts `abs(target - held) == width` so it cannot silently degrade into an inexact comparison.
+- drift `math.nextafter(target, ±inf)` (one ULP past) → returns `target`; asserts `abs(beyond - held) > width` first.
+
+`<=` is the pinned contract: with `<` instead, all 4 boundary cases flip to returning `target`, which the second assertion catches.
+
+**Verification.** `uv run pytest tests/test_carver_deadband_boundary.py -q` → `8 passed`. Discrimination check: replicated both assertions against a strict-`<` helper → `4/4` boundary cases fail, so the test is falsifiable. `apply_buffer` untouched.
+
+Skipped: `tests/experiments/test_carver_daily_suite.py` fails at collection with `FileNotFoundError: contracts/multi_asset_1d_v1.yaml` — pre-existing missing fixture, unrelated to this test file (that path is off-limits per the task). LSP reports `pytest` unresolved because the language server's environment predates the `.venv` `uv` just created; runtime resolution is fine.

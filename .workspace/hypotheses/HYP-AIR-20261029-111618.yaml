@@ -1,0 +1,12 @@
+hypothesis_id: "HYP-AIR-20261029-111618"
+contract_id: "CRYPTO_PERPS_1H_V2"
+title: "Binance eight USDT perpetuals: 1h: HYP-AIR-20261029-111618"
+strategy_family: "rules_ts"
+economic_mechanism: "At 00UTC long the top two and short the bottom two eight-asset 168h return ranks; hold 24h."
+counterparty_or_friction: "Funding carry and price drift dominate returns; 0.10% per side costs and daily funding payments add friction."
+expected_holding_bars: 24
+falsification_criteria: "Frozen pre-reviewed rule: At 00UTC long the top two and short the bottom two eight-asset 168h return ranks; hold 24h.; Native Warden Stage 1 rules_ts gates are authoritative; do not lower any thresholds; No hyperparameter search; a failed screen is a negative registered selection attempt"
+parent_hypothesis_id: null
+source_provenance: "Current X/Substack author posts; source version NOT historical, original URLs: https://stoicresearch.substack.com/p/14-cross-sectional-momentum; AI research forecast IDs: AIR-OR-20261029-111618"
+llm_model_id: "cohere/north-mini-code:free"
+strategy_module: ""

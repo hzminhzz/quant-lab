@@ -1,0 +1,15 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-093
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/ts_breakout_20_1h.py
+strategy_name: AF30_S21_Breakout_1D_Canonical
+run_id: RUN-HYP093-002
+parameters:
+  channel_window: 20
+  vol_window: 240
+  rebalance_bars: 1
+  stop_multiple: 3.0
+  per_instrument_cap: 0.5
+  scale: 0.02
+  cap: 20.0

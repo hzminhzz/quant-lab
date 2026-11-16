@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-093
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 Strategy 21 Donchian Channel Breakout on Daily Multi-Asset Panel
+strategy_family: rules_ts
+economic_mechanism: >
+  Consolidation and volatility compression resolve into sharp directional momentum expansions across 17 multi-asset instruments on daily bars; closing beyond the 20-day rolling channel captures multi-week continuation sized inversely to 60-day trailing volatility, protected by a 3xATR-14 trailing stop with post-stop reset latch.
+counterparty_or_friction: >
+  Range-bound mean reversion traders and breakout faders pay trend continuation premia; friction is 1 bp one-way on daily instruments.
+expected_holding_bars: 20
+falsification_criteria: >
+  Reject if Net Sharpe <= 0.80, DSR < 0.90, 2x-cost Sharpe <= 0.40, or +1-bar latency Sharpe <= 0 on MULTI_ASSET_1D_V1.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), Strategy 21 (Breakout / AF30)
+llm_model_id: unspecified
+strategy_module: strategies/candidates/ts_breakout_20_1h.py

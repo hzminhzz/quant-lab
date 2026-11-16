@@ -10,7 +10,7 @@ import polars as pl
 from lightgbm import LGBMRegressor
 
 from warden.contracts import EvaluationContract
-from warden.leakage import purged_walk_forward_splits
+from warden.leakage import compute_open_forward_label, purged_walk_forward_splits
 
 
 class CSLGBMPipeline:
@@ -96,6 +96,11 @@ def generate_positions(
     close_mat = close_pivot.select(assets).to_numpy()
     prev_close = np.vstack([close_mat[:1], close_mat[:-1]])
     ret_mat = np.divide(close_mat - prev_close, prev_close, out=np.zeros_like(close_mat), where=prev_close > 0)
+    open_pivot = df.pivot(index="timestamp", on="asset", values="open").fill_null(strategy="forward").fill_null(0.0)
+    for a in assets:
+        if a not in open_pivot.columns:
+            open_pivot = open_pivot.with_columns(pl.lit(0.0).alias(a))
+    open_mat = open_pivot.select(assets).to_numpy()
     fund_pivot = df.pivot(index="timestamp", on="asset", values="funding_rate").fill_null(0.0)
     for a in assets:
         if a not in fund_pivot.columns:
@@ -122,15 +127,13 @@ def generate_positions(
         feat_mom[t] = f2 / (np.std(f2) + 1e-8)
         feat_rev[t] = f3 / (np.std(f3) + 1e-8)
 
-        if t + h <= n_bars:
-            fwd = np.sum(ret_mat[t:t + h], axis=0)
-            forward_label[t] = fwd - np.mean(fwd)
+    forward_label = compute_open_forward_label(open_mat, delay, h)
 
     splits = purged_walk_forward_splits(
         n_timestamps=val_end_idx,
         n_folds=contract.n_folds,
         min_train_timestamps=val_start_idx,
-        label_horizon=contract.label_horizon_bars,
+        label_horizon=delay + h,
         embargo=contract.embargo_bars,
     )
 

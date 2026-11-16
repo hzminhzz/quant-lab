@@ -1,0 +1,18 @@
+hypothesis_id: HYP-2026-010
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP010-001
+strategy_module: strategies/candidates/ts_basis_dislocation_1h.py
+strategy_name: BasisDislocationReversal_1H
+parameters:
+  rolling_window: 168
+  z_threshold: 3.0
+  holding_bars: 16
+param_grid:
+  - rolling_window: 168
+    z_threshold: 3.0
+    holding_bars: 16
+  - rolling_window: 168
+    z_threshold: 2.5
+    holding_bars: 12

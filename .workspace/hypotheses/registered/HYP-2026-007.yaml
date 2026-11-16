@@ -1,0 +1,16 @@
+hypothesis_id: HYP-2026-007
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Post-Liquidation Cascade Mean Reversal on Crypto Perps
+strategy_family: rules_ts
+economic_mechanism: >
+  Non-economic automated exchange liquidation cascades dump leveraged collateral into thin order books,
+  creating extreme downside price dislocations below rolling volatility envelopes that mean-revert
+  once forced selling volume exhausts.
+counterparty_or_friction: >
+  Forced margin liquidators, cascade-following momentum stops, and liquidity-depleted order book depth.
+expected_holding_bars: 8
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_liquidation_cascade_reversal_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

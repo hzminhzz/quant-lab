@@ -18,6 +18,7 @@ FX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", "CADJPY"
 INDEX_SYMBOLS = ["ES", "NQ", "DAX", "NIKKEI225", "EUSIDXEUR", "HK33"]
 METALS_SYMBOLS = ["XAUUSD", "XAGUSD"]
 COMMODITIES_SYMBOLS = ["CL"]
+MULTI_ASSET_SYMBOLS = INDEX_SYMBOLS + FX_PAIRS + METALS_SYMBOLS + COMMODITIES_SYMBOLS  # 17
 CRYPTO_1M_SYMBOLS = [
     "BTCUSDT_PERP",
     "ETHUSDT_PERP",
@@ -58,28 +59,36 @@ def normalize_panel(panel: pl.DataFrame) -> pl.DataFrame:
     return panel
 
 
-def load_fx_panel(store_dir: Path, pairs: list[str] = FX_PAIRS, freq: str = "15m") -> pl.DataFrame:
+def load_fx_panel(
+    store_dir: Path,
+    pairs: list[str] = FX_PAIRS,
+    freq: str | None = "15m",
+    min_year: int = 2024,
+) -> pl.DataFrame:
     frames = []
     for sym in pairs:
         p = store_dir / f"forex_minute_{sym}"
         if not p.exists():
             continue
-        files = [f for f in p.rglob("*.parquet") if "year=2024" in str(f) or "year=2025" in str(f)]
+        files = [f for f in p.rglob("*.parquet") if any(f"year={y}" in str(f) for y in range(min_year, 2027))]
         if not files:
             continue
         df = pl.scan_parquet(files).collect()
-        resampled = (
-            df.sort("timestamp")
-            .group_by_dynamic("timestamp", every=freq, group_by="symbol")
-            .agg([
-                pl.col("open").first(),
-                pl.col("high").max(),
-                pl.col("low").min(),
-                pl.col("close").last(),
-                pl.col("volume").sum().fill_null(0.0),
-            ])
-        )
-        frames.append(resampled)
+        if freq and freq != "1m":
+            resampled = (
+                df.sort("timestamp")
+                .group_by_dynamic("timestamp", every=freq, group_by="symbol")
+                .agg([
+                    pl.col("open").first(),
+                    pl.col("high").max(),
+                    pl.col("low").min(),
+                    pl.col("close").last(),
+                    pl.col("volume").sum().fill_null(0.0),
+                ])
+            )
+            frames.append(resampled)
+        else:
+            frames.append(df.sort("timestamp"))
     if not frames:
         raise FileNotFoundError(f"No minute FX data found under {store_dir}")
     panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
@@ -122,14 +131,19 @@ def load_indices_panel(
     return normalize_panel(panel)
 
 
-def load_metals_panel(store_dir: Path, symbols: list[str] = METALS_SYMBOLS) -> pl.DataFrame:
+def load_metals_panel(
+    store_dir: Path,
+    symbols: list[str] = METALS_SYMBOLS,
+    freq: str | None = "1m",
+    min_year: int = 2024,
+) -> pl.DataFrame:
     frames = []
     std_cols = ["timestamp", "symbol", "open", "high", "low", "close", "volume"]
     for sym in symbols:
         p = store_dir / f"forex_minute_{sym}"
         if not p.exists():
             continue
-        files = [f for f in p.rglob("*.parquet") if "year=2024" in str(f) or "year=2025" in str(f)]
+        files = [f for f in p.rglob("*.parquet") if any(f"year={y}" in str(f) for y in range(min_year, 2027))]
         if not files:
             continue
         m_frames = [
@@ -137,23 +151,43 @@ def load_metals_panel(store_dir: Path, symbols: list[str] = METALS_SYMBOLS) -> p
                 pl.col("timestamp").cast(pl.Datetime("us", "UTC")),
                 pl.col("volume").cast(pl.Float64),
                 pl.col(["open", "high", "low", "close"]).cast(pl.Float64),
-            ]) for f in files
+            ]).filter(pl.col("high") < 10000) for f in files
         ]
-        frames.append(pl.concat(m_frames))
+        df_sym = pl.concat(m_frames)
+        if freq and freq != "1m":
+            resampled = (
+                df_sym.sort("timestamp")
+                .group_by_dynamic("timestamp", every=freq, group_by="symbol")
+                .agg([
+                    pl.col("open").first(),
+                    pl.col("high").max(),
+                    pl.col("low").min(),
+                    pl.col("close").last(),
+                    pl.col("volume").sum().fill_null(0.0),
+                ])
+            )
+            frames.append(resampled)
+        else:
+            frames.append(df_sym.sort("timestamp"))
     if not frames:
         raise FileNotFoundError(f"No minute Metals data found under {store_dir}")
     panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
     return normalize_panel(panel)
 
 
-def load_commodities_panel(store_dir: Path, symbols: list[str] = COMMODITIES_SYMBOLS) -> pl.DataFrame:
+def load_commodities_panel(
+    store_dir: Path,
+    symbols: list[str] = COMMODITIES_SYMBOLS,
+    freq: str | None = "1m",
+    min_year: int = 2024,
+) -> pl.DataFrame:
     frames = []
     std_cols = ["timestamp", "symbol", "open", "high", "low", "close", "volume"]
     for sym in symbols:
         p = store_dir / f"commodity_minute_{sym}"
         if not p.exists():
             continue
-        files = [f for f in p.rglob("*.parquet") if "year=2024" in str(f) or "year=2025" in str(f)]
+        files = [f for f in p.rglob("*.parquet") if any(f"year={y}" in str(f) for y in range(min_year, 2027))]
         if not files:
             continue
         c_frames = [
@@ -163,11 +197,45 @@ def load_commodities_panel(store_dir: Path, symbols: list[str] = COMMODITIES_SYM
                 pl.col(["open", "high", "low", "close"]).cast(pl.Float64),
             ]) for f in files
         ]
-        frames.append(pl.concat(c_frames))
+        df_sym = pl.concat(c_frames)
+        if freq and freq != "1m":
+            resampled = (
+                df_sym.sort("timestamp")
+                .group_by_dynamic("timestamp", every=freq, group_by="symbol")
+                .agg([
+                    pl.col("open").first(),
+                    pl.col("high").max(),
+                    pl.col("low").min(),
+                    pl.col("close").last(),
+                    pl.col("volume").sum().fill_null(0.0),
+                ])
+            )
+            frames.append(resampled)
+        else:
+            frames.append(df_sym.sort("timestamp"))
     if not frames:
         raise FileNotFoundError(f"No minute Commodity data found under {store_dir}")
     panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
     return normalize_panel(panel)
+
+
+def load_multi_asset_panel(store_dir: Path, freq: str = "1h", min_year: int = 2015) -> pl.DataFrame:
+    idx = load_indices_panel(store_dir, freq=freq, min_year=min_year)
+    fx = load_fx_panel(store_dir, freq=freq, min_year=min_year)
+    metals = load_metals_panel(store_dir, freq=freq, min_year=min_year)
+    commodities = load_commodities_panel(store_dir, freq=freq, min_year=min_year)
+    panel = pl.concat([idx, fx, metals, commodities])
+    panel = normalize_panel(panel)
+    if sorted(panel["asset"].unique().to_list()) != sorted(MULTI_ASSET_SYMBOLS):
+        raise ValueError(
+            f"Universe mismatch: expected {sorted(MULTI_ASSET_SYMBOLS)}, got {sorted(panel['asset'].unique().to_list())}"
+        )
+    return panel
+
+
+def load_multi_asset_1h_panel(store_dir: Path, min_year: int = 2015) -> pl.DataFrame:
+    return load_multi_asset_panel(store_dir, freq="1h", min_year=min_year)
+
 def load_crypto_1m_panel(store_dir: Path, symbols: list[str] = CRYPTO_1M_SYMBOLS) -> pl.DataFrame:
     frames = []
     for s in symbols:
@@ -246,7 +314,7 @@ def salvage_dataset(
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--asset-class", choices=["fx", "indices", "indices_1m", "metals_1m", "commodities_1m", "crypto_1m", "all"], default="all")
+    parser.add_argument("--asset-class", choices=["fx", "fx_1m", "indices", "indices_1m", "metals_1m", "commodities_1m", "crypto_1m", "multi_asset_5m", "multi_asset_30m", "multi_asset_1h", "multi_asset_4h", "multi_asset_1d", "all"], default="all")
     parser.add_argument("--store-dir", type=Path, default=Path("/home/quant/dev/quant/ml4t-data/.data/store"))
     parser.add_argument("--out-dir", type=Path, default=Path("data"))
     args = parser.parse_args()
@@ -262,6 +330,17 @@ def main():
             update_contract=True,
         )
         results["fx"] = res_fx
+    if args.asset_class in {"fx_1m", "all"}:
+        print("Salvaging FX Majors 1-Minute (2024-2026)...")
+        fx_1m_panel = load_fx_panel(args.store_dir, freq="1m")
+        res_fx_1m = salvage_dataset(
+            Path("contracts/fx_majors_1m_v1.yaml"),
+            args.out_dir,
+            fx_1m_panel,
+            update_contract=True,
+        )
+        results["fx_1m"] = res_fx_1m
+
 
     if args.asset_class in {"indices", "all"}:
         print("Salvaging 10-Year Global Indices (1h, 2015-2026)...")
@@ -315,6 +394,56 @@ def main():
             update_contract=True,
         )
         results["crypto_1m"] = res_crypto
+    if args.asset_class == "multi_asset_1h":
+        print("Salvaging 10-Year Multi-Asset 1-Hour Panel (17 instruments, 2015-2026)...")
+        multi_panel = load_multi_asset_1h_panel(args.store_dir, min_year=2015)
+        res_multi = salvage_dataset(
+            Path("contracts/multi_asset_1h_v1.yaml"),
+            args.out_dir,
+            multi_panel,
+            update_contract=True,
+        )
+        results["multi_asset_1h"] = res_multi
+    if args.asset_class == "multi_asset_5m":
+        print("Salvaging 10-Year Multi-Asset 5-Minute Panel (17 instruments, 2015-2026)...")
+        multi_panel = load_multi_asset_panel(args.store_dir, freq="5m", min_year=2015)
+        res_multi = salvage_dataset(
+            Path("contracts/multi_asset_5m_v1.yaml"),
+            args.out_dir,
+            multi_panel,
+            update_contract=True,
+        )
+        results["multi_asset_5m"] = res_multi
+    if args.asset_class == "multi_asset_30m":
+        print("Salvaging 10-Year Multi-Asset 30-Minute Panel (17 instruments, 2015-2026)...")
+        multi_panel = load_multi_asset_panel(args.store_dir, freq="30m", min_year=2015)
+        res_multi = salvage_dataset(
+            Path("contracts/multi_asset_30m_v1.yaml"),
+            args.out_dir,
+            multi_panel,
+            update_contract=True,
+        )
+        results["multi_asset_30m"] = res_multi
+    if args.asset_class == "multi_asset_4h":
+        print("Salvaging 10-Year Multi-Asset 4-Hour Panel (17 instruments, 2015-2026)...")
+        multi_panel = load_multi_asset_panel(args.store_dir, freq="4h", min_year=2015)
+        res_multi = salvage_dataset(
+            Path("contracts/multi_asset_4h_v1.yaml"),
+            args.out_dir,
+            multi_panel,
+            update_contract=True,
+        )
+        results["multi_asset_4h"] = res_multi
+    if args.asset_class == "multi_asset_1d":
+        print("Salvaging 10-Year Multi-Asset 1-Day Panel (17 instruments, 2015-2026)...")
+        multi_panel = load_multi_asset_panel(args.store_dir, freq="1d", min_year=2015)
+        res_multi = salvage_dataset(
+            Path("contracts/multi_asset_1d_v1.yaml"),
+            args.out_dir,
+            multi_panel,
+            update_contract=True,
+        )
+        results["multi_asset_1d"] = res_multi
     print(json.dumps(results, indent=2))
     print("\nSalvage complete. To lock holdout staging into production holdout:")
     print("  sudo cp -r data/holdout_staging/* data/holdout/ && sudo ./scripts/lock_holdout_permissions.sh ./data/holdout")

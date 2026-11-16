@@ -1,0 +1,11 @@
+contract_id: AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1
+hypothesis_id: HYP-SOC-ALG-OVERSOLD-DAX-20261031
+run_id: RUN-SOC-ALG-OVERSOLD-DAX-20261031
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/alg_oversold_dax_1h_20261031.py
+strategy_name: ALG_DAX_OVERSOLD_1H_DELAYED_STOP_ADAPTATION
+parameters:
+  target_symbols:
+    - DAX
+param_grid: []

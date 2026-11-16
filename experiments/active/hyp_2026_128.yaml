@@ -1,0 +1,12 @@
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+hypothesis_id: HYP-2026-128
+model_type: linear
+parameters:
+  formation_bars: 168
+  quintile_fraction: 0.2
+  rebalance_every: 24
+  universe_size: 100
+run_id: RUN-XSRR-001
+strategy_family: cross_sectional_ml
+strategy_module: strategies/candidates/cs_residual_reversal_1h.py
+strategy_name: ResidualReversal_1H

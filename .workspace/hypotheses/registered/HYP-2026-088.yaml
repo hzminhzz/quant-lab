@@ -1,0 +1,19 @@
+hypothesis_id: HYP-2026-088
+contract_id: MULTI_ASSET_1H_V1
+title: AF30 S23 Acceleration on 17-instrument multi-asset 1h panel
+strategy_family: rules_ts
+economic_mechanism: 'AF30 S23: mom_24: close.pct_change(24).over(''asset''); mom_24_prev:
+  mom_24.shift(24).over(''asset''); acceleration: mom_24 - mom_24_prev; Normalization
+  & scaling: bounded linear (acceleration / 0.01).clip(-20.0, 20.0); Sizing: inverse
+  volatility weighting based on 240-hour rolling return std, water-filled to 0.5 cap;
+  Trailing stop: 3.0x ATR-14 (symmetric); Rebalance frequency: 24 hours'
+counterparty_or_friction: Counterparty pays a trend risk premium; friction is 1 bp
+  one-way taker+slippage on 17 liquid index, FX, metal and crude instruments, plus
+  3xATR-14 trailing-stop whipsaw.
+expected_holding_bars: 504
+falsification_criteria: Stage-1 on MULTI_ASSET_1H_V1 rejects the mechanism when profit_factor
+  < 1.15 or trade_edge < 2.5x round-trip cost, or when the 2x-cost stress Sharpe is
+  <= 0 or the +1-bar-latency Sharpe is <= 0.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), Strategy 23
+llm_model_id: unspecified
+strategy_module: strategies/candidates/ts_s23_acceleration_1h.py

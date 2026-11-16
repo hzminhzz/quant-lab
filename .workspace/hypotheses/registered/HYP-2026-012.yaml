@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-012
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Volatility-Managed Time-Series Momentum on Crypto Majors
+strategy_family: rules_ts
+economic_mechanism: >
+  Scaling time-series trend exposure inversely by trailing realized volatility eliminates momentum
+  crash tails while participating in steady macro bull runs, dampening leverage during high-volatility turbulence.
+counterparty_or_friction: >
+  Risk-averse hedgers, noise traders, and forced margin liquidators facing margin constraints and liquidation air pockets.
+expected_holding_bars: 48
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_vol_managed_tsmom_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

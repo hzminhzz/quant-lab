@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-048
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Session Drift Divergence Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Altcoins whose returns are driven by daytime institutional trading sessions exhibit persistent forward momentum, whereas tokens whose returns are concentrated in off-hours retail sessions experience rapid mean-reversion. Longing institutional-session winners and shorting retail-session winners in a dollar-neutral 72h basket captures session drift divergence alpha. Grounded in Lou, Yan & Zhang (2019), overnight vs intraday returns exhibit structural segmentation due to differing participant mixes and liquidity characteristics.
+counterparty_or_friction: >
+  Retail noise traders chasing late-night speculative pumps and liquidity providers unable to absorb institutional daytime execution flows without price impact.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_session_drift_divergence_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

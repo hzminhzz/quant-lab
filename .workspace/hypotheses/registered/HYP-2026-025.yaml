@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-025
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Realized Bipower Jump Variation Basket on Crypto Perps
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Total realized quadratic variation decomposes into continuous diffusive Brownian motion and discontinuous jump components via Realized Bipower Variation; altcoins whose quadratic variation is dominated by discontinuous price jumps over the trailing 7 days impose unhedgeable gap risk and liquidation uncertainty on institutional market participants. To clear the market, these jump-heavy assets trade at deep structural valuation discounts, yielding an equilibrium jump tail risk premium. Longing high-jump-ratio altcoins and shorting smooth diffusive altcoins in a 72h dollar-neutral basket captures this jump risk premium while eliminating directional market beta.
+counterparty_or_friction: >
+  Risk-averse institutional desks overpaying for smooth diffusive tokens while selling discontinuous jump-prone tokens at steep valuation haircuts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Falsified if signal rank IC against forward returns yields HAC t-statistic < 2.0 on the train window,
+  or if net returns after 18.0 bps round-trip friction are non-positive.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_bipower_jump_variation_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

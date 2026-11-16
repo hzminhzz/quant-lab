@@ -1,0 +1,10 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-127
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/s183_reference.py
+strategy_name: S183_REFERENCE_BACKTEST_T2_WIDEBAND
+parameters:
+  vol_target: 0.20
+  buffer_fraction: 0.50
+  warmup: 1

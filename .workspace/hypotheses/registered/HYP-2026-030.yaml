@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-030
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Hill Tail Index Crash Risk Basket on Crypto Perps
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  The Hill (1975) tail index non-parametrically estimates the Pareto power-law exponent of negative return tails over trailing 30 days; altcoins with heavy Pareto tails (low alpha_i, indicating slow polynomial decay and severe extreme crash probability) impose unhedgeable gap risk on risk-averse market participants. In equilibrium, these crash-prone assets trade at deep structural valuation discounts, yielding an elevated forward risk premium during subsequent calm holding regimes. A dollar-neutral 72h basket longing low-Hill-index altcoins (heavy tails, high risk discount) and shorting high-Hill-index altcoins (thin tails, valuation premium) harvests this extreme value tail risk premium while neutralizing directional Bitcoin market beta.
+counterparty_or_friction: >
+  Risk-averse institutional desks overpaying for thin-tailed, predictable variance assets while dumping power-law crash-prone altcoins at steep discounts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_hill_tail_index_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

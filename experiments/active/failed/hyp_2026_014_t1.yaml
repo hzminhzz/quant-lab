@@ -1,0 +1,25 @@
+hypothesis_id: HYP-2026-014
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP014-001
+strategy_module: strategies/candidates/ts_volume_anchored_drift_1h.py
+strategy_name: VolumeAnchoredDrift_1H
+parameters:
+  vol_window: 168
+  vol_quantile: 0.95
+  ret_threshold: 0.005
+  holding_bars: 24
+param_grid:
+  - vol_window: 168
+    vol_quantile: 0.95
+    ret_threshold: 0.005
+    holding_bars: 24
+  - vol_window: 120
+    vol_quantile: 0.95
+    ret_threshold: 0.008
+    holding_bars: 18
+  - vol_window: 240
+    vol_quantile: 0.90
+    ret_threshold: 0.005
+    holding_bars: 36

@@ -1,0 +1,24 @@
+{
+  "run_id": "RUN-RU-001",
+  "hypothesis_id": "HYP-2026-127",
+  "quant_lab": {
+    "strategy_module": "strategies/candidates/s183_reference.py",
+    "strategy_code_sha256": "e8997c9e96ce0c9bdca32cf81a430a55afefffbc1b4f1e51ef9bc144eac81582",
+    "config_digest": "c699a32344f12274cd1f6aeec30b6e2fa5cdb8d9b95d829ef1e05ec51a33c3ed",
+    "data_snapshot_sha256": "8f0ae0636c779754291830692de5f1eaa40ce7792d4e0a87693e129bbfafd1f4"
+  },
+  "upstream_reference": {
+    "repo": "https://github.com/Lucas-Joly-GH/trends-research",
+    "commit": "0426baca40b148b9fed760740a7b7ac2e4cb3a70",
+    "worktree_dirty": false,
+    "imported_at_runtime": {
+      "Live/2_Engine/trading_book.py": "f7bfac2916b53eb436fb360fe2a183629cd15d2fe14647df4aeba6f5aff7f0a5"
+    },
+    "transcribed_not_imported": {
+      "Live/3_Portfolio/portfolio.py": "4f5fa856bbec4a8237f3f2042a477ea07ecc4545d5a87a7a9797e699ef618d48",
+      "note": "IDM_CAP/IDM_SPAN/IDM_MIN/GDD_*/BUFFER values copied into s183_reference.py, not imported"
+    },
+    "live_tree_py_sha256": "9d07c3d8c693565bdebac2c4fb5b82ff458cc24eab195d9574b90a23abff5bf7"
+  },
+  "why": "warden's code closure hashes only strategies/candidates/s183_reference.py; the executed sleeve and gate logic is imported at runtime from the upstream clone, so the strategy hash alone cannot reproduce the run."
+}

@@ -1,0 +1,16 @@
+hypothesis_id: HYP-2026-013
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Squeeze Volatility Compression Breakout on Crypto Majors
+strategy_family: rules_ts
+economic_mechanism: >
+  When Bollinger Band width contracts inside Keltner Channel boundaries (extreme range compression),
+  liquidity providers withdraw resting limits to avoid adverse selection; subsequent band expansion
+  with directional momentum ignites explosive trend continuation.
+counterparty_or_friction: >
+  Risk-averse hedgers, noise traders, and trapped market makers forced to execute adverse selection stops.
+expected_holding_bars: 36
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_volatility_compression_breakout_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

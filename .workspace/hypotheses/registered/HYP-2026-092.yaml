@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-092
+contract_id: MULTI_ASSET_1D_V1
+title: AF30 Handcrafted Book of 20 Strategies on Daily Multi-Asset Panel
+strategy_family: rules_ts
+economic_mechanism: >
+  20 Robert Carver AF30 subsystem forecasts share an equal-class risk budget across 17 multi-asset instruments on daily bars; diversification (IDM > 2.0) and lower daily frequency suppress turnover drag below friction thresholds.
+counterparty_or_friction: >
+  Counterparty pays trend and relative-value risk premia; friction is 1 bp one-way taker+slippage on liquid daily index, FX, metal, and crude proxies, with netted positions reducing turnover.
+expected_holding_bars: 60
+falsification_criteria: >
+  Reject if Net Sharpe <= 0.80, DSR < 0.90, 2x-cost Sharpe <= 0.40, or +1-bar latency Sharpe <= 0 on MULTI_ASSET_1D_V1.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), Chapter 7 Handcrafted Portfolio
+llm_model_id: unspecified
+strategy_module: strategies/books/af30_handcrafted_book_1h.py

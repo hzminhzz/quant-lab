@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-057
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Volatility Asymmetry and Realized Semivariance Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Altcoins with extreme downside semivariance relative to upside semivariance suffer temporary panic discount; sorting altcoins by trailing 7-day downside-to-upside realized semivariance ratio (RS- / RS+) in a 72h dollar-neutral basket exploits retail panic overreaction to harvest an asymmetric volatility risk premium.
+counterparty_or_friction: >
+  Risk-averse hedgers, noise traders, and forced margin liquidators overreacting to downside volatility shocks.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_volatility_asymmetry_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

@@ -10,7 +10,7 @@ import polars as pl
 from sklearn.linear_model import Ridge
 
 from warden.contracts import EvaluationContract
-from warden.leakage import purged_walk_forward_splits
+from warden.leakage import compute_open_forward_label, purged_walk_forward_splits
 
 
 class CSAmihudPipeline:
@@ -88,13 +88,11 @@ def generate_positions(
     val_start_idx = ts_map.get(contract.val_start, int(n_bars * 0.75))
     val_end_idx = ts_map.get(contract.val_end, n_bars)
 
-    close_pivot = df.pivot(index="timestamp", on="asset", values="close").fill_null(strategy="forward").fill_null(0.0)
+    open_pivot = df.pivot(index="timestamp", on="asset", values="open").fill_null(strategy="forward").fill_null(0.0)
     for a in assets:
-        if a not in close_pivot.columns:
-            close_pivot = close_pivot.with_columns(pl.lit(0.0).alias(a))
-    close_mat = close_pivot.select(assets).to_numpy()
-    prev_close = np.vstack([close_mat[:1], close_mat[:-1]])
-    ret_mat = np.divide(close_mat - prev_close, prev_close, out=np.zeros_like(close_mat), where=prev_close > 0)
+        if a not in open_pivot.columns:
+            open_pivot = open_pivot.with_columns(pl.lit(0.0).alias(a))
+    open_mat = open_pivot.select(assets).to_numpy()
 
     pipe = CSAmihudPipeline()
     feat_df = pipe.compute(df, contract)
@@ -103,26 +101,19 @@ def generate_positions(
     f_fast = feat_df.pivot(index="timestamp", on="asset", values="feat_amihud_fast").fill_null(0.0).select(assets).to_numpy()
     f_vol = feat_df.pivot(index="timestamp", on="asset", values="feat_vol").fill_null(0.0).select(assets).to_numpy()
 
-    # shortcut: label is close-to-close and starts at bar t (ret_mat[t] is t-1->t), while
-    # executed PnL uses open-to-open with a 1-bar delay, so IC/positions are scored against a
-    # target one bar earlier than the tradeable horizon. Recorded results are invalid for any
-    # promotion; fix the basis before spending another trial on this hypothesis.
     h = contract.label_horizon_bars
-    forward_label = np.zeros((n_bars, n_assets), dtype=float)
-    for t in range(n_bars - h):
-        fwd = np.sum(ret_mat[t : t + h], axis=0)
-        forward_label[t] = fwd - np.mean(fwd)
+    forward_label = compute_open_forward_label(open_mat, contract.execution_delay_bars, h)
 
     # Train Ridge walk-forward
     splits = purged_walk_forward_splits(
         n_timestamps=val_end_idx,
         n_folds=contract.n_folds,
         min_train_timestamps=val_start_idx,
-        label_horizon=contract.label_horizon_bars,
+        label_horizon=contract.execution_delay_bars + contract.label_horizon_bars,
         embargo=contract.embargo_bars,
     )
 
-    oos_preds = np.full_like(ret_mat, np.nan)
+    oos_preds = np.full_like(open_mat, np.nan)
     for train_idx, test_idx in splits:
         train_idx = train_idx[train_idx >= 168]
         if len(train_idx) < 10:

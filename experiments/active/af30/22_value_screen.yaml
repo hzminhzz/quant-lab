@@ -1,0 +1,7 @@
+contract_id: MULTI_ASSET_1H_V1
+hypothesis_id: HYP-2026-087
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/ts_s22_value_1h.py
+strategy_name: AF30_S22_SCREEN
+parameters: {}

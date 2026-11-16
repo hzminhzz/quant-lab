@@ -1,0 +1,11 @@
+contract_id: AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1
+hypothesis_id: HYP-SOC-BTA-TIMENQ-20261031
+run_id: RUN-SOC-BTA-TIMENQ-20261031
+strategy_family: rules_ts
+model_type: rules
+strategy_module: strategies/candidates/bta_nq_monday_time_1h_20261031.py
+strategy_name: BTA_NQ_MONDAY_CALENDAR_1H_CFD_NEXTBAR
+parameters:
+  target_symbols:
+    - NQ
+param_grid: []

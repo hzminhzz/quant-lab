@@ -1,0 +1,12 @@
+hypothesis_id: "HYP-AIR-20261029-112141"
+contract_id: "CRYPTO_PERPS_1H_V2"
+title: "Binance eight USDT perpetuals: 1h: HYP-AIR-20261029-112141"
+strategy_family: "rules_ts"
+economic_mechanism: "Buy when RSI(2)<10 in EMA48>EMA200 uptrend, short when RSI(2)>90 in downtrends; hold 12h."
+counterparty_or_friction: "Market impact and slippage from rapid 12h flips; transaction costs on perpetuals."
+expected_holding_bars: 12
+falsification_criteria: "Frozen pre-reviewed rule: Buy RSI(2)<10 in EMA48>EMA200 uptrends, short RSI(2)>90 in downtrends; hold 12h.; Native Warden Stage 1 rules_ts gates are authoritative; do not lower any thresholds; No hyperparameter search; a failed screen is a negative registered selection attempt"
+parent_hypothesis_id: null
+source_provenance: "Current X/Substack author posts; source version NOT historical, original URLs: https://stoicresearch.substack.com/p/post-13-rsi-and-rate-of-change; AI research forecast IDs: AIR-OR-20261029-112141"
+llm_model_id: "cohere/north-mini-code:free"
+strategy_module: ""

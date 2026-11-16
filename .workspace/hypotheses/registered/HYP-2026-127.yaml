@@ -1,0 +1,27 @@
+hypothesis_id: HYP-2026-127
+contract_id: MULTI_ASSET_1D_V1
+parent_hypothesis_id: HYP-2026-126
+title: S183 reference port - repo's own sleeve and portfolio code, carry sleeve absent
+strategy_family: rules_ts
+economic_mechanism: Same mechanism as HYP-2026-126 - three weakly-correlated premia (time-series
+  EWMAC trend, cross-sectional trend, return skew and vol-of-vol) combined at equal weight and
+  risk-scaled. This entry exists because 126 tested a reconstruction, whereas here every sleeve, the
+  forecast normaliser, the pooled diversification multiplier and both risk gates call the
+  repository's own implementation (Live/2_Engine/trading_book.py, Live/3_Portfolio/portfolio.py)
+  instead of a re-derivation from the flagship constants.
+counterparty_or_friction: As HYP-2026-126 - the flow that sells strength and buys weakness, paying
+  fee and slippage on every buffered rebalance. The reference book additionally charges the cost of
+  its own vol and drawdown gates, both of which cut risk in stress, so the strategy sells exposure exactly
+  when realised volatility and drawdowns are high.
+expected_holding_bars: 60
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+  Stage-3 rejects when net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or
+  the derived 1.5x-cost Sharpe <= 0. The recorded contract search floor (k_eff 45.61, noise 1.394)
+  requires roughly netSR 1.79 for DSR 0.90; that hurdle is acknowledged before the run.
+source_provenance: Joly, MSc thesis trends-research - Live/2_Engine/trading_book.py (ewmac,
+  normalise_signal, skew, vov_*, s_g_vol, ewm_corr_4, pooled_fdm, cross_sectional_z) and
+  Live/3_Portfolio/portfolio.py (idm_from, simulate); Carver, Advanced Futures Trading Strategies
+  (2022) pp. 189-225
+llm_model_id: unspecified
+strategy_module: strategies/candidates/s183_reference.py

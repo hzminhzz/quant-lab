@@ -1,0 +1,17 @@
+contract_id: FX_MAJORS_1D_V2
+hypothesis_id: HYP-2026-129
+strategy_family: rules_ts
+model_type: rules
+strategy_name: FXFiveDayShockReversal
+strategy_module: strategies/candidates/fx_5day_shock_reversal.py
+run_id: RUN-HYP129-001
+parameters:
+  formation_bars: 5
+  vol_window: 20
+  z_threshold: 1.25
+  rebalance_every: 5
+  per_symbol_weight: 0.125
+# Two immutable +/-15%-threshold neighbors. These are NOT separate unconstrained tuning experiments.
+param_grid:
+  - {formation_bars: 5, vol_window: 20, z_threshold: 1.0625, rebalance_every: 5, per_symbol_weight: 0.125}
+  - {formation_bars: 5, vol_window: 20, z_threshold: 1.4375, rebalance_every: 5, per_symbol_weight: 0.125}

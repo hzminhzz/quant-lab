@@ -1,0 +1,21 @@
+hypothesis_id: HYP-2026-011
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP011-001
+strategy_module: strategies/candidates/ts_us_session_momentum_1h.py
+strategy_name: USSessionMomentum_1H
+parameters:
+  open_hour: 13
+  close_hour: 21
+  vol_baseline_bars: 24
+  volume_mult: 1.5
+param_grid:
+  - open_hour: 13
+    close_hour: 21
+    vol_baseline_bars: 24
+    volume_mult: 1.5
+  - open_hour: 13
+    close_hour: 21
+    vol_baseline_bars: 72
+    volume_mult: 1.2

@@ -1,0 +1,10 @@
+{
+  "cmd": [
+    "omp",
+    "-p",
+    "# T1 \u2014 locate the DSR selection hurdle (read-only)\n\nAnswer in this working directory. Do not modify any file.\n\nFind, in this repository, the code that computes the effective trial count used as the\ndeflated-Sharpe (DSR) selection hurdle, then answer all four of the following:\n\n1. Which function computes it, and in which file?\n2. What is the exact formula for the applied effective trial count (`k_eff_gate`)?\n3. Audit check 6 applies a DSR threshold. What number is it, and how does it differ from the\n   threshold the runner itself requires before a trial can be stamped\n   `CANDIDATE_FOR_QUALIFICATION`?\n4. In one sentence: what does that difference allow a run to do?\n\nAnswer from the code, not from documentation. Cite `path:line` where you can.\n\nWrite your answer to `answer.md` in this directory. Keep it under 300 words.",
+    "--no-session",
+    "--approval-mode=yolo"
+  ],
+  "cwd": "/home/quant/.cache/quant-lab-bench/wt/T1-omp-20261028T175049-9eea7e"
+}

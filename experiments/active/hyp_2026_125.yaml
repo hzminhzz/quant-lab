@@ -1,0 +1,21 @@
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+hypothesis_id: HYP-2026-125
+model_type: rules
+param_grid:
+- lookback_bars: 168
+  quintile_fraction: 0.2
+  rebalance_every: 168
+  universe_size: 21
+- lookback_bars: 168
+  quintile_fraction: 0.2
+  rebalance_every: 168
+  universe_size: 29
+parameters:
+  lookback_bars: 168
+  quintile_fraction: 0.2
+  rebalance_every: 168
+  universe_size: 25
+run_id: RUN-XSW-001
+strategy_family: cross_sectional_ml
+strategy_module: strategies/candidates/xs_weekly_momentum_1h.py
+strategy_name: XSWeeklyMomentum_1H

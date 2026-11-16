@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-019
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Unanticipated Funding Rate Innovation Shock Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Predictable funding rates are priced into equilibrium spot-perpetual basis spreads; however, unanticipated funding rate innovations (the standardized residual of actual 8h funding relative to trailing 7-day expectation, xi_{i,t} = (F_{i,t} - E[F_{i,t}]) / sigma(F)) represent unpriced speculative crowding shocks. Positive funding innovations impose sudden unexpected carrying penalties on longs, driving rapid liquidation drag; negative innovations represent sudden aggressive retail short crowding that triggers violent short-squeeze reversals. A dollar-neutral basket longing negative-innovation altcoins and shorting positive-innovation altcoins captures post-shock rebalancing alpha while collecting two-sided funding yield.
+counterparty_or_friction: >
+  Uninformed retail margin traders caught off-guard by unexpected funding rate spikes paying exorbitant financing costs or panic-covering crowded shorts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_funding_innovation_shock_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

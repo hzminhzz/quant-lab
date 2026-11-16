@@ -1,0 +1,11 @@
+contract_id: INDICES_1D_V1
+hypothesis_id: HYP-SOC-BTA-INDEXDOWN-20261031
+run_id: RUN-SOC-BTA-INDEXDOWN-20261031
+strategy_family: rules_ts
+model_type: rules
+strategy_module: strategies/candidates/bta_index_down_es_cfd_1d_20261031.py
+strategy_name: BTA_INDEX_DOWN_ES_CFD_DAILY_NEXTBAR_CONJECTURE
+parameters:
+  target_symbols:
+    - ES
+param_grid: []

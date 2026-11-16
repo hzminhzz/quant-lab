@@ -1,0 +1,20 @@
+hypothesis_id: HYP-2026-091
+contract_id: MULTI_ASSET_1H_V1
+title: AF30 handcrafted book of 20 instrument-neutral strategies on MULTI_ASSET_1H_V1
+strategy_family: rules_ts
+economic_mechanism: >
+  20 AF30 subsystems (buy&hold, slow/fast trend, trend-strength, adjusted
+  and normalised trend, breakout, value, acceleration, cross-sectional momentum, fast mean
+  reversion) share one risk budget; diversification across 17 weakly-correlated instruments
+  raises the book Sharpe above any single subsystem.
+counterparty_or_friction: >
+  Same as the constituent subsystems: liquidity providers and hedgers
+  pay trend/reversal premia; friction is 1 bp one-way plus stop whipsaw, with positions netted
+  across strategies so opposing views do not pay twice.
+expected_holding_bars: 168
+falsification_criteria: >
+  Book DSR < 0.90, or net Sharpe <= 1.0, or 2x-cost Sharpe <= 0.50, or
+  +1-bar Sharpe <= 0 on MULTI_ASSET_1H_V1.
+source_provenance: Carver, Advanced Futures Trading Strategies (2022), Chapter 7 Handcrafted Portfolio
+llm_model_id: unspecified
+strategy_module: strategies/books/af30_handcrafted_book_1h.py

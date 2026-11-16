@@ -1,0 +1,17 @@
+?? .bench_baseline.json
+?? data
+?? registry/returns/CRYPTO_MAJORS_1H_V1/
+?? registry/returns/CRYPTO_PERPS_TOP100_1H_V1/
+?? registry/returns/FX_MAJORS_1D_V2/
+?? registry/returns/INDICES_1D_V1/
+?? registry/returns/INDICES_1H_V2/RUN-HYP065-001.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP065-002.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP065-003.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP067-001.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP067-002.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP067-003.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP068-001.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP068-002.parquet
+?? registry/returns/INDICES_1H_V2/RUN-HYP069-001.parquet
+?? registry/returns/MULTI_ASSET_1D_V1/
+?? registry/returns/MULTI_ASSET_1H_V1/

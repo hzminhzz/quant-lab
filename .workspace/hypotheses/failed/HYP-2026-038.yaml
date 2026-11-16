@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-038
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Momentum Life Cycle & Volume Turnover Exhaustion Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Price momentum accompanied by abnormally high trading turnover reflects retail attention saturation and liquidity exhaustion prone to sharp reversals, whereas momentum accompanied by low turnover reflects stealth institutional accumulation that continues to drift; longing low-turnover winners and shorting high-turnover winners in a dollar-neutral 72h basket captures the momentum lifecycle premium.
+counterparty_or_friction: >
+  Late-stage retail momentum buyers chasing high-volume breakout hype and liquidity-constrained traders forced to unwind crowded positions.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_momentum_lifecycle_turnover_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

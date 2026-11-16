@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-047
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Return Synchronicity & Information Content Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Altcoins with low market model R^2 (low synchronicity) impound substantial asset-specific fundamental information rather than passive macro noise; longing low-synchronicity and shorting high-synchronicity tokens in a 72h dollar-neutral basket earns information drift alpha. Grounded in Roll (1988) and Morck, Yeung & Yu (2000), low return synchronicity reflects high token-specific fundamental price discovery rather than passive beta noise.
+counterparty_or_friction: >
+  Risk-averse hedgers, noise traders, and forced margin liquidators over-indexing on macro beta movements while underreacting to token-specific information diffusion.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_return_synchronicity_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

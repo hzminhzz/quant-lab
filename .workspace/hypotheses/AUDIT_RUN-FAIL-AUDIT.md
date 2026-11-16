@@ -1,5 +1,6 @@
 # 6-Check Audit: RUN-FAIL-AUDIT
 Verdict: REJECTED
+Effective eligibility: False (provenance 'unknown' is not verified market data)
 - [PASS] 1_target_rebalance_alignment
 - [FAIL] 2_outlier_sensitivity
 - [FAIL] 3_point_in_time_causality

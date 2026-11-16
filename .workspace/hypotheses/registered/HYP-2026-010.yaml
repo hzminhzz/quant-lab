@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-010
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Spot-Perpetual Funding Basis Dislocation Mean Reversal on Crypto Perps
+strategy_family: rules_ts
+economic_mechanism: >
+  Derivative price diverges from unlevered physical spot clearing under leveraged retail imbalance, reflected in funding rate spikes;
+  when basis or funding Z-score reaches statistical extremes, accumulating funding penalties and cash-and-carry arbitrage force mechanical counter-trend convergence.
+counterparty_or_friction: >
+  Risk-averse hedgers, noise traders, and forced margin liquidators paying excessive funding premium under margin constraints.
+expected_holding_bars: 16
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_spot_perp_basis_dislocation_reversal_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

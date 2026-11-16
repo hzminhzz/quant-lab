@@ -1,0 +1,12 @@
+{
+  "cmd": [
+    "omp",
+    "-p",
+    "--model=workbuddy-ai/deepseek-v4.1-flash",
+    "--thinking=high",
+    "# T2 \u2014 pin the deadband boundary with a regression test\n\n`strategies/candidates/carver_daily/carver_common.py` contains a deadband helper. Its\nexisting tests cover the cases *inside* the deadband and *outside* it, but not the exact\nboundary: the moment the drift is exactly equal to `buffer_fraction * weight`.\n\nAdd a regression test that pins the exact-boundary behaviour:\n\n* drift exactly equal to the deadband width \u2192 the held weight is kept;\n* drift one step beyond it \u2192 the target weight is taken.\n\nUse values that are exact in binary floating point (for example 0.5 / 0.75 / 0.25); a decimal\nboundary such as `0.06 - 0.05` is not equal to `0.10 * 0.1` and will not test the boundary.\n\nRequirements:\n\n* the test goes in `tests/` (a new file is fine);\n* it must pass on the current code;\n* do not modify `strategies/candidates/carver_daily/carver_common.py` \u2014 the implementation is\n  correct, only the test coverage is missing;\n* do not modify anything under `src/warden/`, `contracts/`, or `AGENTS.md`.\n\nRun your test before you finish. A test that cannot fail is not a test.",
+    "--no-session",
+    "--approval-mode=yolo"
+  ],
+  "cwd": "/home/quant/.cache/quant-lab-bench/wt/T2-omp-20261028T180356-546fe5"
+}

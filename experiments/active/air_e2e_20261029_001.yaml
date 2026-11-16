@@ -1,0 +1,22 @@
+contract_id: CRYPTO_PERPS_1H_V2
+hypothesis_id: HYP-AIR-20261029-001
+run_id: RUN-AIR-20261029-001
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/air_e2e_abnormal_day_momentum_1h.py
+strategy_name: AIR_ABNORMAL_DAY_MOMENTUM_1H
+parameters:
+  z_threshold: 2.0
+  vol_window: 720
+  rebalance_utc_hour: 0
+  per_instrument_cap: 0.25
+  gross_limit: 1.0
+  target_symbols:
+    - BTCUSDT
+    - ETHUSDT
+    - BNBUSDT
+    - SOLUSDT
+    - ADAUSDT
+    - DOGEUSDT
+    - XRPUSDT
+    - AVAXUSDT

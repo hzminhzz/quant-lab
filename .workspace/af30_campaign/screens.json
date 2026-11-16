@@ -1,0 +1,762 @@
+[
+  {
+    "hypothesis_id": "HYP-2026-071",
+    "af30_strategy": "s01",
+    "module": "strategies/candidates/ts_s01_buy_hold_single_1h.py",
+    "strategy_name": "AF30_S01_SCREEN",
+    "title": "AF30 S01 Buy & Hold Single on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9304085965569407,
+    "conditional_edge": -7.032826171656277e-06,
+    "trade_edge": -0.0005302139383326949,
+    "avg_holding_bars": 75.39130434782608,
+    "time_in_market": 0.10609594654226817,
+    "bootstrap_p_value": 0.7,
+    "metrics": {
+      "avg_holding_bars": 75.39130434782608,
+      "bootstrap_p_value": 0.7,
+      "conditional_edge": -7.032826171656277e-06,
+      "profit_factor": 0.9304085965569407,
+      "time_in_market": 0.10609594654226817,
+      "trade_edge": -0.0005302139383326949
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 75.39130434782608,
+        "bootstrap_p_value": 0.7,
+        "conditional_edge": -7.032826171656277e-06,
+        "profit_factor": 0.9304085965569407,
+        "time_in_market": 0.10609594654226817,
+        "trade_edge": -0.0005302139383326949
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-072",
+    "af30_strategy": "s02",
+    "module": "strategies/candidates/ts_s02_buy_hold_risk_scaled_1h.py",
+    "strategy_name": "AF30_S02_SCREEN",
+    "title": "AF30 S02 Buy & Hold Risk Scaled on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9883208451545563,
+    "conditional_edge": 1.212234765138171e-06,
+    "trade_edge": 0.0001052247166747235,
+    "avg_holding_bars": 86.80225951342844,
+    "time_in_market": 0.5184391350942444,
+    "bootstrap_p_value": 0.36,
+    "metrics": {
+      "avg_holding_bars": 86.80225951342844,
+      "bootstrap_p_value": 0.36,
+      "conditional_edge": 1.212234765138171e-06,
+      "profit_factor": 0.9883208451545563,
+      "time_in_market": 0.5184391350942444,
+      "trade_edge": 0.0001052247166747235
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 86.80225951342844,
+        "bootstrap_p_value": 0.36,
+        "conditional_edge": 1.212234765138171e-06,
+        "profit_factor": 0.9883208451545563,
+        "time_in_market": 0.5184391350942444,
+        "trade_edge": 0.0001052247166747235
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-073",
+    "af30_strategy": "s03",
+    "module": "strategies/candidates/ts_s03_buy_hold_variable_risk_1h.py",
+    "strategy_name": "AF30_S03_SCREEN",
+    "title": "AF30 S03 Buy & Hold Variable Risk on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9729873266972494,
+    "conditional_edge": -1.634119949900409e-07,
+    "trade_edge": -1.600090975731511e-05,
+    "avg_holding_bars": 97.91759630797166,
+    "time_in_market": 0.5772552480615268,
+    "bootstrap_p_value": 0.545,
+    "metrics": {
+      "avg_holding_bars": 97.91759630797166,
+      "bootstrap_p_value": 0.545,
+      "conditional_edge": -1.634119949900409e-07,
+      "profit_factor": 0.9729873266972494,
+      "time_in_market": 0.5772552480615268,
+      "trade_edge": -1.600090975731511e-05
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 97.91759630797166,
+        "bootstrap_p_value": 0.545,
+        "conditional_edge": -1.634119949900409e-07,
+        "profit_factor": 0.9729873266972494,
+        "time_in_market": 0.5772552480615268,
+        "trade_edge": -1.600090975731511e-05
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-074",
+    "af30_strategy": "s04",
+    "module": "strategies/candidates/ts_s04_buy_hold_portfolio_scaling_1h.py",
+    "strategy_name": "AF30_S04_SCREEN",
+    "title": "AF30 S04 Buy & Hold Portfolio Scaling on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9729887870638321,
+    "conditional_edge": -1.6330176880382746e-07,
+    "trade_edge": -1.598960037673601e-05,
+    "avg_holding_bars": 97.91443469264644,
+    "time_in_market": 0.5772552480615268,
+    "bootstrap_p_value": 0.545,
+    "metrics": {
+      "avg_holding_bars": 97.91443469264644,
+      "bootstrap_p_value": 0.545,
+      "conditional_edge": -1.6330176880382746e-07,
+      "profit_factor": 0.9729887870638321,
+      "time_in_market": 0.5772552480615268,
+      "trade_edge": -1.598960037673601e-05
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 97.91443469264644,
+        "bootstrap_p_value": 0.545,
+        "conditional_edge": -1.6330176880382746e-07,
+        "profit_factor": 0.9729887870638321,
+        "time_in_market": 0.5772552480615268,
+        "trade_edge": -1.598960037673601e-05
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-075",
+    "af30_strategy": "s05",
+    "module": "strategies/candidates/ts_s05_slow_trend_long_only_1h.py",
+    "strategy_name": "AF30_S05_SCREEN",
+    "title": "AF30 S05 Slow Trend Long Only on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9693795423448571,
+    "conditional_edge": -5.072656626978841e-09,
+    "trade_edge": -2.541464335677037e-05,
+    "avg_holding_bars": 5010.124915927288,
+    "time_in_market": 0.08907520645527328,
+    "bootstrap_p_value": 0.535,
+    "metrics": {
+      "avg_holding_bars": 5010.124915927288,
+      "bootstrap_p_value": 0.535,
+      "conditional_edge": -5.072656626978841e-09,
+      "profit_factor": 0.9693795423448571,
+      "time_in_market": 0.08907520645527328,
+      "trade_edge": -2.541464335677037e-05
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 5010.124915927288,
+        "bootstrap_p_value": 0.535,
+        "conditional_edge": -5.072656626978841e-09,
+        "profit_factor": 0.9693795423448571,
+        "time_in_market": 0.08907520645527328,
+        "trade_edge": -2.541464335677037e-05
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-076",
+    "af30_strategy": "s06",
+    "module": "strategies/candidates/ts_s06_slow_trend_long_short_1h.py",
+    "strategy_name": "AF30_S06_SCREEN",
+    "title": "AF30 S06 Slow Trend Long Short on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9307445159494518,
+    "conditional_edge": -8.09209136289835e-08,
+    "trade_edge": -0.00028895533063473186,
+    "avg_holding_bars": 3570.8362359769076,
+    "time_in_market": 0.10206140074386938,
+    "bootstrap_p_value": 0.665,
+    "metrics": {
+      "avg_holding_bars": 3570.8362359769076,
+      "bootstrap_p_value": 0.665,
+      "conditional_edge": -8.09209136289835e-08,
+      "profit_factor": 0.9307445159494518,
+      "time_in_market": 0.10206140074386938,
+      "trade_edge": -0.00028895533063473186
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 3570.8362359769076,
+        "bootstrap_p_value": 0.665,
+        "conditional_edge": -8.09209136289835e-08,
+        "profit_factor": 0.9307445159494518,
+        "time_in_market": 0.10206140074386938,
+        "trade_edge": -0.00028895533063473186
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-077",
+    "af30_strategy": "s07",
+    "module": "strategies/candidates/ts_s07_slow_trend_strength_1h.py",
+    "strategy_name": "AF30_S07_SCREEN",
+    "title": "AF30 S07 Slow Trend Strength on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9359456856000904,
+    "conditional_edge": -6.829276586863696e-07,
+    "trade_edge": -0.0002746669915261526,
+    "avg_holding_bars": 402.1904634152353,
+    "time_in_market": 0.10180924163146945,
+    "bootstrap_p_value": 0.605,
+    "metrics": {
+      "avg_holding_bars": 402.1904634152353,
+      "bootstrap_p_value": 0.605,
+      "conditional_edge": -6.829276586863696e-07,
+      "profit_factor": 0.9359456856000904,
+      "time_in_market": 0.10180924163146945,
+      "trade_edge": -0.0002746669915261526
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 402.1904634152353,
+        "bootstrap_p_value": 0.605,
+        "conditional_edge": -6.829276586863696e-07,
+        "profit_factor": 0.9359456856000904,
+        "time_in_market": 0.10180924163146945,
+        "trade_edge": -0.0002746669915261526
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-078",
+    "af30_strategy": "s08",
+    "module": "strategies/candidates/ts_s08_fast_trend_strength_1h.py",
+    "strategy_name": "AF30_S08_SCREEN",
+    "title": "AF30 S08 Fast Trend Strength on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 1.0773598766344907,
+    "conditional_edge": 1.21045238073652e-06,
+    "trade_edge": 0.0008290252146071827,
+    "avg_holding_bars": 684.8887472159362,
+    "time_in_market": 0.30290613377040915,
+    "bootstrap_p_value": 0.24,
+    "metrics": {
+      "avg_holding_bars": 684.8887472159362,
+      "bootstrap_p_value": 0.24,
+      "conditional_edge": 1.21045238073652e-06,
+      "profit_factor": 1.0773598766344907,
+      "time_in_market": 0.30290613377040915,
+      "trade_edge": 0.0008290252146071827
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 684.8887472159362,
+        "bootstrap_p_value": 0.24,
+        "conditional_edge": 1.21045238073652e-06,
+        "profit_factor": 1.0773598766344907,
+        "time_in_market": 0.30290613377040915,
+        "trade_edge": 0.0008290252146071827
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-079",
+    "af30_strategy": "s09",
+    "module": "strategies/candidates/ts_ewmac_multi_1h.py",
+    "strategy_name": "AF30_S09_SCREEN",
+    "title": "AF30 S09 Multi-Speed EWMAC on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9923245453868595,
+    "conditional_edge": -2.7107934814183394e-08,
+    "trade_edge": -0.0004907233952192923,
+    "avg_holding_bars": 18102.573972641265,
+    "time_in_market": 1.0,
+    "bootstrap_p_value": 0.47,
+    "metrics": {
+      "avg_holding_bars": 18102.573972641265,
+      "bootstrap_p_value": 0.47,
+      "conditional_edge": -2.7107934814183394e-08,
+      "profit_factor": 0.9923245453868595,
+      "time_in_market": 1.0,
+      "trade_edge": -0.0004907233952192923
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 18102.573972641265,
+        "bootstrap_p_value": 0.47,
+        "conditional_edge": -2.7107934814183394e-08,
+        "profit_factor": 0.9923245453868595,
+        "time_in_market": 1.0,
+        "trade_edge": -0.0004907233952192923
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-080",
+    "af30_strategy": "s12",
+    "module": "strategies/candidates/ts_s12_adjusted_trend_1h.py",
+    "strategy_name": "AF30_S12_SCREEN",
+    "title": "AF30 S12 Adjusted Trend on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.933957376635968,
+    "conditional_edge": -3.254037989842861e-06,
+    "trade_edge": -0.00019267343333610455,
+    "avg_holding_bars": 59.21056666748037,
+    "time_in_market": 0.10206140074386938,
+    "bootstrap_p_value": 0.655,
+    "metrics": {
+      "avg_holding_bars": 59.21056666748037,
+      "bootstrap_p_value": 0.655,
+      "conditional_edge": -3.254037989842861e-06,
+      "profit_factor": 0.933957376635968,
+      "time_in_market": 0.10206140074386938,
+      "trade_edge": -0.00019267343333610455
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 59.21056666748037,
+        "bootstrap_p_value": 0.655,
+        "conditional_edge": -3.254037989842861e-06,
+        "profit_factor": 0.933957376635968,
+        "time_in_market": 0.10206140074386938,
+        "trade_edge": -0.00019267343333610455
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-081",
+    "af30_strategy": "s13",
+    "module": "strategies/candidates/ts_s13_trend_carry_regimes_1h.py",
+    "strategy_name": "AF30_S13_SCREEN",
+    "title": "AF30 S13 as ported (trend + vol regime, no carry term) on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9479561409616842,
+    "conditional_edge": -3.4168506817186836e-08,
+    "trade_edge": -0.00015570124739404308,
+    "avg_holding_bars": 4556.864255938893,
+    "time_in_market": 0.10206140074386938,
+    "bootstrap_p_value": 0.585,
+    "metrics": {
+      "avg_holding_bars": 4556.864255938893,
+      "bootstrap_p_value": 0.585,
+      "conditional_edge": -3.4168506817186836e-08,
+      "profit_factor": 0.9479561409616842,
+      "time_in_market": 0.10206140074386938,
+      "trade_edge": -0.00015570124739404308
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 4556.864255938893,
+        "bootstrap_p_value": 0.585,
+        "conditional_edge": -3.4168506817186836e-08,
+        "profit_factor": 0.9479561409616842,
+        "time_in_market": 0.10206140074386938,
+        "trade_edge": -0.00015570124739404308
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-082",
+    "af30_strategy": "s14",
+    "module": "strategies/candidates/ts_s14_spot_trend_1h.py",
+    "strategy_name": "AF30_S14_SCREEN",
+    "title": "AF30 S14 Spot Trend on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9193943269746987,
+    "conditional_edge": -8.525210406153041e-08,
+    "trade_edge": -0.0004215625289491748,
+    "avg_holding_bars": 4944.892957068995,
+    "time_in_market": 0.10275483830296918,
+    "bootstrap_p_value": 0.69,
+    "metrics": {
+      "avg_holding_bars": 4944.892957068995,
+      "bootstrap_p_value": 0.69,
+      "conditional_edge": -8.525210406153041e-08,
+      "profit_factor": 0.9193943269746987,
+      "time_in_market": 0.10275483830296918,
+      "trade_edge": -0.0004215625289491748
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 4944.892957068995,
+        "bootstrap_p_value": 0.69,
+        "conditional_edge": -8.525210406153041e-08,
+        "profit_factor": 0.9193943269746987,
+        "time_in_market": 0.10275483830296918,
+        "trade_edge": -0.0004215625289491748
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-083",
+    "af30_strategy": "s17",
+    "module": "strategies/candidates/ts_s17_normalised_trend_1h.py",
+    "strategy_name": "AF30_S17_SCREEN",
+    "title": "AF30 S17 Normalised Trend on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 1.0341833882254041,
+    "conditional_edge": 4.176996131838477e-07,
+    "trade_edge": 0.00042539712390593563,
+    "avg_holding_bars": 1018.4283405565423,
+    "time_in_market": 0.10206140074386938,
+    "bootstrap_p_value": 0.34,
+    "metrics": {
+      "avg_holding_bars": 1018.4283405565423,
+      "bootstrap_p_value": 0.34,
+      "conditional_edge": 4.176996131838477e-07,
+      "profit_factor": 1.0341833882254041,
+      "time_in_market": 0.10206140074386938,
+      "trade_edge": 0.00042539712390593563
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 1018.4283405565423,
+        "bootstrap_p_value": 0.34,
+        "conditional_edge": 4.176996131838477e-07,
+        "profit_factor": 1.0341833882254041,
+        "time_in_market": 0.10206140074386938,
+        "trade_edge": 0.00042539712390593563
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-084",
+    "af30_strategy": "s18",
+    "module": "strategies/candidates/ts_s18_trend_asset_classes_1h.py",
+    "strategy_name": "AF30_S18_SCREEN",
+    "title": "AF30 S18 Trend Asset Classes on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9233342339599502,
+    "conditional_edge": -8.204336189620464e-08,
+    "trade_edge": -0.0003636551296134184,
+    "avg_holding_bars": 4432.474745165718,
+    "time_in_market": 0.10565466809556831,
+    "bootstrap_p_value": 0.65,
+    "metrics": {
+      "avg_holding_bars": 4432.474745165718,
+      "bootstrap_p_value": 0.65,
+      "conditional_edge": -8.204336189620464e-08,
+      "profit_factor": 0.9233342339599502,
+      "time_in_market": 0.10565466809556831,
+      "trade_edge": -0.0003636551296134184
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 4432.474745165718,
+        "bootstrap_p_value": 0.65,
+        "conditional_edge": -8.204336189620464e-08,
+        "profit_factor": 0.9233342339599502,
+        "time_in_market": 0.10565466809556831,
+        "trade_edge": -0.0003636551296134184
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-085",
+    "af30_strategy": "s19",
+    "module": "strategies/candidates/ts_s19_xs_momentum_1h.py",
+    "strategy_name": "AF30_S19_SCREEN",
+    "title": "AF30 S19 Cross-Sectional Momentum on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9146703060631436,
+    "conditional_edge": -2.550259962734635e-07,
+    "trade_edge": -0.00021683923624835565,
+    "avg_holding_bars": 850.2632649882473,
+    "time_in_market": 0.29723255374141083,
+    "bootstrap_p_value": 0.82,
+    "metrics": {
+      "avg_holding_bars": 850.2632649882473,
+      "bootstrap_p_value": 0.82,
+      "conditional_edge": -2.550259962734635e-07,
+      "profit_factor": 0.9146703060631436,
+      "time_in_market": 0.29723255374141083,
+      "trade_edge": -0.00021683923624835565
+    },
+    "notes": "From existing screen record",
+    "raw_payload": {
+      "passed": false,
+      "metrics": {
+        "avg_holding_bars": 850.2632649882473,
+        "bootstrap_p_value": 0.82,
+        "conditional_edge": -2.550259962734635e-07,
+        "profit_factor": 0.9146703060631436,
+        "time_in_market": 0.29723255374141083,
+        "trade_edge": -0.00021683923624835565
+      },
+      "notes": "From existing screen record"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-086",
+    "af30_strategy": "s21",
+    "module": "strategies/candidates/ts_breakout_20_1h.py",
+    "strategy_name": "AF30_S21_SCREEN",
+    "title": "AF30 S21 Donchian Breakout 20 on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 1.358377046378912,
+    "conditional_edge": 7.156804883246255e-08,
+    "trade_edge": 0.0029469406866740174,
+    "avg_holding_bars": 41176.76441861183,
+    "time_in_market": 0.5553804450608334,
+    "bootstrap_p_value": 0.17,
+    "metrics": {
+      "avg_holding_bars": 41176.76441861183,
+      "bootstrap_p_value": 0.17,
+      "conditional_edge": 7.156804883246255e-08,
+      "profit_factor": 1.358377046378912,
+      "time_in_market": 0.5553804450608334,
+      "trade_edge": 0.0029469406866740174
+    },
+    "notes": "PF=1.36, Edge=0.0bps, TiM=55.5%, Holding=41176.8h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 41176.76441861183,
+        "bootstrap_p_value": 0.17,
+        "conditional_edge": 7.156804883246255e-08,
+        "profit_factor": 1.358377046378912,
+        "time_in_market": 0.5553804450608334,
+        "trade_edge": 0.0029469406866740174
+      },
+      "notes": "PF=1.36, Edge=0.0bps, TiM=55.5%, Holding=41176.8h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-087",
+    "af30_strategy": "s22",
+    "module": "strategies/candidates/ts_s22_value_1h.py",
+    "strategy_name": "AF30_S22_SCREEN",
+    "title": "AF30 S22 Value Reversal on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9412342265826759,
+    "conditional_edge": -6.699255436413459e-08,
+    "trade_edge": -0.00015918885843927894,
+    "avg_holding_bars": 2376.2171774196886,
+    "time_in_market": 0.08787745067137363,
+    "bootstrap_p_value": 0.545,
+    "metrics": {
+      "avg_holding_bars": 2376.2171774196886,
+      "bootstrap_p_value": 0.545,
+      "conditional_edge": -6.699255436413459e-08,
+      "profit_factor": 0.9412342265826759,
+      "time_in_market": 0.08787745067137363,
+      "trade_edge": -0.00015918885843927894
+    },
+    "notes": "PF=0.94, Edge=-0.0bps, TiM=8.8%, Holding=2376.2h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 2376.2171774196886,
+        "bootstrap_p_value": 0.545,
+        "conditional_edge": -6.699255436413459e-08,
+        "profit_factor": 0.9412342265826759,
+        "time_in_market": 0.08787745067137363,
+        "trade_edge": -0.00015918885843927894
+      },
+      "notes": "PF=0.94, Edge=-0.0bps, TiM=8.8%, Holding=2376.2h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-088",
+    "af30_strategy": "s23",
+    "module": "strategies/candidates/ts_s23_acceleration_1h.py",
+    "strategy_name": "AF30_S23_SCREEN",
+    "title": "AF30 S23 Acceleration on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.913240365340949,
+    "conditional_edge": -5.626930669912397e-07,
+    "trade_edge": -0.00035371616097275234,
+    "avg_holding_bars": 628.6129716580623,
+    "time_in_market": 0.9809619870138057,
+    "bootstrap_p_value": 0.825,
+    "metrics": {
+      "avg_holding_bars": 628.6129716580623,
+      "bootstrap_p_value": 0.825,
+      "conditional_edge": -5.626930669912397e-07,
+      "profit_factor": 0.913240365340949,
+      "time_in_market": 0.9809619870138057,
+      "trade_edge": -0.00035371616097275234
+    },
+    "notes": "PF=0.91, Edge=-0.0bps, TiM=98.1%, Holding=628.6h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 628.6129716580623,
+        "bootstrap_p_value": 0.825,
+        "conditional_edge": -5.626930669912397e-07,
+        "profit_factor": 0.913240365340949,
+        "time_in_market": 0.9809619870138057,
+        "trade_edge": -0.00035371616097275234
+      },
+      "notes": "PF=0.91, Edge=-0.0bps, TiM=98.1%, Holding=628.6h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-089",
+    "af30_strategy": "s26",
+    "module": "strategies/candidates/ts_s26_fast_mean_reversion_1h.py",
+    "strategy_name": "AF30_S26_SCREEN",
+    "title": "AF30 S26 Fast Mean Reversion on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9650132621977455,
+    "conditional_edge": 1.0041315665507045e-07,
+    "trade_edge": 4.176862717835253e-05,
+    "avg_holding_bars": 415.9676736568702,
+    "time_in_market": 0.9819706234634054,
+    "bootstrap_p_value": 0.43,
+    "metrics": {
+      "avg_holding_bars": 415.9676736568702,
+      "bootstrap_p_value": 0.43,
+      "conditional_edge": 1.0041315665507045e-07,
+      "profit_factor": 0.9650132621977455,
+      "time_in_market": 0.9819706234634054,
+      "trade_edge": 4.176862717835253e-05
+    },
+    "notes": "PF=0.97, Edge=0.0bps, TiM=98.2%, Holding=416.0h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 415.9676736568702,
+        "bootstrap_p_value": 0.43,
+        "conditional_edge": 1.0041315665507045e-07,
+        "profit_factor": 0.9650132621977455,
+        "time_in_market": 0.9819706234634054,
+        "trade_edge": 4.176862717835253e-05
+      },
+      "notes": "PF=0.97, Edge=0.0bps, TiM=98.2%, Holding=416.0h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  },
+  {
+    "hypothesis_id": "HYP-2026-090",
+    "af30_strategy": "s27",
+    "module": "strategies/candidates/ts_s27_safer_fast_mean_reversion_1h.py",
+    "strategy_name": "AF30_S27_SCREEN",
+    "title": "AF30 S27 Safer Fast Mean Reversion on 17-instrument multi-asset 1h panel",
+    "passed": false,
+    "verdict": "REJECT",
+    "exit_code": 1,
+    "profit_factor": 0.9602256517711834,
+    "conditional_edge": 4.91189489823914e-08,
+    "trade_edge": 2.4225642687725713e-05,
+    "avg_holding_bars": 493.20360450730203,
+    "time_in_market": 0.9819706234634054,
+    "bootstrap_p_value": 0.48,
+    "metrics": {
+      "avg_holding_bars": 493.20360450730203,
+      "bootstrap_p_value": 0.48,
+      "conditional_edge": 4.91189489823914e-08,
+      "profit_factor": 0.9602256517711834,
+      "time_in_market": 0.9819706234634054,
+      "trade_edge": 2.4225642687725713e-05
+    },
+    "notes": "PF=0.96, Edge=0.0bps, TiM=98.2%, Holding=493.2h",
+    "raw_payload": {
+      "data_provenance": "verified_market",
+      "market_eligible": true,
+      "metrics": {
+        "avg_holding_bars": 493.20360450730203,
+        "bootstrap_p_value": 0.48,
+        "conditional_edge": 4.91189489823914e-08,
+        "profit_factor": 0.9602256517711834,
+        "time_in_market": 0.9819706234634054,
+        "trade_edge": 2.4225642687725713e-05
+      },
+      "notes": "PF=0.96, Edge=0.0bps, TiM=98.2%, Holding=493.2h",
+      "passed": false,
+      "provenance_reason": "verified market data",
+      "strategy_family": "rules_ts"
+    }
+  }
+]

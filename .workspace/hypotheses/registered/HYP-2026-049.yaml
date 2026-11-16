@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-049
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Signed Jump Variation & Asymmetric Jump Momentum Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  The continuous diffusive components of upside semivariance (RS^+) and downside semivariance (RS^-) asymptotically cancel in their difference, isolating pure signed jump variation (SJV_i = (RS^+_i - RS^-_i) / RV_i over trailing 7 days); altcoins dominated by positive signed jumps reflect institutional accumulation shocks that experience multi-day price drift continuation due to market underreaction, whereas altcoins dominated by negative signed jumps suffer lingering liquidation drag. A dollar-neutral basket longing high-SJV altcoins and shorting low-SJV altcoins captures signed jump momentum alpha while neutralizing directional Bitcoin market beta.
+counterparty_or_friction: >
+  Inattentive market participants trading against discrete jump trends and noise traders attempting premature mean-reversion fades against permanent information jumps.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_signed_jump_variation_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

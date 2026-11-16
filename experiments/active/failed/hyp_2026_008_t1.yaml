@@ -1,0 +1,24 @@
+hypothesis_id: HYP-2026-008
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP008-001
+strategy_module: strategies/candidates/ts_london_orb_1h.py
+strategy_name: LondonOpeningRangeBreakout_1H
+parameters:
+  asian_start_hour: 0
+  asian_end_hour: 8
+  entry_hour: 8
+  exit_hour: 16
+  volume_mult: 1.2
+param_grid:
+  - asian_start_hour: 0
+    asian_end_hour: 8
+    entry_hour: 8
+    exit_hour: 16
+    volume_mult: 1.2
+  - asian_start_hour: 0
+    asian_end_hour: 8
+    entry_hour: 9
+    exit_hour: 16
+    volume_mult: 1.5

@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-015
+contract_id: CRYPTO_MAJORS_1H_V1
+title: Weekend Liquidity Dislocation Reversal on Crypto Majors
+strategy_family: rules_ts
+economic_mechanism: >
+  Weekend crypto moves driven by illiquid retail order flow from Saturday 00:00 to Sunday 20:00 UTC disconnect from Saturday opening levels
+  and systematically mean-revert as institutional liquidity and market-maker depth return on Sunday evening / Monday.
+counterparty_or_friction: >
+  Illiquid retail noise traders driving unanchored weekend drift and risk-averse liquidity providers stepping aside until institutional market open.
+expected_holding_bars: 20
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_weekend_dislocation_reversal_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

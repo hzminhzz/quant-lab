@@ -1,0 +1,12 @@
+hypothesis_id: "HYP-AIR-20261029-001"
+contract_id: "CRYPTO_PERPS_1H_V2"
+title: "Binance USDT perpetuals (8-asset frozen panel): 1h: HYP-AIR-20261029-001"
+strategy_family: "rules_ts"
+economic_mechanism: "Abnormally strong signed trailing 24-hour returns may persist over the following UTC day when slower market participants and liquidity providers adjust to large crypto price moves."
+counterparty_or_friction: "Overreacting takers and slower liquidity suppliers may create drift, while spread, slippage, position turnover and funding can destroy the expected profit."
+expected_holding_bars: 24
+falsification_criteria: "At Stage 1, reject if Warden family rules_ts default profit-factor, market-time or edge-to-cost conjunct fails; never lower Warden gates.; One frozen base rule: at 00:00 UTC, normalize completed trailing 24h close return by previous 720 hourly observations of 24h rolling-return standard deviation, enter same direction only when abs(z) >= 2.0; hold till next UTC day; gross exposure capped 1.0, per-asset cap 0.25.; No parameter search or subsequent revisions in this test; any failed screen is recorded as a negative result."
+parent_hypothesis_id: null
+source_provenance: "Research papers: Caporale & Plastun (2020) https://doi.org/10.1007/s11408-020-00357-1; Wen et al (2022) https://papers.ssrn.com/abstract=4080253. Novel fixed adaptation to 8 Binance USDT perps is unvalidated. Captured 2026-10-29. Human-assisted ChatGPT research; not a live LLM API run.; AI research forecast IDs: AIR-E2E-20261029-001"
+llm_model_id: "gpt-6-chat-assisted-reviewed"
+strategy_module: ""

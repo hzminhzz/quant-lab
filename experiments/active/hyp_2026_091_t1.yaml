@@ -1,0 +1,17 @@
+contract_id: MULTI_ASSET_1H_V1
+hypothesis_id: HYP-2026-091
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/books/af30_handcrafted_book_1h.py
+strategy_name: AF30_Handcrafted_Book_1H
+run_id: RUN-HYP091-001
+parameters:
+  vol_target: 0.20
+  per_instrument_cap: 0.5
+  stop_multiple: 3.0
+  rebalance_bars: 24
+  deadband: 0.10
+param_grid:
+  - {vol_target: 0.17, per_instrument_cap: 0.5, stop_multiple: 3.0, rebalance_bars: 24, deadband: 0.10}
+  - {vol_target: 0.20, per_instrument_cap: 0.5, stop_multiple: 3.0, rebalance_bars: 24, deadband: 0.10}
+  - {vol_target: 0.23, per_instrument_cap: 0.5, stop_multiple: 3.0, rebalance_bars: 24, deadband: 0.10}

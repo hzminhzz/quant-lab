@@ -1,0 +1,27 @@
+hypothesis_id: HYP-2026-126
+contract_id: MULTI_ASSET_1D_V1
+title: S183 four-sleeve composite, carry leg removed (trend + skew + vol-of-vol) on price-only multi-asset
+strategy_family: rules_ts
+economic_mechanism: Three weakly-correlated premia are harvested simultaneously from the same price
+  series - time-series trend (EWMAC 16/64, 32/128, 64/256 with Carver forecast scalars), cross-sectional
+  trend (z-scored 256-bar volatility-normalised return), rolling skew (-252-bar skew of returns) and
+  vol-of-vol (-(VoV / its 256-bar mean - 1) x sign(63-bar return)). Each sleeve is normalised to
+  mean|forecast| = 10 and capped at 20; the composite is their equal-weight mean times a forecast
+  diversification multiplier from the trailing sleeve correlation, capped at sqrt(3). The claim is that
+  diversification across mechanisms, not any single mechanism, produces a net-of-cost edge.
+counterparty_or_friction: The counterparty is the flow that sells strength and buys weakness - momentum
+  losers being liquidated, hedgers rolling positions at the wrong moment, and behavioural overreaction to
+  recent skew and volatility. Friction is the fee plus slippage on every buffered rebalance; the trend
+  sleeve turns over fastest and the skew and vol-of-vol sleeves are slow, so the composite's cost is
+  dominated by trend and the diversification is only worth it if it survives 2x cost.
+expected_holding_bars: 60
+falsification_criteria: Stage-1 on MULTI_ASSET_1D_V1 rejects the mechanism when profit factor < 1.15,
+  time in market < 5%, trade edge <= 1.5x the one-way cost, or the block-bootstrap p-value >= 0.05.
+  Stage-3 rejects when net Sharpe <= 1.0, DSR < 0.90, 2x-cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or the
+  derived 1.5x-cost Sharpe <= 0. The recorded contract search floor (k_eff 45.61, noise 1.394) requires
+  roughly netSR 1.79 for DSR 0.90 on this contract; that hurdle is acknowledged before the run.
+source_provenance: Joly, MSc thesis trends-research, flagship_S183/ig_strategy_183.py (2026); Carver,
+  Advanced Futures Trading Strategies (2022) pp. 189-225; Baltussen, Van Bekkum & Van der Grient (2018)
+  for the vol-of-vol direction; skew sleeve after the repo's ig_single_skew
+llm_model_id: unspecified
+strategy_module: strategies/candidates/s183_composite.py

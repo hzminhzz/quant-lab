@@ -1,0 +1,7 @@
+contract_id: MULTI_ASSET_1H_V1
+hypothesis_id: HYP-2026-090
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/ts_s27_safer_fast_mean_reversion_1h.py
+strategy_name: AF30_S27_SCREEN
+parameters: {}

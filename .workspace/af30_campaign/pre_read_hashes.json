@@ -1,0 +1,22 @@
+{
+  "recorded_at": "2026-10-28T07:47:51Z",
+  "git_head": "67e025319f692f1016589e86128e6759fc040fde",
+  "holdout_sha256": "0abe25a26611f846cc281a3b892e103ff35b3f2959c74a091136eaf3192c5b65",
+  "files": {
+    "strategies/candidates/carver_daily/s01_buy_hold_single.py": "a763f914180782be1def7c1b0cb4cdcbddbb96cb62db640705ea55b7592fd3d0",
+    "contracts/multi_asset_1d_v1.yaml": "0cb13745391b4c3899087fecf4b07fd3c86a93ff92e0ef11d7e786e6cff95b1f",
+    "src/warden/__init__.py": "9d7d0cbbbc5352f8b1da6879a953b0c55be25a39feaa7064fdf8babed9e617cf",
+    "src/warden/audit.py": "9110d79d08f221d977c939a5330b81f68637661b71338acd782c986942aa7835",
+    "src/warden/cli.py": "3bee1c96cc75b69da8f11c9e5391dce68645ad58019213c9025f94e1d8d7ddb0",
+    "src/warden/contracts.py": "2a5d9e8b32eddca952760e6d80fd0da1f91fa394ed5d045f85ce8a44216478b0",
+    "src/warden/diagnostics.py": "622547697f279af72e90516907b64df11f1b1fcc876e3afaeab7b708c8ed8579",
+    "src/warden/gates.py": "0657a08713a9669b6d44d3e668db72c66622891d6c231d5b35ef6d78b7731bf1",
+    "src/warden/leakage.py": "3b67b7c0ce95f9f6cefeb2355422ecca862ff285b1f2b5e7c0396e2120f440ec",
+    "src/warden/policy.py": "1874a6062f1ebb4025ab280aceb0b74844895fc77e6429a922f954f343c11da6",
+    "src/warden/provenance.py": "c86e96a88f0a253e2cfb189e05bac9f2e31bf6d5af2c67c4817494a03d916340",
+    "src/warden/qualify.py": "da909123c13d8e6e95c8d359cf5eae104e60fdc7f9fc0ab16467d563ab114e1b",
+    "src/warden/registry.py": "58ab03ddbf12eeee5154d8267b8124c62372903c698a86ce78f1e941ea421a53",
+    "src/warden/runner.py": "639b24bf7eeac7cc613bfe3d9742318fdd7427b6c5e7d9d99713d4156202cce4",
+    "src/warden/synthetic.py": "8f04e37f92adc99602442de70df7294e48758a7129525908bfd9b487702d2317"
+  }
+}

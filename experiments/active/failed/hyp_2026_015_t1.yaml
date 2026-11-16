@@ -1,0 +1,29 @@
+hypothesis_id: HYP-2026-015
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP015-001
+strategy_module: strategies/candidates/ts_weekend_dislocation_1h.py
+strategy_name: WeekendDislocationReversal_1H
+parameters:
+  sat_anchor_hour: 0
+  sun_cutoff_hour: 20
+  dislocation_threshold: 0.015
+  exit_monday_hour: 16
+  max_holding_bars: 20
+param_grid:
+  - sat_anchor_hour: 0
+    sun_cutoff_hour: 20
+    dislocation_threshold: 0.015
+    exit_monday_hour: 16
+    max_holding_bars: 20
+  - sat_anchor_hour: 0
+    sun_cutoff_hour: 20
+    dislocation_threshold: 0.020
+    exit_monday_hour: 16
+    max_holding_bars: 18
+  - sat_anchor_hour: 0
+    sun_cutoff_hour: 20
+    dislocation_threshold: 0.010
+    exit_monday_hour: 12
+    max_holding_bars: 16

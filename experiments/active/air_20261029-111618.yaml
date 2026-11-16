@@ -1,0 +1,12 @@
+{
+  "contract_id": "CRYPTO_PERPS_1H_V2",
+  "hypothesis_id": "HYP-AIR-20261029-111618",
+  "run_id": "RUN-AIR-20261029-111618",
+  "model_type": "rules",
+  "strategy_family": "rules_ts",
+  "strategy_module": "strategies/candidates/air_template_20261029-111618.py",
+  "strategy_name": "AIR_CROSS_SECTION_MOMENTUM_7D",
+  "parameters": {
+    "mode": "cross_section_momentum_7d"
+  }
+}

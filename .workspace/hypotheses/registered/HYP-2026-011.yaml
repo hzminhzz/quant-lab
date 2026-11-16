@@ -1,0 +1,15 @@
+hypothesis_id: HYP-2026-011
+contract_id: CRYPTO_MAJORS_1H_V1
+title: US Session Intraday Momentum Surge on Crypto Perps
+strategy_family: rules_ts
+economic_mechanism: >
+  13:00 to 21:00 UTC US institutional session capital inflow continuation driven by US equity open price discovery and ETF order routing
+  generates directional intraday momentum that persists until 21:00 UTC cash equity close.
+counterparty_or_friction: >
+  Risk-averse hedgers, early session noise traders, and passive limit order books leaning against institutional flow before price discovery completes.
+expected_holding_bars: 7
+falsification_criteria: >
+  Reject at Stage 1 if Profit Factor < 1.15. Reject at Stage 3 if Net Sharpe < 1.0 or 2x Cost Stress Sharpe < 0.0.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_us_session_intraday_momentum_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

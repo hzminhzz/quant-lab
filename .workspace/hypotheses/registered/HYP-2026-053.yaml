@@ -1,0 +1,14 @@
+hypothesis_id: HYP-2026-053
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+title: Cross-Sectional Systematic Jump Beta and Discontinuous Market Risk Premium Basket
+strategy_family: cross_sectional_ml
+economic_mechanism: >
+  Discontinuous market jumps in Bitcoin cannot be dynamically hedged via continuous portfolio rebalancing; altcoins with elevated systematic jump beta relative to Bitcoin market jumps impose unhedgeable gap risk and liquidation penalties on investors. In equilibrium, these jump-vulnerable altcoins trade at deep structural valuation discounts, yielding an elevated forward risk premium during subsequent calm recovery regimes. A dollar-neutral 72h basket longing high-jump-beta altcoins (Quintile 5) and shorting low-jump-beta altcoins (Quintile 1) captures this discontinuous jump risk premium while neutralizing directional Bitcoin market beta.
+counterparty_or_friction: >
+  Risk-averse institutional desks overpaying for jump-resilient tokens (low jump beta havens) to protect collateral margins while selling high-jump-beta tokens at steep discounts.
+expected_holding_bars: 72
+falsification_criteria: >
+  Reject at Stage 1 if Mean IC < 0.015 or HAC t-stat < 2.0. Reject at Stage 3 if Net Sharpe < 1.0 or DSR < 0.90.
+source_provenance: Adapted from dev/quant/quant-research/research_inbox/crypto_xs_systematic_jump_beta_basket_v1
+llm_model_id: claude-sonnet-4-6
+status: QUEUED

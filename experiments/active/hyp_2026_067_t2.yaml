@@ -1,0 +1,49 @@
+contract_id: INDICES_1H_V2
+hypothesis_id: HYP-2026-067
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/ts_ewmac_multi_1h.py
+strategy_name: AF30_S09_MultiSpeedEWMAC_1H_SizingFixed
+run_id: RUN-HYP067-002
+parameters:
+  ema_fast_1: 8
+  ema_fast_2: 32
+  ema_slow_1: 16
+  ema_slow_2: 64
+  vol_window: 240
+  forecast_cap: 20.0
+  rebalance_bars: 168
+  per_instrument_cap: 0.5
+  gross_exposure: 1.0
+  long_only: false
+param_grid:
+  - ema_fast_1: 8
+    ema_fast_2: 32
+    ema_slow_1: 16
+    ema_slow_2: 64
+    vol_window: 240
+    forecast_cap: 20.0
+    rebalance_bars: 168
+    per_instrument_cap: 0.5
+    gross_exposure: 1.0
+    long_only: false
+  - ema_fast_1: 7
+    ema_fast_2: 27
+    ema_slow_1: 14
+    ema_slow_2: 54
+    vol_window: 200
+    forecast_cap: 20.0
+    rebalance_bars: 168
+    per_instrument_cap: 0.5
+    gross_exposure: 1.0
+    long_only: false
+  - ema_fast_1: 9
+    ema_fast_2: 37
+    ema_slow_1: 18
+    ema_slow_2: 74
+    vol_window: 280
+    forecast_cap: 20.0
+    rebalance_bars: 168
+    per_instrument_cap: 0.5
+    gross_exposure: 1.0
+    long_only: false

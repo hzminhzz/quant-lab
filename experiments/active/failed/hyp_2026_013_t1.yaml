@@ -1,0 +1,37 @@
+hypothesis_id: HYP-2026-013
+contract_id: CRYPTO_MAJORS_1H_V1
+strategy_family: rules_ts
+model_type: rules
+run_id: RUN-HYP013-001
+strategy_module: strategies/candidates/ts_vol_compression_breakout_1h.py
+strategy_name: VolCompressionBreakout_1H
+parameters:
+  bb_window: 20
+  bb_k: 2.0
+  kc_window: 20
+  kc_mult: 1.5
+  mom_window: 12
+  holding_bars: 36
+  squeeze_lookback: 5
+param_grid:
+  - bb_window: 20
+    bb_k: 2.0
+    kc_window: 20
+    kc_mult: 1.5
+    mom_window: 12
+    holding_bars: 36
+    squeeze_lookback: 5
+  - bb_window: 20
+    bb_k: 2.0
+    kc_window: 20
+    kc_mult: 1.2
+    mom_window: 8
+    holding_bars: 24
+    squeeze_lookback: 4
+  - bb_window: 24
+    bb_k: 2.2
+    kc_window: 24
+    kc_mult: 1.5
+    mom_window: 16
+    holding_bars: 48
+    squeeze_lookback: 6

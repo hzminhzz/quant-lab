@@ -1,0 +1,9 @@
+hypothesis_id: HYP-2026-041
+contract_id: CRYPTO_PERPS_TOP100_1H_V1
+strategy_family: cross_sectional_ml
+model_type: linear
+run_id: RUN-HYP041-001
+strategy_module: strategies/candidates/cs_range_efficiency_1h.py
+strategy_name: CSRangeEfficiencyRidge_1H
+parameters:
+  alpha: 10.0

@@ -1,0 +1,8 @@
+`answer.md` written (246 words); no other file touched.
+
+- **1.** `compute_selection_report()` — `src/warden/registry.py:67`; 4-tuple wrapper `compute_effective_trials_and_dsr()` — `:116`.
+- **2.** `k_eff_gate = max(k_dedup, max(1.0, prior_max_keff)) + 0.50 * max(0, raw_attempt_count - streams_used)` (`:78, :77, :90`), with `k_dedup` = eigenvalue entropy `exp(-Σp ln p)` of the correlation matrix after dropping streams correlating ≥0.9995 (`:45-53, :56, :89`); floor persisted contract-wide via `update_search_floor` (`:473`, called `runner.py:391`).
+- **3.** Audit check 6: `deflated_sharpe_prob >= 0.80` (`cli.py:261`); runner stamp: `dsr_p >= 0.90` (`runner.py:408`).
+- **4.** The audit's 0.80 bar is laxer than the runner's 0.90, so a stored candidate with DSR in [0.80, 0.90) can clear the six-check audit and go to human qualification though the current runner would stamp it `REVISE`.
+
+Skipped: no live recomputation — `registry/registry.db` lacks the `trials` table. Risk: the 0.80 vs 0.90 mismatch is uncommented; if intentional, it deserves one line saying so.

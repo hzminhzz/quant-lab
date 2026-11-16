@@ -1,0 +1,9 @@
+Wrote `answer.md` (226 words, only untracked file; no existing file touched).
+
+1. `compute_selection_report()` — `src/warden/registry.py:67`, wrapper `compute_effective_trials_and_dsr` at `:116`, called from `src/warden/runner.py:388`.
+
+2. `k_eff_gate = max(k_eff_dedup, floor) + 0.50 * unvectorized` (`registry.py:90`), where `floor = max(1.0, prior_max_keff)` (`:78`), `unvectorized = max(0, raw_attempt_count - streams_used)` (`:77`), and `k_eff_dedup = clip(exp(-Σ pᵢ ln pᵢ), 1, n)` over the correlation-matrix eigenvalues of streams surviving the `|corr| < 0.9995` dedup (`:45-64, 89`).
+
+3. Audit check 6: `deflated_sharpe_prob >= 0.80` (`src/warden/cli.py:261`). Runner candidate stamp: `dsr_p >= 0.90` (`src/warden/runner.py:408-413`), plus net Sharpe > 1.0/1.2, 2x-cost Sharpe > 0.50, +1-bar Sharpe > 0, HAC IC t ≥ 2.0, stage-1 rules. Gap is 10 points.
+
+4. It lets a trial with DSR in [0.80, 0.90) pass the audit's selection-bias check — audit evidence weaker than the gate it re-verifies (though check 2's `verdict == CANDIDATE_FOR_QUALIFICATION` coupling mostly masks it in practice).

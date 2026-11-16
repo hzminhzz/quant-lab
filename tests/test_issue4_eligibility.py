@@ -12,9 +12,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from warden.causality import config_digest
 from warden.cli import _build_state, cmd_audit_check, cmd_status
 from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
-from warden.causality import config_digest
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
 

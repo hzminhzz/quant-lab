@@ -18,6 +18,7 @@ registry/predictions/*.parquet
 /data/
 
 # Harness-local adapter state
+/.omp
 .omp/logs/
 .claude/
 .codex/

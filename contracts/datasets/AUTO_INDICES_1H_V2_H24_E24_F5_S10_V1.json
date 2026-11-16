@@ -1,0 +1,14 @@
+{
+  "bias_notice": "Research contracts sharing a dataset/validation period are NOT independent trials",
+  "contract_id": "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1",
+  "derivation": "no new data; same original independently pinned exploratory bytes",
+  "parent_contract_id": "INDICES_1H_V2",
+  "parent_dataset_manifest_sha256": "7d104bcbdd30d835ff09c62b5bb170c9565f9405fcaf1c423b851647d6c2de2a",
+  "path": "data/exploratory/indices_1h.parquet",
+  "pipeline": "scripts/salvage_multi_asset.py",
+  "prior_related_selection_attempts_at_proposal": 30,
+  "provenance": "verified_market",
+  "selection_group": "a0f838d2a1eca6e741617166b259d68c7a97b0f2e0b73532918e6a318aff12ef",
+  "sha256": "03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55",
+  "source": "ml4t-data minute OHLCV store (ml4t-data/.data/store) via scripts/salvage_multi_asset.py"
+}

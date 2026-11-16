@@ -184,7 +184,7 @@ export async function executeJudge(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "jev-latest",
+      model: "jev-1.14.0",
       state: JSON.stringify(state),
       questions: noulQuestions,
     }),
@@ -272,10 +272,14 @@ export default function skillRouterExtension(
           pi.appendEntry("skill_coverage", {
             selected: coverage.selected,
             ambiguous: coverage.ambiguous,
+            dropped_by_cap: coverage.droppedByCap,
             fingerprint: coverage.fingerprint,
           });
         } catch {
           // Safe ignore if session storage not yet active
+        }
+        if (coverage.droppedByCap.length > 0) {
+          ctx.ui?.notify(`Skill Router omitted lower-confidence skills to fit the injection limit: ${coverage.droppedByCap.join(", ")}`, "warn");
         }
 
         if (coverage.selected.length > 0 && coverage.content.trim()) {

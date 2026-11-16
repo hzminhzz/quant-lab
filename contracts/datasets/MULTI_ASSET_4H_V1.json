@@ -1,0 +1,13 @@
+{
+  "contract_id": "MULTI_ASSET_4H_V1",
+  "path": "data/exploratory/multi_asset_4h.parquet",
+  "sha256": "b146d1f636ce519affcfb86bed15a3b9c9429bfe57ddf53e793f94c01fd01abc",
+  "holdout_path": "data/holdout/multi_asset_4h.parquet",
+  "holdout_sha256": "ccfa6cdd13af2588235ef0ebb099f78d5e8a1ba9f2cce57143119b81a75c0bd9",
+  "provenance": "verified_market",
+  "source": "ml4t-data minute OHLCV stores (ml4t-data/.data/store) via scripts/salvage_multi_asset.py",
+  "pipeline": "scripts/salvage_multi_asset.py",
+  "recorded_at": "2026-10-27T00:00:00+00:00",
+  "recorded_by": "agent:af30-book-campaign",
+  "attestation": "Provenance is declared by the salvage pipeline that produced this file; the digest is verified independently against this manifest and the contract pin."
+}

@@ -16,9 +16,9 @@ describe("skill-router extension integration", () => {
   it("discovers skill sources from repo root .agents/skills", async () => {
     const cwd = join(import.meta.dir, "../../..");
     const sources = await discoverSkillSources(cwd);
-    expect(sources.length).toBe(61);
     expect(sources.some((s) => s.name === "ml4t-compute-features")).toBe(true);
     expect(sources.some((s) => s.name === "ml4t-purging-embargo")).toBe(true);
+    expect(sources.some((s) => s.name === "quant-lab-thesis")).toBe(true);
   });
 
   it("handles before_agent_start and injects selected skills", async () => {

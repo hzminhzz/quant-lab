@@ -1,0 +1,11 @@
+{
+  "contract_id": "CRYPTO_PERPS_4H_V1",
+  "path": "data/exploratory/crypto_perps_4h.parquet",
+  "sha256": "493d8fa43aafaf4b96bada1f7745bc6411296d64da86ff95b68c7f735d49bb16",
+  "provenance": "verified_market",
+  "source": "ml4t-data minute OHLCV store via crypto_perps_1m resampling",
+  "pipeline": "scripts/salvage_multi_asset.py",
+  "recorded_at": "2026-10-27T00:00:00+00:00",
+  "recorded_by": "agent:crypto_perps_suite",
+  "attestation": "Provenance is declared by the salvage pipeline; digest verified independently against manifest and contract pin."
+}

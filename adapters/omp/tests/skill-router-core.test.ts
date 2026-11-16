@@ -593,20 +593,57 @@ describe('skill-router-core', () => {
       await expect(selectSkills(catalog, dummyState, judge)).rejects.toThrow('expected {type: \'bool\', bool: number} with finite number in [0, 1]');
     });
 
-    it('throws visible error when injected content exceeds 128 KiB limit', async () => {
+    it('drops oversized ambiguous roots and reports them without dropping direct roots', async () => {
       const dir = join(tempDir, 'excessive-content');
-      // Create a body larger than 128 KiB
       const largeBody = 'x'.repeat(MAX_CONTENT_BYTES + 1024);
-      const pA = await createSkillFile(join(dir, 'a'), 'SKILL.md', { name: 'giant-skill', dependencies: [] }, largeBody);
+      const pA = await createSkillFile(join(dir, 'a'), 'SKILL.md', { name: 'ambiguous-skill', dependencies: [] }, largeBody);
+      const pB = await createSkillFile(join(dir, 'b'), 'SKILL.md', { name: 'direct-skill', dependencies: [] }, 'small guidance');
       const catalog = await loadCatalog([
-        { name: 'giant-skill', description: 'giant', filePath: pA, baseDir: join(dir, 'a') },
+        { name: 'ambiguous-skill', description: 'ambiguous', filePath: pA, baseDir: join(dir, 'a') },
+        { name: 'direct-skill', description: 'direct', filePath: pB, baseDir: join(dir, 'b') },
       ]);
-
       const judge: JudgeCall = async () => ({
-        'giant-skill': { type: 'bool', bool: 0.9 },
+        'ambiguous-skill': { type: 'bool', bool: 0.6 },
+        'direct-skill': { type: 'bool', bool: 0.95 },
       });
 
-      await expect(selectSkills(catalog, dummyState, judge)).rejects.toThrow('exceeds maximum limit of 128 KiB');
+      const coverage = await selectSkills(catalog, dummyState, judge);
+
+      expect(coverage.droppedByCap).toEqual(['ambiguous-skill']);
+      expect(coverage.selected).toEqual(['direct-skill']);
+      expect(coverage.ambiguous).toEqual([]);
+      expect(Buffer.byteLength(coverage.content, 'utf8')).toBeLessThanOrEqual(MAX_CONTENT_BYTES);
+      expect(coverage.content).toContain('small guidance');
+    });
+
+    it('degrades to a subset instead of throwing when several near-certain skills exceed the cap', async () => {
+      const dir = join(tempDir, 'oversized-many');
+      const chunk = 'y'.repeat(Math.floor(MAX_CONTENT_BYTES * 0.75));
+      const pA = await createSkillFile(join(dir, 'a'), 'SKILL.md', { name: 'likely-a', dependencies: [] }, chunk);
+      const pB = await createSkillFile(join(dir, 'b'), 'SKILL.md', { name: 'likely-b', dependencies: [] }, chunk);
+      const catalog = await loadCatalog([
+        { name: 'likely-a', description: 'likely', filePath: pA, baseDir: join(dir, 'a') },
+        { name: 'likely-b', description: 'likely', filePath: pB, baseDir: join(dir, 'b') },
+      ]);
+      const judge: JudgeCall = async () => ({
+        'likely-a': { type: 'bool', bool: 0.8 },
+        'likely-b': { type: 'bool', bool: 0.82 },
+      });
+
+      const coverage = await selectSkills(catalog, dummyState, judge);
+
+      expect(coverage.droppedByCap).toHaveLength(1);
+      expect(coverage.selected).toHaveLength(1);
+      expect(Buffer.byteLength(coverage.content, 'utf8')).toBeLessThanOrEqual(MAX_CONTENT_BYTES);
+    });
+
+    it('fails closed when direct skill content alone exceeds the injection limit', async () => {
+      const dir = join(tempDir, 'oversized-direct');
+      const p = await createSkillFile(join(dir, 'a'), 'SKILL.md', { name: 'direct-skill', dependencies: [] }, 'x'.repeat(MAX_CONTENT_BYTES + 1024));
+      const catalog = await loadCatalog([{ name: 'direct-skill', description: 'direct', filePath: p, baseDir: join(dir, 'a') }]);
+      const judge: JudgeCall = async () => ({ 'direct-skill': { type: 'bool', bool: 0.95 } });
+
+      await expect(selectSkills(catalog, dummyState, judge)).rejects.toThrow('Required skill content');
     });
 
     it('preserves exact verbatim body including leading and trailing boundary whitespace', async () => {

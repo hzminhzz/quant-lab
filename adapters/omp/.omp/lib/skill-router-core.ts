@@ -48,6 +48,7 @@ export type JudgeCall = (
 export interface Coverage {
   selected: string[];
   ambiguous: string[];
+  droppedByCap: string[];
   fingerprint: string;
   content: string;
 }
@@ -293,8 +294,8 @@ export async function selectSkills(
     }
   }
 
-  const directRoots: string[] = [];
-  const ambiguousRoots: string[] = [];
+  const roots = new Map<string, number>();
+  const ambiguousRoots = new Set<string>();
 
   // Validate finite numeric probabilities in [0, 1]
   for (const name of sortedSkillNames) {
@@ -317,50 +318,48 @@ export async function selectSkills(
       );
     }
 
-    if (ans.bool >= PROB_SELECT_THRESHOLD) {
-      directRoots.push(name);
-    } else if (ans.bool >= PROB_AMBIGUOUS_THRESHOLD) {
-      ambiguousRoots.push(name);
+    if (ans.bool >= PROB_AMBIGUOUS_THRESHOLD) {
+      roots.set(name, ans.bool);
+      if (ans.bool < PROB_SELECT_THRESHOLD) ambiguousRoots.add(name);
     }
   }
 
-  directRoots.sort();
-  ambiguousRoots.sort();
-
-  if (directRoots.length === 0 && ambiguousRoots.length === 0) {
-    return {
-      selected: [],
-      ambiguous: [],
-      fingerprint: catalog.fingerprint,
-      content: '',
-    };
-  }
-
-  // Transitive closure: conservative inclusion of ambiguous root skills + dependencies
-  const allRoots = [...new Set([...directRoots, ...ambiguousRoots])].sort();
-  const selected = resolveDependencies(catalog, allRoots);
-
-  // Preserve verbatim skill bodies with explicit provenance in topological order
-  const renderedBlocks: string[] = [];
-  for (const skillName of selected) {
+  const render = (names: readonly string[]) => names.map((skillName) => {
     const skill = catalog.skills.get(skillName)!;
-    renderedBlocks.push(
-      `<!-- Skill: ${skill.name} (filePath: ${skill.filePath}, baseDir: ${skill.baseDir}) -->\n${skill.body}`
-    );
+    return `<!-- Skill: ${skill.name} (filePath: ${skill.filePath}, baseDir: ${skill.baseDir}) -->\n${skill.body}`;
+  }).join('\n\n---\n\n');
+
+  const remainingRoots = new Set(roots.keys());
+  const droppedByCap: string[] = [];
+  let selected = resolveDependencies(catalog, [...remainingRoots].sort());
+  let content = render(selected);
+
+  // Drop the least confident root — ambiguous first, since those are the lowest probabilities —
+  // until the injection fits. A required root is droppable here too: with all 63 skills totalling
+  // 282 KB, refusing to drop a 0.7-confidence match whenever the total overflows makes a judge that
+  // over-answers on research prompts lock the whole session, and a subagent (which never receives a
+  // second prompt to re-route) can never recover. Only a single root that cannot fit by itself is
+  // genuinely undeliverable, so that case still fails closed below.
+  while (Buffer.byteLength(content, 'utf8') > MAX_CONTENT_BYTES && remainingRoots.size > 1) {
+    const drop = [...remainingRoots].sort(
+      (a, b) => roots.get(a)! - roots.get(b)! || a.localeCompare(b))[0]!;
+    remainingRoots.delete(drop);
+    ambiguousRoots.delete(drop);
+    droppedByCap.push(drop);
+    selected = resolveDependencies(catalog, [...remainingRoots].sort());
+    content = render(selected);
   }
 
-  const content = renderedBlocks.join('\n\n---\n\n');
-  const totalBytes = Buffer.byteLength(content, 'utf-8');
-
-  if (totalBytes > MAX_CONTENT_BYTES) {
+  if (Buffer.byteLength(content, 'utf8') > MAX_CONTENT_BYTES) {
     throw new Error(
-      `Injected skill content (${totalBytes} bytes) exceeds maximum limit of 128 KiB (${MAX_CONTENT_BYTES} bytes)`
+      `Required skill content (${Buffer.byteLength(content, 'utf8')} bytes) exceeds maximum limit of 128 KiB (${MAX_CONTENT_BYTES} bytes)`
     );
   }
 
   return {
     selected,
-    ambiguous: ambiguousRoots,
+    ambiguous: [...ambiguousRoots].sort(),
+    droppedByCap,
     fingerprint: catalog.fingerprint,
     content,
   };

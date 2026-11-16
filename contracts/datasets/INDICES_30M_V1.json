@@ -1,0 +1,11 @@
+{
+  "contract_id": "INDICES_30M_V1",
+  "path": "data/exploratory/indices_30m.parquet",
+  "sha256": "25f8c39dc245f0fe6070ce3fe3cd4063fd3093f7c951d9ed017f36367f23ff8f",
+  "provenance": "verified_market",
+  "source": "ml4t-data minute OHLCV store via salvage_multi_asset.py",
+  "pipeline": "scripts/salvage_multi_asset.py",
+  "recorded_at": "2026-10-27T00:00:00+00:00",
+  "recorded_by": "agent:domain_contracts",
+  "attestation": "Provenance is declared by the salvage pipeline; digest verified independently against manifest and contract pin."
+}

@@ -1,0 +1,19 @@
+{
+  "contract_id": "AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1",
+  "path": "data/exploratory/crypto_perps_top100_1h.parquet",
+  "sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+  "provenance": "verified_market",
+  "source": "Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store) via scripts/salvage_crypto.py and scripts/salvage_multi_asset.py",
+  "pipeline": "scripts/salvage_crypto.py",
+  "parent_contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+  "parent_dataset_manifest_sha256": "0685548fc288684537ef73d99ef30b3cf07b212876bab443f30b6a2488390123",
+  "derivation": "No new data; same independently pinned exploratory snapshot, unchanged validation split and holdout.",
+  "prior_related_selection_attempts_at_proposal": 5,
+  "bias_notice": "Contract ID does not reset prior selection/trial count; do not independently qualify any signal until cross-contract multiplicity is assessed.",
+  "authorised_by": "Principal message 2026-10-30: delegated creation of new data contracts specifically to support autonomous strategy research.",
+  "source_research_citation": "https://delphicalpha.substack.com/p/strategy-crypto-funding-carry-makes",
+  "source_published_at": "2026-10-26T14:50:26+00:00",
+  "source_captured_at": "2026-10-29T17:32:39.048512+00:00",
+  "source_revision_sha256": "c3c72c88e4cdbe99963132df779225b0f30d40ece3034a09cfa3b0178ea400af",
+  "requires_warden_manifest_approval": true
+}

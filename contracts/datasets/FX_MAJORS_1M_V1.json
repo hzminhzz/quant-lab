@@ -1,0 +1,11 @@
+{
+  "contract_id": "FX_MAJORS_1M_V1",
+  "path": "data/exploratory/fx_majors_1m.parquet",
+  "sha256": "2ff1344edccb93026444791d0b3efb2772e2f7f3360f65a9af127201a68a1d4d",
+  "provenance": "verified_market",
+  "source": "ml4t-data minute OHLCV store (ml4t-data/.data/store) via scripts/salvage_multi_asset.py",
+  "pipeline": "scripts/salvage_multi_asset.py",
+  "recorded_at": "2026-10-26T08:30:00+00:00",
+  "recorded_by": "agent:fx_1m",
+  "attestation": "Provenance is declared by the salvage pipeline that produced this file; the digest is verified independently against this manifest and the contract pin."
+}

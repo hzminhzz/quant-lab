@@ -1,9 +1,11 @@
-"""Digest of a strategy's local import closure.
+"""Digest of a strategy's full executable code closure.
 
 A trial records which strategy file it ran, but not which bytes: helpers imported from a
 sibling module are invisible. `s02`/`s03`/`s04` all import `carver_common`, so editing that
 helper leaves a per-file digest unchanged while changing what ran. This hashes the module
-together with every local file reachable through its module-level imports.
+together with every local file reachable through its imports (module-level AND function-local)
+plus any runtime-loaded code the module declares in `CODE_DEPENDENCIES` (e.g. the book's
+constituents, s183's subdir helper) — so the identity covers all code that actually runs.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ def _candidate_paths(name: str, importer_dir: Path) -> list[Path]:
 
 def _imported_names(tree: ast.AST) -> list[str]:
     names: list[str] = []
-    for node in tree.body:  # module level only: function-local imports do not change the file's code
+    for node in ast.walk(tree):  # every import, including function-local: all of them change what runs
         if isinstance(node, ast.Import):
             names.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -31,6 +33,28 @@ def _imported_names(tree: ast.AST) -> list[str]:
             elif node.module:
                 names.append(node.module)
     return names
+
+
+def _declared_dependencies(tree: ast.Module) -> list[str]:
+    """Runtime-loaded code a module declares as part of its identity (CODE_DEPENDENCIES)."""
+    consts: dict[str, ast.AST] = {}
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else ([node.target] if isinstance(node, ast.AnnAssign) else [])
+        val = getattr(node, "value", None)
+        if val is None:
+            continue
+        for t in targets:
+            if isinstance(t, ast.Name):
+                consts[t.id] = val
+
+    def strings(n):
+        if isinstance(n, ast.Name):
+            n = consts.get(n.id)
+        if isinstance(n, (ast.Tuple, ast.List)):
+            return [e.value for e in n.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        return []
+
+    return strings(consts.get("CODE_DEPENDENCIES"))
 
 
 def code_closure(repo_root: Path, module_path: str) -> tuple[str, list[str]]:
@@ -65,6 +89,10 @@ def code_closure(repo_root: Path, module_path: str) -> tuple[str, list[str]]:
                 if cand.is_file():
                     queue.append(cand)
                     break
+        for dep in _declared_dependencies(tree):
+            cand = repo_root / dep
+            if cand.is_file():
+                queue.append(cand)
 
     rels = sorted(str(p.relative_to(repo_root)) for p in seen)
     lines = [f"{rel} {hashlib.sha256((repo_root / rel).read_bytes()).hexdigest()}" for rel in rels]

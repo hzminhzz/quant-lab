@@ -14,6 +14,7 @@ import polars as pl
 import pytest
 
 from warden.cli import check_worktree, generate_manifest
+from warden.codeid import code_closure
 from warden.contracts import EvaluationContract, HypothesisSpec, load_contract
 from warden.gates import evaluate_stage0_feasibility
 from warden.leakage import (
@@ -148,7 +149,9 @@ def test_4_holdout_and_governance_isolation(tmp_path: Path) -> None:
                            "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 2.0, 1.5, 0.95, 0.5, 1, 1.0,
                            None, None, 0.5, 1.3, 3.0, 50.0, 15.0, 1.0, 1.0, "notes",
                            data_provenance="verified_market",
-                           data_snapshot_sha256=contract.data_snapshot_sha256)
+                           data_snapshot_sha256=contract.data_snapshot_sha256,
+                           strategy_module="strategies/candidates/vol_breakout_1h.py",
+                           strategy_code_sha256=code_closure(Path("."), "strategies/candidates/vol_breakout_1h.py")[0])
     reg.record_trial(res, {}, np.linspace(0.01, -0.005, 100))
 
     with reg._connect() as conn, pytest.raises(sqlite3.IntegrityError, match="Append-only violation"):

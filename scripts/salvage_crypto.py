@@ -5,16 +5,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
-import sqlite3
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import polars as pl
 import yaml
 
-from warden.contracts import canonical_json, load_contract
+from warden.contracts import load_contract
 from warden.runner import ExperimentRunner
 
 COLUMNS = ["timestamp", "asset", "open", "high", "low", "close", "volume", "funding_rate"]
@@ -179,15 +176,10 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
 
     runner = ExperimentRunner()
     contract_obj = load_contract(contract_yaml)
-    data = {**json.loads(canonical_json(asdict(contract_obj))), "spec_hash": contract_obj.spec_hash()}
-
-    conn = sqlite3.connect(runner.registry.db_path)
-    cols = ", ".join(data.keys())
-    placeholders = ", ".join("?" for _ in data)
-    conn.execute(f"INSERT OR REPLACE INTO contracts ({cols}) VALUES ({placeholders})", list(data.values()))
-    conn.commit()
-    conn.close()
-    print(f"7. Registered/Updated {contract_id} in registry.db (spec_hash: {contract_obj.spec_hash()})!")
+    # Contracts are immutable: register_contract no-ops on an identical re-salvage and refuses
+    # a changed one (choose a new contract_id). Never bypass the guard with raw SQL.
+    runner.registry.register_contract(contract_obj)
+    print(f"7. Registered {contract_id} in registry.db (spec_hash: {contract_obj.spec_hash()})!")
 
 
 def main():

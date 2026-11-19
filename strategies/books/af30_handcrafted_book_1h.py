@@ -40,6 +40,9 @@ STRATEGY_MODULES: list[str] = [
     "strategies/candidates/ts_s27_safer_fast_mean_reversion_1h.py",
 ]
 
+# Runtime-loaded constituents are part of this book's code identity (see warden.codeid).
+CODE_DEPENDENCIES = STRATEGY_MODULES
+
 CLASS_OF: dict[str, str] = {
     "ES": "equity",
     "NQ": "equity",

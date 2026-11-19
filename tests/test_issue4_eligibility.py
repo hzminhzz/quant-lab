@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sqlite3
 from dataclasses import replace as dc_replace
@@ -143,4 +142,3 @@ def test_corrections_require_attribution_and_unknown_runs_are_ineligible(tmp_pat
     assert reg.effective_eligibility("RUN-NOPE")["eligible"] is False
     reg.record_disposition("RUN-X", "REVOKED", "Superseding decision recorded for the regression fixture", "warden:test")
     assert reg.effective_eligibility("RUN-X")["eligible"] is False
-    assert hashlib.sha256(b"x").hexdigest() != ""

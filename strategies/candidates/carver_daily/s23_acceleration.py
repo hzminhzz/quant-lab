@@ -15,22 +15,18 @@ at +/-20. Sizing is dynamic cash volatility with the 10% buffer and no stop.
 from __future__ import annotations
 
 import math
-import sys
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
-
-from warden.contracts import EvaluationContract
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # warden loads modules by path, not as a package
 from carver_common import (
     apply_buffer,
     ewma_price_vol,
     observation_mask,
     value_matrix,
 )
+
+from warden.contracts import EvaluationContract
 
 SPEEDS: tuple[int, ...] = (8, 16, 32, 64)
 EWMAC_SCALARS: dict[int, float] = {8: 5.95, 16: 4.10, 32: 2.79, 64: 1.91}

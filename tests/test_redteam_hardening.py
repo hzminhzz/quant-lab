@@ -32,12 +32,12 @@ from warden.leakage import (
 from warden.qualify import HoldoutAlreadyUnsealedError, qualify_candidate
 from warden.registry import (
     ResearchRegistry,
-    compute_effective_trials_and_dsr,
+    compute_selection_report,
 )
 from warden.runner import (
     ExperimentRunner,
-    _aligned_matrix,
-    _funding_settlement_mask,
+    aligned_matrix,
+    funding_settlement_mask,
     simulate_positions,
 )
 from warden.synthetic import generate_canonical_market_panel
@@ -132,7 +132,7 @@ def test_fold_isolation_enforces_purge_and_strips_target_copies(clean_contract, 
 def test_eight_hour_funding_settlement_charges_once_per_eight_hours(clean_contract) -> None:
     """24-hour simulation on crypto perps must incur exactly 2 funding settlements (00:00 & 08:00 UTC)."""
     ts = [datetime(2025, 1, 1, 0, tzinfo=UTC) + timedelta(hours=i) for i in range(24)]
-    mask = _funding_settlement_mask(ts, clean_contract)
+    mask = funding_settlement_mask(ts, clean_contract)
     pos = np.ones((24, 1))
     rets = np.zeros((24, 1))
     fund = np.full((24, 1), 0.0005)  # 5 bps
@@ -144,14 +144,14 @@ def test_eight_hour_funding_settlement_charges_once_per_eight_hours(clean_contra
 
 
 def test_aligned_matrix_preserves_strict_asset_order() -> None:
-    """_aligned_matrix must return columns strictly matching sorted_assets, regardless of appearance order."""
+    """aligned_matrix must return columns strictly matching sorted_assets, regardless of appearance order."""
     df = pl.DataFrame({
         "timestamp": [1, 1, 1, 2, 2, 2],
         "asset": ["XRP", "BTC", "ETH", "ETH", "XRP", "BTC"],
         "val": [10.0, 100.0, 50.0, 55.0, 11.0, 105.0]
     })
     sorted_assets = ["BTC", "ETH", "XRP"]
-    mat = _aligned_matrix(df, "val", sorted_assets)
+    mat = aligned_matrix(df, "val", sorted_assets)
     # Row 0: BTC=100, ETH=50, XRP=10
     assert np.allclose(mat[0], [100.0, 50.0, 10.0])
     # Row 1: BTC=105, ETH=55, XRP=11
@@ -244,12 +244,14 @@ def test_stage_1_reject_increments_raw_N_and_penalizes_DSR() -> None:
     """A Stage 1 early reject must count in contract-wide N and penalize DSR."""
     candidate = np.random.default_rng(42).normal(0.001, 0.01, 100)
     # Stream with no prior trials: N=1, K_eff=1
-    p1, exp1, n1, k1 = compute_effective_trials_and_dsr(candidate, [], 8760, total_trials_n=1)
+    r1 = compute_selection_report(candidate, [], 8760, raw_attempt_count=1)
+    p1, exp1, n1, k1 = r1["probability"], r1["expected_max_sharpe_noise"], r1["raw_attempt_count"], r1["k_eff_gate"]
     assert n1 == 1 and k1 == 1.0
 
     # Same stream with 1 prior unvectorised reject (total_trials_n=2): N=2 and the approved
     # 0.50-per-unvectorised-attempt penalty applies on top of the deduplicated rank.
-    p2, exp2, n2, k2 = compute_effective_trials_and_dsr(candidate, [], 8760, total_trials_n=2)
+    r2 = compute_selection_report(candidate, [], 8760, raw_attempt_count=2)
+    p2, exp2, n2, k2 = r2["probability"], r2["expected_max_sharpe_noise"], r2["raw_attempt_count"], r2["k_eff_gate"]
     assert n2 == 2
     assert k2 == 1.5
     assert exp2 > exp1  # expected max Sharpe noise increases

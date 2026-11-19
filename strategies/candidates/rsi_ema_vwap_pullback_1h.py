@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -69,42 +68,6 @@ class RSIVWAPPipeline:
                 vwap_discount=(pl.col("close") - pl.col("rolling_vwap")) / pl.col("rolling_vwap")
             )
         )
-
-
-class RSIVWAPStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing RSI+EMA+VWAP pullback mean reversion."""
-
-    rsi_window: int
-    rsi_oversold: float
-    rsi_exit: float
-    ema_window: int
-    vwap_window: int
-    vwap_discount_bps: float
-    max_holding_bars: int
-    bar_count: int
-
-    def __init__(
-        self,
-        rsi_window: int = 3,
-        rsi_oversold: float = 22.0,
-        rsi_exit: float = 55.0,
-        ema_window: int = 100,
-        vwap_window: int = 10,
-        vwap_discount_bps: float = 0.0,
-        max_holding_bars: int = 8,
-    ) -> None:
-        super().__init__()
-        self.rsi_window = rsi_window
-        self.rsi_oversold = rsi_oversold
-        self.rsi_exit = rsi_exit
-        self.ema_window = ema_window
-        self.vwap_window = vwap_window
-        self.vwap_discount_bps = vwap_discount_bps
-        self.max_holding_bars = max_holding_bars
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(

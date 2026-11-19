@@ -35,14 +35,12 @@ class CSInformationDelayPipeline:
                 out=np.zeros(n_bars - 1, dtype=float), where=valid,
             )
 
-        # Market benchmark: BTC if present, else cross-sectional mean
         btc_idx = [i for i, a in enumerate(assets) if "btc" in a.lower()]
         if len(btc_idx) > 0:
             ret_mkt = ret_mat[:, btc_idx[0]]
         else:
             ret_mkt = np.mean(ret_mat, axis=1)
 
-        # Design matrix [1, r_m, r_{m-1}, r_{m-2}, r_{m-3}, r_{m-4}]
         x_cols = np.zeros((n_bars, 6), dtype=float)
         x_cols[:, 0] = 1.0
         x_cols[:, 1] = ret_mkt
@@ -58,11 +56,10 @@ class CSInformationDelayPipeline:
             yt = ret_mat[t - w : t]
             xtx = xt.T @ xt + 1e-6 * np.eye(6)
             xty = xt.T @ yt
-            betas = np.linalg.solve(xtx, xty)  # (6, n_assets)
+            betas = np.linalg.solve(xtx, xty)
             beta_0 = betas[1]
             beta_lags = betas[2:6]
 
-            # Delayed drift: sum_{k=1}^4 beta_{i,k} * r_{m, t-k+1}
             mkt_vec = np.array([x_cols[t, 1], x_cols[t, 2], x_cols[t, 3], x_cols[t, 4]])
             delayed_drift = np.dot(beta_lags.T, mkt_vec)
             backlog_mat[t] = delayed_drift - ret_mat[t]

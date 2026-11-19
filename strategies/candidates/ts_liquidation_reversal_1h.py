@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -49,33 +48,6 @@ class LiquidationReversalPipeline:
                 bb_penetration=(pl.col("close") < pl.col("lower_bb")).fill_null(False),
             )
         )
-
-
-class LiquidationReversalStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing liquidation cascade mean reversion."""
-
-    def __init__(
-        self,
-        bollinger_window: int = 24,
-        bollinger_k: float = 2.5,
-        volume_lookback: int = 168,
-        volume_mult: float = 2.0,
-        holding_bars: int = 8,
-        vol_mult: float | None = None,
-        volume_quantile: float | None = None,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__()
-        self.bollinger_window = bollinger_window
-        self.bollinger_k = bollinger_k
-        self.volume_lookback = volume_lookback
-        self.volume_mult = vol_mult if vol_mult is not None else volume_mult
-        self.volume_quantile = volume_quantile
-        self.holding_bars = holding_bars
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(
@@ -168,7 +140,6 @@ def generate_positions(
         for t in range(warmup, n_bars):
             if in_pos:
                 hold_count += 1
-                # Exit when holding duration reaches limit or price recovers to rolling mean
                 if hold_count >= holding_bars or close_mat[t, a_idx] >= mean_mat[t, a_idx]:
                     in_pos = False
                     hold_count = 0

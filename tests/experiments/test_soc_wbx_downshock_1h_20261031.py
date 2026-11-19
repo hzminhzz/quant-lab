@@ -12,7 +12,7 @@ import polars as pl
 import pytest
 
 from warden.contracts import load_contract
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = load_module_from_path(
@@ -71,8 +71,6 @@ def test_fail_closed_on_unapproved_universe_or_wrong_contract_or_gaps():
 
 
 def _make_panel(n: int) -> pl.DataFrame:
-    if n <= 100:
-        pass
     start = datetime(2024, 1, 1, tzinfo=UTC)
     rows: list[dict] = []
     for asset in MODULE.ASSETS:

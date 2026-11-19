@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -21,7 +20,6 @@ class HighWatermarkPipeline:
     def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
         _ = contract
         df = bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
-        # Causal rolling computations: 90-day (2160h) high and 24h momentum
         return (
             df.sort("timestamp", "asset")
             .with_columns(
@@ -32,29 +30,6 @@ class HighWatermarkPipeline:
                 high_ratio=pl.col("close") / (pl.col("rolling_high") + 1e-12),
             )
         )
-
-
-class HighWatermarkStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing high-watermark anchoring momentum."""
-
-    def __init__(
-        self,
-        high_window_bars: int = 2160,
-        mom_window_bars: int = 24,
-        long_threshold: float = 0.95,
-        short_threshold: float = 0.70,
-        max_holding_bars: int = 120,
-    ) -> None:
-        super().__init__()
-        self.high_window_bars = high_window_bars
-        self.mom_window_bars = mom_window_bars
-        self.long_threshold = long_threshold
-        self.short_threshold = short_threshold
-        self.max_holding_bars = max_holding_bars
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(
@@ -109,13 +84,11 @@ def generate_positions(
         current_pos = 0.0
         hold_bars = 0
         for t in range(warmup, n_bars):
-            # Causal decision: signal evaluated at bar t
             ratio = high_ratio_mat[t, a_idx]
             mom = mom_mat[t, a_idx]
 
             if current_pos != 0.0:
                 hold_bars += 1
-                # Exit condition: decay or holding period
                 if hold_bars >= max_holding_bars or (current_pos > 0 and ratio < 0.90) or (current_pos < 0 and ratio > 0.80):
                     current_pos = 0.0
                     hold_bars = 0

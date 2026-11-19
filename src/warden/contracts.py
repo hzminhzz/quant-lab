@@ -1,4 +1,4 @@
-"""Frozen governance records, adapted from run_vertical_slice.py section 1."""
+"""Frozen governance records."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
+
+MARKET = "verified_market"
 
 
 class ContractValidationError(ValueError):
@@ -78,7 +80,7 @@ class EvaluationContract:
                 raise ContractValidationError(f"{n} must be finite positive")
         if not math.isfinite(self.funding_bps_per_8h) or self.funding_bps_per_8h < 0 or (self.data_snapshot_sha256 and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256)) or not self.exploratory_data_path or self.exploratory_data_path == self.holdout_data_path:
             raise ContractValidationError("invalid funding, sha256 or data paths")
-        if self.data_provenance not in {"verified_market", "synthetic", "unknown"}:
+        if self.data_provenance not in {MARKET, "synthetic", "unknown"}:
             raise ContractValidationError("data_provenance must be verified_market, synthetic or unknown")
         if self.data_provenance != "unknown" and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256 or ""):
             raise ContractValidationError("declared data_provenance requires a data_snapshot_sha256 pin")
@@ -137,9 +139,6 @@ class Stage1Report:
     def to_dict(self):
         return asdict(self)
 
-    def to_json(self):
-        return canonical_json(self.to_dict())
-
 
 @dataclass(frozen=True)
 class ExperimentResult:
@@ -181,9 +180,6 @@ class ExperimentResult:
 
     def to_dict(self):
         return asdict(self)
-
-    def to_json(self):
-        return canonical_json(self.to_dict())
 
 
 def _load(path, cls, markdown=False):

@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -53,29 +52,6 @@ class VolManagedTSMOMPipeline:
                 signal=(pl.col("ret_lookback").sign() * pl.col("vol_scalar")).fill_null(0.0),
             )
         )
-
-
-class VolManagedTSMOMStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing volatility-managed time series momentum."""
-
-    def __init__(
-        self,
-        lookback_bars: int = 72,
-        vol_window: int = 24,
-        target_vol: float = 0.015,
-        max_leverage: float = 1.5,
-        rebalance_every: int = 4,
-    ) -> None:
-        super().__init__()
-        self.lookback_bars = lookback_bars
-        self.vol_window = vol_window
-        self.target_vol = target_vol
-        self.max_leverage = max_leverage
-        self.rebalance_every = rebalance_every
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(

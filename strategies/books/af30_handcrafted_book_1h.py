@@ -7,7 +7,6 @@ Uses train-window correlation for Instrumental Diversification Multiplier (IDM) 
 
 from __future__ import annotations
 
-import importlib.util
 import math
 from pathlib import Path
 from typing import Any
@@ -16,6 +15,7 @@ import numpy as np
 import polars as pl
 
 from warden.contracts import EvaluationContract
+from warden.strategy_loader import load_module_from_path
 
 STRATEGY_MODULES: list[str] = [
     "strategies/candidates/ts_s01_buy_hold_single_1h.py",
@@ -76,13 +76,7 @@ _LOADED_MODULES: dict[str, Any] = {}
 
 def _get_module(path_str: str) -> Any:
     if path_str not in _LOADED_MODULES:
-        p = Path(path_str)
-        spec = importlib.util.spec_from_file_location(p.stem, p)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"Cannot load module spec for {path_str}")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _LOADED_MODULES[path_str] = mod
+        _LOADED_MODULES[path_str] = load_module_from_path(Path(path_str))
     return _LOADED_MODULES[path_str]
 
 
@@ -100,7 +94,7 @@ class BookPipeline:
         f_frames = []
         for idx, m_path in enumerate(self.strategy_modules):
             mod = _get_module(m_path)
-            pipe = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None)
+            pipe = getattr(mod, "pipeline", None)
             if pipe is None:
                 raise AttributeError(f"{m_path} does not expose a pipeline")
             res = pipe.compute(df, contract).select(["timestamp", "asset", "forecast"])
@@ -154,7 +148,6 @@ def generate_positions(
     if n_bars == 0 or n_assets == 0:
         return {"positions": np.zeros((n_bars, n_assets), dtype=float), "forecast": np.zeros((n_bars, n_assets), dtype=float)}
 
-    # Handcrafted instrument weights aligned to sorted assets
     w = np.array([HANDCRAFTED_WEIGHTS.get(a, 1.0 / n_assets) for a in assets], dtype=float)
     w = w / np.sum(w)
 
@@ -168,7 +161,6 @@ def generate_positions(
         .to_numpy()
     )
 
-    # Price and ATR matrices forward-filled across union gaps
     close_mat = (
         panel_df.pivot(index="timestamp", on="asset", values="close")
         .sort("timestamp")
@@ -214,13 +206,11 @@ def generate_positions(
         .to_numpy()
     )
 
-    # 1-bar simple close-to-close returns per asset, masked to traded bars
     ret = np.zeros_like(close_mat)
     prev_close = close_mat[:-1]
     denom = np.where(prev_close > 1e-6, prev_close, 1.0)
     ret[1:] = np.where(obs_mat[1:], (close_mat[1:] - prev_close) / denom, 0.0)
 
-    # Call each constituent strategy module
     all_pos: list[np.ndarray] = []
     all_fc: list[np.ndarray] = []
     for m_path in strategy_modules:
@@ -233,10 +223,8 @@ def generate_positions(
         all_pos.append(pos)
         all_fc.append(fc)
 
-    # Forecast-level combination
     combined = np.mean(all_fc, axis=0)
 
-    # Train-slice risk plumbing: timestamps < contract.val_start
     effective_warmup = min(warmup, max(1, n_bars // 4)) if warmup >= n_bars else warmup
     train_indices = [t for t, ts in enumerate(timestamps) if ts < contract.val_start and t >= effective_warmup]
     if len(train_indices) < 20:
@@ -261,20 +249,17 @@ def generate_positions(
     raw_idm = 1.0 / math.sqrt(max(port_var, 1e-12))
     idm = float(np.clip(raw_idm, idm_bounds[0], idm_bounds[1]))
 
-    # Volatility estimation per instrument: rolling std of ret, shifted by 1
     vol_mat = np.full((n_bars, n_assets), 1e-4, dtype=float)
     for i in range(n_assets):
         s = pl.Series(ret[:, i]).rolling_std(window_size=vol_window).shift(1).fill_null(1e-4).to_numpy()
         vol_mat[:, i] = np.maximum(s, 1e-6)
 
-    # Risk share per instrument normalized to sum 1
     raw_risk_share = w[None, :] / vol_mat
     sum_risk = np.sum(raw_risk_share, axis=1, keepdims=True)
     sum_risk = np.where(sum_risk > 1e-12, sum_risk, 1.0)
     risk_share = raw_risk_share / sum_risk
     pos_unit = (combined / 20.0) * risk_share * idm
 
-    # Annualised volatility of train portfolio returns
     port_ret_train = np.sum(pos_unit[train_indices] * ret[train_indices], axis=1)
     ann_std = float(np.std(port_ret_train) * math.sqrt(contract.bars_per_year))
     if ann_std < 1e-6 or np.isnan(ann_std):
@@ -288,7 +273,6 @@ def generate_positions(
     else:
         active_indices = list(range(n_assets))
 
-    # Rebalance loop with deadband and symmetric trailing ATR stop
     positions = np.zeros((n_bars, n_assets), dtype=float)
     peak_prices = np.zeros(n_assets, dtype=float)
     trough_prices = np.full(n_assets, 1e12, dtype=float)
@@ -310,7 +294,6 @@ def generate_positions(
         else:
             positions[t] = positions[t - 1].copy()
 
-        # Apply trailing ATR stop symmetrically only on active bars
         for idx in active_indices:
             if not obs_mat[t, idx]:
                 continue
@@ -326,7 +309,6 @@ def generate_positions(
                 stop_price = trough_prices[idx] + stop_multiple * atr
                 if close_mat[t, idx] > stop_price:
                     positions[t, idx] = 0.0
-    # Correlation off-diagonal statistics
     eye_mask = ~np.eye(n_assets, dtype=bool)
     off_diag = rho[eye_mask]
     corr_mean_off_diag = float(np.mean(off_diag)) if len(off_diag) else 0.0

@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 module = load_module_from_path(Path("strategies/candidates/soc_hl_stochk_btc_1h_20261031.py"))
 CONTRACT_ID = module.CONTRACT_ID

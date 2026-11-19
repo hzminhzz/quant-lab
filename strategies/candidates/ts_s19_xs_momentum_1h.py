@@ -17,7 +17,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
+from ts_common import capped_waterfall_weights_clamp as capped_waterfall_weights
 
 from warden.contracts import EvaluationContract
 
@@ -81,68 +81,6 @@ class FeaturePipeline:
 # Backward-compatible aliases
 XSMomentumPipeline = FeaturePipeline
 CrossSectionalMomentumPipeline = FeaturePipeline
-
-
-class XSMomentumStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing AF30 Strategy 19 cross-sectional momentum."""
-
-    def __init__(
-        self,
-        lookback_bars: int = 24,
-        atr_window: int = 14,
-        vol_window: int = 240,
-        vol_min_samples: int = 60,
-        scale: float = 3.0,
-        cap: float = 20.0,
-        rebalance_bars: int = 168,
-        stop_multiple: float = 3.0,
-        per_instrument_cap: float = 0.35,
-        gross_exposure: float = 1.0,
-    ) -> None:
-        super().__init__()
-        self.lookback_bars = lookback_bars
-        self.atr_window = atr_window
-        self.vol_window = vol_window
-        self.vol_min_samples = vol_min_samples
-        self.scale = scale
-        self.cap = cap
-        self.rebalance_bars = rebalance_bars
-        self.stop_multiple = stop_multiple
-        self.per_instrument_cap = per_instrument_cap
-        self.gross_exposure = gross_exposure
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
-
-
-CrossSectionalMomentumStrategy = XSMomentumStrategy
-
-
-def capped_waterfall_weights(raw_weights: np.ndarray, cap: float = 0.35, gross: float = 1.0) -> np.ndarray:
-    """Enforce exact per-instrument risk budget cap by iterative water-filling."""
-    n = len(raw_weights)
-    if n == 0:
-        return np.empty(0, dtype=float)
-    if np.sum(raw_weights) <= 0:
-        return np.full(n, min(gross / max(1, n), cap))
-    w = (raw_weights / np.sum(raw_weights)) * gross
-    frozen = np.zeros(n, dtype=bool)
-    for _ in range(n):
-        over = (w > cap + 1e-12) & ~frozen
-        if not np.any(over):
-            break
-        w[over] = cap
-        frozen[over] = True
-        remaining = gross - cap * float(np.sum(frozen))
-        free = ~frozen
-        free_sum = float(np.sum(raw_weights[free]))
-        if free_sum > 0 and remaining > 0:
-            w[free] = (raw_weights[free] / free_sum) * remaining
-        else:
-            w[free] = 0.0
-            break
-    return np.minimum(w, cap)
 
 
 def generate_positions(
@@ -249,7 +187,6 @@ def generate_positions(
             seg_end = min(seg_start + step, n_bars)
             length = seg_end - seg_start
 
-            # Weights are only recomputed on rebalance bars; the held weight is forward-filled.
             active_ivs = iv_mat[seg_start, act]
             weights = capped_waterfall_weights(active_ivs, cap=per_instrument_cap, gross=gross_exposure)
             entry = (fc_mat[seg_start, act] / cap) * weights
@@ -268,7 +205,6 @@ def generate_positions(
 
             seg_pos = np.broadcast_to(entry, (length, entry.shape[0])).copy()
             if hit.any():
-                # First stop bar per asset: flat from there until the next rebalance.
                 first_hit = np.argmax(hit, axis=0)
                 rows = np.arange(length)[:, None]
                 seg_pos = np.where((rows >= first_hit[None, :]) & hit.any(axis=0)[None, :], 0.0, seg_pos)

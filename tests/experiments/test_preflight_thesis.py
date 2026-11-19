@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 _pf = load_module_from_path(Path("scripts/preflight_thesis.py"))
 next_step = _pf.next_step

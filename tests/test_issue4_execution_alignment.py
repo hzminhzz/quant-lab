@@ -18,8 +18,8 @@ from warden.runner import (
     DoubleLatencyError,
     ExecutionDataError,
     ExperimentRunner,
-    _funding_settlement_mask,
     execution_returns,
+    funding_settlement_mask,
     require_execution_columns,
     simulate_positions,
 )
@@ -100,7 +100,7 @@ def test_quote_side_long_pays_ask_and_short_receives_bid():
 
 def test_funding_signs_and_settlement_mask():
     ts = [datetime(2025, 1, 1, tzinfo=UTC) + timedelta(hours=i) for i in range(24)]
-    mask = _funding_settlement_mask(ts, REPO_CONTRACT)
+    mask = funding_settlement_mask(ts, REPO_CONTRACT)
     assert list(np.where(mask)[0]) == [0, 8, 16]
     pos, rets = np.ones((24, 1)), np.zeros((24, 1))
     for rate, sign in ((0.0005, -1), (-0.0005, 1)):
@@ -150,4 +150,4 @@ def generate_positions(panel_df, contract, **kwargs):
         runner.run_spec(fixture.spec)
     with fixture.registry._connect() as conn:
         row = conn.execute("SELECT verdict, notes FROM trials").fetchone()
-    assert row[0] == "FAILED" and "double latency" in row[1].lower() or row[0] == "FAILED"
+    assert row[0] == "FAILED" and "pre-lagged" in row[1].lower()

@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -20,7 +19,6 @@ class BasisDislocationPipeline:
     def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
         _ = contract
         df = bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
-        # If funding_rate is present use it; otherwise compute price return proxy
         if "funding_rate" in df.columns:
             rate_expr = pl.col("funding_rate")
         else:
@@ -36,25 +34,6 @@ class BasisDislocationPipeline:
                 funding_z=(rate_expr - pl.col("funding_mean")) / (pl.col("funding_std") + 1e-12),
             )
         )
-
-
-class BasisDislocationStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing funding basis dislocation mean reversal."""
-
-    def __init__(
-        self,
-        rolling_window: int = 168,
-        z_threshold: float = 3.0,
-        holding_bars: int = 16,
-    ) -> None:
-        super().__init__()
-        self.rolling_window = rolling_window
-        self.z_threshold = z_threshold
-        self.holding_bars = holding_bars
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(
@@ -99,13 +78,12 @@ def generate_positions(
     weight = 1.0 / len(active_indices)
 
     for a_idx in active_indices:
-        current_dir = 0  # 1 for long, -1 for short
+        current_dir = 0
         hold_count = 0
         for t in range(warmup, n_bars):
             z_val = z_mat[t, a_idx]
             if current_dir != 0:
                 hold_count += 1
-                # Exit when funding z reverts towards mean (|z| <= 0.5) or max holding duration reached
                 if hold_count >= holding_bars or abs(z_val) <= 0.5:
                     current_dir = 0
                     hold_count = 0

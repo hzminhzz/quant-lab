@@ -13,7 +13,8 @@ import polars as pl
 import pytest
 
 from warden.contracts import HypothesisSpec, load_contract
-from warden.runner import ExperimentRunner, load_module_from_path
+from warden.runner import ExperimentRunner
+from warden.strategy_loader import load_module_from_path
 
 common = load_module_from_path(Path("strategies/candidates/carver_daily/carver_common.py"))
 ASSET_CLASSES = common.ASSET_CLASSES

@@ -4,7 +4,7 @@
   "run_id": "RUN-AIR-20261029-111618",
   "model_type": "rules",
   "strategy_family": "rules_ts",
-  "strategy_module": "strategies/candidates/air_template_20261029-111618.py",
+  "strategy_module": "strategies/candidates/air_template_20261029-114744.py",
   "strategy_name": "AIR_CROSS_SECTION_MOMENTUM_7D",
   "parameters": {
     "mode": "cross_section_momentum_7d"

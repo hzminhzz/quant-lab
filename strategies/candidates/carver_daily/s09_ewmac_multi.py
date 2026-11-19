@@ -16,22 +16,18 @@ forecast scalars (p. 205 note 127), not a six-filter FDM, so 1.26 is the default
 from __future__ import annotations
 
 import math
-import sys
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
-
-from warden.contracts import EvaluationContract
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # warden loads modules by path, not as a package
 from carver_common import (
     apply_buffer,
     ewma_price_vol,
     observation_mask,
     value_matrix,
 )
+
+from warden.contracts import EvaluationContract
 
 SPEEDS: tuple[tuple[int, int], ...] = ((2, 8), (4, 16), (8, 32), (16, 64), (32, 128), (64, 256))
 FORECAST_SCALARS: dict[int, float] = {2: 12.1, 4: 8.53, 8: 5.95, 16: 4.10, 32: 2.79, 64: 1.91}

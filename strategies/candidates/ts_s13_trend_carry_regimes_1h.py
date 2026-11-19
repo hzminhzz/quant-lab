@@ -21,7 +21,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
+from ts_common import capped_waterfall_weights
 
 from warden.contracts import EvaluationContract
 
@@ -117,75 +117,6 @@ class FeaturePipeline:
 
 
 TrendCarryRegimesPipeline = FeaturePipeline
-
-
-class TrendCarryRegimesStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing AF30 Strategy 13 trend carry regimes."""
-
-    def __init__(
-        self,
-        ema_fast: int = 16,
-        ema_slow: int = 64,
-        atr_window: int = 14,
-        vol_window: int = 240,
-        vol_min_samples: int = 60,
-        vol_slow_window: int = 720,
-        vol_slow_min_samples: int = 120,
-        trend_scale: float = 0.01,
-        regime_low_weight: float = 1.0,
-        regime_high_weight: float = 0.5,
-        scale: float = 1.0,
-        cap: float = 20.0,
-        rebalance_bars: int = 504,
-        stop_multiple: float = 3.0,
-        per_instrument_cap: float = 0.5,
-        gross_exposure: float = 1.0,
-    ) -> None:
-        super().__init__()
-        self.ema_fast = ema_fast
-        self.ema_slow = ema_slow
-        self.atr_window = atr_window
-        self.vol_window = vol_window
-        self.vol_min_samples = vol_min_samples
-        self.vol_slow_window = vol_slow_window
-        self.vol_slow_min_samples = vol_slow_min_samples
-        self.trend_scale = trend_scale
-        self.regime_low_weight = regime_low_weight
-        self.regime_high_weight = regime_high_weight
-        self.scale = scale
-        self.cap = cap
-        self.rebalance_bars = rebalance_bars
-        self.stop_multiple = stop_multiple
-        self.per_instrument_cap = per_instrument_cap
-        self.gross_exposure = gross_exposure
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
-
-
-def capped_waterfall_weights(raw_weights: np.ndarray, cap: float = 0.5, gross: float = 1.0) -> np.ndarray:
-    """Enforce exact per-instrument risk budget cap by iterative water-filling."""
-    n = len(raw_weights)
-    if n == 0 or np.sum(raw_weights) <= 0:
-        return np.full(n, gross / max(1, n))
-    w = (raw_weights / np.sum(raw_weights)) * gross
-    frozen = np.zeros(n, dtype=bool)
-    for _ in range(n):
-        over = (w > cap + 1e-12) & ~frozen
-        if not np.any(over):
-            break
-        w[over] = cap
-        frozen[over] = True
-        remaining = gross - cap * float(np.sum(frozen))
-        free = ~frozen
-        free_sum = float(np.sum(raw_weights[free]))
-        if free_sum > 0 and remaining > 0:
-            w[free] = (raw_weights[free] / free_sum) * remaining
-        else:
-            w[free] = 0.0
-            break
-    return w
 
 
 def generate_positions(
@@ -297,7 +228,6 @@ def generate_positions(
         else:
             positions[t] = positions[t - 1].copy()
 
-        # Apply trailing ATR stop symmetrically
         for a_idx in active_indices:
             pos = positions[t, a_idx]
             atr = atr_mat[t, a_idx]

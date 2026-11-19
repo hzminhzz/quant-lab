@@ -6,13 +6,15 @@ import hashlib
 import inspect
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import polars as pl
 
 from warden.contracts import EvaluationContract, canonical_json
-from warden.registry import ResearchRegistry
+
+if TYPE_CHECKING:
+    from warden.registry import ResearchRegistry
 
 
 class LookaheadLeakageError(ValueError): pass
@@ -108,15 +110,6 @@ def compute_open_forward_label(open_mat: np.ndarray, delay: int, horizon: int) -
     return forward_label
 
 
-def call_ml4t_compute_features(data: pl.DataFrame | pl.LazyFrame, features: list[str | dict] | str | Path, **kwargs) -> pl.DataFrame:
-    import ml4t.engineer
-    sig = inspect.signature(ml4t.engineer.compute_features)
-    if "calendar" in sig.parameters and "calendar" not in kwargs:
-        kwargs["calendar"] = None
-    res = ml4t.engineer.compute_features(data, features, **kwargs)
-    return res.collect() if isinstance(res, pl.LazyFrame) else res
-
-
 def verify_prefix_invariance(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract, cut_idx: int | None = None) -> None:
     """Sampled leakage detection at 3 cut points (default 1/4, 1/2, 3/4), tolerance 1e-10.
 
@@ -207,10 +200,5 @@ def compute_and_cache_features(pipeline: FeaturePipelineProtocol, bars_df: pl.Da
     feats = pipeline.compute(bars_df, contract).sort("timestamp", "asset")
     feats.write_parquet(cpath)
     if registry is not None:
-        import time
-        with registry._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO feature_sets (feature_hash, contract_id, feature_names_json, ml4t_engineer_version, prefix_invariance_passed, parquet_cache_path, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-                (fhash, contract.contract_id, "[]", ver, str(cpath), time.time()),
-            )
+        registry.record_feature_set(fhash, contract.contract_id, ver, cpath)
     return feats

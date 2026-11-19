@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import bisect
 import hashlib
-import math
 import pickle
 import sqlite3
 import subprocess
@@ -18,6 +17,7 @@ import numpy as np
 import polars as pl
 import yaml
 
+from warden.codeid import code_closure
 from warden.contracts import (
     EvaluationContract,
     ExperimentResult,
@@ -28,14 +28,19 @@ from warden.contracts import (
 )
 from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.gates import (
+    DSR_FLOOR,
+    IC_T_FLOOR,
+    MIN_SR,
+    SR2_FLOOR,
+    SRD_FLOOR,
+    annualised_sharpe,
     evaluate_stage0_feasibility,
     evaluate_stage1_cross_sectional_ml,
     evaluate_stage1_rules_ts,
+    stage0_holding_volatility,
 )
 from warden.provenance import resolve_dataset
-from warden.codeid import code_closure
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
-from warden.strategy_loader import load_module_from_path  # re-exported: child processes import the lean module
 
 
 class LinearBaselineRequiredError(ValueError):
@@ -50,7 +55,7 @@ class DoubleLatencyError(ValueError):
     """A strategy pre-lags its own signals on top of Warden's mandatory execution delay."""
 
 
-def _aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[str]) -> np.ndarray:
+def aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[str]) -> np.ndarray:
     p = panel_df.pivot(index="timestamp", on="asset", values=value_col).fill_null(0.0)
     for a in sorted_assets:
         if a not in p.columns:
@@ -58,7 +63,9 @@ def _aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[
     return p.select(sorted_assets).to_numpy()
 
 
-def _funding_settlement_mask(timestamps: list, contract: EvaluationContract) -> np.ndarray:
+def funding_settlement_mask(timestamps: list, contract: EvaluationContract) -> np.ndarray:
+    """HL funding settles every 8h. Masked for crypto_perps 1h only; other frequencies
+    charge per bar — frozen semantics, do not generalise without a new contract."""
     if contract.asset_class == "crypto_perps" and contract.frequency == "1h":
         return np.array([t.hour % 8 == 0 for t in timestamps], dtype=bool)
     return np.ones(len(timestamps), dtype=bool)
@@ -84,9 +91,9 @@ def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, asse
         df = panel_df.with_columns(
             long_ret=pl.col("bid").shift(-1).over("asset") / pl.col("ask") - 1.0,
             short_ret=-(pl.col("ask").shift(-1).over("asset") / pl.col("bid") - 1.0))
-        return {"long": _aligned_matrix(df, "long_ret", assets), "short": _aligned_matrix(df, "short_ret", assets)}
+        return {"long": aligned_matrix(df, "long_ret", assets), "short": aligned_matrix(df, "short_ret", assets)}
     df = panel_df.with_columns(ret=pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0)
-    return {"long": _aligned_matrix(df, "ret", assets), "short": None}
+    return {"long": aligned_matrix(df, "ret", assets), "short": None}
 
 
 def filter_target_symbols(panel_df: pl.DataFrame, params: dict, path: str = "") -> pl.DataFrame:
@@ -106,6 +113,24 @@ def filter_target_symbols(panel_df: pl.DataFrame, params: dict, path: str = "") 
     if unknown:
         raise ValueError(f"target_symbols contains unknown symbols {sorted(unknown)}; available in {path or 'panel'}: {sorted(available)}")
     return panel_df.filter(pl.col(sym_col).is_in(tgt))
+
+
+def prepare_panel(repo_root: Path, dataset, params: dict, contract: EvaluationContract) -> tuple[pl.DataFrame, list, list, slice]:
+    """Read, rename, restrict, sort and slice the contract's own panel — once, for screen and spec."""
+    panel_df = pl.read_parquet(repo_root / dataset.path)
+    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
+        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = filter_target_symbols(panel_df, params, str(dataset.path)).sort("timestamp", "asset")
+    ts = sorted(panel_df["timestamp"].unique().to_list())
+    assets = sorted(panel_df["asset"].unique().to_list())
+    v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
+    return panel_df, ts, assets, v_slice
+
+
+def simulation_inputs(panel_df: pl.DataFrame, contract: EvaluationContract, ts: list, assets: list) -> tuple[dict, np.ndarray | None, np.ndarray]:
+    ret_p = execution_returns(panel_df, contract, assets)
+    fund_p = aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
+    return ret_p, fund_p, funding_settlement_mask(ts, contract)
 
 
 def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, contract: EvaluationContract, params: dict) -> dict[str, Any]:
@@ -173,15 +198,14 @@ def simulate_positions(positions, returns_panel, funding_panel, contract, val_sl
 
 def calculate_metrics_from_returns(gross_returns, net_returns, bar_turnover, bars_per_year) -> dict[str, float]:
     g, n, turn = np.asarray(gross_returns, dtype=float), np.asarray(net_returns, dtype=float), np.asarray(bar_turnover, dtype=float)
-    ann = math.sqrt(bars_per_year)
     active = n[np.abs(n) > 1e-10]
     gains = float(np.sum(active[active > 0]))
     losses = float(np.abs(np.sum(active[active < 0]))) + 1e-12
     eq = np.cumprod(1.0 + n)
     peak = np.maximum.accumulate(eq)
     return {
-        "gross_sharpe": float(np.mean(g) / (np.std(g, ddof=1) + 1e-12) * ann),
-        "net_sharpe": float(np.mean(n) / (np.std(n, ddof=1) + 1e-12) * ann),
+        "gross_sharpe": annualised_sharpe(g, bars_per_year),
+        "net_sharpe": annualised_sharpe(n, bars_per_year),
         "hit_rate": float(np.mean(active > 0)) if len(active) > 0 else 0.0,
         "profit_factor": float(gains / losses),
         "max_drawdown_pct": float(np.max((peak - eq) / peak)) * 100.0,
@@ -206,28 +230,28 @@ class ExperimentRunner:
                 return load_contract(p)
         raise FileNotFoundError(f"Contract not found: '{contract_id}'")
 
+    @staticmethod
+    def _build_hypothesis_spec(hyp_id, contract, family, h):
+        hyp = HypothesisSpec(hyp_id, contract.contract_id, h["title"], family, h["economic_mechanism"], h["counterparty_or_friction"], int(h["expected_holding_bars"]), h["falsification_criteria"])
+        return hyp, h["trials_used"]
+
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
         cfg = yaml.safe_load(Path(exp_yaml_path).read_text(encoding="utf-8"))
         contract = self.resolve_contract(cfg["contract_id"])
         hyp_id, family = cfg["hypothesis_id"], cfg.get("strategy_family", "rules_ts")
         params = cfg.get("parameters", {})
         strat_module = normalise_module(str(cfg.get("strategy_module", "")))
-        with self.registry._connect() as conn:
-            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
-            if not h:
-                raise ValueError(f"Hypothesis '{hyp_id}' not found.")
-            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
-            trials_used = h[5]
-        evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
+        h = self.registry.hypothesis_row(hyp_id)
+        if not h:
+            raise ValueError(f"Hypothesis '{hyp_id}' not found.")
+        hyp, trials_used = self._build_hypothesis_spec(hyp_id, contract, family, h)
+        evaluate_stage0_feasibility(contract, hyp, stage0_holding_volatility(hyp), trials_used)
         try:
             dataset = resolve_dataset(contract, self.repo_root)
         except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc)
+            self._note_failure(contract, hyp_id, family, strat_module, params, "DATA", exc)
             raise
-        panel_df = pl.read_parquet(self.repo_root / dataset.path)
-        if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
-        panel_df = filter_target_symbols(panel_df, params, str(dataset.path))
-        panel_df = panel_df.sort("timestamp", "asset")
+        panel_df, ts, assets, v_slice = prepare_panel(self.repo_root, dataset, params, contract)
         strat_file = self.repo_root / strat_module
         out = _run_strategy_isolated(strat_file, panel_df, contract, params)
         self._strategy_output_cache[(dataset.sha256, code_closure(self.repo_root, strat_module)[0],
@@ -240,12 +264,7 @@ class ExperimentRunner:
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
                 returns=out["ic_series"], diagnostics={**report.metrics, "dataset": dataset.to_dict()})
             return report
-        ts = sorted(panel_df["timestamp"].unique().to_list())
-        assets = sorted(panel_df["asset"].unique().to_list())
-        v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-        ret_p = execution_returns(panel_df, contract, assets)
-        fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-        fund_mask = _funding_settlement_mask(ts, contract)
+        ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
         sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
                                   funding_mask=fund_mask, quote_returns=ret_p)
         report = evaluate_stage1_rules_ts(sim1["net_returns"].tolist(), sim1["gross_returns"].tolist(),
@@ -263,60 +282,44 @@ class ExperimentRunner:
         hyp_id, family = cfg["hypothesis_id"], cfg.get("strategy_family", "rules_ts")
         strat_name, model_type, params = cfg.get("strategy_name", Path(exp_yaml_path).stem), cfg.get("model_type", "rules"), cfg.get("parameters", {})
 
-        with self.registry._connect() as conn:
-            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, strategy_family FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
-            if not h:
-                raise ValueError(f"Hypothesis '{hyp_id}' not found.")
-            reg_family = h[6]
-            if family != reg_family:
-                raise ValueError(f"Experiment spec strategy_family '{family}' does not match registered hypothesis family '{reg_family}'.")
-            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], reg_family, h[1], h[2], int(h[3]), h[4])
-            trials_used = h[5]
+        h = self.registry.hypothesis_row(hyp_id)
+        if not h:
+            raise ValueError(f"Hypothesis '{hyp_id}' not found.")
+        reg_family = h["strategy_family"]
+        if family != reg_family:
+            raise ValueError(f"Experiment spec strategy_family '{family}' does not match registered hypothesis family '{reg_family}'.")
+        hyp, trials_used = self._build_hypothesis_spec(hyp_id, contract, reg_family, h)
 
         is_linear = model_type.lower() in {"ridge", "linear", "elasticnet", "ols", "lasso"}
-        if family == "cross_sectional_ml" and not is_linear:
-            with self.registry._connect() as conn:
-                r = conn.execute(
-                    "SELECT COUNT(*) FROM trials WHERE hypothesis_id = ? AND (strategy_name LIKE '%Ridge%' OR strategy_module LIKE '%baseline%') AND verdict != 'REJECTED_EARLY'",
-                    (hyp_id,)
-                ).fetchone()
-                if not r or r[0] == 0:
-                    raise LinearBaselineRequiredError(f"Linear baseline required for '{hyp_id}' before non-linear model '{model_type}'.")
+        if family == "cross_sectional_ml" and not is_linear and self.registry.linear_baseline_count(hyp_id) == 0:
+            raise LinearBaselineRequiredError(f"Linear baseline required for '{hyp_id}' before non-linear model '{model_type}'.")
 
-        strat_module = strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
+        strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
         try:
-            evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
+            evaluate_stage0_feasibility(contract, hyp, stage0_holding_volatility(hyp), trials_used)
         except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "STAGE_0", exc)
+            self._note_failure(contract, hyp_id, family, strat_module_str, params, "STAGE_0", exc)
             raise
         run_id = override_run_id or cfg.get("run_id") or f"RUN-{family[:2].upper()}-{trials_used+1:03d}"
         try:
             dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
         except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "DATA", exc)
+            self._note_failure(contract, hyp_id, family, strat_module_str, params, "DATA", exc)
             raise
         try:
-            panel_df = pl.read_parquet(self.repo_root / dataset.path)
-            if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
-            panel_df = filter_target_symbols(panel_df, params, str(dataset.path))
+            panel_df, ts, assets, v_slice = prepare_panel(self.repo_root, dataset, params, contract)
         except (ValueError, OSError) as exc:
-            self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "DATA", exc)
+            self._note_failure(contract, hyp_id, family, strat_module_str, params, "DATA", exc)
             raise
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
-            panel_df = panel_df.sort("timestamp", "asset")
-            ts = sorted(panel_df["timestamp"].unique().to_list())
-            assets = sorted(panel_df["asset"].unique().to_list())
-            v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-            ret_p = execution_returns(panel_df, contract, assets)
-            fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-            fund_mask = _funding_settlement_mask(ts, contract)
+            ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
 
-            strat_file = self.repo_root / strat_module
-            code_sha, code_files = code_closure(self.repo_root, strat_module)
+            strat_file = self.repo_root / strat_module_str
+            code_sha, code_files = code_closure(self.repo_root, strat_module_str)
             provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha}
             out = self._strategy_output_cache.get((data_sha, code_sha, canonical_json(params), contract.spec_hash()))
             if out is None:
@@ -354,7 +357,7 @@ class ExperimentRunner:
                                       funding_mask=fund_mask, quote_returns=ret_p)
             net_ret, gross_ret, turnover = sim1["net_returns"], sim1["gross_returns"], sim1["turnover"]
             net15 = net_ret - 0.5 * contract.total_one_way_cost_decimal() * turnover  # exact from the 1.0x run
-            sr15 = float(np.mean(net15) / (np.std(net15, ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
+            sr15 = annualised_sharpe(net15, contract.bars_per_year)  # exact from the 1.0x run
             m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)
             m.update(compute_trade_metrics(sim1["positions"], net_ret, ret_p["long"][v_slice],
                                            contract.bars_per_year, contract.total_one_way_cost_decimal()))
@@ -365,8 +368,8 @@ class ExperimentRunner:
                                       funding_mask=fund_mask, quote_returns=ret_p)
             sim_d = simulate_positions(raw_pos, ret_p["long"], fund_p, contract, v_slice, delay_offset=1,
                                        funding_mask=fund_mask, quote_returns=ret_p)
-            sr2 = float(np.mean(sim2["net_returns"]) / (np.std(sim2["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
-            srd = float(np.mean(sim_d["net_returns"]) / (np.std(sim_d["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
+            sr2 = annualised_sharpe(sim2["net_returns"], contract.bars_per_year)
+            srd = annualised_sharpe(sim_d["net_returns"], contract.bars_per_year)
 
             ngrid, n_sr, grid_streams = cfg.get("param_grid", []), [], []
             for grid_params in ngrid:
@@ -374,8 +377,7 @@ class ExperimentRunner:
                                               ret_p["long"], fund_p, contract, v_slice, funding_mask=fund_mask,
                                               quote_returns=ret_p)
                 grid_streams.append(grid_sim["net_returns"])
-                n_sr.append(float(np.mean(grid_sim["net_returns"]) / (np.std(grid_sim["net_returns"], ddof=1) + 1e-12)
-                                  * math.sqrt(contract.bars_per_year)))
+                n_sr.append(annualised_sharpe(grid_sim["net_returns"], contract.bars_per_year))
                 # Grid configurations consume validation evidence: count them, never silently.
                 self.registry.record_selection_attempt(
                     hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="param_grid",
@@ -403,10 +405,9 @@ class ExperimentRunner:
             diag["metrics"] = m
             diag["timing_skill"] = compute_shift_skill_pvalue(sim1["positions"], ret_p["long"][v_slice],
                                                               contract.label_horizon_bars)
-            min_sr = 1.2 if family == "cross_sectional_ml" else 1.0
-            ic_ok = (ic_hac_t >= 2.0) if family == "cross_sectional_ml" and ic_hac_t is not None else True
+            ic_ok = (ic_hac_t >= IC_T_FLOOR) if family == "cross_sectional_ml" and ic_hac_t is not None else True
             rules_ok = s1_rules.passed if s1_rules is not None else True
-            statistical = (m["net_sharpe"] > min_sr and sr2 > 0.50 and srd > 0.0 and dsr_p >= 0.90
+            statistical = (m["net_sharpe"] > MIN_SR.get(family, 1.0) and sr2 > SR2_FLOOR and srd > SRD_FLOOR and dsr_p >= DSR_FLOOR
                            and not report["non_promotable_reason"] and ic_ok and rules_ok)
             if not dataset.eligible_market:
                 verdict = "NON_PROMOTABLE"
@@ -425,9 +426,9 @@ class ExperimentRunner:
                 pass
             raise
 
-    def _note_failure(self, contract, hyp_id, family, strat_module, params, dataset, stage, exc):
+    def _note_failure(self, contract, hyp_id, family, strat_module, params, stage, exc):
         """Record validation-consuming failures that never reach a trial row."""
         self.registry.record_selection_attempt(
             hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="failed_reservation", stage=stage,
             outcome="ERROR", strategy_family=family, strategy_module=strat_module, parameters=params,
-            data_provenance=(dataset or {}).get("provenance", "unknown"), diagnostics={"error": str(exc)})
+            data_provenance="unknown", diagnostics={"error": str(exc)})

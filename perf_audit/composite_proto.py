@@ -12,7 +12,8 @@ import bench_warden as B
 B.instrument("verify")
 import warden.leakage as L
 from warden.cli import check_worktree
-from warden.runner import ExperimentRunner, load_module_from_path
+from warden.runner import ExperimentRunner
+from warden.strategy_loader import load_module_from_path
 
 results = []
 for rep in range(2):

@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -48,29 +47,6 @@ class VolumeAnchoredDriftPipeline:
                 is_vol_spike=(pl.col("volume") >= pl.col("vol_q")) & (pl.col("volume") > 0),
             )
         )
-
-
-class VolumeAnchoredDriftStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing volume-anchored drift."""
-
-    def __init__(
-        self,
-        vol_window: int = 168,
-        vol_quantile: float = 0.95,
-        ret_threshold: float = 0.005,
-        holding_bars: int = 24,
-    ) -> None:
-        super().__init__()
-        self.vol_window = vol_window
-        self.vol_quantile = vol_quantile
-        self.ret_threshold = ret_threshold
-        self.holding_bars = holding_bars
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict, context: dict, broker: Any) -> None:
-        self.bar_count += 1
-        for asset, bar in data.items():
-            pass
 
 
 def generate_positions(

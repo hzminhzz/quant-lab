@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 mod = load_module_from_path(Path("strategies/candidates/bta_weird_nq_ga_cfd_30m.py"))
 CONTRACT = mod.CONTRACT_ID

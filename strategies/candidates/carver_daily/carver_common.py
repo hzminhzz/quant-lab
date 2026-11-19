@@ -1,8 +1,8 @@
 """Causal primitives shared by the Carver AF30 daily strategy suite.
 
-Strategy modules load this as a sibling: `sys.path.insert(0, str(Path(__file__).parent))`
-then `from carver_common import ...`. Neither `warden verify` (in-process) nor pytest's
-rootdir puts the repo root on `sys.path`, so a `strategies.*` import fails there.
+Strategy modules load this as a sibling: warden's strategy_loader puts the module
+directory on `sys.path`, so `from carver_common import ...` resolves without a
+per-module bootstrap.
 """
 
 from __future__ import annotations

@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
-# scripts/run_hourly_pipeline.sh
-# Production hourly pipeline with flock concurrency protection, hypothesis registration (supporting .md and .yaml),
-# Stage 1 fail-fast gating, and strict non-interactive qualification guards.
 
 set -euo pipefail
 
-REPO_DIR="/home/quant/dev/quant-lab"
+REPO_DIR="${QUANT_LAB_REPO_DIR:-/home/quant/dev/quant-lab}"
 cd "$REPO_DIR"
 
 # 1. Enforce non-interactive security guard (blocks autonomous holdout unsealing)
 export WARDEN_NON_INTERACTIVE=1
 
 # 2. Concurrency lock (prevents overlapping cron/timer jobs from racing on registry.db)
-LOCK_FILE="/tmp/quant_lab_hourly.lock"
+LOCK_FILE="${QUANT_LAB_HOURLY_LOCK_FILE:-/tmp/quant_lab_hourly.lock}"
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then
     echo "[$(date -u)] Job already running. Exiting cleanly."
     exit 0
 fi
 
-# 3. Ensure required directories exist
 mkdir -p experiments/queue experiments/active/failed experiments/active/archive \
          .workspace/hypotheses/queue .workspace/hypotheses/registered .workspace/hypotheses/failed
 
@@ -39,7 +35,6 @@ for hyp in "${HYP_QUEUE[@]}"; do
     fi
 done
 
-# 6. Process experiment YAML specifications
 QUEUE_SPECS=(experiments/queue/*.yaml experiments/queue/*.yml)
 if [ ${#QUEUE_SPECS[@]} -eq 0 ]; then
     echo "[$(date -u)] No pending experiment specs in experiments/queue/."
@@ -95,7 +90,6 @@ for spec in "${QUEUE_SPECS[@]}"; do
             ;;
     esac
 
-    # Step D: Parse Results & Trigger Adversarial Audit for Qualifying Runs
     RUN_ID=$(echo "$SESSION_OUTPUT" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
     VERDICT=$(echo "$SESSION_OUTPUT" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
 
@@ -104,9 +98,7 @@ for spec in "${QUEUE_SPECS[@]}"; do
         uv run warden audit-check --run-id "$RUN_ID" --json
     fi
 
-    # Move processed spec to active archive
     mv "$spec" experiments/active/archive/
 done
 
-# 7. Record atomic transition snapshot
 uv run warden handoff --notes "Automated hourly execution completed: ${#QUEUE_SPECS[@]} spec(s) processed."

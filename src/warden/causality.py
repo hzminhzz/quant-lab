@@ -17,7 +17,8 @@ import polars as pl
 
 from warden.codeid import code_closure
 from warden.contracts import canonical_json
-from warden.runner import load_module_from_path
+from warden.provenance import file_sha256
+from warden.strategy_loader import load_module_from_path
 
 CUT_FRACTIONS = (0.5, 0.7, 0.9)
 CUT_DATES = ("2023-06-30", "2024-07-01")
@@ -39,20 +40,17 @@ def config_digest(config_json: str) -> str:
 def verify_run(run_id: str, runner) -> dict:
     """Recompute the run's recorded configuration at several cut points and record the result."""
     registry = runner.registry
-    with registry._connect() as conn:
-        row = conn.execute(
-            "SELECT contract_id, strategy_module, config_json, data_snapshot_sha256, strategy_family "
-            "FROM trials WHERE run_id=?", (run_id,)).fetchone()
+    row = registry.trial_row(run_id)
     if row is None:
         raise ValueError(f"unknown run_id '{run_id}'")
-    contract_id, module, cfg_json, recorded_sha, _family = row
+    contract_id, module, cfg_json, recorded_sha = row["contract_id"], row["strategy_module"], row["config_json"], row["data_snapshot_sha256"]
     contract = runner.resolve_contract(contract_id)
     params = json.loads(cfg_json or "{}")
 
     panel_path = Path(runner.repo_root) / contract.exploratory_data_path
     if not panel_path.is_file():
         raise FileNotFoundError(f"panel not found: {contract.exploratory_data_path}")
-    data_sha = hashlib.sha256(panel_path.read_bytes()).hexdigest()
+    data_sha = file_sha256(panel_path)
     if recorded_sha and data_sha != recorded_sha:
         raise ValueError("exploratory panel digest differs from the recorded trial; refusing to certify")
 

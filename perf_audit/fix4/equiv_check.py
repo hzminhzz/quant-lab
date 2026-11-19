@@ -32,7 +32,7 @@ import numpy as np
 import polars as pl
 
 from warden.contracts import load_contract
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 WORK = Path(__file__).resolve().parents[2]
 CONTRACT = load_contract(

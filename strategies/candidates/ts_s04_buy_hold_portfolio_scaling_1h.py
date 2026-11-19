@@ -18,7 +18,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -89,39 +88,6 @@ class FeaturePipeline:
 
 # Backward-compatible alias
 BuyHoldPortfolioScalingPipeline = FeaturePipeline
-
-
-class BuyHoldPortfolioScalingStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing AF30 Strategy 4 buy & hold portfolio scaling."""
-
-    def __init__(
-        self,
-        vol_target: float = 0.1,
-        scale: float = 0.5,
-        cap: float = 20.0,
-        vol_window: int = 240,
-        vol_min_samples: int = 60,
-        atr_window: int = 14,
-        rebalance_bars: int = 168,
-        stop_multiple: float = 3.0,
-        per_instrument_cap: float = 0.5,
-        gross_exposure: float = 1.0,
-    ) -> None:
-        super().__init__()
-        self.vol_target = vol_target
-        self.scale = scale
-        self.cap = cap
-        self.vol_window = vol_window
-        self.vol_min_samples = vol_min_samples
-        self.atr_window = atr_window
-        self.rebalance_bars = rebalance_bars
-        self.stop_multiple = stop_multiple
-        self.per_instrument_cap = per_instrument_cap
-        self.gross_exposure = gross_exposure
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def capped_waterfall_weights(raw_weights: np.ndarray, cap: float = 0.5, gross: float = 1.0) -> np.ndarray:
@@ -260,7 +226,6 @@ def generate_positions(
                 else:
                     for a_idx in rebal_indices:
                         positions[t, a_idx] = 0.0
-        # Apply trailing ATR stop for long positions on observed bars
         for a_idx in active_indices:
             if not obs_mat[t, a_idx]:
                 continue

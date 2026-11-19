@@ -26,7 +26,7 @@ import warden  # noqa: E402
 import warden.leakage as L  # noqa: E402
 from warden.contracts import load_contract  # noqa: E402
 from warden.registry import ResearchRegistry  # noqa: E402
-from warden.runner import load_module_from_path  # noqa: E402
+from warden.strategy_loader import load_module_from_path  # noqa: E402
 
 
 def main() -> None:

@@ -122,7 +122,6 @@ EXECUTABLE_EXT = frozenset(
 # One OS-level lease across every process on the box (server, cron driver, omp session).
 LOCK_PATH = Path.home() / ".local" / "state" / "warden-mcp" / "exec.lock"
 
-# (positional root, max positionals, allowed flags, timeout seconds)
 SUBCOMMANDS: dict[str, tuple[str | None, int, frozenset[str], int]] = {
     "check-worktree": (None, 0, frozenset({"--json"}), 120),
     "status": (None, 0, frozenset({"--json"}), 60),

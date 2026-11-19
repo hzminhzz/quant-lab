@@ -11,16 +11,12 @@ dimensionless weight, so the filter becomes max(trend, 0) on the same signal.
 from __future__ import annotations
 
 import math
-import sys
-from pathlib import Path
 from typing import Any
 
 import polars as pl
+from carver_common import ewma_price_vol, fill_held, observation_mask, value_matrix
 
 from warden.contracts import EvaluationContract
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # warden loads modules by path, not as a package
-from carver_common import ewma_price_vol, fill_held, observation_mask, value_matrix
 
 
 class SlowTrendLongOnlyPipeline:

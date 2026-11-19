@@ -294,7 +294,7 @@ child_mods = subprocess.run(
 lean = json.loads(child_mods.stdout)
 re_export = subprocess.run(
     [sys.executable, "-c",
-     "from warden.runner import load_module_from_path as a; "
+     "from warden.strategy_loader import load_module_from_path as a; "
      "from warden.strategy_loader import load_module_from_path as b; print(a is b)"],
     capture_output=True, text=True, check=True, cwd=WORKTREE,
     env={"PYTHONPATH": str(WORKTREE / "src"), "PATH": "/usr/bin:/bin"})
@@ -308,6 +308,7 @@ print("[D] screen->backtest position reuse on the real fixture spec", flush=True
 sys.path.insert(0, str(PERF.parent))
 import bench_warden as BW  # noqa: E402
 import warden.runner as R  # noqa: E402
+from warden.strategy_loader import load_module_from_path  # noqa: E402
 
 calls = {"n": 0}
 _orig_iso = R._run_strategy_isolated
@@ -406,7 +407,7 @@ from warden.contracts import load_contract  # noqa: E402
 from warden.registry import ResearchRegistry  # noqa: E402
 
 contract = load_contract(MAIN / BW.CONTRACT_REL)
-mod = R.load_module_from_path(MAIN / "strategies/candidates/soc_wbx_downshock_1h_20261031.py")
+mod = load_module_from_path(MAIN / "strategies/candidates/soc_wbx_downshock_1h_20261031.py")
 panel2 = pl.read_parquet(MAIN / contract.exploratory_data_path).filter(
     pl.col("asset").is_in(["BTCUSDT", "ETHUSDT", "LTCUSDT", "XRPUSDT"]))
 raw_compute = mod.ShockVolumeFeaturePipeline.compute

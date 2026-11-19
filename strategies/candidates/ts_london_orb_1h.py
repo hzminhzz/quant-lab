@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -27,7 +26,6 @@ class LondonORBPipeline:
     def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
         _ = contract
         df = bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
-        # Extract UTC hour and date for session boundaries
         return (
             df.sort("timestamp", "asset")
             .with_columns(
@@ -38,29 +36,6 @@ class LondonORBPipeline:
                 vol_ratio=pl.col("volume") / (pl.col("vol_baseline") + 1e-12),
             )
         )
-
-
-class LondonORBStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing London Opening Range Breakout."""
-
-    def __init__(
-        self,
-        asian_start_hour: int = 0,
-        asian_end_hour: int = 8,
-        entry_hour: int = 8,
-        exit_hour: int = 16,
-        volume_mult: float = 1.2,
-    ) -> None:
-        super().__init__()
-        self.asian_start_hour = asian_start_hour
-        self.asian_end_hour = asian_end_hour
-        self.entry_hour = entry_hour
-        self.exit_hour = exit_hour
-        self.volume_mult = volume_mult
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(
@@ -102,7 +77,6 @@ def generate_positions(
     if target_symbols is not None:
         active_indices = [i for i, sym in enumerate(assets) if sym in target_symbols]
     else:
-        # Default to BTC and ETH if present, else all assets
         majors = [i for i, sym in enumerate(assets) if "BTC" in sym or "ETH" in sym]
         active_indices = majors if majors else list(range(n_assets))
 
@@ -121,8 +95,6 @@ def generate_positions(
         cl_a = close_mat[:, act]
         vr_a = vol_ratio_mat[:, act]
 
-        # Session state machine: flat outside the entry-to-exit window, entry only on the
-        # entry hours while flat, otherwise the held position persists.
         flat = (hours >= emit_exit_hour) | (hours < asian_end_hour)
         entry_rows = np.flatnonzero(((hours == entry_hour) | (hours == entry_hour + 1)) & ~flat)
 

@@ -71,9 +71,9 @@ def instrument(mode: str):
     timed("pickle_dump_panel", R.pickle, "dump")
     timed("pickle_load_result", R.pickle, "load")
     timed("execution_returns", R, "execution_returns")
-    timed("_aligned_matrix", R, "_aligned_matrix")
+    timed("aligned_matrix", R, "aligned_matrix")
     timed("simulate_positions", R, "simulate_positions")
-    timed("funding_mask_pyloop", R, "_funding_settlement_mask")
+    timed("funding_mask_pyloop", R, "funding_settlement_mask")
     timed("stage1_rules_gate", R, "evaluate_stage1_rules_ts")
     timed("stage1_rules_gate", G, "evaluate_stage1_rules_ts")
     timed("selection_report_DSR", R, "compute_selection_report")
@@ -187,7 +187,7 @@ def mode_micro():
     out["execution_returns_4sym"] = {"s": round(time.perf_counter() - t0, 3)}
     ts = sorted(p2["timestamp"].unique().to_list())
     t0 = time.perf_counter()
-    mask = R._funding_settlement_mask(ts, contract)
+    mask = R.funding_settlement_mask(ts, contract)
     out["funding_mask_pyloop"] = {"s": round(time.perf_counter() - t0, 3), "n_ts": len(ts)}
     t0 = time.perf_counter()
     subprocess.run([sys.executable, "-c", "import warden.runner"], capture_output=True, check=True)
@@ -229,7 +229,7 @@ def mode_selhist():
 def mode_verify(reps: int):
     import warden.leakage as L
     from warden.contracts import load_contract
-    from warden.runner import load_module_from_path
+    from warden.strategy_loader import load_module_from_path
     from warden.registry import ResearchRegistry
     instrument("verify")
     contract = load_contract(MAIN / CONTRACT_REL)

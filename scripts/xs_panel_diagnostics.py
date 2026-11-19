@@ -26,8 +26,13 @@ from scipy import stats
 from warden.contracts import load_contract
 from warden.gates import compute_hac_tstat
 from warden.registry import compute_selection_report
-from warden.runner import (calculate_metrics_from_returns, execution_returns, simulate_positions,
-                           _aligned_matrix, _funding_settlement_mask)
+from warden.runner import (
+    aligned_matrix,
+    calculate_metrics_from_returns,
+    execution_returns,
+    funding_settlement_mask,
+    simulate_positions,
+)
 
 QUOTE_VOL_WINDOW = 168      # the universe ranks on a trailing 7-day dollar volume
 MIN_WINDOW_COVERAGE = 0.8
@@ -105,8 +110,8 @@ def main() -> int:
     v1 = idx.get(contract.val_end, n_bars)
     grid = [t for t in range(0, n_bars - horizon - 2) if t % horizon == 0 and v0 <= t < v1]
     ret_p = execution_returns(df, contract, assets)
-    fund_p = _aligned_matrix(df, "funding_rate", assets)
-    fmask = _funding_settlement_mask(ts, contract)
+    fund_p = aligned_matrix(df, "funding_rate", assets)
+    fmask = funding_settlement_mask(ts, contract)
     print(f"panel {Path(args.panel).name}: {n_bars:,} bars x {n_a} assets | validation rebalances: {len(grid)}")
 
     rows = []

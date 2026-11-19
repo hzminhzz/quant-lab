@@ -208,7 +208,6 @@ def generate_positions(
     vol_floor = 0.05
     buffer_width = buffer_fraction * w_base
     if act.size:
-        # Per-asset state vectors, stepped bar by bar across the whole asset axis.
         obs_cols = obs_mat[:, act]
         hi_cols = high_mat[:, act]
         lo_cols = low_mat[:, act]
@@ -227,7 +226,7 @@ def generate_positions(
             lo_t = lo_cols[t]
             held[:] = pos
             if t % rebalance_bars == 0:
-                vol_i = np.maximum(vol_cols[t], vol_floor)  # floor at 5% annual vol to prevent blowups
+                vol_i = np.maximum(vol_cols[t], vol_floor)
 
                 # Cash volatility position sizing (Carver Strategy 2/4):
                 # target_weight = (forecast / 10) * (vol_target * weight / vol_i)
@@ -253,7 +252,6 @@ def generate_positions(
             else:
                 pos = held  # forward-filled row copy, same as positions[t] = positions[t - 1]
 
-            # Trailing 3.0x ATR-14 stop evaluated strictly on active traded sessions
             atr = atr_cols[t]
             long_side = obs & (pos > eps)
             short_side = obs & (pos < -eps)

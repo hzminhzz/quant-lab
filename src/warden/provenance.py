@@ -13,10 +13,9 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from warden.contracts import EvaluationContract
+from warden.contracts import MARKET, EvaluationContract
 
 MANIFEST_DIR = Path("contracts") / "datasets"
-MARKET = "verified_market"
 PROVENANCES = frozenset({MARKET, "synthetic"})
 
 
@@ -58,8 +57,6 @@ def resolve_dataset(contract: EvaluationContract, repo_root: Path = Path("."), r
     else:
         record = json.loads(manifest.read_text(encoding="utf-8"))
         provenance, source = str(record.get("provenance", "unknown")), str(record.get("source", ""))
-        if provenance not in PROVENANCES:
-            reason = f"unknown dataset provenance {provenance!r}"
         exp_path = record.get(f"{role}_path") or (record.get("path") if role == "exploratory" else None)
         exp_sha = record.get(f"{role}_sha256") or (record.get("sha256") if role == "exploratory" else None)
         if provenance not in PROVENANCES:

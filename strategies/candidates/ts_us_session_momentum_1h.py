@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -30,27 +29,6 @@ class USSessionMomentumPipeline:
                 vol_ratio=pl.col("volume") / (pl.col("vol_baseline") + 1e-12),
             )
         )
-
-
-class USSessionMomentumStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing US market open intraday momentum."""
-
-    def __init__(
-        self,
-        open_hour: int = 13,
-        close_hour: int = 21,
-        vol_baseline_bars: int = 24,
-        volume_mult: float = 1.5,
-    ) -> None:
-        super().__init__()
-        self.open_hour = open_hour
-        self.close_hour = close_hour
-        self.vol_baseline_bars = vol_baseline_bars
-        self.volume_mult = volume_mult
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(

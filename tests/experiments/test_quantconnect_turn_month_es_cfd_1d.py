@@ -9,7 +9,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 _mod = load_module_from_path(
     Path("strategies/candidates/quantconnect_turn_month_es_cfd_1d.py")

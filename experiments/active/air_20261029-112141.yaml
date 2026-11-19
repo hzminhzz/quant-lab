@@ -4,7 +4,7 @@
   "run_id": "RUN-AIR-20261029-112141",
   "model_type": "rules",
   "strategy_family": "rules_ts",
-  "strategy_module": "strategies/candidates/air_template_20261029-112141.py",
+  "strategy_module": "strategies/candidates/air_template_20261029-114744.py",
   "strategy_name": "AIR_RSI2_TREND_PULLBACK",
   "parameters": {
     "mode": "rsi2_trend_pullback"

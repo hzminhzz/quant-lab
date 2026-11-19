@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import bisect
 import hashlib
-import importlib.util
 import math
 import pickle
 import sqlite3
@@ -36,6 +35,7 @@ from warden.gates import (
 from warden.provenance import resolve_dataset
 from warden.codeid import code_closure
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
+from warden.strategy_loader import load_module_from_path  # re-exported: child processes import the lean module
 
 
 class LinearBaselineRequiredError(ValueError):
@@ -48,16 +48,6 @@ class ExecutionDataError(ValueError):
 
 class DoubleLatencyError(ValueError):
     """A strategy pre-lags its own signals on top of Warden's mandatory execution delay."""
-
-
-def load_module_from_path(module_path: Path):
-    spec = importlib.util.spec_from_file_location(module_path.stem, module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load strategy module from {module_path}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[module_path.stem] = mod
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def _aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[str]) -> np.ndarray:
@@ -129,7 +119,7 @@ def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, c
         (
             "import sys, pickle\n"
             "from pathlib import Path\n"
-            "from warden.runner import load_module_from_path\n"
+            "from warden.strategy_loader import load_module_from_path\n"
             "inp, out = sys.argv[1], sys.argv[2]\n"
             "with open(inp, 'rb') as f: mod_str, p, c, kwargs = pickle.load(f)\n"
             "mod = load_module_from_path(Path(mod_str))\n"
@@ -205,6 +195,9 @@ class ExperimentRunner:
     def __init__(self, registry: ResearchRegistry | None = None, repo_root: Path = Path(".")):
         self.repo_root = Path(repo_root)
         self.registry = registry or ResearchRegistry(self.repo_root / "registry" / "registry.db")
+        # Screen->spec reuse: a strategy's positions depend only on (data bytes, code closure,
+        # params, contract). Anything else is a miss and goes through the isolated child again.
+        self._strategy_output_cache: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
     def resolve_contract(self, contract_id: str) -> EvaluationContract:
         cid = contract_id.lower()
@@ -237,6 +230,8 @@ class ExperimentRunner:
         panel_df = panel_df.sort("timestamp", "asset")
         strat_file = self.repo_root / strat_module
         out = _run_strategy_isolated(strat_file, panel_df, contract, params)
+        self._strategy_output_cache[(dataset.sha256, code_closure(self.repo_root, strat_module)[0],
+                                     canonical_json(params), contract.spec_hash())] = out
         if family == "cross_sectional_ml":
             report = evaluate_stage1_cross_sectional_ml(out["ic_series"])
             self.registry.record_selection_attempt(
@@ -323,7 +318,13 @@ class ExperimentRunner:
             strat_file = self.repo_root / strat_module
             code_sha, code_files = code_closure(self.repo_root, strat_module)
             provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha}
-            out = _run_strategy_isolated(strat_file, panel_df, contract, params)
+            out = self._strategy_output_cache.get((data_sha, code_sha, canonical_json(params), contract.spec_hash()))
+            if out is None:
+                out = _run_strategy_isolated(strat_file, panel_df, contract, params)
+            else:
+                # Hand each run its own arrays: consumers slice the cache, so a later in-place
+                # edit must never be able to rewrite evidence another run already reused.
+                out = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in out.items()}
             if int(out.get("signal_delay_bars", 0)) > 0:
                 raise DoubleLatencyError(
                     f"'{strat_name}' declares signal_delay_bars={out['signal_delay_bars']} while Warden already "

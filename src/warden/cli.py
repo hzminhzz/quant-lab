@@ -21,7 +21,7 @@ from warden.audit import fingerprint as audit_fingerprint
 from warden.audit import record as audit_record
 from warden.causality import config_digest, verify_run
 from warden.contracts import canonical_json, load_hypothesis
-from warden.leakage import compute_and_cache_features, verify_prefix_invariance
+from warden.leakage import compute_and_cache_features
 from warden.policy import Decision, authorize
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry
@@ -168,7 +168,7 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     if not pipeline:
         print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
         return 1
-    verify_prefix_invariance(pipeline, panel, contract)
+    # Miss path proves prefix invariance; a hit is the cached proof the feature_sets row attests.
     compute_and_cache_features(pipeline, panel, contract, registry=runner.registry)
     res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),
            "data_provenance": dataset.provenance, "market_eligible": dataset.eligible_market,

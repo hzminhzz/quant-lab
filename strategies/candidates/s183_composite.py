@@ -32,6 +32,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "carver_daily"))  # war
 from carver_common import apply_buffer, observation_mask, value_matrix
 from ml4t.engineer import compute_features
 
+# carver_common is loaded from a subdir via the sys.path bootstrap above; declare it for the code closure.
+CODE_DEPENDENCIES = ("strategies/candidates/carver_daily/carver_common.py",)
+
 SPEEDS: tuple[tuple[int, int], ...] = ((16, 64), (32, 128), (64, 256))  # S183 TREND_SPEED_PAIRS
 SCALARS: dict[int, float] = {16: 4.10, 32: 2.79, 64: 1.91}  # Carver Table 29
 XS_LOOKBACK = 256  # S183 XS_LOOKBACK

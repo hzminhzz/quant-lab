@@ -10,6 +10,7 @@ from typing import Any
 import polars as pl
 import yaml
 
+from warden.codeid import code_closure
 from warden.gates import HOLDOUT_RATIO_FLOOR, HOLDOUT_SR_FLOOR, REVISE_SR_FLOOR, SR2_FLOOR
 from warden.provenance import resolve_dataset
 from warden.runner import (
@@ -82,10 +83,18 @@ def qualify_candidate(
     assets = sorted(panel_df["asset"].unique().to_list())
     n_bars = len(ts)
 
-    default_mod = "strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py"
-    strat_path = runner.repo_root / (trial.get("strategy_module") or default_mod)
+    strat_module = trial.get("strategy_module")
+    if not strat_module:
+        raise ValueError(f"Trial '{run_id}' has no recorded strategy_module; qualification cannot bind to code.")
+    strat_path = runner.repo_root / strat_module
     if not strat_path.is_file():
-        strat_path = runner.repo_root / default_mod
+        raise FileNotFoundError(f"Recorded strategy module '{strat_module}' for trial '{run_id}' is absent; refusing to qualify on substituted code.")
+    code_sha, _ = code_closure(runner.repo_root, strat_module)
+    recorded_code_sha = trial.get("strategy_code_sha256")
+    if not recorded_code_sha:
+        raise ValueError(f"Trial '{run_id}' has no recorded strategy_code_sha256; qualification requires a code binding (re-run the trial).")
+    if code_sha != recorded_code_sha:
+        raise ValueError(f"Strategy code for trial '{run_id}' changed since the trial; refusing to qualify on different code.")
     mod = load_module_from_path(strat_path)
     raw_cfg = trial.get("config_json", "{}")
     cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}

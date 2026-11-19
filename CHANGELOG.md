@@ -1,10 +1,31 @@
 # Changelog
 
-Notable changes to quant-lab. Commit refs are local (not pushed unless noted). Whenever protected
-files change, the governance manifest (`.warden_manifest.sha256`) is re-signed by the human principal
-— or by an agent under explicit in-session delegation, recorded in an approval trail.
+Notable changes to quant-lab. Commit refs are pushed to origin/main unless noted local. Whenever
+protected files change, the governance manifest (`.warden_manifest.sha256`) is re-signed by the human
+principal — or by an agent under explicit in-session delegation, recorded in an approval trail.
 
 ## 2026-11-19
+
+### Origin reconciliation merge (`7b67a04`, consistency `215205b`; PUSHED to origin/main)
+- Local main had diverged from origin/main (ahead 70 / behind 6). Reconciled NON-destructively by
+  merging origin/main — the six remote PRs (#36/#43/#48/#69: durable evidence ledger, safe recovery,
+  failed-strategy memory, Syncster CME data, carver daily decisions). Both merge parents preserved
+  (`4edbc10` local refactor + `b654352` origin); no force-push. Local and remote main now synced.
+- Adopted remote's production architecture where stricter/newer: durable attempt receipts
+  (`reserve_screen` → `record_trial` FINALIZED) with `spec-status`/`attempt-status` crash
+  reconciliation; `execution_returns` with no close fallback; the `warden_evidence` package; the
+  mutation lease; the `research_outcome_memory` superset; the principal-approved 3,000 LOC budget.
+- Preserved from the local refactor: `codeid.code_closure` + `CODE_DEPENDENCIES`, the strategy dedup
+  (`cs_common`/`ts_common`/`recovery_common`), the sibling-import bootstrap grafted into remote's
+  `runner.load_module_from_path`, and an explicit `strategy_code_sha256` binding grafted into remote
+  `qualify`.
+- Superseded: the local one-process / cache-first / screen→backtest-reuse perf optimizations are
+  replaced by remote's separate-stage state machine; their pinning tests (`test_perf_core_fixes`) and
+  the upstream-removed `test_target_symbols_calendar` were deleted.
+- Reconciled seams: `HypothesisBudgetExhaustedError` and `PER_HYPOTHESIS_CAP` unified to registry
+  ownership (gates imports them); remote holdout/redteam fixtures adapted to the code binding.
+- Verify: `uv run --frozen pytest -q` (observed 493 passed, 8 skipped, 1 xfailed) ·
+  `uv run --frozen warden check-worktree` (rc=0); manifest re-signed under standing delegation.
 
 ### Documentation contract (docs merge `2a8d0fc`; AGENTS.md region principal-approved)
 - `AGENTS.md` gains a marker-delimited agent-maintained region (`omh:agent-instructions`): shared

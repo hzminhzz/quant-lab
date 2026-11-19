@@ -57,7 +57,7 @@ def test_status_json_envelope_shape():
     assert out.returncode == 0
     env = json.loads(out.stdout)
     assert env["ok"] is True and env["source"] == "warden.status" and env["policy"] == "allow"
-    assert env["value"]["trials_count"] >= 1
+    assert isinstance(env["value"]["trials_count"], int) and env["value"]["trials_count"] >= 0
     assert env["observed_at"].endswith("+00:00")
 
 

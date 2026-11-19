@@ -9,6 +9,7 @@ venv/
 *.db
 *.db-shm
 *.db-wal
+.warden-mutation-*.lock
 artifacts/
 
 # Warden generated state (keep .gitkeep markers and env_manifest.json)

@@ -54,6 +54,14 @@ Architecture: `agent_native_quant_research_rfc.md`; portability: `AGENT_COMPATIB
 
 Protected hashes are checked by `warden check-worktree`; POSIX ownership is the actual external security boundary. During the approved TKT-01–12 implementation rollout, implement and sign the specified evaluator files; after cutover, evaluator/contract changes require human approval and a new contract where semantics change. Local synthetic holdout fixtures are not sealed production data.
 
+## Autonomous blocker recovery — RECOVER
+
+- **Trigger:** A `BLOCKED` result, missing data/quotes, bad source, broken test, stale catalog, failed API, unavailable judge, or unresolved dependency invokes [docs/BLOCKER-RECOVERY.md](docs/BLOCKER-RECOVERY.md). Diagnose → choose remedy → implement → verify → **resume the original objective**. A failed subtask does not end the broader authorized research campaign.
+- **Research proxy policy (principal approval, 2026-11-01):** Historical Dukascopy CFD/OHLCV is acceptable for Stage 0/1 discovery and explicitly labeled Stage 3 **proxy-only robustness** when relevant and quality-checked; native exchange futures or tick/quote data is **not** a prerequisite for these research stages. Native-venue economic qualification remains separate. Use [docs/DATA-PROXY.md](docs/DATA-PROXY.md) to select the existing pinned `NEXT_BAR` contract or create a separately versioned, provenance-pinned proxy contract within this approved research scope. Model nonzero spread/slippage/fees. Do not silently replace the dataset or price basis of an existing `QUOTE_SIDE` contract.
+- **Evidence levels:** A CFD proxy is observed market data, not the execution venue's fills. Report proxy screen and robustness outcomes separately from venue-specific execution verification, scientific qualification, holdout authorization, and deployment. Proxy labels are report annotations, not Warden's persisted verdict vocabulary. A missing futures feed may block *venue-specific qualification*, not the whole preliminary discovery campaign. Never use observations after the decision timestamp; missing **futures-market** data is not permission for **future-information** leakage.
+- Repair ordinary data-provider, code, catalog, dependency and test faults autonomously under the approved scope. On scientific falsification preserve the attempt and continue the next distinct hypothesis; never lower statistical gates, delete attempts, unseal holdouts, fabricate quotes, downgrade provenance or mutate frozen contracts. Escalate only an irreducible user-only approval or external blocker; keep immutable evidence and other sessions' work intact.
+- If an independent `judge` is available, use it for nontrivial new decisions and record the real verdict; if not, record `JUDGE_UNAVAILABLE` and continue reversible authorized work with direct tests. OptMem `wake`/`note`/`nap` is memory upkeep, never objective completion.
+
 ## Falsification funnel
 
 0. Register economic mechanism, counterparty/friction and falsification criteria before computation. Reject expected holding-period volatility below 2.5 times round-trip costs.
@@ -91,6 +99,17 @@ uv run warden continue
 ```
 
 These are the target rollout interfaces; bootstrap initially provides only `--help`/`--version`. Experiment commands fail closed on integrity/governance errors. Backtests end with `WARDEN_RUN_COMPLETE` or `WARDEN_RUN_FAILED`; JSON results precede the sentinel. `qualify --run-id ID --unseal-holdout --human-confirm-unseal` executes only under explicit principal approval (Four-way ownership) and is refused under `WARDEN_NON_INTERACTIVE=1`. Never replay arbitrary shell from transition documents; continuation verifies read-only expectations.
+
+## Research Evidence Ledger (approved 2026-11-07)
+
+- The principal approved raising `src/warden/`'s LOC cap to **3,000**. Only the size limit changed; Stage 1–3 statistics, per-hypothesis and lineage budgets, trial search debt, dataset provenance and one-shot production holdout rules did not.
+- SQLite `registry/registry.db` is authoritative for scientific attempts, Stage 1 `screen_receipts`, `attempt_receipts`, `holdout_claims` and exact `spec_causality` proof identity. Parquet/proof files are immutable artifacts whose bytes must reconcile to SQLite. YAML queue status, agent memory and campaign reports are projections, never independent permission to rerun science.
+- Before a queued spec is screened or backtested, use `uv run warden spec-status experiments/active/<spec>.yaml --json`. `NEW` may be screened once; `STAGE1_PASS` may advance without another screen; `STAGE1_REJECT` or `STAGE3_FINAL` must not replay; `REQUIRES_RECONCILIATION` goes to review. Do not reset any budget after interruption.
+- For an uncertain run, use `uv run warden attempt-status --run-id ID --json` (read-only). `reconcile-attempt` may mark an orphan as review-required, not refund/retry it. Scheduler archival requires a matching FINALIZED SQLite+Parquet receipt; FAILED and incomplete trials stay in review.
+- `uv run warden verify-causality --run-id ID --json` checks a *run-bound* frozen strategy/contract/input/proof fingerprint, not an unrelated contract-wide feature row. **Production qualification enforces a recorded APPROVED six-check audit and valid run-bound proof before any holdout claim/read**; a feature cache hit without matching causal proof is not approval.
+- `src/warden_ops/` contains administrative projections, `src/warden_evidence/` contains Warden-owned proof code. The stdio MCP adapter is optional; the locally untracked HTTP server is **not integrated**. No tool may sign a human manifest, read protected holdout or enable live trading without separate approval.
+- `scripts/rehearse_state_machine_migration.py` migrates an **isolated SQLite snapshot only**, never the original live database. The updated `.warden_manifest.sha256` is an unsigned integrity checksum, *not* an independent human signature or permission to deploy.
+- Use `docs/STATE-MACHINE-EVIDENCE-20261107.md` and `docs/STATE-MACHINE-TRANSITIONS-20261107.md` for M01–M25 events, transition and failure semantics, fixture coverage, rollback rules and verified/nonverified dispositions.
 
 ## Methodology skills
 

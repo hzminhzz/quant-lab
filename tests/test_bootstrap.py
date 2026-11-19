@@ -50,15 +50,15 @@ REQUIRED_PACKAGES: tuple[str, ...] = (
 
 
 def test_canonical_directory_skeleton_exists() -> None:
-    """Verify all 19 required canonical directories exist in quant-lab.
+    """Verify the required canonical directories exist in quant-lab.
 
-    .workspace/transitions is gitignored runtime state (superseded by .workspace/state),
+    .workspace/transitions is gitignored runtime state (ephemeral transition checkpoints),
     not a canonical tracked directory, so a fresh checkout must not require it.
     """
     missing = [
         rel_path
         for rel_path in CANONICAL_DIRECTORIES
-        if not (REPO_ROOT / rel_path).is_dir()
+        if rel_path != ".workspace/transitions" and not (REPO_ROOT / rel_path).is_dir()
     ]
     assert not missing, f"Missing canonical directories: {missing}"
 

@@ -320,4 +320,34 @@ describe("skill-router extension integration", () => {
     );
     expect(runBt).toBeUndefined();
   });
+
+  it("revive, missing prompt, and agent scope changes invalidate mutation authority", async () => {
+    const handlers: Record<string, Function> = {};
+    const pi: Partial<ExtensionAPI> = {
+      setLabel: () => {},
+      on: (name: string, cb: Function) => { handlers[name] = cb; },
+      appendEntry: () => {},
+    };
+    const judge = async (_st: RoutingState, questions: Record<string, Question>): Promise<Answers> =>
+      Object.fromEntries(Object.keys(questions).map((key) => [key, {
+        type: "bool", bool: key === "ml4t-run-backtest" ? 0.95 : 0.05,
+      }]));
+    skillRouterExtension(pi as ExtensionAPI, { judge });
+    const cwd = join(import.meta.dir, "../../..");
+    const ctx = { cwd, agent: { kind: "main", id: "A", name: "main", depth: 0 } };
+    const other = { cwd, agent: { kind: "subagent", id: "B", name: "worker", depth: 1 } };
+    const prompt = { type: "before_agent_start", reason: "prompt", prompt: "Backtest strategy", systemPrompt: [] };
+    const revive = { ...prompt, reason: "revive", prompt: "" };
+    const call = { type: "tool_call", toolCallId: "one", toolName: "bash",
+      input: { command: "uv run warden backtest experiments/active/test.yaml --json" } };
+    await handlers.before_agent_start(prompt, ctx);
+    expect(await handlers.tool_call(call, ctx)).toBeUndefined();
+    expect((await handlers.tool_call(call, other)).block).toBe(true);
+    await handlers.before_agent_start(revive, ctx);
+    expect((await handlers.tool_call(call, ctx)).block).toBe(true);
+    await handlers.before_agent_start(prompt, ctx);
+    expect(await handlers.tool_call(call, ctx)).toBeUndefined();
+    await handlers.before_agent_start({ ...prompt, prompt: "" }, ctx);
+    expect((await handlers.tool_call(call, ctx)).block).toBe(true);
+  });
 });

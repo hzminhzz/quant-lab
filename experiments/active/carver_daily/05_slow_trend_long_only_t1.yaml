@@ -1,0 +1,18 @@
+contract_id: MULTI_ASSET_1D_V1
+hypothesis_id: HYP-2026-099
+model_type: rules
+strategy_family: rules_ts
+strategy_module: strategies/candidates/carver_daily/s05_slow_trend_long_only.py
+strategy_name: CARVER_S05_1D
+run_id: RUN-HYP099-001
+parameters:
+  fast: 64
+  slow: 256
+  vol_span: 35
+  vol_target: 0.16
+  per_instrument_cap: 0.5
+  warmup: 1
+param_grid:
+  - {fast: 54, slow: 256, vol_span: 35, vol_target: 0.16, per_instrument_cap: 0.5, warmup: 1}
+  - {fast: 64, slow: 256, vol_span: 35, vol_target: 0.16, per_instrument_cap: 0.5, warmup: 1}
+  - {fast: 74, slow: 256, vol_span: 35, vol_target: 0.16, per_instrument_cap: 0.5, warmup: 1}

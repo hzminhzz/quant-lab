@@ -6,14 +6,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Raised from 2000 on 2026-10-26 under the approved issue-4 implementation mandate
-# (provenance, eligibility, execution alignment, attempt accounting, lineage, trust boundary).
-# Raised from 2400 to 2700 on 2026-10-28 by explicit principal approval in session
-# ("I explicitly approve LOC to 2700, effective by now globally"), to admit the 1.5x cost
-# stress and the code-bound causality evidence.
-# This is a governance control: ticket-10 operator cutover must ratify it, and
-# scripts/preflight_trust_boundary.py reports it as agent-modified until then.
-WARDEN_MAX_LOC = 2700
+# Approved by the principal on 2026-11-07: 3,000 core LOC for pragmatic
+# state-machine repairs. This changes only the code-size budget; statistical
+# gates, authority separation, selection debt and holdout policy stay unchanged.
+WARDEN_MAX_LOC = 3000
 EXPERIMENT_MAX_LOC = 250
 
 

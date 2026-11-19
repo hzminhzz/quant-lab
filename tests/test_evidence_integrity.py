@@ -83,13 +83,13 @@ def _qualify_setup(tmp_path: Path, strategy_module: str, code_sha: str):
 
 def test_qualify_fails_closed_on_missing_module(tmp_path: Path) -> None:
     runner, holdout = _qualify_setup(tmp_path, strategy_module="", code_sha="")
-    with pytest.raises(ValueError, match="no recorded strategy_module"):
+    with pytest.raises(ValueError, match="unsafe frozen strategy module"):
         qualify_candidate("RUN-EV", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout)
 
 
 def test_qualify_fails_closed_on_absent_module_file(tmp_path: Path) -> None:
     runner, holdout = _qualify_setup(tmp_path, strategy_module="strategies/candidates/does_not_exist_1h.py", code_sha="0" * 64)
-    with pytest.raises(FileNotFoundError, match="absent"):
+    with pytest.raises(FileNotFoundError, match="unavailable"):
         qualify_candidate("RUN-EV", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout)
 
 

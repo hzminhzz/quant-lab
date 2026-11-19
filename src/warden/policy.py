@@ -10,7 +10,8 @@ from dataclasses import dataclass
 
 ALLOWED = frozenset({
     "status", "check-worktree", "verify", "screen", "backtest",
-    "audit-check", "verify-causality", "handoff", "continue", "register-hypothesis",
+    "audit-check", "handoff", "continue", "register-hypothesis",
+    "attempt-status", "reconcile-attempt", "verify-causality", "spec-status",
 })
 APPROVAL = frozenset({"qualify", "generate-manifest"})
 

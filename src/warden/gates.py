@@ -8,13 +8,10 @@ from collections.abc import Sequence
 import numpy as np
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
+from warden.registry import HypothesisBudgetExhaustedError
 
 
 class GateFalsificationError(ValueError): pass
-
-
-class HypothesisBudgetExhaustedError(ValueError):
-    """Trial budget is a governance fact; the ledger imports it, not the reverse."""
 
 
 def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:

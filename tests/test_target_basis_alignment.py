@@ -8,8 +8,7 @@ import polars as pl
 
 from warden.contracts import EvaluationContract, utc
 from warden.leakage import compute_open_forward_label
-from warden.runner import aligned_matrix, simulate_positions
-from warden.strategy_loader import load_module_from_path
+from warden.runner import _aligned_matrix, load_module_from_path, simulate_positions
 
 amihud_positions = load_module_from_path(Path("strategies/candidates/cs_amihud_1h.py")).generate_positions
 bab_positions = load_module_from_path(Path("strategies/candidates/cs_bab_1h.py")).generate_positions
@@ -81,7 +80,7 @@ def test_gapped_ohlc_forward_label_alignment():
             ret_df = panel_df.with_columns(
                 ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0)
             )
-            ret_p = aligned_matrix(ret_df, "ret", assets)
+            ret_p = _aligned_matrix(ret_df, "ret", assets)
             open_pivot = panel_df.pivot(index="timestamp", on="asset", values="open").select(assets).to_numpy()
 
             for decision_bar in [5, 10, 15]:

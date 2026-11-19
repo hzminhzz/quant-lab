@@ -1,0 +1,38 @@
+# Changelog
+
+Notable changes to quant-lab. Commit refs are local (not pushed unless noted). Whenever protected
+files change, the governance manifest (`.warden_manifest.sha256`) is re-signed by the human principal
+— or by an agent under explicit in-session delegation, recorded in an approval trail.
+
+## 2026-11-19
+
+### Evidence integrity (merge `35335de`, commit `c081fba`)
+- Code identity is now complete: `warden.codeid.code_closure` walks all imports (module-level and
+  function-local) and unions a module's `CODE_DEPENDENCIES` declaration of runtime-loaded paths. The
+  AF30 book declares its constituents; `s183_composite` declares its subdir helper. Editing any covered
+  file now flips the recorded `strategy_code_sha256`.
+- `warden qualify` no longer substitutes a baseline strategy: it fails closed on a missing/absent trial
+  module and binds qualification to the trial's recorded `strategy_code_sha256` (the recomputed closure
+  must match). Legacy trials without a code binding must be re-run to bind.
+- `scripts/salvage_crypto.py` registers contracts through `ResearchRegistry.register_contract`
+  (idempotent for an identical contract, refuses a changed one) instead of raw `INSERT OR REPLACE`,
+  restoring contract immutability.
+- New `tests/test_evidence_integrity.py` pins closure coverage, the `CODE_DEPENDENCIES` enforcement,
+  contract immutability, and fail-closed qualification.
+- Semantics change approved by the principal; design + authorization trail in `EVIDENCE_INTEGRITY.md`.
+- Verify: `uv run --frozen pytest -q` · `uv run --frozen warden check-worktree` ·
+  `uv run --frozen python scripts/check_loc_budget.py`.
+
+### Whole-pass untangle (merge `4bb411c`, commit `c228019`)
+- Behavior-preserving refactor: cross-sectional Ridge modules share
+  `strategies/candidates/cs_common.py::cs_positions`; rules_ts sizing shares
+  `strategies/candidates/ts_common.py::capped_waterfall_weights` (standard / `_clamp` / `_feasibility`
+  variants). Every rewrite was proven bit-identical to HEAD on a parity harness before acceptance.
+- Warden core: gate vocabulary + trial-budget cap centralized in `gates.py`; registry gained a public
+  read surface; the lineage parent-walk cycle guard was fixed; file-sha256 / provenance-token /
+  `HypothesisSpec` construction deduplicated; dead gates, methods and `Strategy` subclasses removed.
+- Removed dead files (`run_vertical_slice.py`, `create_pr.sh`, one-shot audit/migration scripts,
+  duplicate air templates); removed restating comments; tests cleaned (library tautologies removed,
+  weakened asserts fixed, fresh-checkout bootstrap fix).
+- Authorization + full triage: `UNTANGLE_APPROVAL.md`, `UNTANGLE_DECISION_LOG.md`.
+- Verify: same commands as above.

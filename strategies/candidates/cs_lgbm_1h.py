@@ -152,9 +152,12 @@ def generate_positions(
         )
         model.fit(x_tr, y_tr)
 
-        for t in test_idx:
-            x_test_t = np.column_stack([feat_funding[t], feat_mom[t], feat_rev[t]])
-            oos_preds[t] = model.predict(x_test_t)
+        x_test = np.column_stack([
+            feat_funding[test_idx].ravel(),
+            feat_mom[test_idx].ravel(),
+            feat_rev[test_idx].ravel(),
+        ])
+        oos_preds[test_idx] = model.predict(x_test).reshape(len(test_idx), n_assets)
 
     ic_list = []
     for t in range(val_start_idx, val_end_idx - h):

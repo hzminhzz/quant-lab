@@ -145,9 +145,14 @@ def generate_positions(
         model = Ridge(alpha=alpha, random_state=42)
         model.fit(x_tr[valid], y_tr[valid])
 
-        for t in test_idx:
-            x_test_t = np.column_stack([f1[t], f2[t], f3[t]])
-            oos_preds[t] = model.predict(np.nan_to_num(x_test_t, nan=0.0))
+        x_test = np.column_stack([
+            f1[test_idx].ravel(),
+            f2[test_idx].ravel(),
+            f3[test_idx].ravel(),
+        ])
+        oos_preds[test_idx] = model.predict(np.nan_to_num(x_test, nan=0.0)).reshape(
+            len(test_idx), n_assets
+        )
 
     if invert_factor:
         oos_preds = -oos_preds

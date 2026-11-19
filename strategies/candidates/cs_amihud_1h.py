@@ -124,9 +124,14 @@ def generate_positions(
         model = Ridge(alpha=alpha, random_state=42)
         model.fit(x_tr[valid], y_tr[valid])
 
-        for t in test_idx:
-            x_test_t = np.column_stack([f_ami[t], f_fast[t], f_vol[t]])
-            oos_preds[t] = model.predict(np.nan_to_num(x_test_t, nan=0.0))
+        x_test = np.column_stack([
+            f_ami[test_idx].ravel(),
+            f_fast[test_idx].ravel(),
+            f_vol[test_idx].ravel(),
+        ])
+        oos_preds[test_idx] = model.predict(np.nan_to_num(x_test, nan=0.0)).reshape(
+            len(test_idx), n_assets
+        )
 
     ic_list: list[float] = []
     for t in range(val_start_idx, val_end_idx - h):

@@ -1,0 +1,2 @@
+{"env": {"mode": "screen", "spec": "experiments/active/hyp_2026_004_ridge.yaml", "strat_src": "/home/quant/dev/quant-lab", "loadavg": [3.31884765625, 7.9072265625, 7.91845703125], "live_strategies_md5_ok": true}}
+{"mode": "screen", "rep": 0, "spec": "experiments/active/hyp_2026_004_ridge.yaml", "strat_src": "/home/quant/dev/quant-lab", "wall_s": 3.189, "verdict": "passed=False", "error": null, "extras": {"reasons": []}}

@@ -1,0 +1,20 @@
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3037: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[:, None]
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3038: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[None, :]
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_ic.py:48: RuntimeWarning: invalid value encountered in divide
+  "vec_sum_cancel_nminus1": num / den,
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_ic.py:49: RuntimeWarning: invalid value encountered in divide
+  "vec_einsum_cancel_nminus1": np.einsum("ij,ij->i", dx, dy)
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_ic.py:51: RuntimeWarning: invalid value encountered in divide
+  "vec_matmul_cov_nminus1": mat / np.sqrt(c00 * c11),
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3037: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[:, None]
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3038: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[None, :]
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_ic.py:48: RuntimeWarning: invalid value encountered in divide
+  "vec_sum_cancel_nminus1": num / den,
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_ic.py:49: RuntimeWarning: invalid value encountered in divide
+  "vec_einsum_cancel_nminus1": np.einsum("ij,ij->i", dx, dy)
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_ic.py:51: RuntimeWarning: invalid value encountered in divide
+  "vec_matmul_cov_nminus1": mat / np.sqrt(c00 * c11),

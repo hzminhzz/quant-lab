@@ -1,0 +1,2 @@
+{"env": {"mode": "backtest", "spec": "experiments/active/hyp_2026_002_lgbm.yaml", "strat_src": "/home/quant/dev/quant-lab", "loadavg": [3.52099609375, 8.02392578125, 7.9560546875], "live_strategies_md5_ok": true}}
+{"mode": "backtest", "rep": 0, "spec": "experiments/active/hyp_2026_002_lgbm.yaml", "strat_src": "/home/quant/dev/quant-lab", "wall_s": 0.002, "verdict": null, "error": "LinearBaselineRequiredError: Linear baseline required for 'HYP-BENCH-ULWPERF' before non-linear model 'lightgbm'.", "extras": {}}

@@ -8,7 +8,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
-from warden.registry import HypothesisBudgetExhaustedError
+from warden.registry import PER_HYPOTHESIS_CAP, HypothesisBudgetExhaustedError
 
 
 class GateFalsificationError(ValueError): pass
@@ -97,12 +97,12 @@ def evaluate_stage1_rules_ts(
 
 
 # Single gate vocabulary: runner, cli audit and qualify compare against these, never literals.
+# PER_HYPOTHESIS_CAP is a governance fact owned by the registry (imported above), not redefined here.
 MIN_SR = {"cross_sectional_ml": 1.2, "rules_ts": 1.0}
 SR2_FLOOR, SRD_FLOOR, DSR_FLOOR, IC_T_FLOOR = 0.50, 0.0, 0.90, 2.0
 AUDIT_DSR_FLOOR, TRIM_MEAN_FLOOR = 0.80, -0.001
 HOLDOUT_SR_FLOOR, HOLDOUT_RATIO_FLOOR, REVISE_SR_FLOOR = 0.80, 0.50, 1.0
 STAGE0_VOL_PROXY = 0.0085
-PER_HYPOTHESIS_CAP = 3
 
 
 def per_bar_sharpe(returns) -> float:

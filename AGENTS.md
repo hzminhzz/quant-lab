@@ -111,3 +111,58 @@ When running under the OMP adapter (`scripts/setup_agent_adapter.sh --harness om
 - Rebinds dynamically in subagent child sessions (`task` tool).
 - Enforces a generic action gate in `tool_call`: if skill routing fails or if current active coverage has zero research skills loaded (e.g. documentation edits), mutating actions (`write`, `edit` to strategy files, and `warden backtest/screen/qualify`) are blocked fail-closed, while read-only tools (`read`, `grep`, `glob`) remain operational for diagnosis.
 - In non-OMP harnesses (or when the adapter is unlinked), manual skill reading (`skill://<name>` or `.agents/skills/ml4t-*/SKILL.md`) remains the standard interface.
+
+<!-- omh:agent-instructions:begin -->
+## Agent-maintained contract (untangle + evidence-integrity, 2026-11-19)
+
+This marker-delimited region is maintained by coding agents; the hand-written sections above stay
+byte-for-byte. It records conventions and gates that are not obvious from the code. `CHANGELOG.md`
+lists what landed; `UNTANGLE_DECISION_LOG.md` and `EVIDENCE_INTEGRITY.md` hold the full triage and the
+principal-delegation authorization trails.
+
+### Strategy authoring
+- Cross-sectional Ridge modules call `strategies/candidates/cs_common.py::cs_positions`; rules_ts
+  sizing calls `strategies/candidates/ts_common.py::capped_waterfall_weights` (standard / `_clamp` /
+  `_feasibility` variants). Extend these shared scaffolds rather than copying them into a new module.
+- Sibling helpers import by bare name; `warden.strategy_loader` puts the module's directory on
+  `sys.path` once. Add no per-module `sys.path` bootstrap (the old carver convention is retired).
+- A strategy that loads code at runtime (`load_module_from_path`) or imports from a subdir declares
+  `CODE_DEPENDENCIES` — a module-level tuple/list of repo-relative paths, or a name bound to one — so
+  the code closure covers it. `tests/test_evidence_integrity.py` enforces this fail-closed.
+
+### Evidence binding (fail closed)
+- `warden.codeid.code_closure` is the single authority on a strategy's code identity: all imports plus
+  `CODE_DEPENDENCIES`. The trial records it as `strategy_code_sha256`.
+- `warden qualify` binds to that recorded digest: it refuses a missing/absent trial module, an absent
+  binding, or a changed closure, and never substitutes a baseline. A legacy trial without a binding is
+  re-run to re-bind before it can qualify.
+- Contracts are immutable: register through `ResearchRegistry.register_contract` (identical → no-op,
+  changed → refuse). Write the `contracts` table only through that API, never raw SQL.
+
+### Implementation status
+- The runner wires the `rules_ts` and `cross_sectional_ml` family gates only. `carry_rv` and
+  `meta_overlay` are specified in the RFC/funnel but unwired; their dead gate stubs were removed.
+  Re-add a family's gate when wiring that family.
+
+### Commands (verified by observed run this session)
+- `uv run --frozen pytest -q` — full suite (observed green).
+- `uv run --frozen warden check-worktree` — integrity gate (observed rc=0).
+- `uv run --frozen python scripts/check_loc_budget.py` — src/warden LOC budget (observed pass).
+- `uv run --frozen ruff check <paths>` — lint (observed clean on touched files).
+
+### Generated files
+- `.warden_manifest.sha256` — source: the protected files (`src/warden/`, `contracts/`, `AGENTS.md`,
+  the trust-boundary scripts). Regenerate: `uv run warden generate-manifest --human-approve-manifest`
+  (HUMAN-ONLY; an agent runs it only under explicit in-session principal delegation and records an
+  approval trail). Gate: `uv run warden check-worktree`. `.warden_manifest.sha256.meta.json` carries
+  the signature (mode / approver / approved_at / manifest_sha256).
+
+### Pitfalls (each cost time)
+- Regenerate the worktree manifest BEFORE the final pytest run after editing protected files: the
+  worktree-tampering test asserts an integrity-clean baseline and reports a false regression otherwise.
+- A fresh worktree lacks gitignored runtime state: symlink the read-only data dirs, snapshot the
+  registry via SQLite's backup API (never `cp` a WAL-mode db), create required runtime dirs — or the
+  baseline is full of environment failures masquerading as regressions.
+- In this host's terminal an `env -u VAR …`-prefixed command can silently no-op (rc=0, nothing runs);
+  use a plain invocation and verify side effects by read-back.
+<!-- omh:agent-instructions:end -->

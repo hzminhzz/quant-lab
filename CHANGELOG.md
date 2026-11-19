@@ -6,6 +6,17 @@ files change, the governance manifest (`.warden_manifest.sha256`) is re-signed b
 
 ## 2026-11-19
 
+### Documentation contract (docs merge `2a8d0fc`; AGENTS.md region principal-approved)
+- `AGENTS.md` gains a marker-delimited agent-maintained region (`omh:agent-instructions`): shared
+  strategy scaffolds (`cs_common`/`ts_common`), the `CODE_DEPENDENCIES` declaration rule, evidence
+  binding (fail-closed qualify, immutable contracts), unwired-family status, verified commands, the
+  manifest generated-file map, and costed pitfalls. Hand-written sections are byte-for-byte unchanged.
+  The write required the repo protection guard's explicit approval (granted by the principal); the
+  manifest was re-signed under standing delegation (`approver=human-operator`).
+- `CHANGELOG.md` added; `AGENT_RUNBOOK.md` rule 9 (full code closure + qualify binding + contract API);
+  `docs/WORKFLOW.md` Stage-1 unwired families, holdout code binding, and symbol refs replacing stale
+  line numbers.
+
 ### Evidence integrity (merge `35335de`, commit `c081fba`)
 - Code identity is now complete: `warden.codeid.code_closure` walks all imports (module-level and
   function-local) and unions a module's `CODE_DEPENDENCIES` declaration of runtime-loaded paths. The

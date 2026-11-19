@@ -200,62 +200,72 @@ def generate_positions(
     w_base = 1.0 / max(n_active, 1)
 
     positions = np.zeros((n_bars, n_assets), dtype=float)
-    peak_prices = np.zeros(n_assets, dtype=float)
-    trough_prices = np.full(n_assets, 1e12, dtype=float)
 
     effective_warmup = min(warmup, max(1, n_bars // 4)) if warmup >= n_bars else warmup
 
-    for t in range(effective_warmup, n_bars):
-        if t % rebalance_bars == 0:
-            for idx in active_indices:
-                held = positions[t - 1, idx]
-                if not obs_mat[t, idx]:
-                    positions[t, idx] = held
-                else:
-                    fc = fc_mat[t, idx]
-                    vol_i = max(vol_mat[t, idx], 0.05)  # floor at 5% annual vol to prevent blowups
+    act = np.asarray(active_indices, dtype=int)
+    eps = 1e-6
+    vol_floor = 0.05
+    buffer_width = buffer_fraction * w_base
+    if act.size:
+        # Per-asset state vectors, stepped bar by bar across the whole asset axis.
+        obs_cols = obs_mat[:, act]
+        hi_cols = high_mat[:, act]
+        lo_cols = low_mat[:, act]
+        cl_cols = close_mat[:, act]
+        fc_cols = fc_mat[:, act]
+        vol_cols = vol_mat[:, act]
+        atr_cols = atr_mat[:, act]
+        held = np.zeros(act.size)
+        pos = held.copy()
+        peak = np.zeros(act.size)
+        trough = np.full(act.size, 1e12)
+        out = np.zeros((n_bars, act.size))
+        for t in range(effective_warmup, n_bars):
+            obs = obs_cols[t]
+            hi_t = hi_cols[t]
+            lo_t = lo_cols[t]
+            held[:] = pos
+            if t % rebalance_bars == 0:
+                vol_i = np.maximum(vol_cols[t], vol_floor)  # floor at 5% annual vol to prevent blowups
 
-                    # Cash volatility position sizing (Carver Strategy 2/4):
-                    # target_weight = (forecast / 10) * (vol_target * weight / vol_i)
-                    target = (fc / 10.0) * (vol_target * w_base / vol_i)
-                    target = np.clip(target, -per_instrument_cap, per_instrument_cap)
+                # Cash volatility position sizing (Carver Strategy 2/4):
+                # target_weight = (forecast / 10) * (vol_target * weight / vol_i)
+                target = (fc_cols[t] / 10.0) * (vol_target * w_base / vol_i)
+                target = np.clip(target, -per_instrument_cap, per_instrument_cap)
 
-                    # Buffering (Carver pp. 193-195): buffer width B = buffer_fraction * average_position
-                    buffer_width = buffer_fraction * w_base
-                    if abs(target - held) <= buffer_width:
-                        positions[t, idx] = held
-                    else:
-                        positions[t, idx] = target
+                # Buffering (Carver pp. 193-195): buffer width B = buffer_fraction * average_position
+                buffered = np.where(np.abs(target - held) <= buffer_width, held, target)
+                pos = np.where(obs, buffered, held)
 
-                    # Trail from the extreme reached while in position. Reset when flat and
-                    # reseed on a side change: a long->short flip leaves no flat bar, so
-                    # carrying the old peak into the short's stop (or the old trough into the
-                    # long's) would price the stop off a previous episode.
-                    if held > 1e-6 and target > 1e-6:
-                        peak_prices[idx] = max(peak_prices[idx], high_mat[t, idx])
-                    elif held < -1e-6 and target < -1e-6:
-                        trough_prices[idx] = min(trough_prices[idx], low_mat[t, idx])
-                    else:
-                        peak_prices[idx] = high_mat[t, idx] if target > 1e-6 else 0.0
-                        trough_prices[idx] = low_mat[t, idx] if target < -1e-6 else 1e12
-        else:
-            positions[t] = positions[t - 1].copy()
+                # Trail from the extreme reached while in position. Reset when flat and
+                # reseed on a side change: a long->short flip leaves no flat bar, so
+                # carrying the old peak into the short's stop (or the old trough into the
+                # long's) would price the stop off a previous episode. Unobserved sessions
+                # skip the whole sizing branch, so the trail state is left untouched there.
+                long_both = obs & (held > eps) & (target > eps)
+                short_both = obs & (held < -eps) & (target < -eps)
+                reseed = obs & ~long_both & ~short_both
+                peak = np.where(long_both, np.maximum(peak, hi_t), peak)
+                peak = np.where(reseed, np.where(target > eps, hi_t, 0.0), peak)
+                trough = np.where(short_both, np.minimum(trough, lo_t), trough)
+                trough = np.where(reseed, np.where(target < -eps, lo_t, 1e12), trough)
+            else:
+                pos = held  # forward-filled row copy, same as positions[t] = positions[t - 1]
 
-        # Trailing 3.0x ATR-14 stop evaluated strictly on active traded sessions
-        for idx in active_indices:
-            if not obs_mat[t, idx]:
-                continue
-            pos = positions[t, idx]
-            atr = atr_mat[t, idx]
-            if pos > 1e-6:
-                peak_prices[idx] = max(peak_prices[idx], high_mat[t, idx])
-                stop_price = peak_prices[idx] - stop_multiple * atr
-                if close_mat[t, idx] < stop_price:
-                    positions[t, idx] = 0.0
-            elif pos < -1e-6:
-                trough_prices[idx] = min(trough_prices[idx], low_mat[t, idx])
-                stop_price = trough_prices[idx] + stop_multiple * atr
-                if close_mat[t, idx] > stop_price:
-                    positions[t, idx] = 0.0
+            # Trailing 3.0x ATR-14 stop evaluated strictly on active traded sessions
+            atr = atr_cols[t]
+            long_side = obs & (pos > eps)
+            short_side = obs & (pos < -eps)
+            if long_side.any():
+                peak = np.where(long_side, np.maximum(peak, hi_t), peak)
+                stopped = long_side & (cl_cols[t] < peak - stop_multiple * atr)
+                pos = np.where(stopped, 0.0, pos)
+            if short_side.any():
+                trough = np.where(short_side, np.minimum(trough, lo_t), trough)
+                stopped = short_side & (cl_cols[t] > trough + stop_multiple * atr)
+                pos = np.where(stopped, 0.0, pos)
+            out[t] = pos
+        positions[:, act] = out
 
     return {"positions": positions, "forecast": fc_mat}

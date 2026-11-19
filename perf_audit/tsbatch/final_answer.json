@@ -1,0 +1,81 @@
+{
+ "task": "Vectorise bar x asset position/stop loops in quant-lab ts strategy modules (worktree /home/quant/.devspace/worktrees/quant-lab-ultraperf-20261119, branch perf/ts-batch-20261119, HEAD 29ccb57)",
+ "outcome": {"modules_kept": 4, "modules_reverted": 1, "commits": 0, "live_repo_writes": 0, "holdout_reads": 0, "qualify_or_manifest_runs": 0},
+ "modules": [
+  {
+   "module": "strategies/candidates/ts_s06_slow_trend_long_short_1h.py",
+   "contract": "MULTI_ASSET_1H_V1 (data/exploratory/multi_asset_1h.parquet, 66311 bars x 17 assets)",
+   "refactor": "rebalance segments stepped by rebalance_bars; capped_waterfall_weights computed once per rebalance bar and broadcast (forward-filled) across the held window; trailing ATR stop recursion expressed as maximum/minimum.accumulate peak/trough paths plus first-hit argmax per asset",
+   "decision": "kept",
+   "gate1_identity": {"panels_identical": "8/8", "panels": ["real_contract_full", "synthetic_stop_trigger", "synthetic_flat", "synthetic_single_asset", "real_panel_tail400", "real_panel_head60", "synthetic_async_sessions", "synthetic_unsorted"], "criterion": "np.array_equal and tobytes identical on positions and forecast", "real_panel_proof": {"nonzero_positions": 36851, "stop_events": 1984}, "synthetic_stop_panel_proof": {"nonzero_positions": 1159, "stop_events": 6}, "single_asset_proof": {"nonzero_positions": 3553, "stop_events": 130}},
+   "gate2_fail_closed": {"cases_identical": "11/11", "cases": ["drop_close", "drop_high", "drop_low", "drop_volume", "drop_asset", "empty_frame", "close_string", "rebalance_bars_0", "target_symbols_empty", "target_symbols_unknown", "stop_multiple_0"]},
+   "gate3_prefix_invariance": "passed (warden.leakage.verify_prefix_invariance, new pipeline, real contract panel, 3 cut points)",
+   "gate4_verdicts": {"screen": "identical (passed=false, all metrics bit-identical)", "backtest": "identical (REVISE, STAGE_3_STRESS, net_sharpe -0.3484732924142905, all ExperimentResult fields equal except strategy_code_sha256)"},
+   "timing_median_of_5_interleaved": {"generate_positions_old_s": 1.06623, "generate_positions_new_s": 0.75127, "total_speedup": 1.419, "feature_pipeline_old_s": 0.14533, "feature_pipeline_new_s": 0.25062, "pivot_materialisation_old_s": 0.45872, "pivot_materialisation_new_s": 0.30595, "position_loop_old_s": 0.46218, "position_loop_new_s": 0.1947, "position_loop_speedup": 2.37}
+  },
+  {
+   "module": "strategies/candidates/ts_s19_xs_momentum_1h.py",
+   "contract": "MULTI_ASSET_1H_V1 (66311 bars x 17 assets)",
+   "refactor": "same segment scheme as ts_s06 (168-bar rebalance, 0.35 cap); cross-sectional rank/centre pipeline untouched; stop overlay vectorised per segment across the asset axis",
+   "decision": "kept",
+   "gate1_identity": {"panels_identical": "8/8", "real_panel_proof": {"nonzero_positions": 106138, "stop_events": 5760}, "synthetic_stop_panel_proof": {"nonzero_positions": 1090, "stop_events": 12}, "tail400_proof": {"nonzero_positions": 285, "stop_events": 15}},
+   "gate2_fail_closed": {"cases_identical": "11/11"},
+   "gate3_prefix_invariance": "passed",
+   "gate4_verdicts": {"screen": "identical (passed=false, metrics bit-identical)", "backtest": "identical (REVISE, STAGE_3_STRESS, net_sharpe -0.9630649492897816, all fields equal except strategy_code_sha256)"},
+   "timing_median_of_5_interleaved": {"generate_positions_old_s": 1.42197, "generate_positions_new_s": 1.10133, "total_speedup": 1.291, "position_loop_old_s": 0.70177, "position_loop_new_s": 0.36631, "position_loop_speedup": 1.92}
+  },
+  {
+   "module": "strategies/candidates/ts_london_orb_1h.py",
+   "contract": "CRYPTO_MAJORS_1H_V1 (43848 bars x 23 assets, default actives BTC/ETH)",
+   "refactor": "per-asset session scan inverted: Asian-range state built only on asian-hour rows via segmented maximum/minimum.accumulate with h==asian_start reset and sampled at entry bars by searchsorted; entry/flat session machine evaluated only on entry-window rows with first-candidate-per-run selection; non-flat runs filled by slice assignment (forward-fill of the held position)",
+   "decision": "kept",
+   "gate1_identity": {"panels_identical": "8/8", "real_panel_proof": {"nonzero_positions": 4100, "stop_events": 626}, "synthetic_stop_panel_proof": {"nonzero_positions": 1190, "stop_events": 170}, "single_asset_proof": {"nonzero_positions": 1899, "stop_events": 290}, "async_sessions_proof": {"nonzero_positions": 154, "stop_events": 22}},
+   "gate2_fail_closed": {"cases_identical": "11/11", "note": "non-numeric OHLC now fails closed with an explicit numeric-dtype guard that re-raises the scalar loop's identical numpy UFuncTypeError ('less', Float64DType/StrDType) instead of a later ValueError"},
+   "gate3_prefix_invariance": "passed",
+   "gate4_verdicts": {"screen": "identical (passed=false, metrics bit-identical)", "backtest": "identical (REVISE, STAGE_3_STRESS, net_sharpe -0.8110739685073353, all fields equal except strategy_code_sha256)"},
+   "timing_median_of_5_interleaved": {"generate_positions_old_s": 0.25429, "generate_positions_new_s": 0.21946, "total_speedup": 1.159, "position_loop_old_s": 0.08279, "position_loop_new_s": 0.03562, "position_loop_speedup": 2.32}
+  },
+  {
+   "module": "strategies/candidates/carver_breakout_daily.py",
+   "contract": "MULTI_ASSET_1D_V1 (3359 bars x 17 assets)",
+   "refactor": "per-bar recursion kept (daily buffer/deadband plus trail is genuinely sequential) but state vectors stepped across the whole asset axis: act columns sliced once, held/pos/peak/trough kept as 1-D vectors, sizing/buffer/three-way trail reseed and ATR stop expressed with np.where masks that honour the observation mask (unobserved sessions leave trail state untouched, matching the skipped scalar branch), row copy replaced by the carried vector",
+   "decision": "kept",
+   "gate1_identity": {"panels_identical": "8/8", "real_panel_proof": {"nonzero_positions": 52926, "stop_events": 1694}, "synthetic_stop_panel_proof": {"nonzero_positions": 4242, "stop_events": 212}, "async_sessions_proof": {"nonzero_positions": 415, "stop_events": 11}, "single_asset_proof": {"nonzero_positions": 3149, "stop_events": 102}},
+   "gate2_fail_closed": {"cases_identical": "11/11"},
+   "gate3_prefix_invariance": "passed",
+   "gate4_verdicts": {"screen": "identical (passed=false, metrics bit-identical)", "backtest": "identical (REVISE, STAGE_3_STRESS, net_sharpe 0.4013678683507584, all fields equal except strategy_code_sha256)"},
+   "timing_median_of_5_interleaved": {"generate_positions_old_s": 0.5478, "generate_positions_new_s": 0.44054, "total_speedup": 1.243, "position_loop_old_s": 0.37549, "position_loop_new_s": 0.25443, "position_loop_speedup": 1.48}
+  },
+  {
+   "module": "strategies/candidates/rsi_ema_vwap_pullback_1h.py",
+   "contract": "INDICES_1H_V1 (60353 bars x 6 assets, spec targets NQ only)",
+   "refactor": "attempted episode-boundary rewrite (entry bars plus first exit signal via searchsorted episode scan) instead of the asset x time state machine",
+   "decision": "reverted",
+   "revert_method": "git show HEAD:strategies/candidates/rsi_ema_vwap_pullback_1h.py > file (file is byte-identical to HEAD and absent from git status)",
+   "reasons": ["gate2 failed: empty-frame panel returned OK in the HEAD version but raised ZeroDivisionError in the vectorised version because weight was hoisted before the per-asset loop", "no gain to justify fixing it: on its contract panel the inner loop is only about 0.009 s of about 0.125 s (three pivots about 0.030 s, Polars pipeline about 0.055 s); measured generate_positions speedup 0.96x, position-loop 0.97x", "gate1 identity did hold (8/8 panels, real panel 12523 non-zero positions / 3209 stop events) and prefix invariance passed, so the revert is on cost-benefit and the fail-closed mismatch, not on identity"]
+  }
+ ],
+ "harness": {
+  "perf_audit/tsbatch/vec_verify.py": "gates 1-3 plus interleaved median-of-5 timing (total, feature-pipeline, pivot, loop residual) against perf_audit/tsbatch/old/*.py",
+  "perf_audit/tsbatch/screen_verdict.py": "gate 4: scratch registry snapshot via sqlite backup from the live DB opened read-only, fixture hypothesis HYP-BENCH-ULWPERF with fresh trial budget, worktree strategies copied, data/ and contracts/ symlinked read-only; runs warden ExperimentRunner stage-1 screen and run_spec for new vs HEAD module; tmp roots deleted",
+  "perf_audit/tsbatch/diff_cell.py": "first-mismatch locator that found the ts_london_orb asian_high>0 short-side guard bug and the carver observation-mask trail bug",
+  "old_versions": "perf_audit/tsbatch/old/ with ts_s06_slow_trend_long_short_1h.py, ts_s19_xs_momentum_1h.py, ts_london_orb_1h.py, carver_breakout_daily.py, rsi_ema_vwap_pullback_1h.py from git show HEAD",
+  "results": "perf_audit/tsbatch/vec_verify_results.json, verdict_screen.json, verdict_backtest.json, final_run.log"
+ },
+ "bugs_found_and_fixed_during_gating": [
+  "ts_london_orb_1h: the scalar guard asian_high > 0 gates both the long and short branch; the first vectorised draft gated only the long side and produced short entries on panels whose Asian high had gone negative (77 mismatched cells on synthetic_stop_trigger)",
+  "carver_breakout_daily: the scalar sizing/trail block is skipped entirely when the observation mask is False; the first vectorised draft still updated peak/trough from a stale target, diverging on asynchronous-session assets (5282 mismatched cells on real_contract_full, first divergence at bar 106 EUSIDXEUR)"
+ ],
+ "invariants_respected": {
+  "files_edited": ["strategies/candidates/ts_s06_slow_trend_long_short_1h.py", "strategies/candidates/ts_s19_xs_momentum_1h.py", "strategies/candidates/ts_london_orb_1h.py", "strategies/candidates/carver_breakout_daily.py", "perf_audit/tsbatch/"],
+  "untouched": ["cs_*", "soc_*", "src/warden/**", "contracts/**", "scripts/**", "manifest", "AGENTS.md", "pyproject.toml", "uv.lock", "/home/quant/dev/quant-lab", "data/holdout"],
+  "data_access": "read-only parquet reads through the worktree data/ symlink; live registry opened only as sqlite mode=ro for snapshot copies",
+  "environment": "uv run --frozen --project /home/quant/dev/quant-lab python (editable warden = unchanged HEAD core)",
+  "lint": "ruff check on the four kept modules reports 1 error, the same pre-existing I001 in carver_breakout_daily.py present at HEAD; no new lint errors, git diff --check clean"
+ },
+ "caveats": [
+  "Totals move 10-15 percent with machine load (ts_s06 total speedup measured 1.32x, 1.42x and 1.90x across runs); position-loop ratios were stable at 1.5-3.3x. Reported figures are one interleaved median-of-5 run.",
+  "generate_positions residual is dominated by pivot materialisation (0.10-0.47 s per call) that sits outside the edited loops; the loop-only columns subtract measured pipeline and pivot time.",
+  "Single-asset synthetic panels make cross-sectional modules return all-zero positions (no cross-sectional dispersion by construction); identity there is a trivially equal zero panel, recorded as such."
+ ]
+}

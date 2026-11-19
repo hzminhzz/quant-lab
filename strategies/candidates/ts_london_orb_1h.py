@@ -112,42 +112,72 @@ def generate_positions(
     positions = np.zeros((n_bars, n_assets), dtype=float)
     weight = 1.0 / len(active_indices)
 
-    # Track Asian range state sequentially per asset
-    for a_idx in active_indices:
-        asian_high = -1e9
-        asian_low = 1e9
-        current_pos = 0.0
+    if active_indices and n_bars:
+        act = np.asarray(active_indices, dtype=int)
+        emit_exit_hour = exit_hour - contract.execution_delay_bars
 
-        for t in range(n_bars):
-            h = hours[t]
-            bar_high = high_mat[t, a_idx]
-            bar_low = low_mat[t, a_idx]
-            bar_close = close_mat[t, a_idx]
-            vol_ratio = vol_ratio_mat[t, a_idx]
+        hi_a = high_mat[:, act]
+        lo_a = low_mat[:, act]
+        cl_a = close_mat[:, act]
+        vr_a = vol_ratio_mat[:, act]
 
-            # In Asian session: accumulate high and low
-            if asian_start_hour <= h < asian_end_hour:
-                if h == asian_start_hour:
-                    asian_high = bar_high
-                    asian_low = bar_low
-                else:
-                    asian_high = max(asian_high, bar_high)
-                    asian_low = min(asian_low, bar_low)
+        # Session state machine: flat outside the entry-to-exit window, entry only on the
+        # entry hours while flat, otherwise the held position persists.
+        flat = (hours >= emit_exit_hour) | (hours < asian_end_hour)
+        entry_rows = np.flatnonzero(((hours == entry_hour) | (hours == entry_hour + 1)) & ~flat)
 
-            # Exit condition: emit zero position early enough so that with execution_delay_bars,
-            # the position executes the flat exit at exit_hour UTC (e.g. 16:00 UTC).
-            emit_exit_hour = exit_hour - contract.execution_delay_bars
-            if h >= emit_exit_hour or h < asian_end_hour:
-                current_pos = 0.0
-            elif (h == entry_hour or h == entry_hour + 1) and current_pos == 0.0 and asian_high > 0:
-                # Check breakout condition with volume confirmation
-                vol_ok = vol_ratio >= volume_mult
-                if bar_close > asian_high and vol_ok:
-                    current_pos = weight
-                elif bar_close < asian_low and vol_ok:
-                    current_pos = -weight
+        if hi_a.dtype.kind not in "fiu" or lo_a.dtype.kind not in "fiu" or cl_a.dtype.kind not in "fiu":
+            # Non-numeric OHLC: fail closed with the scalar loop's comparison error
+            # (same numpy UFuncTypeError type and message).
+            np.less(np.float64(-1e9), cl_a.flat[0])
 
-            positions[t, a_idx] = current_pos
+        if entry_rows.size:
+            # Asian range state: reset on the asian_start_hour bar, otherwise the running
+            # extreme carried across bars per asset (identical to the sequential scan).
+            a_rows = np.flatnonzero((hours >= asian_start_hour) & (hours < asian_end_hour))
+            if a_rows.size:
+                reset = hours[a_rows] == asian_start_hour
+                bounds = np.flatnonzero(reset)
+                if bounds.size == 0 or bounds[0] != 0:
+                    bounds = np.concatenate(([0], bounds))
+                bounds = np.append(bounds, a_rows.size)
+                gh_a, gl_a = hi_a[a_rows], lo_a[a_rows]
+                state_hi = np.empty_like(gh_a)
+                state_lo = np.empty_like(gl_a)
+                for k in range(bounds.size - 1):
+                    s, e = int(bounds[k]), int(bounds[k + 1])
+                    state_hi[s:e] = np.maximum.accumulate(gh_a[s:e], axis=0)
+                    state_lo[s:e] = np.minimum.accumulate(gl_a[s:e], axis=0)
+                # Range in force at each entry bar: the last asian bar at or before it.
+                last_a = np.searchsorted(a_rows, entry_rows, side="right") - 1
+                have = last_a >= 0
+                asian_hi = np.where(have[:, None], state_hi[np.maximum(last_a, 0)], -1e9)
+                asian_lo = np.where(have[:, None], state_lo[np.maximum(last_a, 0)], 1e9)
+            else:
+                asian_hi = np.full((entry_rows.size, act.size), -1e9)
+                asian_lo = np.full((entry_rows.size, act.size), 1e9)
+
+            vol_ok = vr_a[entry_rows] >= volume_mult
+            long_break = vol_ok & (asian_hi < cl_a[entry_rows]) & (asian_hi > 0)
+            short_break = vol_ok & (cl_a[entry_rows] < asian_lo) & (asian_hi > 0)
+            cand = long_break | short_break
+            cand_value = np.where(long_break, weight, -weight)
+
+            # Only the first breakout signal of each non-flat run can open a position.
+            run_id = np.cumsum(flat)[entry_rows]
+            new_run = np.ones(entry_rows.size, dtype=bool)
+            new_run[1:] = run_id[1:] != run_id[:-1]
+            run_start = np.maximum.accumulate(np.where(new_run, np.arange(entry_rows.size), 0))
+            seen = np.cumsum(cand, axis=0)
+            base = np.where(run_start[:, None] > 0, seen[np.maximum(run_start - 1, 0)], 0)
+            first_cand = cand & ((seen - base) == 1)
+
+            flat_rows = np.flatnonzero(flat)
+            for r, j in np.argwhere(first_cand):
+                row = int(entry_rows[r])
+                k = int(np.searchsorted(flat_rows, row))
+                end = int(flat_rows[k]) if k < flat_rows.size else n_bars
+                positions[row:end, act[j]] = cand_value[r, j]
 
     return {"positions": positions}
 

@@ -213,32 +213,42 @@ def generate_positions(
     peak_prices = np.zeros(n_assets, dtype=float)
     trough_prices = np.full(n_assets, 1e12, dtype=float)
 
-    for t in range(warmup, n_bars):
-        if t % rebalance_bars == 0:
-            active_ivs = iv_mat[t, active_indices]
-            weights = capped_waterfall_weights(active_ivs, cap=per_instrument_cap, gross=gross_exposure)
-            for idx, a_idx in enumerate(active_indices):
-                fc = fc_mat[t, a_idx]
-                positions[t, a_idx] = (fc / cap) * weights[idx]
-                peak_prices[a_idx] = high_mat[t, a_idx]
-                trough_prices[a_idx] = low_mat[t, a_idx]
-        else:
-            positions[t] = positions[t - 1]
+    if active_indices:
+        act = np.asarray(active_indices, dtype=int)
+        eps = 1e-6
+        step = abs(rebalance_bars)
+        # First rebalance bar at or after warmup (same modulo semantics as the original loop).
+        start = warmup + (-warmup) % rebalance_bars
+        for seg_start in range(start, n_bars, step):
+            seg_end = min(seg_start + step, n_bars)
+            length = seg_end - seg_start
 
-        # Apply trailing ATR stop symmetrically
-        for a_idx in active_indices:
-            pos = positions[t, a_idx]
-            atr = atr_mat[t, a_idx]
-            if pos > 1e-6:
-                peak_prices[a_idx] = max(peak_prices[a_idx], high_mat[t, a_idx])
-                stop_price = peak_prices[a_idx] - stop_multiple * atr
-                if close_mat[t, a_idx] < stop_price:
-                    positions[t, a_idx] = 0.0
-            elif pos < -1e-6:
-                trough_prices[a_idx] = min(trough_prices[a_idx], low_mat[t, a_idx])
-                stop_price = trough_prices[a_idx] + stop_multiple * atr
-                if close_mat[t, a_idx] > stop_price:
-                    positions[t, a_idx] = 0.0
+            # Weights are only recomputed on rebalance bars; the held weight is forward-filled.
+            active_ivs = iv_mat[seg_start, act]
+            weights = capped_waterfall_weights(active_ivs, cap=per_instrument_cap, gross=gross_exposure)
+            entry = (fc_mat[seg_start, act] / cap) * weights
+
+            hi = high_mat[seg_start:seg_end, act]
+            lo = low_mat[seg_start:seg_end, act]
+            cl = close_mat[seg_start:seg_end, act]
+            atr_path = atr_mat[seg_start:seg_end, act]
+
+            # Trail from the rebalance reseed: peak/trough at bar t are exactly the running
+            # extremes of the held window, so the path-dependent recursion is a cumulative op.
+            peak_path = np.maximum.accumulate(hi, axis=0)
+            trough_path = np.minimum.accumulate(lo, axis=0)
+            hit = (entry > eps) & (cl < peak_path - stop_multiple * atr_path)
+            hit |= (entry < -eps) & (cl > trough_path + stop_multiple * atr_path)
+
+            seg_pos = np.broadcast_to(entry, (length, entry.shape[0])).copy()
+            if hit.any():
+                # First stop bar per asset: flat from there until the next rebalance.
+                first_hit = np.argmax(hit, axis=0)
+                rows = np.arange(length)[:, None]
+                seg_pos = np.where((rows >= first_hit[None, :]) & hit.any(axis=0)[None, :], 0.0, seg_pos)
+            positions[seg_start:seg_end, act] = seg_pos
+            peak_prices[act] = peak_path[-1]
+            trough_prices[act] = trough_path[-1]
 
     return {"positions": positions, "forecast": fc_mat}
 

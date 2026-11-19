@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 
 from warden.contracts import load_contract
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 book_mod = load_module_from_path(Path("strategies/books/af30_handcrafted_book_1h.py"))
 CLASS_OF = book_mod.CLASS_OF

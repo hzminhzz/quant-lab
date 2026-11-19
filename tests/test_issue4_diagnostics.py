@@ -59,10 +59,6 @@ def test_timing_skill_is_deterministic_and_preserves_exposure():
     assert first["k"] == 200 and first["seed"] == 42 and first["gate_applied"] is False
     assert first["valid_shift_range"] == [12, 388]
     assert first["time_in_market"] == pytest.approx(np.mean(np.abs(pos) > 0) )
-    # every circular shift keeps the same exposure profile
-    for shift in (12, 137, 387):
-        shifted = np.roll(pos, shift, axis=0)
-        assert np.array_equal(np.sort(np.abs(shifted), axis=0), np.sort(np.abs(pos), axis=0))
     assert "not an exact distribution-free p-value" in first["caveat"]
 
 

@@ -38,7 +38,6 @@ class CSVolumeReturnCorrelationPipeline:
             ret_x_vol=(ret * vol_chg),
         )
 
-        # 336h, 168h, 72h rolling correlations
         for w in (336, 168, 72):
             cov_w = (
                 pl.col("ret_x_vol").rolling_mean(w, min_samples=12).over("asset")

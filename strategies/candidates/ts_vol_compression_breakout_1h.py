@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -63,33 +62,6 @@ class VolCompressionBreakoutPipeline:
                 squeeze=(pl.col("bb_width") < pl.col("kc_width")).fill_null(False),
             )
         )
-
-
-class VolCompressionBreakoutStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing squeeze breakout."""
-
-    def __init__(
-        self,
-        bb_window: int = 20,
-        bb_k: float = 2.0,
-        kc_window: int = 20,
-        kc_mult: float = 1.5,
-        mom_window: int = 12,
-        holding_bars: int = 36,
-        squeeze_lookback: int = 5,
-    ) -> None:
-        super().__init__()
-        self.bb_window = bb_window
-        self.bb_k = bb_k
-        self.kc_window = kc_window
-        self.kc_mult = kc_mult
-        self.mom_window = mom_window
-        self.holding_bars = holding_bars
-        self.squeeze_lookback = squeeze_lookback
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
 
 
 def generate_positions(
@@ -179,12 +151,10 @@ def generate_positions(
 
             if current_pos != 0.0:
                 hold_bars += 1
-                # Exit when holding duration reaches limit or momentum reverses
                 if hold_bars >= holding_bars or (current_pos > 0 and mom < 0) or (current_pos < 0 and mom > 0):
                     current_pos = 0.0
                     hold_bars = 0
             else:
-                # Breakout firing: squeeze just released with directional momentum outside bands
                 if had_recent_squeeze and not in_squeeze:
                     if mom > 0 and close >= upper:
                         current_pos = weight

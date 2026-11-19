@@ -3,10 +3,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
+
 import numpy as np
 import polars as pl
 import pytest
-from warden.runner import load_module_from_path
+
+from warden.strategy_loader import load_module_from_path
 
 mod=load_module_from_path(Path("strategies/candidates/bta_nq_monday_time_1h_20261031.py"))
 CHI=ZoneInfo("America/Chicago")

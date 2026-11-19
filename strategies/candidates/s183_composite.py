@@ -104,7 +104,6 @@ def build_signal_frame(panel_df: pl.DataFrame, contract: Any) -> pl.DataFrame:
         trend_ts=(pl.col(f"ewmac_{SPEEDS[0][0]}") + pl.col(f"ewmac_{SPEEDS[1][0]}")
                   + pl.col(f"ewmac_{SPEEDS[2][0]}")) / len(SPEEDS),
     )
-    # cross-sectional trend: same-date z-score, then the per-asset forecast scalar
     df = df.with_columns(
         xs_z=(pl.col("xs_raw") - pl.col("xs_raw").mean().over("timestamp"))
         / pl.col("xs_raw").std().over("timestamp")

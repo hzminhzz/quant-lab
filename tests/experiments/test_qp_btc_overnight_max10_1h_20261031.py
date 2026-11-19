@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 mod = load_module_from_path(Path("strategies/candidates/qp_btc_overnight_max10_1h_20261031.py"))
 NY = ZoneInfo("America/New_York")

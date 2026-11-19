@@ -25,7 +25,6 @@ class CSFundingKurtosisTailPipeline:
         else:
             rate_expr = (pl.col("close") - pl.col("open")) / (pl.col("open") + 1e-12)
 
-        # 168h rolling moments for kurtosis
         w_long = 168
         mu_168 = rate_expr.rolling_mean(w_long).over("asset")
         m2_168 = (rate_expr**2).rolling_mean(w_long).over("asset")
@@ -35,7 +34,6 @@ class CSFundingKurtosisTailPipeline:
         cm4_168 = m4_168 - 4 * mu_168 * m3_168 + 6 * (mu_168**2) * m2_168 - 3 * (mu_168**4)
         kurt_168 = cm4_168 / (var_168**2 + 1e-12)
 
-        # 72h rolling moments for fast kurtosis
         w_short = 72
         mu_72 = rate_expr.rolling_mean(w_short).over("asset")
         m2_72 = (rate_expr**2).rolling_mean(w_short).over("asset")

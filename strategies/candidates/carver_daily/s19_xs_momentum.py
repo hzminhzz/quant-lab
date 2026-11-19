@@ -24,16 +24,10 @@ horizons, scalars, spans and FDM all remain module constants so the mapping is a
 from __future__ import annotations
 
 import math
-import sys
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
-
-from warden.contracts import EvaluationContract
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # warden loads modules by path, not as a package
 from carver_common import (
     ASSET_CLASSES,
     apply_buffer,
@@ -43,6 +37,8 @@ from carver_common import (
     observation_mask,
     value_matrix,
 )
+
+from warden.contracts import EvaluationContract
 
 HORIZONS: tuple[int, ...] = (5, 10, 20, 40, 80, 160)
 SMOOTH_SPANS: dict[int, int] = {5: 2, 10: 3, 20: 5, 40: 10, 80: 20, 160: 40}

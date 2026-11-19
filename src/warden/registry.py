@@ -15,27 +15,23 @@ from ml4t.diagnostic.evaluation.stats import deflated_sharpe_ratio
 from scipy import stats
 
 from warden.contracts import (
+    MARKET,
     EvaluationContract,
     ExperimentResult,
     HypothesisSpec,
     canonical_json,
     valid_id,
 )
+from warden.gates import PER_HYPOTHESIS_CAP, HypothesisBudgetExhaustedError, per_bar_sharpe
 
 BLOCKING = frozenset({"QUARANTINED_SYNTHETIC", "QUARANTINED", "REVOKED", "SUPERSEDED"})
-MARKET = "verified_market"
 LEGACY_RUNS = ("RUN-RULES-001", "RUN-RULES-002", "RUN-RULES-003", "RUN-ML-001", "RUN-ML-002")
 LEGACY_REASON = "Synthetic benchmark evidence; not evaluated on verified exploratory market data"
 
 
-PER_HYPOTHESIS_CAP = 3
 LINEAGE_CAP = 6            # principal-authorised hard cap: root + descendants + module aliases
 CORR_DUPLICATE = 0.9995    # |corr| at or above this is the same trial, not a new one
 UNVECTORIZED_PENALTY = 0.50
-
-
-class HypothesisBudgetExhaustedError(ValueError):
-    pass
 
 
 class SelectionHistoryError(ValueError):
@@ -91,14 +87,14 @@ def compute_selection_report(candidate_returns, historical_return_streams, bars_
     matrix = np.column_stack(streams)
     k_dedup = _eigen_rank(matrix[:, distinct_stream_indices(matrix)])
     k_gate = max(k_dedup, floor) + UNVECTORIZED_PENALTY * unvectorized
-    sharpes = [float(np.mean(v) / (np.std(v, ddof=1) + 1e-12)) for v in streams]
+    sharpes = [per_bar_sharpe(v) for v in streams]
     sr_std = max(float(np.std(sharpes, ddof=1)) if len(sharpes) > 1 else 0.0, 1.0 / math.sqrt(n))
     if matrix.shape[1] > 1:
         upstream = deflated_sharpe_ratio(matrix, periods_per_year=bars_per_year,
                                          correlation_method="effective_rank")
         if not np.isclose(upstream.n_trials_effective, _eigen_rank(matrix), rtol=1e-6):
             raise ValueError("ML4T/reference effective-rank disagreement")
-    sr = float(np.mean(candidate) / (np.std(candidate, ddof=1) + 1e-12))
+    sr = per_bar_sharpe(candidate)
     noise = 0.0
     if k_gate > 1.001:
         gamma, kk = 0.5772156649, max(k_gate, 1.05)
@@ -114,14 +110,6 @@ def compute_selection_report(candidate_returns, historical_return_streams, bars_
     report.update(probability=probability, expected_max_sharpe_noise=noise_ann,
                   k_eff_dedup=k_dedup, k_eff_gate=k_gate, sr_std=sr_std)
     return report
-
-
-def compute_effective_trials_and_dsr(candidate_returns, historical_return_streams, bars_per_year,
-                                     total_trials_n=None, prior_max_keff=1.0, prior_max_noise=0.0):
-    """Backward-compatible 4-tuple: (probability, annualised noise SR, raw N, applied k_eff gate)."""
-    r = compute_selection_report(candidate_returns, historical_return_streams, bars_per_year,
-                                 total_trials_n, prior_max_keff, prior_max_noise)
-    return r["probability"], r["expected_max_sharpe_noise"], r["raw_attempt_count"], r["k_eff_gate"]
 
 
 def normalise_module(module: str | None) -> str:
@@ -351,12 +339,18 @@ class ResearchRegistry:
             if not row[0]:
                 conn.execute("UPDATE hypotheses SET strategy_module=? WHERE hypothesis_id=?", (module, hypothesis_id))
 
-    def _lineage(self, conn, hypothesis_id):
+    @staticmethod
+    def _root_hypothesis(conn, hypothesis_id):
         root, seen = hypothesis_id, set()
         while root not in seen:
             row = conn.execute("SELECT parent_hypothesis_id FROM hypotheses WHERE hypothesis_id=?", (root,)).fetchone()
-            if not row or not row[0] or row[0] == root: break
+            if not row or not row[0] or row[0] == root:
+                break
             seen.add(root); root = row[0]
+        return root
+
+    def _lineage(self, conn, hypothesis_id):
+        root = self._root_hypothesis(conn, hypothesis_id)
         cid = (conn.execute("SELECT contract_id FROM hypotheses WHERE hypothesis_id=?", (root,)).fetchone() or [None])[0]
         members = {r[0] for r in conn.execute(
             "WITH RECURSIVE d(hypothesis_id) AS (SELECT ? UNION "
@@ -481,12 +475,6 @@ class ResearchRegistry:
                 "max_noise=MAX(max_noise,excluded.max_noise),updated_at=excluded.updated_at",
                 (contract_id, float(k_eff_gate), float(noise), time.time()))
 
-    def load_prior_trial_returns(self, contract_id, expected_len):
-        try:
-            return self.selection_history(contract_id, expected_len)["streams"]
-        except SelectionHistoryError as exc:
-            raise ValueError(str(exc).replace("Unaligned selection history",
-                                              "Contract-wide trial histories are not aligned")) from exc
     def record_trial(self, result, config_dict, net_returns, trial_number=None, diagnostics=None):
         valid_id(result.run_id)
         valid_id(result.contract_id)
@@ -520,3 +508,49 @@ class ResearchRegistry:
                 if observed:
                     path.unlink(missing_ok=True)
                 raise
+
+    def table_count(self, table: str) -> int:
+        if table not in {"trials", "hypotheses"}: raise ValueError(f"table '{table}' is not countable")
+        with self._connect() as conn:
+            return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+    def hypothesis_row(self, hypothesis_id: str) -> dict | None:
+        with self._connect() as conn:
+            return dict(row) if (row := conn.execute("SELECT * FROM hypotheses WHERE hypothesis_id=?", (hypothesis_id,)).fetchone()) else None
+
+    def trial_row(self, run_id: str) -> dict | None:
+        with self._connect() as conn:
+            return dict(row) if (row := conn.execute("SELECT * FROM trials WHERE run_id=?", (run_id,)).fetchone()) else None
+
+    def recent_trials(self, limit: int = 5) -> list[dict]:
+        with self._connect() as conn:
+            return [dict(r) for r in conn.execute("SELECT run_id, hypothesis_id, strategy_family, net_sharpe, deflated_sharpe_prob, verdict, data_provenance FROM trials ORDER BY created_at DESC LIMIT ?", (limit,))]
+
+    def candidate_run_ids(self) -> list[str]:
+        with self._connect() as conn:
+            return [r[0] for r in conn.execute("SELECT run_id FROM trials WHERE verdict='CANDIDATE_FOR_QUALIFICATION'")]
+
+    def feature_proof(self, contract_id: str) -> bool:
+        with self._connect() as conn:
+            return conn.execute("SELECT prefix_invariance_passed FROM feature_sets WHERE contract_id = ? AND prefix_invariance_passed = 1", (contract_id,)).fetchone() is not None
+
+    def quarantine_reason(self, run_id: str) -> str | None:
+        with self._connect() as conn:
+            return row[0] if (row := conn.execute("SELECT reason FROM trial_quarantine WHERE run_id = ?", (run_id,)).fetchone()) else None
+
+    def lineage_root(self, hypothesis_id: str) -> str:
+        with self._connect() as conn:
+            return self._root_hypothesis(conn, hypothesis_id)
+
+    def lineage_qualification(self, lineage_id: str) -> dict | None:
+        with self._connect() as conn:
+            return dict(row) if (row := conn.execute("SELECT qual_id, run_id FROM qualifications WHERE lineage_id = ?", (lineage_id,)).fetchone()) else None
+
+    def record_feature_set(self, feature_hash, contract_id, version, cache_path) -> None:
+        with self._connect() as conn:
+            conn.execute("INSERT OR REPLACE INTO feature_sets (feature_hash, contract_id, feature_names_json, ml4t_engineer_version, prefix_invariance_passed, parquet_cache_path, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+                         (feature_hash, contract_id, "[]", version, str(cache_path), time.time()))
+
+    def linear_baseline_count(self, hypothesis_id: str) -> int:
+        with self._connect() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM trials WHERE hypothesis_id = ? AND (strategy_name LIKE '%Ridge%' OR strategy_module LIKE '%baseline%') AND verdict != 'REJECTED_EARLY'", (hypothesis_id,)).fetchone()[0])

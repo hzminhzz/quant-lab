@@ -20,12 +20,10 @@ class CSQuadraticMarketBetaPipeline:
         df = bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
         delay = contract.execution_delay_bars
 
-        # 1h return per asset
         df = df.sort("timestamp", "asset").with_columns(
             ret_1h=pl.col("close").pct_change().over("asset").fill_null(0.0)
         )
 
-        # BTC benchmark return or cross-sectional average if BTCUSDT not present
         btc = df.filter(pl.col("asset") == "BTCUSDT").select([
             pl.col("timestamp"),
             pl.col("ret_1h").alias("ret_m"),
@@ -84,7 +82,6 @@ class CSQuadraticMarketBetaPipeline:
                 (cov_y_res / (var_res + 1e-8)).alias(f"beta2_{w}"),
             )
 
-        # Demean and standardize cross-sectionally.
         # Negate beta_2 so concave assets (negative beta_2) have high positive signal scores.
         return df.with_columns(
             feat_neg_beta2_168=(-pl.col("beta2_168") - (-pl.col("beta2_168")).mean().over("timestamp"))

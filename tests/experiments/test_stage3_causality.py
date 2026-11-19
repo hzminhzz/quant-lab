@@ -24,7 +24,7 @@ import polars as pl
 import pytest
 
 from warden.contracts import load_contract
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AF30_LIVE_CHECKS") != "1",

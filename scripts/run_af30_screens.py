@@ -120,7 +120,6 @@ def main():
         else:
             print(f"Already registered: {hyp_id}")
 
-        # Write screen YAML
         screen_yaml_path = exp_dir / f"{s_num}_{slug}_screen.yaml"
         screen_doc = {
             "contract_id": "MULTI_ASSET_1H_V1",
@@ -133,7 +132,6 @@ def main():
         }
         screen_yaml_path.write_text(yaml.safe_dump(screen_doc, sort_keys=False), encoding="utf-8")
 
-        # Run warden verify
         print(f"Verifying {screen_yaml_path.name}...")
         res_ver = subprocess.run(
             ["uv", "run", "warden", "verify", str(screen_yaml_path), "--json"],
@@ -169,7 +167,6 @@ def main():
             exit_code = 0 if passed else 1
             scr_payload = {"passed": passed, "metrics": metrics, "notes": "From existing screen record"}
         else:
-            # Run warden screen
             print(f"Screening {screen_yaml_path.name}...")
             res_scr = subprocess.run(
                 ["uv", "run", "warden", "screen", str(screen_yaml_path), "--json"],

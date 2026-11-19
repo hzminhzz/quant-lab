@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 _sig = load_module_from_path(Path("strategies/candidates/path_signature_common.py"))
 SIGNAL_NAMES = _sig.SIGNAL_NAMES

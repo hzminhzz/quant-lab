@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
@@ -31,42 +30,6 @@ class CSLGBMPipeline:
                 feat_mom=(pl.col("mom_6h") - pl.col("mom_6h").mean().over("timestamp")),
                 feat_rev=(pl.col("rev_2h") - pl.col("rev_2h").mean().over("timestamp")),
             )
-        )
-
-
-class CSLGBMModel:
-    """WalkForwardModelProtocol implementation for LightGBM."""
-
-    def __init__(self, num_leaves: int = 15, learning_rate: float = 0.05, n_estimators: int = 30):
-        self.num_leaves = num_leaves
-        self.learning_rate = learning_rate
-        self.n_estimators = n_estimators
-
-    def fit_predict_fold(
-        self,
-        train_df: pl.DataFrame,
-        val_features_df: pl.DataFrame,
-        feature_cols: Sequence[str],
-        label_col: str,
-        seed: int = 42,
-    ) -> pl.DataFrame:
-        x_tr = train_df.select(feature_cols).to_numpy()
-        y_tr = train_df[label_col].to_numpy()
-        valid = np.isfinite(x_tr).all(axis=1) & np.isfinite(y_tr)
-        model = LGBMRegressor(
-            num_leaves=self.num_leaves,
-            learning_rate=self.learning_rate,
-            n_estimators=self.n_estimators,
-            max_depth=3,
-            random_state=seed,
-            verbose=-1,
-        )
-        model.fit(x_tr[valid], y_tr[valid])
-
-        x_val = val_features_df.select(feature_cols).to_numpy()
-        preds = model.predict(np.nan_to_num(x_val, nan=0.0))
-        return val_features_df.select("timestamp", "asset").with_columns(
-            prediction_value=pl.Series(preds)
         )
 
 
@@ -190,4 +153,3 @@ def generate_positions(
 
 
 pipeline = CSLGBMPipeline()
-model = CSLGBMModel()

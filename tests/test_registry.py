@@ -11,7 +11,7 @@ from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
 from warden.registry import (
     HypothesisBudgetExhaustedError,
     ResearchRegistry,
-    compute_effective_trials_and_dsr,
+    compute_selection_report,
 )
 
 
@@ -57,7 +57,7 @@ def test_append_only_budget_and_exact_parquet_roundtrip(registry):
         assert conn.execute("SELECT trials_used,status FROM hypotheses").fetchone()[:] == (3, "REJECTED")
         path = conn.execute("SELECT returns_parquet_path FROM trials ORDER BY run_id").fetchone()[0]
     np.testing.assert_array_equal(pl.read_parquet(path)["net_return"].to_numpy(), returns)
-    np.testing.assert_array_equal(registry.load_prior_trial_returns(contract.contract_id, 100)[0], returns)
+    np.testing.assert_array_equal(registry.selection_history(contract.contract_id, 100)["streams"][0], returns)
     with pytest.raises(ValueError, match="immutable"):
         registry.register_contract(replace(contract, taker_fee_bps=5))
     with pytest.raises(ValueError, match="immutable"):
@@ -76,24 +76,24 @@ def test_trial_reservation_is_durable_and_ids_cannot_overwrite(registry):
     with registry._connect() as conn:
         assert conn.execute("SELECT trials_used FROM hypotheses").fetchone()[0] == 1
     with pytest.raises(ValueError, match="aligned"):
-        reopened.load_prior_trial_returns("CRYPTO_PERPS_1H_V1", 99)
+        reopened.selection_history("CRYPTO_PERPS_1H_V1", 99)
 
 
 def test_effective_rank_collinear_orthogonal_and_candidate_specific_dsr():
     rng = np.random.default_rng(42)
     x = rng.normal(size=2000)
-    duplicate = compute_effective_trials_and_dsr(x, [x, x], 8760)
-    assert duplicate[2] == 3
-    assert duplicate[3] == pytest.approx(1., abs=1e-8)
+    duplicate = compute_selection_report(x, [x, x], 8760)
+    assert duplicate["raw_attempt_count"] == 3
+    assert duplicate["k_eff_gate"] == pytest.approx(1., abs=1e-8)
     independent = rng.normal(size=(2000, 4))
-    ranks = [compute_effective_trials_and_dsr(independent[:, n],
+    ranks = [compute_selection_report(independent[:, n],
              [independent[:, j] for j in range(n)], 8760) for n in range(4)]
-    assert [row[2] for row in ranks] == [1, 2, 3, 4]
-    assert all(a[3] < b[3] and a[1] < b[1] for a, b in itertools.pairwise(ranks))
-    assert ranks[-1][3] > 3.9
-    candidate = compute_effective_trials_and_dsr(x - .1, [x + .5], 8760)
-    assert candidate[0] < .01  # Must not inherit the historical leader's positive DSR.
+    assert [r["raw_attempt_count"] for r in ranks] == [1, 2, 3, 4]
+    assert all(a["k_eff_gate"] < b["k_eff_gate"] and a["expected_max_sharpe_noise"] < b["expected_max_sharpe_noise"] for a, b in itertools.pairwise(ranks))
+    assert ranks[-1]["k_eff_gate"] > 3.9
+    candidate = compute_selection_report(x - .1, [x + .5], 8760)
+    assert candidate["probability"] < .01  # Must not inherit the historical leader's positive DSR.
     with pytest.raises(ValueError, match="aligned"):
-        compute_effective_trials_and_dsr(x, [x[:-1]], 8760)
+        compute_selection_report(x, [x[:-1]], 8760)
     with pytest.raises(ValueError, match="finite"):
-        compute_effective_trials_and_dsr(np.full(100, np.nan), [], 8760)
+        compute_selection_report(np.full(100, np.nan), [], 8760)

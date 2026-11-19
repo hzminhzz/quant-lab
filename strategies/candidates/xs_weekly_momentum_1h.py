@@ -27,8 +27,8 @@ import polars as pl
 from warden.contracts import EvaluationContract
 from warden.leakage import compute_open_forward_label
 
-LOOKBACK_BARS = 168          # 7 days of 1h bars
-MIN_WINDOW_COVERAGE = 0.8    # share of the 168-bar window that must be present
+LOOKBACK_BARS = 168
+MIN_WINDOW_COVERAGE = 0.8
 
 
 class XSWeeklyMomentumPipeline:
@@ -104,7 +104,7 @@ def generate_positions(
     dvol = np.where(cover >= MIN_WINDOW_COVERAGE * lookback_bars, dvol, np.nan)
 
     n_leg = max(1, int(round(universe_size * quintile_fraction)))
-    w_each = 0.5 / n_leg                     # gross 1.0, dollar-neutral
+    w_each = 0.5 / n_leg
     val_start_idx = ts_index.get(contract.val_start, int(n_bars * 0.25))
     val_end_idx = ts_index.get(contract.val_end, n_bars)
     first = max(val_start_idx, lookback_bars)
@@ -128,10 +128,10 @@ def generate_positions(
             positions[t] = positions[t - 1]
             continue
         universe = eligible[np.argsort(-dvol[t][eligible])[:universe_size]]
-        order = universe[np.argsort(ret[t][universe])]      # ascending momentum
+        order = universe[np.argsort(ret[t][universe])]
         weights = np.zeros(n_assets, dtype=float)
-        weights[order[-n_leg:]] = w_each                    # winners: long
-        weights[order[:n_leg]] = -w_each                    # losers: short
+        weights[order[-n_leg:]] = w_each
+        weights[order[:n_leg]] = -w_each
         positions[t] = weights
         universes[t] = universe
 

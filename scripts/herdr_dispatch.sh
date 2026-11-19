@@ -1,12 +1,9 @@
 #!/usr/bin/env bash
-# scripts/herdr_dispatch.sh
-# Dispatches long-running warden commands to a Herdr worker pane when available,
-# falling back to synchronous execution otherwise.
 
 set -euo pipefail
 
 PANE="w1:p2"
-TIMEOUT="300000"  # 5 minutes in ms
+TIMEOUT="300000"
 COMMAND=""
 
 while [[ $# -gt 0 ]]; do

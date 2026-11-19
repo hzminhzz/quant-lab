@@ -6,13 +6,15 @@ import math
 from collections.abc import Sequence
 
 import numpy as np
-from scipy import stats
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
-from warden.registry import HypothesisBudgetExhaustedError
 
 
 class GateFalsificationError(ValueError): pass
+
+
+class HypothesisBudgetExhaustedError(ValueError):
+    """Trial budget is a governance fact; the ledger imports it, not the reverse."""
 
 
 def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:
@@ -32,8 +34,8 @@ def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:
 def evaluate_stage0_feasibility(
     contract: EvaluationContract, hypothesis: HypothesisSpec, holding_volatility: float, trials_used: int
 ) -> bool:
-    if trials_used >= 3:
-        raise HypothesisBudgetExhaustedError(f"Hypothesis {hypothesis.hypothesis_id} budget exhausted ({trials_used}/3)")
+    if trials_used >= PER_HYPOTHESIS_CAP:
+        raise HypothesisBudgetExhaustedError(f"Hypothesis {hypothesis.hypothesis_id} budget exhausted ({trials_used}/{PER_HYPOTHESIS_CAP})")
     hurdle = contract.total_one_way_cost_decimal() * 2.0 * contract.min_expected_move_to_cost_ratio
     if holding_volatility < hurdle:
         raise GateFalsificationError(f"Holding volatility ({holding_volatility:.6f}) < hurdle ({hurdle:.6f})")
@@ -97,23 +99,22 @@ def evaluate_stage1_rules_ts(
     return Stage1Report("rules_ts", passed, {"conditional_edge": cond_edge, "profit_factor": profit_factor, "time_in_market": time_in_market, "bootstrap_p_value": p_value, "avg_holding_bars": avg_holding, "trade_edge": trade_edge}, f"PF={profit_factor:.2f}, Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%, Holding={avg_holding:.1f}h")
 
 
-def evaluate_stage1_carry_rv(net_carry_series: Sequence[float], spread_series: Sequence[float]) -> Stage1Report:
-    carry_arr, spread_arr = np.asarray(net_carry_series, dtype=float), np.asarray(spread_series, dtype=float)
-    y = spread_arr[np.isfinite(spread_arr)]
-    if len(y) < 20:
-        return Stage1Report("carry_rv", False, {}, "Spread series too short")
-    reg = stats.linregress(y[:-1], np.diff(y))
-    adf_p = float(getattr(reg, "pvalue", reg[3])) if getattr(reg, "slope", reg[0]) < 0 else 1.0
-    mean_carry = float(np.mean(carry_arr))
-    return Stage1Report("carry_rv", (mean_carry > 0.0) and (adf_p < 0.05), {"net_carry_mean": mean_carry, "adf_p_value": adf_p}, f"Net carry={mean_carry*1e4:.1f}bps, ADF p={adf_p:.4f}")
+# Single gate vocabulary: runner, cli audit and qualify compare against these, never literals.
+MIN_SR = {"cross_sectional_ml": 1.2, "rules_ts": 1.0}
+SR2_FLOOR, SRD_FLOOR, DSR_FLOOR, IC_T_FLOOR = 0.50, 0.0, 0.90, 2.0
+AUDIT_DSR_FLOOR, TRIM_MEAN_FLOOR = 0.80, -0.001
+HOLDOUT_SR_FLOOR, HOLDOUT_RATIO_FLOOR, REVISE_SR_FLOOR = 0.80, 0.50, 1.0
+STAGE0_VOL_PROXY = 0.0085
+PER_HYPOTHESIS_CAP = 3
 
 
-def evaluate_stage1_meta_overlay(base_net_returns: Sequence[float], overlay_net_returns: Sequence[float], base_turnover: float, overlay_turnover: float) -> Stage1Report:
-    r_base, r_over = np.asarray(base_net_returns, dtype=float), np.asarray(overlay_net_returns, dtype=float)
-    cvar_b, cvar_o = float(np.abs(np.percentile(r_base, 1.0))), float(np.abs(np.percentile(r_over, 1.0)))
-    cvar_red = (cvar_b - cvar_o) / (cvar_b + 1e-12)
-    turn_red = (base_turnover - overlay_turnover) / (base_turnover + 1e-12)
-    sr_b = float(np.mean(r_base) / (np.std(r_base, ddof=1) + 1e-12))
-    sr_o = float(np.mean(r_over) / (np.std(r_over, ddof=1) + 1e-12))
-    passed = (cvar_red >= 0.15) or (turn_red >= 0.20 and (sr_o - sr_b) >= -0.05)
-    return Stage1Report("meta_overlay", passed, {"cvar_reduction": cvar_red, "turnover_reduction": turn_red, "sharpe_delta": sr_o - sr_b}, f"CVaR red={cvar_red*100:.1f}%, Turnover red={turn_red*100:.1f}%")
+def per_bar_sharpe(returns) -> float:
+    r = np.asarray(returns, dtype=float)
+    return float(np.mean(r) / (np.std(r, ddof=1) + 1e-12))
+
+def annualised_sharpe(returns, bars_per_year: int) -> float:
+    return per_bar_sharpe(returns) * math.sqrt(bars_per_year)
+
+
+def stage0_holding_volatility(hypothesis: HypothesisSpec) -> float:
+    return STAGE0_VOL_PROXY * math.sqrt(hypothesis.expected_holding_bars)

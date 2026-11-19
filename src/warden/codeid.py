@@ -26,7 +26,7 @@ def _imported_names(tree: ast.AST) -> list[str]:
         if isinstance(node, ast.Import):
             names.extend(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
-            if node.level:  # relative import: resolve from the module itself
+            if node.level:
                 names.append("." * node.level + (node.module or ""))
             elif node.module:
                 names.append(node.module)

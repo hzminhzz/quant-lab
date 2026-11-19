@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
+from ts_common import capped_waterfall_weights_feasibility as capped_waterfall_weights
 
 from warden.contracts import EvaluationContract
 
@@ -74,68 +74,6 @@ class BreakoutPipeline:
             )
             .fill_null(0.0)
         )
-
-
-class BreakoutStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing AF30 Strategy 21 Donchian breakout."""
-
-    def __init__(
-        self,
-        channel_window: int = 20,
-        atr_window: int = 14,
-        vol_window: int = 240,
-        scale: float = 0.02,
-        cap: float = 20.0,
-        rebalance_bars: int = 24,
-        stop_multiple: float = 3.0,
-        per_instrument_cap: float = 0.5,
-        gross_exposure: float = 1.0,
-    ) -> None:
-        super().__init__()
-        self.channel_window = channel_window
-        self.atr_window = atr_window
-        self.vol_window = vol_window
-        self.scale = scale
-        self.cap = cap
-        self.rebalance_bars = rebalance_bars
-        self.stop_multiple = stop_multiple
-        self.per_instrument_cap = per_instrument_cap
-        self.gross_exposure = gross_exposure
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
-
-def capped_waterfall_weights(raw_weights: np.ndarray, cap: float = 0.5, gross: float = 1.0) -> np.ndarray:
-    """Enforce exact per-instrument risk budget cap by iterative water-filling.
-
-    Feasibility guard: If universe size n * cap < gross, clamps total gross exposure to n * cap
-    so no individual instrument ever exceeds the declared per_instrument_cap.
-    """
-    n = len(raw_weights)
-    if n == 0:
-        return np.zeros(0, dtype=float)
-    target_gross = min(gross, n * cap)
-    if np.sum(raw_weights) <= 0:
-        return np.full(n, min(target_gross / n, cap))
-    w = (raw_weights / np.sum(raw_weights)) * target_gross
-    frozen = np.zeros(n, dtype=bool)
-    for _ in range(n):
-        over = (w > cap + 1e-12) & ~frozen
-        if not np.any(over):
-            break
-        w[over] = cap
-        frozen[over] = True
-        remaining = target_gross - cap * float(np.sum(frozen))
-        free = ~frozen
-        free_sum = float(np.sum(raw_weights[free]))
-        if free_sum > 0 and remaining > 0:
-            w[free] = (raw_weights[free] / free_sum) * remaining
-        else:
-            w[free] = 0.0
-            break
-    return np.clip(w, 0.0, cap)
-
 
 
 def generate_positions(
@@ -248,7 +186,6 @@ def generate_positions(
     stopped_dir = np.zeros(n_assets, dtype=int)
 
     for t in range(warmup, n_bars):
-        # Reset stopped_out state if price pulls back inside channel or breaks out in opposite direction (only on active bars)
         for a_idx in active_indices:
             if not obs_mat[t, a_idx]:
                 continue
@@ -278,7 +215,6 @@ def generate_positions(
         else:
             positions[t] = positions[t - 1]
 
-        # Apply trailing 3x ATR-14 protective stop strictly on active bars
         for a_idx in active_indices:
             if not obs_mat[t, a_idx]:
                 continue

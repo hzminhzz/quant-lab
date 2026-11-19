@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -44,31 +43,6 @@ class WeekendDislocationPipeline:
                 .over("asset"),
             )
         )
-
-
-class WeekendDislocationStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing weekend dislocation reversal."""
-
-    def __init__(
-        self,
-        sat_anchor_hour: int = 0,
-        sun_cutoff_hour: int = 20,
-        dislocation_threshold: float = 0.015,
-        exit_monday_hour: int = 16,
-        max_holding_bars: int = 20,
-    ) -> None:
-        super().__init__()
-        self.sat_anchor_hour = sat_anchor_hour
-        self.sun_cutoff_hour = sun_cutoff_hour
-        self.dislocation_threshold = dislocation_threshold
-        self.exit_monday_hour = exit_monday_hour
-        self.max_holding_bars = max_holding_bars
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict, context: dict, broker: Any) -> None:
-        self.bar_count += 1
-        for asset, bar in data.items():
-            pass
 
 
 def generate_positions(
@@ -134,7 +108,7 @@ def generate_positions(
         active_indices = list(range(n_assets))
 
     positions = np.zeros((n_bars, n_assets), dtype=float)
-    warmup = 168  # 1 week warmup to ensure anchor was established
+    warmup = 168
     weight = 1.0 / len(active_indices)
 
     for a_idx in active_indices:
@@ -149,10 +123,6 @@ def generate_positions(
 
             if current_pos != 0.0:
                 hold_bars += 1
-                # Exit conditions:
-                # 1. Max holding duration reached
-                # 2. Monday cutoff hour reached or weekday past Monday
-                # 3. Dislocation mean-reverted back to Saturday anchor price
                 reverted = (current_pos > 0 and c >= anchor) or (current_pos < 0 and c <= anchor)
                 monday_exit = (w == 1 and h >= exit_monday_hour) or (w > 1 and w < 6)
                 if hold_bars >= max_holding_bars or monday_exit or reverted:

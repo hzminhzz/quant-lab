@@ -25,7 +25,8 @@ import warden.leakage as leakage
 import warden.runner as runner_mod
 from warden.leakage import compute_open_forward_label
 from warden.registry import CORR_DUPLICATE, _eigen_rank, distinct_stream_indices
-from warden.runner import ExperimentRunner, load_module_from_path
+from warden.runner import ExperimentRunner
+from warden.strategy_loader import load_module_from_path
 from warden.strategy_loader import load_module_from_path as lean_load_module_from_path
 
 SCALED_MODULE = """

@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any
 
 import numpy as np
 import polars as pl
-from sklearn.linear_model import Ridge
+from cs_common import cs_positions
 
 from warden.contracts import EvaluationContract
-from warden.leakage import compute_open_forward_label, purged_walk_forward_splits
 
 
 class CSPairwiseCorrelationPipeline:
@@ -21,7 +19,6 @@ class CSPairwiseCorrelationPipeline:
         delay = contract.execution_delay_bars
         df = df.sort("timestamp", "asset")
 
-        # 1h log returns shifted causally by delay
         log_ret = (pl.col("close") / pl.col("close").shift(1).over("asset")).log().shift(delay).over("asset").fill_null(0.0)
         df = df.with_columns(log_ret=log_ret)
 
@@ -47,7 +44,6 @@ class CSPairwiseCorrelationPipeline:
 
         denom = max(1.0, float(n_assets - 1))
         for t in range(n_timestamps):
-            # Trailing 30 days (720 hours) exact mean pairwise correlation of 1h log returns
             start_720 = max(0, t - 720 + 1)
             win_720 = R[start_720 : t + 1]
             w_len_720 = len(win_720)
@@ -61,7 +57,6 @@ class CSPairwiseCorrelationPipeline:
                     sum_corr = (u.T @ S) / float(w_len_720)
                     pw_720[t] = (sum_corr - 1.0) / denom
 
-            # Trailing 7 days (168 hours) exact mean pairwise correlation of 1h log returns
             start_168 = max(0, t - 168 + 1)
             win_168 = R[start_168 : t + 1]
             w_len_168 = len(win_168)
@@ -102,122 +97,11 @@ class CSPairwiseCorrelationPipeline:
         )
 
 
-class CSPairwiseCorrelationRidgeModel:
-    """WalkForwardModelProtocol implementation for Ridge regression."""
-
-    def __init__(self, alpha: float = 10.0) -> None:
-        self.alpha = alpha
-
-    def fit_predict_fold(
-        self,
-        train_df: pl.DataFrame,
-        val_features_df: pl.DataFrame,
-        feature_cols: Sequence[str],
-        label_col: str,
-        seed: int = 42,
-    ) -> pl.DataFrame:
-        x_tr = train_df.select(feature_cols).to_numpy()
-        y_tr = train_df[label_col].to_numpy()
-        valid = np.isfinite(x_tr).all(axis=1) & np.isfinite(y_tr)
-        model = Ridge(alpha=self.alpha, random_state=seed)
-        model.fit(x_tr[valid], y_tr[valid])
-
-        x_val = val_features_df.select(feature_cols).to_numpy()
-        preds = model.predict(np.nan_to_num(x_val, nan=0.0))
-        return val_features_df.select(["timestamp", "asset"]).with_columns(pl.Series("pred", preds))
-
-
-def generate_positions(
-    panel_df: pl.DataFrame,
-    contract: EvaluationContract,
-    alpha: float = 10.0,
-    rebalance_every: int = 72,
-    top_k: int = 5,
-    **kwargs: Any,
-) -> dict[str, Any]:
+def generate_positions(panel_df: pl.DataFrame, contract: EvaluationContract, alpha: float = 10.0, rebalance_every: int = 72, top_k: int = 5, **kwargs: Any) -> dict[str, Any]:
     """Train Ridge across purged walk-forward folds and emit top-k/bottom-k dollar-neutral positions."""
-    _ = kwargs
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
-
-    df = panel_df.sort("timestamp", "asset")
-    timestamps = sorted(df["timestamp"].unique().to_list())
-    assets = sorted(df["asset"].unique().to_list())
-    n_bars, n_assets = len(timestamps), len(assets)
-
-    ts_map = {t: i for i, t in enumerate(timestamps)}
-    val_start_idx = ts_map.get(contract.val_start, int(n_bars * 0.75))
-    val_end_idx = ts_map.get(contract.val_end, n_bars)
-
-    open_pivot = df.pivot(index="timestamp", on="asset", values="open").fill_null(strategy="forward").fill_null(0.0)
-    for a in assets:
-        if a not in open_pivot.columns:
-            open_pivot = open_pivot.with_columns(pl.lit(0.0).alias(a))
-    open_mat = open_pivot.select(assets).to_numpy()
-
-    pipe = CSPairwiseCorrelationPipeline()
-    feat_df = pipe.compute(df, contract)
-
-    f_720 = feat_df.pivot(index="timestamp", on="asset", values="feat_corr_720").fill_null(0.0).select(assets).to_numpy()
-    f_168 = feat_df.pivot(index="timestamp", on="asset", values="feat_corr_168").fill_null(0.0).select(assets).to_numpy()
-
-    h = contract.label_horizon_bars
-    forward_label = compute_open_forward_label(open_mat, contract.execution_delay_bars, h)
-
-    splits = purged_walk_forward_splits(
-        n_timestamps=val_end_idx,
-        n_folds=contract.n_folds,
-        min_train_timestamps=val_start_idx,
-        label_horizon=contract.execution_delay_bars + contract.label_horizon_bars,
-        embargo=contract.embargo_bars,
-    )
-
-    oos_preds = np.full_like(open_mat, np.nan)
-    for train_idx, test_idx in splits:
-        train_idx = train_idx[train_idx >= 720]
-        if len(train_idx) < 10:
-            continue
-        x_tr = np.column_stack([f_720[train_idx].ravel(), f_168[train_idx].ravel()])
-        y_tr = forward_label[train_idx].ravel()
-        valid = np.isfinite(x_tr).all(axis=1) & np.isfinite(y_tr)
-        model = Ridge(alpha=alpha, random_state=42)
-        model.fit(x_tr[valid], y_tr[valid])
-
-        for t in test_idx:
-            x_test_t = np.column_stack([f_720[t], f_168[t]])
-            oos_preds[t] = model.predict(np.nan_to_num(x_test_t, nan=0.0))
-
-    ic_list: list[float] = []
-    for t in range(val_start_idx, val_end_idx - h):
-        pred_t = oos_preds[t]
-        if not np.any(np.isnan(pred_t)):
-            val_ic = float(np.corrcoef(pred_t, forward_label[t])[0, 1])
-            if np.isfinite(val_ic):
-                ic_list.append(val_ic)
-    ic_arr = np.array(ic_list, dtype=float)
-
-    positions = np.zeros((n_bars, n_assets), dtype=float)
-    k = min(top_k, n_assets // 2)
-    for t in range(val_start_idx, val_end_idx):
-        if t % rebalance_every != 0:
-            positions[t] = positions[t - 1]
-            continue
-        scores = oos_preds[t]
-        if np.any(np.isnan(scores)):
-            positions[t] = positions[t - 1]
-            continue
-        order = np.argsort(scores)
-        w = np.zeros(n_assets, dtype=float)
-        w[order[-k:]] = 1.0 / (2.0 * k)
-        w[order[:k]] = -1.0 / (2.0 * k)
-        positions[t] = w
-
-    return {
-        "positions": positions,
-        "ic_series": ic_arr,
-        "mean_ic": float(np.mean(ic_arr)) if len(ic_arr) else None,
-    }
+    return cs_positions(panel_df, contract, pipeline=pipeline,
+                        feature_cols=['feat_corr_720', 'feat_corr_168'], warmup=720,
+                        alpha=alpha, rebalance_every=rebalance_every, top_k=top_k, ic_guard=False, predict_rowwise=True, invert_aliases=False, fill_missing_assets=False, min_train=10, **kwargs)
 
 
 pipeline = CSPairwiseCorrelationPipeline()
-model = CSPairwiseCorrelationRidgeModel()

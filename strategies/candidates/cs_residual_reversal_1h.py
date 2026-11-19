@@ -37,10 +37,10 @@ from scipy import stats
 from warden.contracts import EvaluationContract
 from warden.leakage import compute_open_forward_label
 
-FORMATION_BARS = 168        # 7 days
-REG_WINDOW = 1440           # 60 days for the beta regression
-VOL_WINDOW = 720            # 30 days for the score denominator
-UV_WINDOW = 168             # 7 days of dollar volume for the universe
+FORMATION_BARS = 168
+REG_WINDOW = 1440
+VOL_WINDOW = 720
+UV_WINDOW = 168
 MIN_COVERAGE = 0.9
 
 
@@ -160,7 +160,7 @@ def generate_positions(
     val_end_idx = ts_index.get(contract.val_end, n_bars)
     first = max(val_start_idx, REG_WINDOW + formation_bars)
     n_leg = max(1, int(round(universe_size * quintile_fraction)))
-    w_each = 0.5 / n_leg                     # gross 1.0, dollar-neutral
+    w_each = 0.5 / n_leg
 
     finite_close = np.isfinite(close)
     has_data = finite_close.any(axis=0)
@@ -178,7 +178,7 @@ def generate_positions(
             continue
         keep = min(universe_size, eligible.size)
         universe = eligible[np.argsort(-dvol[t][eligible])[:keep]]
-        order = universe[np.argsort(score[t][universe])]     # ascending score
+        order = universe[np.argsort(score[t][universe])]
         legs = max(1, min(n_leg, universe.size // 2))
         losers, winners = order[:legs], order[-legs:]
         weights = np.zeros(n_assets, dtype=float)
@@ -193,8 +193,8 @@ def generate_positions(
                 inv = np.clip(inv / inv.sum() * 0.5, 0.5 * eq, 2.0 * eq)
                 weights[leg] = sign * inv / inv.sum() * 0.5
         else:
-            weights[losers] = w_each                      # losers: long
-            weights[winners] = -w_each                    # winners: short
+            weights[losers] = w_each
+            weights[winners] = -w_each
         positions[t] = weights
         universes[t] = universe
 

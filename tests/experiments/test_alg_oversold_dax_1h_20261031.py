@@ -1,17 +1,20 @@
 """DAX oversold adaptation: complete-bar causality and numerical sanity."""
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-import sys
+
 import numpy as np
 import polars as pl
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from strategies.candidates.alg_oversold_dax_1h_20261031 import (
-    _rsi2, generate_positions, pipeline,
+    _rsi2,
+    generate_positions,
+    pipeline,
 )
 
 CONTRACT = SimpleNamespace(

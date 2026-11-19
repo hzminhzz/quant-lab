@@ -1,17 +1,16 @@
 """Causal mechanics checks for the source-inspired Dual Thrust ES research rule."""
 from __future__ import annotations
 
+import sys
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import polars as pl
-import sys
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from strategies.candidates.qc_dual_thrust_es_cfd_30m_20261031 import generate_positions
-
 
 CHICAGO = ZoneInfo("America/Chicago")
 CONTRACT = SimpleNamespace(

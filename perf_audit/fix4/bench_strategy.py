@@ -20,7 +20,7 @@ import numpy as np
 import polars as pl
 
 from warden.contracts import load_contract
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 WORK = Path(__file__).resolve().parents[2]
 CONTRACT = load_contract(WORK / "contracts/auto_crypto_perps_top100_1h_v1_h24_e24_f45_s20_v1.yaml")

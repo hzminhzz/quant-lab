@@ -10,13 +10,16 @@ from typing import Any
 import polars as pl
 import yaml
 
+from warden.gates import HOLDOUT_RATIO_FLOOR, HOLDOUT_SR_FLOOR, REVISE_SR_FLOOR, SR2_FLOOR
 from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
+    aligned_matrix,
     calculate_metrics_from_returns,
-    load_module_from_path,
+    funding_settlement_mask,
     simulate_positions,
 )
+from warden.strategy_loader import load_module_from_path
 
 
 class HoldoutAlreadyUnsealedError(PermissionError): pass
@@ -34,43 +37,31 @@ def qualify_candidate(
         raise PermissionError("Holdout unsealing requires confirmation token 'YES_UNSEAL_HOLDOUT'.")
 
     reg = runner.registry
-    with reg._connect() as conn:
-        t_row = conn.execute("SELECT * FROM trials WHERE run_id = ?", (run_id,)).fetchone()
-        if not t_row:
-            raise ValueError(f"Run ID '{run_id}' not found in registry.")
-        trial = dict(t_row)
-        hyp_id, cid = trial["hypothesis_id"], trial["contract_id"]
-        q_entry = conn.execute("SELECT reason FROM trial_quarantine WHERE run_id = ?", (run_id,)).fetchone()
-        if q_entry:
-            raise ValueError(f"Run ID '{run_id}' is quarantined ({q_entry[0]}) and cannot be qualified on holdout.")
-        if trial.get("synthetic") in (1, 1.0, "1", True):
-            raise ValueError(f"Run ID '{run_id}' was generated on synthetic benchmark data and cannot be qualified on holdout.")
-        eligibility = reg.effective_eligibility(run_id)
-        if not eligibility["eligible"]:
-            raise ValueError(
-                f"Run ID '{run_id}' is not market-eligible for holdout qualification: {eligibility['reason']}")
-        val_sr = float(trial.get("net_sharpe", 0.0))
-        if val_sr <= 0.0:
-            raise ValueError(f"Trial '{run_id}' has non-positive validation Net Sharpe ({val_sr:.2f}); cannot qualify.")
-        is_candidate = trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION"
-        is_human_approved = (
-            trial.get("verdict") == "REVISE"
-            and val_sr >= 1.0
-            and float(trial.get("stress_2x_cost_sharpe", 0.0)) >= 0.50
-        )
-        if not (is_candidate or is_human_approved):
-            raise ValueError(f"Run ID '{run_id}' has verdict '{trial.get('verdict')}'; only CANDIDATE_FOR_QUALIFICATION or human-authorized high-Sharpe REVISE trials can be qualified.")
-        curr_hyp = hyp_id
-        while True:
-            p_row = conn.execute("SELECT parent_hypothesis_id FROM hypotheses WHERE hypothesis_id = ?", (curr_hyp,)).fetchone()
-            if not p_row or not p_row[0] or p_row[0] == curr_hyp:
-                lineage_id = curr_hyp
-                break
-            curr_hyp = p_row[0]
-
-        q_row = conn.execute("SELECT qual_id, run_id FROM qualifications WHERE lineage_id = ?", (lineage_id,)).fetchone()
-        if q_row:
-            raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row[1]}'.")
+    trial = reg.trial_row(run_id)
+    if not trial:
+        raise ValueError(f"Run ID '{run_id}' not found in registry.")
+    hyp_id, cid = trial["hypothesis_id"], trial["contract_id"]
+    q_reason = reg.quarantine_reason(run_id)
+    if q_reason:
+        raise ValueError(f"Run ID '{run_id}' is quarantined ({q_reason}) and cannot be qualified on holdout.")
+    if trial.get("synthetic") in (1, 1.0, "1", True):
+        raise ValueError(f"Run ID '{run_id}' was generated on synthetic benchmark data and cannot be qualified on holdout.")
+    eligibility = reg.effective_eligibility(run_id)
+    if not eligibility["eligible"]:
+        raise ValueError(
+            f"Run ID '{run_id}' is not market-eligible for holdout qualification: {eligibility['reason']}")
+    val_sr = float(trial.get("net_sharpe", 0.0))
+    if val_sr <= 0.0:
+        raise ValueError(f"Trial '{run_id}' has non-positive validation Net Sharpe ({val_sr:.2f}); cannot qualify.")
+    is_candidate = trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION"
+    is_human_approved = (trial.get("verdict") == "REVISE" and val_sr >= REVISE_SR_FLOOR
+                         and float(trial.get("stress_2x_cost_sharpe", 0.0)) >= SR2_FLOOR)
+    if not (is_candidate or is_human_approved):
+        raise ValueError(f"Run ID '{run_id}' has verdict '{trial.get('verdict')}'; only CANDIDATE_FOR_QUALIFICATION or human-authorized high-Sharpe REVISE trials can be qualified.")
+    lineage_id = reg.lineage_root(hyp_id)
+    q_row = reg.lineage_qualification(lineage_id)
+    if q_row:
+        raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row['run_id']}'.")
 
     contract = runner.resolve_contract(cid)
     holdout_override = holdout_override_path is not None
@@ -91,31 +82,32 @@ def qualify_candidate(
     assets = sorted(panel_df["asset"].unique().to_list())
     n_bars = len(ts)
 
-    mod_str = trial.get("strategy_module") or ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
-    strat_path = runner.repo_root / mod_str
+    default_mod = "strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py"
+    strat_path = runner.repo_root / (trial.get("strategy_module") or default_mod)
     if not strat_path.is_file():
-        strat_path = runner.repo_root / ("strategies/baselines/cs_ridge_1h.py" if trial.get("strategy_family") == "cross_sectional_ml" else "strategies/candidates/vol_breakout_1h.py")
+        strat_path = runner.repo_root / default_mod
     mod = load_module_from_path(strat_path)
     raw_cfg = trial.get("config_json", "{}")
     cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}
     params = cfg_data.get("parameters", cfg_data) if isinstance(cfg_data, dict) else {}
 
     out = mod.generate_positions(panel_df, contract, **params)
+    # Legacy holdout panels may lack open prices; qualification keeps its historical close
+    # fallback. The exploratory runner forbids that basis — the divergence is deliberate.
     if "open" in panel_df.columns:
         ret_df = panel_df.with_columns(ret=(pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0).fill_null(0.0))
     else:
         ret_df = panel_df.with_columns(ret=pl.col("close").pct_change().fill_null(0.0).over("asset"))
-    from warden.runner import _aligned_matrix, _funding_settlement_mask
-    ret_p = _aligned_matrix(ret_df, "ret", assets)
-    fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-    fund_mask = _funding_settlement_mask(ts, contract)
+    ret_p = aligned_matrix(ret_df, "ret", assets)
+    fund_p = aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
+    fund_mask = funding_settlement_mask(ts, contract)
 
     sim = simulate_positions(out["positions"], ret_p, fund_p, contract, slice(0, n_bars), cost_multiplier=1.0, funding_mask=fund_mask)
     m = calculate_metrics_from_returns(sim["gross_returns"], sim["net_returns"], sim["turnover"], contract.bars_per_year)
 
     h_net_sr = m["net_sharpe"]
     ratio = float(h_net_sr / max(float(trial.get("net_sharpe", 0.0)), 1e-6))
-    promoted = (h_net_sr > 0.80) and (ratio >= 0.50)
+    promoted = (h_net_sr > HOLDOUT_SR_FLOOR) and (ratio >= HOLDOUT_RATIO_FLOOR)
     verdict = "PROMOTED" if promoted else "REJECTED_ON_HOLDOUT"
     qual_id = f"QUAL-{run_id}"
 

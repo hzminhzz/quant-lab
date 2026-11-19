@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
+from ts_common import capped_waterfall_weights_feasibility as capped_waterfall_weights
 
 from warden.contracts import EvaluationContract
 
@@ -55,7 +55,6 @@ class MultiSpeedEWMACPipeline:
                 ema_64=pl.col("close").ewm_mean(span=self.ema_slow_2).over("asset"),
             )
             .with_columns(
-                # Shift by 1 so current bar return is excluded from trailing volatility
                 vol_240=pl.col("hourly_ret").rolling_std(self.vol_window).shift(1).over("asset"),
                 trend_fast=(pl.col("ema_8") - pl.col("ema_32")) / (pl.col("close") + 1e-12),
                 trend_slow=(pl.col("ema_16") - pl.col("ema_64")) / (pl.col("close") + 1e-12),
@@ -73,68 +72,6 @@ class MultiSpeedEWMACPipeline:
             )
             .fill_null(0.0)
         )
-
-
-class MultiSpeedEWMACStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing AF30 Strategy 9 multi-speed EWMAC."""
-
-    def __init__(
-        self,
-        ema_fast_1: int = 8,
-        ema_fast_2: int = 32,
-        ema_slow_1: int = 16,
-        ema_slow_2: int = 64,
-        vol_window: int = 240,
-        forecast_cap: float = 20.0,
-        rebalance_bars: int = 168,
-        per_instrument_cap: float = 0.5,
-        gross_exposure: float = 1.0,
-    ) -> None:
-        super().__init__()
-        self.ema_fast_1 = ema_fast_1
-        self.ema_fast_2 = ema_fast_2
-        self.ema_slow_1 = ema_slow_1
-        self.ema_slow_2 = ema_slow_2
-        self.vol_window = vol_window
-        self.forecast_cap = forecast_cap
-        self.rebalance_bars = rebalance_bars
-        self.per_instrument_cap = per_instrument_cap
-        self.gross_exposure = gross_exposure
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict[str, Any], context: dict[str, Any], broker: Any) -> None:
-        self.bar_count += 1
-
-def capped_waterfall_weights(raw_weights: np.ndarray, cap: float = 0.5, gross: float = 1.0) -> np.ndarray:
-    """Enforce exact per-instrument risk budget cap by iterative water-filling.
-
-    Feasibility guard: If universe size n * cap < gross, clamps total gross exposure to n * cap
-    so no individual instrument ever exceeds the declared per_instrument_cap.
-    """
-    n = len(raw_weights)
-    if n == 0:
-        return np.zeros(0, dtype=float)
-    target_gross = min(gross, n * cap)
-    if np.sum(raw_weights) <= 0:
-        return np.full(n, min(target_gross / n, cap))
-    w = (raw_weights / np.sum(raw_weights)) * target_gross
-    frozen = np.zeros(n, dtype=bool)
-    for _ in range(n):
-        over = (w > cap + 1e-12) & ~frozen
-        if not np.any(over):
-            break
-        w[over] = cap
-        frozen[over] = True
-        remaining = target_gross - cap * float(np.sum(frozen))
-        free = ~frozen
-        free_sum = float(np.sum(raw_weights[free]))
-        if free_sum > 0 and remaining > 0:
-            w[free] = (raw_weights[free] / free_sum) * remaining
-        else:
-            w[free] = 0.0
-            break
-    return np.clip(w, 0.0, cap)
-
 
 
 def generate_positions(

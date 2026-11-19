@@ -14,16 +14,10 @@ nine is. No stop loss.
 from __future__ import annotations
 
 import math
-import sys
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
-
-from warden.contracts import EvaluationContract
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))  # warden loads modules by path, not as a package
 from carver_common import (
     ASSET_CLASSES,
     apply_buffer,
@@ -33,6 +27,8 @@ from carver_common import (
     observation_mask,
     value_matrix,
 )
+
+from warden.contracts import EvaluationContract
 
 SPEEDS: tuple[tuple[int, int], ...] = ((2, 8), (4, 16), (8, 32), (16, 64), (32, 128), (64, 256))
 FORECAST_SCALARS: dict[int, float] = {2: 12.1, 4: 8.53, 8: 5.95, 16: 4.10, 32: 2.79, 64: 1.91}
@@ -71,7 +67,6 @@ class TrendAssetClassesPipeline:
             .with_columns(pn=normalised_price(pl.col("close"), pl.col("vol_bar")).over("asset"))
         )
 
-        # class-level forecast, computed once per class on the class index
         index = class_index(instruments).with_columns(
             idx_bar_vol=(
                 pl.col("level").diff().pow(2).ewm_mean(span=self.vol_span).sqrt().shift(1)

@@ -13,7 +13,7 @@ Inputs (qualified in the ml4t-data lake, never copied from a consumer):
 Funding settlements carry millisecond jitter (00:00:00.005). Every settlement is bucketed into the
 8-hour window that contains it and the window total is placed on the window's boundary bar, because
 warden charges crypto_perps 1h funding only on bars where `hour % 8 == 0`
-(`_funding_settlement_mask`). A symbol that settles hourly or 4-hourly therefore still pays its full
+(`funding_settlement_mask`). A symbol that settles hourly or 4-hourly therefore still pays its full
 funding, on the bars the harness can charge. A bar with no settlement gets funding_rate = 0.0.
 """
 

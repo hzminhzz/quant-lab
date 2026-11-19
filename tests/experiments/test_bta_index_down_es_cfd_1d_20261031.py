@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 mod = load_module_from_path(Path("strategies/candidates/bta_index_down_es_cfd_1d_20261031.py"))
 

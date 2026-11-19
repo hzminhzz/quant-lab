@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import json
 import math
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 import numpy as np
 import polars as pl
 
 from warden.contracts import load_contract
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 
 def main():
@@ -20,16 +20,13 @@ def main():
     contract_path = repo_root / "contracts" / "multi_asset_1h_v1.yaml"
     contract = load_contract(contract_path)
 
-    # Load book module
     book_path = repo_root / "strategies" / "books" / "af30_handcrafted_book_1h.py"
     book_mod = load_module_from_path(book_path)
 
-    # Re-run book module once on exploratory data
     panel_df = pl.read_parquet(repo_root / contract.exploratory_data_path)
     out = book_mod.generate_positions(panel_df, contract)
     stats = book_mod.LAST_BOOK_STATS
 
-    # Load trial info from registry.db
     db_path = repo_root / "registry" / "registry.db"
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -37,7 +34,6 @@ def main():
             "SELECT * FROM trials WHERE run_id='RUN-HYP091-001'"
         ).fetchone()
 
-    # Realised train and validation book volatility
     train_idx = stats["train_indices"]
     val_idx = stats["val_indices"]
     pos = out["positions"]
@@ -48,7 +44,6 @@ def main():
     train_vol = float(np.std(book_ret_train) * math.sqrt(contract.bars_per_year))
     val_vol = float(np.std(book_ret_val) * math.sqrt(contract.bars_per_year))
 
-    # Per-strategy validation gross PnL contribution: sum_t(pos_s * ret) / sum_t(total_gross)
     total_val_gross = float(np.sum(book_ret_val))
     strat_contribs = {}
     per_strat_pos = stats["per_strategy_positions"]
@@ -64,7 +59,6 @@ def main():
             "share_of_val_gross": pct_contrib,
         }
 
-    # Weight table
     weights = stats["weights"]
 
     book_stats_payload = {
@@ -93,7 +87,6 @@ def main():
     json_path = out_dir / "book_stats.json"
     json_path.write_text(json.dumps(book_stats_payload, indent=2), encoding="utf-8")
 
-    # Generate book_report.md
     md_lines = [
         "# AF30 Handcrafted Book Report: RUN-HYP091-001",
         "",

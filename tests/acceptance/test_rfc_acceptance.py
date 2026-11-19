@@ -218,7 +218,7 @@ def test_6_research_ergonomics_and_throughput_funnel_timing(tmp_path: Path) -> N
     panel = generate_canonical_market_panel().filter(pl.col("timestamp") < contract.val_end)
     cache_dir = tmp_path / "cache"
 
-    from warden.runner import load_module_from_path
+    from warden.strategy_loader import load_module_from_path
     vol_mod = load_module_from_path(Path("strategies/candidates/vol_breakout_1h.py"))
     pipe = vol_mod.VolBreakoutPipeline()
     # Populate cache

@@ -6,9 +6,9 @@ threshold. The bar-level ``profit_factor`` reported by the runner is unchanged.
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
+
+from warden.gates import annualised_sharpe
 
 TRADE_CONVENTIONS = (
     "closed_trade_profit_factor: maximal contiguous runs of same-sign non-zero net exposure; "
@@ -44,8 +44,7 @@ def compute_trade_metrics(positions, net_returns, asset_returns=None, bars_per_y
     bar_gains = float(net[net > 0].sum())
     bar_losses = abs(float(net[net < 0].sum())) + 1e-12
     active_net = net[active]
-    sr = (float(np.mean(active_net) / (np.std(active_net, ddof=1) + 1e-12) * math.sqrt(bars_per_year))
-          if len(active_net) > 1 else 0.0)
+    sr = annualised_sharpe(active_net, bars_per_year) if len(active_net) > 1 else 0.0
     metrics = {
         "bar_profit_factor": bar_gains / bar_losses,
         "closed_trade_profit_factor": gains / losses if len(episodes) else 0.0,
@@ -57,11 +56,11 @@ def compute_trade_metrics(positions, net_returns, asset_returns=None, bars_per_y
         "trade_conventions": TRADE_CONVENTIONS,
     }
     if asset_returns is not None:
-        bench = np.asarray(asset_returns, dtype=float).mean(axis=1)  # equal-weight, constant 1/N
+        bench = np.asarray(asset_returns, dtype=float).mean(axis=1)
         diff = net - bench
         metrics.update({
-            "benchmark_net_sharpe": float(np.mean(bench) / (np.std(bench, ddof=1) + 1e-12) * math.sqrt(bars_per_year)),
-            "information_ratio": float(np.mean(diff) / (np.std(diff, ddof=1) + 1e-12) * math.sqrt(bars_per_year)),
+            "benchmark_net_sharpe": annualised_sharpe(bench, bars_per_year),
+            "information_ratio": annualised_sharpe(diff, bars_per_year),
             "relative_return_annualized": float(np.mean(diff) * bars_per_year),
             "benchmark_conventions": "equal-weight buy-and-hold at 1/N, no costs; strategy net returns include fees",
         })

@@ -6,6 +6,7 @@ code or protected market data is accessed.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
@@ -13,8 +14,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from pathlib import Path
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 _mod = load_module_from_path(Path("strategies/candidates/bta_monday_nq_bollinger_cfd_1h.py"))
 CONTRACT_ID = _mod.CONTRACT_ID

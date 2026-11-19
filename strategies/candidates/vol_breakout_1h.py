@@ -7,7 +7,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ml4t.backtest import Strategy
 
 from warden.contracts import EvaluationContract
 
@@ -35,26 +34,6 @@ class VolBreakoutPipeline:
         )
 
 
-class VolBreakoutStrategy(Strategy):
-    """Lifecycle-v1 portable Strategy subclass executing volatility breakout."""
-
-    def __init__(self, lookback_bars: int = 12, vol_window: int = 24, z_threshold: float = 2.0, rebalance_every: int = 4):
-        super().__init__()
-        self.lookback_bars = lookback_bars
-        self.vol_window = vol_window
-        self.z_threshold = z_threshold
-        self.rebalance_every = rebalance_every
-        self.bar_count = 0
-
-    def on_data(self, timestamp: Any, data: dict, context: dict, broker: Any) -> None:
-        self.bar_count += 1
-        if self.bar_count % self.rebalance_every != 0:
-            return
-        # Portable order execution hook
-        for asset, bar in data.items():
-            pass
-
-
 def generate_positions(
     panel_df: pl.DataFrame,
     contract: EvaluationContract,
@@ -79,7 +58,6 @@ def generate_positions(
     prev_close = np.vstack([close_mat[:1], close_mat[:-1]])
     ret_mat = np.divide(close_mat - prev_close, prev_close, out=np.zeros_like(close_mat), where=prev_close > 0)
 
-    # Focus allocation on top 4 liquid perps (BTC, ETH, SOL, BNB)
     target_symbols = {"BTC-PERP", "ETH-PERP", "SOL-PERP", "BNB-PERP", "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"}
     target_asset_indices = [i for i, sym in enumerate(assets) if sym in target_symbols]
     if not target_asset_indices:
@@ -93,7 +71,6 @@ def generate_positions(
             positions[t] = positions[t - 1]
             continue
 
-        # Signal formed strictly up to t - contract.execution_delay_bars
         end_idx = t - contract.execution_delay_bars
         if end_idx <= max(lookback_bars, vol_window):
             positions[t] = positions[t - 1]

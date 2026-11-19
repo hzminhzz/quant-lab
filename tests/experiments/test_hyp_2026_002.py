@@ -9,7 +9,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.runner import ExperimentRunner, LinearBaselineRequiredError, load_module_from_path
+from warden.runner import ExperimentRunner, LinearBaselineRequiredError
+from warden.strategy_loader import load_module_from_path
 
 ridge_mod = load_module_from_path(Path("strategies/baselines/cs_ridge_1h.py"))
 CSRidgeModel = ridge_mod.CSRidgeModel
@@ -116,8 +117,8 @@ def test_val_features_physically_lack_label_column() -> None:
 def test_early_rejection_does_not_contaminate_return_matrix() -> None:
     from warden.registry import ResearchRegistry
     reg = ResearchRegistry(Path("registry/registry.db"))
-    # load_prior_trial_returns should return exactly 4 valid non-zero streams, skipping RUN-ML-002 Stage 1 early reject
-    streams = reg.load_prior_trial_returns("CRYPTO_PERPS_1H_V1", 1400)
+    # selection_history should return exactly 4 valid non-zero streams, skipping RUN-ML-002 Stage 1 early reject
+    streams = reg.selection_history("CRYPTO_PERPS_1H_V1", 1400)["streams"]
     assert len(streams) == 4, f"Expected 4 valid simulated streams, got {len(streams)}"
     for s in streams:
         assert len(s) == 1400

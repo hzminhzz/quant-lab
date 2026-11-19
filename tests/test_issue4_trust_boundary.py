@@ -30,7 +30,7 @@ def _cli(repo: Path, *args: str, env: dict | None = None) -> subprocess.Complete
                           check=False, env={**ENV_BASE, "PYTHONPATH": str(REPO / "src"), **(env or {})})
 
 
-def test_generate_manifest_is_not_in_the_parser_twice_and_requires_approval():
+def test_generate_manifest_parser_requires_approval_flag():
     parser = build_parser()
     sub = parser._subparsers._group_actions[0].choices["generate-manifest"]
     assert any(a.dest == "human_approve_manifest" for a in sub._actions)
@@ -73,7 +73,7 @@ def test_human_key_signs_and_a_foreign_key_cannot_certify(tmp_path: Path) -> Non
     assert integrity.returncode == 2
     # ... and an agent that re-writes the manifest to match cannot re-certify it
     manifest = repo / MANIFEST_FILE
-    manifest.write_text(manifest.read_text().replace("src/warden/cli.py", "src/warden/cli.py") + "\n")
+    manifest.write_text(manifest.read_text() + "\n")
     tampered = subprocess.run([sys.executable, str(preflight), "--json"], cwd=repo, capture_output=True, text=True,
                               check=False, env={**ENV_BASE, "WARDEN_HUMAN_SIGNING_KEY": "human-held-key"})
     assert json.loads(tampered.stdout)["manifest_approval"]["verified"] is False

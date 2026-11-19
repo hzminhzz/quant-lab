@@ -184,7 +184,6 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
     conn = sqlite3.connect(runner.registry.db_path)
     cols = ", ".join(data.keys())
     placeholders = ", ".join("?" for _ in data)
-    # Fix 1: INSERT OR REPLACE ensures fresh DBs or updates are cleanly handled
     conn.execute(f"INSERT OR REPLACE INTO contracts ({cols}) VALUES ({placeholders})", list(data.values()))
     conn.commit()
     conn.close()

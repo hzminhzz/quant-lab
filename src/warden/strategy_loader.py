@@ -13,5 +13,9 @@ def load_module_from_path(module_path: Path):
         raise ImportError(f"Cannot load strategy module from {module_path}")
     mod = importlib.util.module_from_spec(spec)
     sys.modules[module_path.stem] = mod
+    # Sibling helpers import by bare name; the loader owns the path bootstrap once.
+    module_dir = str(module_path.resolve().parent)
+    if module_dir not in sys.path:
+        sys.path.insert(0, module_dir)
     spec.loader.exec_module(mod)
     return mod

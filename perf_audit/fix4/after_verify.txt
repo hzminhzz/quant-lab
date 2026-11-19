@@ -1,0 +1,14 @@
+{"env": {"python": "3.13.5", "polars": "2.0.0", "cpus": 8, "loadavg": [6.056640625, 4.13916015625, 2.7255859375], "git_head": "0e09a22", "spec": "experiments/active/soc_wbx_downshock_1h_20261031.yaml"}}
+[
+ {
+  "rep": 0,
+  "cold_verify_wall_s": 1.561,
+  "cold_prefix_invariance_s": 0.725,
+  "cold_cache_step_s": 0.836,
+  "pipeline_computes_cold": 19,
+  "pipeline_computes_warm": 9,
+  "warm_verify_wall_s": 0.762,
+  "warm_prefix_invariance_s": 0.75,
+  "warm_cache_hit_s": 0.012
+ }
+]

@@ -15,9 +15,6 @@ Warden supplies the single one-bar next-open execution delay and all costs.
 """
 from __future__ import annotations
 
-from datetime import timedelta
-from itertools import pairwise
-
 import numpy as np
 import polars as pl
 
@@ -31,6 +28,11 @@ VOLUME_MULTIPLIER = 1.5
 CLOSE_LOCATION_MAX = 0.35
 HOLD_BARS = 4
 WEIGHT_PER_ASSET = 0.25
+
+_OHLCV_COLUMNS = ("open", "high", "low", "close", "volume")
+_SORTED_ASSETS = tuple(sorted(ASSETS))
+_N_ASSETS = len(ASSETS)
+_ONE_HOUR = np.timedelta64(1, "h")
 
 
 def _validate(panel: pl.DataFrame, contract: EvaluationContract, target_symbols: list[str] | None) -> tuple[pl.DataFrame, list]:
@@ -49,31 +51,47 @@ def _validate(panel: pl.DataFrame, contract: EvaluationContract, target_symbols:
         raise ValueError(f"Missing required OHLCV columns: {sorted(columns - set(panel.columns))}")
     ordered = panel.sort("timestamp", "asset")
     unique_assets = tuple(sorted(ordered["asset"].unique().to_list()))
-    if unique_assets != tuple(sorted(ASSETS)):
+    if unique_assets != _SORTED_ASSETS:
         raise ValueError("Only four prespecified sources; no dynamic universe")
-    ts = sorted(ordered["timestamp"].unique().to_list())
-    if len(ts) < PIT_HOURS + HOLD_BARS + 1:
+    timeline = ordered["timestamp"].unique().sort()
+    n_timestamps = timeline.len()
+    if n_timestamps < PIT_HOURS + HOLD_BARS + 1:
         raise ValueError("Insufficient source bars for 72h lagged features and 4h exit")
-    if any(b - a != timedelta(hours=1) for a, b in pairwise(ts)):
+    # Vectorised contiguous-hour check: one diff over the distinct timeline
+    # instead of a Python pairwise scan over every bar.
+    timeline_np = timeline.to_numpy()
+    if np.any(np.diff(timeline_np) != _ONE_HOUR):
         raise ValueError("Missing hourly timestamps; do not fabricate candles")
-    if ordered.height != len(ts) * len(ASSETS):
+    if ordered.height != n_timestamps * _N_ASSETS:
         raise ValueError("Unaligned or duplicated instrument timestamp records")
+    # (timestamp, asset) sorted rows mean a complete panel is a regular grid:
+    # each asset's own timestamp sequence is one boolean-mask selection over
+    # the grid, so alignment is proven with numpy comparisons instead of
+    # per-asset list materialisation.
+    ts_grid = ordered["timestamp"].to_numpy().reshape(n_timestamps, _N_ASSETS)
+    asset_grid = ordered["asset"].to_numpy().reshape(n_timestamps, _N_ASSETS)
     for asset in ASSETS:
-        sub = ordered.filter(pl.col("asset") == asset)
-        if sub["timestamp"].to_list() != ts:
+        own_ts = ts_grid[asset_grid == asset]
+        if own_ts.size != n_timestamps or not np.array_equal(own_ts, timeline_np):
             raise ValueError(f"Missing/misaligned hourly panel for {asset}")
-        for col in ("open", "high", "low", "close", "volume"):
-            if not np.isfinite(sub[col].to_numpy()).all():
-                raise ValueError(f"Invalid nonfinite {col} for {asset}")
-        if sub.select(
-            ((pl.col("open") <= 0) | (pl.col("high") < pl.col("low"))
-             | (pl.col("low") <= 0)
-             | (pl.col("close") < pl.col("low"))
-             | (pl.col("close") > pl.col("high"))
-             | (pl.col("volume") < 0)).any()
-        ).item():
+    values = {
+        name: ordered[name].to_numpy().astype(float, copy=False).reshape(n_timestamps, _N_ASSETS)
+        for name in _OHLCV_COLUMNS
+    }
+    for index, asset in enumerate(ASSETS):
+        for name in _OHLCV_COLUMNS:
+            if not np.isfinite(values[name][:, index]).all():
+                raise ValueError(f"Invalid nonfinite {name} for {asset}")
+        open_, high, low, close, volume = (values[name][:, index] for name in _OHLCV_COLUMNS)
+        if np.any(
+            (open_ <= 0) | (high < low)
+            | (low <= 0)
+            | (close < low)
+            | (close > high)
+            | (volume < 0)
+        ):
             raise ValueError(f"Invalid OHLCV bounds for {asset}")
-    return ordered, ts
+    return ordered, timeline.to_list()
 
 
 class ShockVolumeFeaturePipeline:
@@ -148,23 +166,36 @@ def generate_positions(
     panel = panel_df.collect() if isinstance(panel_df, pl.LazyFrame) else panel_df
     ordered, timestamps = _validate(panel, contract, target_symbols)
     features = pipeline.compute(ordered, contract)
-    weights = np.zeros((len(timestamps), len(ASSETS)), dtype=np.float64)
-    for column, asset in enumerate(sorted(ASSETS)):
-        sub = features.filter(pl.col("asset") == asset).sort("timestamp")
-        if sub["timestamp"].to_list() != timestamps:
+    n_bars = len(timestamps)
+    # Same alignment proof as before, read off the sorted (timestamp, asset)
+    # grid instead of four per-asset timestamp list comparisons.
+    if (
+        features.height != n_bars * _N_ASSETS
+        or not np.array_equal(features["timestamp"].to_numpy(), ordered["timestamp"].to_numpy())
+    ):
+        raise ValueError("Feature timestamps lost original alignment")
+    feature_assets = features["asset"].to_numpy().reshape(n_bars, _N_ASSETS)
+    for index, asset in enumerate(ASSETS):
+        if not (feature_assets[:, index] == asset).all():
             raise ValueError("Feature timestamps lost original alignment")
-        event = sub["shock_event"].to_numpy()
-        exit_target_index = -1
-        for i in range(len(event)):
-            if i < exit_target_index:
-                weights[i, column] = WEIGHT_PER_ASSET
-            elif i == exit_target_index:
-                # Exit after exactly 4 bar targets even if another
-                # jump occurs on the exit bar. No same-bar reentry.
-                weights[i, column] = 0.0
-            elif event[i]:
-                exit_target_index = i + HOLD_BARS
-                weights[i, column] = WEIGHT_PER_ASSET
+    events = features["shock_event"].to_numpy().reshape(n_bars, _N_ASSETS)
+    weights = np.zeros((n_bars, _N_ASSETS), dtype=np.float64)
+    for column, _asset in enumerate(sorted(ASSETS)):
+        # Only event bars matter: walk them once per asset and fill each
+        # holding window with slice assignments instead of a per-bar loop.
+        # An event on a bar inside a holding window, including the exit bar
+        # itself, is ignored; the next eligible entry bar is start+5.
+        starts = np.flatnonzero(events[:, column])
+        cursor = 0
+        while cursor < starts.size:
+            start = int(starts[cursor])
+            stop = start + HOLD_BARS
+            weights[start:min(stop, n_bars), column] = WEIGHT_PER_ASSET
+            if stop < n_bars:
+                # Exit target stays flat on the exit bar even if another
+                # jump occurs there. No same-bar reentry.
+                weights[stop, column] = 0.0
+            cursor = int(np.searchsorted(starts, start + HOLD_BARS + 1, side="left"))
 
     if np.max(np.abs(weights).sum(axis=1)) > 1.0 + 1e-12:
         raise ValueError("Prespecified 1x maximum gross exposure exceeded")

@@ -17,6 +17,7 @@ from warden.cli import (
     cmd_verify,
     generate_manifest,
 )
+from warden.codeid import code_closure
 from warden.contracts import (
     EvaluationContract,
     ExperimentResult,
@@ -34,7 +35,6 @@ from warden.registry import (
     ResearchRegistry,
     compute_effective_trials_and_dsr,
 )
-from warden.codeid import code_closure
 from warden.runner import (
     ExperimentRunner,
     _aligned_matrix,

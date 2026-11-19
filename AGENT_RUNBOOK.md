@@ -54,6 +54,13 @@ Paste the verbatim command output into the handoff. A summarized number is not e
    schema and insert quarantine/migration rows (`registry.py:149-198`). For a status read use
    `scripts/preflight_thesis.py` (SQLite `mode=ro`); a temporary copy is for tests only, and a copy
    taken without `registry.db-wal` is stale because the WAL holds recent commits.
+9. **A strategy's code identity is its full closure, and qualification binds to it.** `code_closure`
+   covers all imports plus any runtime-loaded code a module declares in `CODE_DEPENDENCIES`. A new
+   strategy that loads code at runtime or from a subdir must declare `CODE_DEPENDENCIES`, or its edits
+   won't flip `strategy_code_sha256` and the binding silently under-covers. `qualify` refuses a trial
+   whose module is missing or whose closure no longer matches the recorded digest — re-run the trial to
+   re-bind; it never substitutes a baseline. Register contracts only via `register_contract` (it refuses
+   a changed contract); never raw-write the `contracts` table.
 
 ## What the harness does NOT enforce (declare it yourself, or write `[MISSING]`)
 

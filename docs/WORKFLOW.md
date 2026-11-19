@@ -168,19 +168,19 @@ pre-read tree hashes and the result.
 
 ## 4. Stage gates, exactly as coded
 
-### Stage 0 — economics feasibility (`src/warden/gates.py:32-40`)
+### Stage 0 — economics feasibility (`gates.py::evaluate_stage0_feasibility`)
 
 ```
 hurdle = total_one_way_cost_decimal() * 2 * min_expected_move_to_cost_ratio   # default 2.5
 reject if holding_volatility < hurdle
-also raises HypothesisBudgetExhaustedError if trials_used >= 3
+also raises HypothesisBudgetExhaustedError if trials_used >= PER_HYPOTHESIS_CAP
 ```
 
 `holding_volatility` is supplied by the runner as `0.0085 * sqrt(expected_holding_bars)` — a coarse,
 hard-coded proxy, computed at trial time rather than at registration. Recorded on failure as
 `selection_attempts.stage='STAGE_0'`, `kind='failed_reservation'`.
 
-### Stage 1 — family-specific signal triage (`src/warden/gates.py:43-119`)
+### Stage 1 — family-specific signal triage (`gates.py::evaluate_stage1_rules_ts / evaluate_stage1_cross_sectional_ml`)
 
 Never force one family's gate onto another.
 
@@ -188,13 +188,14 @@ Never force one family's gate onto another.
 |---|---|
 | `rules_ts` | `trade_edge > 1.5 × one_way_cost` **and** `profit_factor ≥ 1.15` **and** `time_in_market ≥ 5%` **and** block-bootstrap `p < 0.05` |
 | `cross_sectional_ml` | `mean IC ≥ 0.015` **and** Newey-West HAC `t ≥ 2.0` (max 5 lags, ≥ 10 IC observations) |
-| `carry_rv` | `mean net carry > 0` **and** spread stationarity `p < 0.05` |
-| `meta_overlay` | CVaR99 reduction `≥ 15%` **or** (turnover reduction `≥ 20%` and Sharpe not worse than −0.05) |
+
+`carry_rv` and `meta_overlay` are specified in the RFC/funnel but **unwired**: the runner branches only
+on `rules_ts` and `cross_sectional_ml`, and the dead gate stubs were removed. Re-add a family's gate when
+wiring that family.
 
 Definitions worth knowing: `trade_edge = mean(gross | active bars) × avg_holding`, where
 `avg_holding = 2 × n_active / total_turnover`; the bootstrap resamples 200 blocks of
-`min(24, √n_active)` bars with seed 42. The `carry_rv` "stationarity" test is a regression-slope
-proxy, not a real ADF.
+`min(24, √n_active)` bars with seed 42.
 
 ### Stage 2 — causal simulation
 
@@ -204,7 +205,7 @@ Contract-injected execution: `execution_returns()` + `simulate_positions()` with
 charged on the settlement mask only. Missing data is never substituted — `resolve_dataset` fails
 closed and the failure is recorded as a `DATA` attempt.
 
-### Stage 3 — stress and selection bias (`src/warden/runner.py:352-393`)
+### Stage 3 — stress and selection bias (`runner.py::run_spec`)
 
 ```
 net15      = net1 - 0.5 * one_way_cost * turnover        # 1.5× is derived, exact, not a 3rd sim
@@ -215,7 +216,7 @@ k_gate     = max(k_dedup, stored_floor) + 0.5 × unvectorized_attempts
 DSR        = P(SR* - noise) with noise from effective-rank expected-maximum
 ```
 
-Promotion conjunct (`src/warden/runner.py:405-413`):
+Promotion conjunct (`runner.py::run_spec`):
 
 ```
 net_sharpe > 1.0            (1.2 for cross_sectional_ml)
@@ -233,7 +234,7 @@ synthetic data → NON_PROMOTABLE regardless of the numbers
 `DSR ≥ 0.90` is with respect to the **contract-wide** effective rank, which is inherited across
 contracts sharing `asset_class:frequency` — not just the trials of this contract.
 
-### Six-check audit (`src/warden/cli.py:255-265`)
+### Six-check audit (`cli.py::cmd_audit_check`)
 
 | # | Check | Coded condition |
 |---|---|---|
@@ -251,9 +252,12 @@ Verdict: `APPROVED` (six pass + eligible), `REVOKED_INELIGIBLE` (six pass, run/d
 
 Eligibility to even attempt: verdict is `CANDIDATE_FOR_QUALIFICATION`, or `REVISE` with
 `net_sharpe ≥ 1.0` and `stress_2x_cost_sharpe ≥ 0.50`; validation Net Sharpe positive; not
-synthetic; not quarantined; the lineage has no prior qualification row.
+synthetic; not quarantined; the lineage has no prior qualification row. The trial's recorded
+`strategy_module` must resolve, and its recomputed `code_closure` must equal the recorded
+`strategy_code_sha256` — qualification fails closed on a missing module, an absent binding, or changed
+code, and never substitutes a baseline (re-run the trial to re-bind).
 
-Outcome (`qualify.py:118`):
+Outcome (`qualify.py::qualify_candidate`):
 
 ```
 promoted  ⟺  holdout_net_sharpe > 0.80  and  holdout / validation ratio ≥ 0.50

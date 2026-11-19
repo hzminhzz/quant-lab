@@ -57,6 +57,39 @@ def executable_label_span(contract: EvaluationContract) -> int:
     return contract.execution_delay_bars + contract.label_horizon_bars
 
 
+_PW_BLOCK = 128  # numpy pairwise_sum block size; the 8 accumulators below replicate its order
+
+
+def _rowwise_mean(a: np.ndarray) -> np.ndarray:
+    """Per-row mean, bit-identical to ``np.mean(row)``: numpy's pairwise sum done column-at-a-time.
+
+    A 2-D ``np.mean(a, axis=1)`` uses a different reduction order and disagrees in the last bit.
+    """
+    def rec(x: np.ndarray) -> np.ndarray:
+        n = x.shape[1]
+        if n < 8:
+            res = x[:, 0].copy()
+            for i in range(1, n):
+                res = res + x[:, i]
+            return res
+        if n <= _PW_BLOCK:
+            r = [x[:, i].copy() for i in range(8)]
+            i = 8
+            while i < n - (n % 8):
+                for k in range(8):
+                    r[k] = r[k] + x[:, i + k]
+                i += 8
+            res = ((r[0] + r[1]) + (r[2] + r[3])) + ((r[4] + r[5]) + (r[6] + r[7]))
+            while i < n:
+                res = res + x[:, i]
+                i += 1
+            return res
+        half = (n // 2) - (n // 2) % 8
+        return rec(x[:, :half]) + rec(x[:, half:])
+
+    return rec(a) / a.shape[1] if a.shape[1] else np.zeros(a.shape[0])
+
+
 def compute_open_forward_label(open_mat: np.ndarray, delay: int, horizon: int) -> np.ndarray:
     """Causal open-to-open forward cross-sectionally demeaned returns matching runner execution.
 
@@ -66,12 +99,14 @@ def compute_open_forward_label(open_mat: np.ndarray, delay: int, horizon: int) -
     n_bars, n_assets = open_mat.shape
     forward_label = np.zeros((n_bars, n_assets), dtype=float)
     max_t = n_bars - delay - horizon
-    for t in range(max_t):
-        entry_open = open_mat[t + delay]
-        exit_open = open_mat[t + delay + horizon]
-        fwd = np.divide(exit_open - entry_open, entry_open, out=np.zeros_like(entry_open), where=entry_open > 0)
-        forward_label[t] = fwd - np.mean(fwd)
+    if max_t <= 0:
+        return forward_label
+    entry_open = open_mat[delay:delay + max_t]
+    exit_open = open_mat[delay + horizon:delay + horizon + max_t]
+    fwd = np.divide(exit_open - entry_open, entry_open, out=np.zeros_like(entry_open), where=entry_open > 0)
+    forward_label[:max_t] = fwd - _rowwise_mean(fwd)[:, None]
     return forward_label
+
 
 def call_ml4t_compute_features(data: pl.DataFrame | pl.LazyFrame, features: list[str | dict] | str | Path, **kwargs) -> pl.DataFrame:
     import ml4t.engineer

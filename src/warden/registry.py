@@ -55,10 +55,13 @@ def _eigen_rank(matrix: np.ndarray) -> float:
 
 def distinct_stream_indices(matrix: np.ndarray, tol: float = CORR_DUPLICATE) -> list[int]:
     """Indices of distinct columns; |corr| >= tol against an earlier column is a duplicate."""
+    m = np.asarray(matrix, dtype=float)
+    if m.shape[1] == 0:
+        return []
+    corr = np.atleast_2d(np.corrcoef(m, rowvar=False))  # one pass over all pairs, same estimator per pair
     keep: list[int] = []
-    for j in range(matrix.shape[1]):
-        col = matrix[:, j]
-        if any(abs(float(np.corrcoef(col, matrix[:, k])[0, 1])) >= tol for k in keep):
+    for j in range(m.shape[1]):
+        if any(abs(float(corr[j, k])) >= tol for k in keep):
             continue
         keep.append(j)
     return keep

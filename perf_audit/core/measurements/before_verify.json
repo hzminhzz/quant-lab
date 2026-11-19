@@ -1,0 +1,25 @@
+{"env": {"python": "3.13.5", "polars": "2.0.0", "cpus": 8, "loadavg": [13.36669921875, 10.1416015625, 6.80859375], "git_head": "29ccb57", "spec": "experiments/active/soc_wbx_downshock_1h_20261031.yaml"}}
+[
+ {
+  "rep": 0,
+  "cold_verify_wall_s": 2.742,
+  "cold_prefix_invariance_s": 1.431,
+  "cold_cache_step_s": 1.311,
+  "pipeline_computes_cold": 19,
+  "pipeline_computes_warm": 9,
+  "warm_verify_wall_s": 1.421,
+  "warm_prefix_invariance_s": 1.403,
+  "warm_cache_hit_s": 0.019
+ },
+ {
+  "rep": 1,
+  "cold_verify_wall_s": 2.881,
+  "cold_prefix_invariance_s": 1.246,
+  "cold_cache_step_s": 1.635,
+  "pipeline_computes_cold": 19,
+  "pipeline_computes_warm": 9,
+  "warm_verify_wall_s": 0.876,
+  "warm_prefix_invariance_s": 0.86,
+  "warm_cache_hit_s": 0.017
+ }
+]

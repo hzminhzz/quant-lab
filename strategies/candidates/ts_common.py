@@ -1,4 +1,5 @@
-"""Shared rules_ts sizing primitive: iterative water-filling to a per-instrument cap.
+"""Shared rules_ts primitives: iterative water-filling to a per-instrument cap,
+trailing-ATR-stop overlays, and legacy asset-column normalization.
 
 Copied verbatim across the AF30 1h trend modules; owned here once. Loaded as a
 sibling (warden's strategy_loader puts the module directory on sys.path).
@@ -7,6 +8,7 @@ sibling (warden's strategy_loader puts the module directory on sys.path).
 from __future__ import annotations
 
 import numpy as np
+import polars as pl
 
 
 def capped_waterfall_weights(raw_weights: np.ndarray, cap: float = 0.5, gross: float = 1.0) -> np.ndarray:
@@ -88,3 +90,59 @@ def capped_waterfall_weights_feasibility(raw_weights: np.ndarray, cap: float = 0
             w[free] = 0.0
             break
     return np.clip(w, 0.0, cap)
+
+
+def trailing_atr_stop_long_only(active_indices, positions, obs_mat, t, peak_prices, high_mat, stop_multiple, close_mat, atr_mat):
+    for a_idx in active_indices:
+        if not obs_mat[t, a_idx]:
+            continue
+        pos = positions[t, a_idx]
+        if pos > 1e-06:
+            peak_prices[a_idx] = max(peak_prices[a_idx], high_mat[t, a_idx])
+            stop_price = peak_prices[a_idx] - stop_multiple * atr_mat[t, a_idx]
+            if close_mat[t, a_idx] < stop_price:
+                positions[t, a_idx] = 0.0
+
+
+
+def trailing_atr_stop_symmetric(active_indices, positions, atr_mat, t, peak_prices, high_mat, stop_multiple, close_mat, trough_prices, low_mat):
+    for a_idx in active_indices:
+        pos = positions[t, a_idx]
+        atr = atr_mat[t, a_idx]
+        if pos > 1e-06:
+            peak_prices[a_idx] = max(peak_prices[a_idx], high_mat[t, a_idx])
+            stop_price = peak_prices[a_idx] - stop_multiple * atr
+            if close_mat[t, a_idx] < stop_price:
+                positions[t, a_idx] = 0.0
+        elif pos < -1e-06:
+            trough_prices[a_idx] = min(trough_prices[a_idx], low_mat[t, a_idx])
+            stop_price = trough_prices[a_idx] + stop_multiple * atr
+            if close_mat[t, a_idx] > stop_price:
+                positions[t, a_idx] = 0.0
+
+
+
+def trailing_atr_stop_symmetric_obs(active_indices, positions, atr_mat, obs_mat, t, peak_prices, high_mat, stop_multiple, close_mat, trough_prices, low_mat):
+    for a_idx in active_indices:
+        if not obs_mat[t, a_idx]:
+            continue
+        pos = positions[t, a_idx]
+        atr = atr_mat[t, a_idx]
+        if pos > 1e-06:
+            peak_prices[a_idx] = max(peak_prices[a_idx], high_mat[t, a_idx])
+            stop_price = peak_prices[a_idx] - stop_multiple * atr
+            if close_mat[t, a_idx] < stop_price:
+                positions[t, a_idx] = 0.0
+        elif pos < -1e-06:
+            trough_prices[a_idx] = min(trough_prices[a_idx], low_mat[t, a_idx])
+            stop_price = trough_prices[a_idx] + stop_multiple * atr
+            if close_mat[t, a_idx] > stop_price:
+                positions[t, a_idx] = 0.0
+
+
+def normalize_asset_column(panel_df: pl.DataFrame) -> pl.DataFrame:
+    """Rename a legacy ``symbol`` column to ``asset`` when needed (idempotent)."""
+    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
+        return panel_df.rename({"symbol": "asset"})
+    return panel_df
+

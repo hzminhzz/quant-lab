@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 
@@ -66,8 +67,7 @@ def generate_positions(
     """Identify extreme volume spikes with drops below rolling lower Bollinger band; take long positions for 6-12 bars."""
     effective_vol_mult = vol_mult if vol_mult is not None else kwargs.get("vol_mult", volume_mult)
     effective_vol_q = volume_quantile if volume_quantile is not None else kwargs.get("volume_quantile", None)
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     pipe = LiquidationReversalPipeline(
         bollinger_window=bollinger_window,

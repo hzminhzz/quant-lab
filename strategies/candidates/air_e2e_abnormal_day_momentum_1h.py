@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 
@@ -68,8 +69,7 @@ def generate_positions(
     if per_instrument_cap != 0.25 or gross_limit != 1.0:
         raise ValueError("Frozen sizing configuration differs from approved E2E test.")
     df = panel_df
-    if "symbol" in df.columns and "asset" not in df.columns:
-        df = df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
     if target_symbols is not None:
         requested = set(target_symbols)
         present = set(df["asset"].unique().to_list())

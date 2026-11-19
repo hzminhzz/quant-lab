@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 
@@ -61,8 +62,7 @@ def generate_positions(
 ) -> dict[str, Any]:
     """Compute causal multi-asset positions following post-volume-spike drift."""
     _ = kwargs
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     pipe = VolumeAnchoredDriftPipeline(
         vol_window=vol_window,

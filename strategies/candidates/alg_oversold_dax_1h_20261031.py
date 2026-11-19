@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 import polars as pl
+
 from warden.contracts import EvaluationContract
 
 CONTRACT_ID = "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1"

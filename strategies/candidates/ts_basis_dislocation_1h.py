@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 
@@ -47,8 +48,7 @@ def generate_positions(
 ) -> dict[str, Any]:
     """Proxy basis via funding rate spikes; when funding rate exceeds 3-sigma rolling window, take counter-trend position."""
     _ = kwargs
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     pipe = BasisDislocationPipeline(rolling_window=rolling_window)
     feat_df = pipe.compute(panel_df, contract)

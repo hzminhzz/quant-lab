@@ -1,0 +1,20 @@
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3037: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[:, None]
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3038: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[None, :]
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_bitident.py:116: RuntimeWarning: invalid value encountered in divide
+  v_cancel = num / den
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_bitident.py:121: RuntimeWarning: invalid value encountered in divide
+  v_cov = c01 / np.sqrt(c00 * c11)
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_bitident.py:125: RuntimeWarning: invalid value encountered in divide
+  v_einsum = num_e / den_e
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3037: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[:, None]
+/home/quant/dev/quant-lab/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:3038: RuntimeWarning: invalid value encountered in divide
+  c /= stddev[None, :]
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_bitident.py:116: RuntimeWarning: invalid value encountered in divide
+  v_cancel = num / den
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_bitident.py:121: RuntimeWarning: invalid value encountered in divide
+  v_cov = c01 / np.sqrt(c00 * c11)
+/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119/perf_audit/cspred/spike_bitident.py:125: RuntimeWarning: invalid value encountered in divide
+  v_einsum = num_e / den_e

@@ -1,0 +1,1291 @@
+{
+ "parity": {
+  "cs_ridge_1h": {
+   "v2": {
+    "contract": "CRYPTO_PERPS_1H_V2",
+    "panel_rows": 105024,
+    "panel_assets": 8,
+    "positions": {
+     "shape": [
+      13128,
+      8
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      4340
+     ],
+     "array_equal": false,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 1,
+     "n_nan_b": 1
+    },
+    "positions_abs_sum": 4344.0,
+    "positions_nonzero": 26064,
+    "ic_len": 4340,
+    "mean_ic_old": NaN,
+    "mean_ic_new": NaN
+   },
+   "top100": {
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "panel_rows": 2174396,
+    "panel_assets": 100,
+    "positions": {
+     "shape": [
+      21888,
+      100
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      8756
+     ],
+     "array_equal": false,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 1,
+     "n_nan_b": 1
+    },
+    "positions_abs_sum": 8760.0,
+    "positions_nonzero": 52560,
+    "ic_len": 8756,
+    "mean_ic_old": NaN,
+    "mean_ic_new": NaN
+   }
+  },
+  "cs_lgbm_1h": {
+   "v2": {
+    "contract": "CRYPTO_PERPS_1H_V2",
+    "panel_rows": 105024,
+    "panel_assets": 8,
+    "positions": {
+     "shape": [
+      13128,
+      8
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      4340
+     ],
+     "array_equal": false,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 1,
+     "n_nan_b": 1
+    },
+    "positions_abs_sum": 4344.0,
+    "positions_nonzero": 26064,
+    "ic_len": 4340,
+    "mean_ic_old": NaN,
+    "mean_ic_new": NaN
+   },
+   "v1": {
+    "contract": "CRYPTO_PERPS_1H_V1",
+    "panel_rows": 738428,
+    "panel_assets": 19,
+    "positions": {
+     "shape": [
+      45848,
+      19
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      1396
+     ],
+     "array_equal": false,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 1,
+     "n_nan_b": 1
+    },
+    "positions_abs_sum": 1399.9999999999998,
+    "positions_nonzero": 8400,
+    "ic_len": 1396,
+    "mean_ic_old": NaN,
+    "mean_ic_new": NaN
+   }
+  },
+  "cs_amihud_1h": {
+   "v2": {
+    "contract": "CRYPTO_PERPS_1H_V2",
+    "panel_rows": 105024,
+    "panel_assets": 8,
+    "positions": {
+     "shape": [
+      13128,
+      8
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      4339
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "positions_abs_sum": 4344.0,
+    "positions_nonzero": 26064,
+    "ic_len": 4339,
+    "mean_ic_old": -0.017275905554930093,
+    "mean_ic_new": -0.017275905554930093
+   },
+   "v1": {
+    "contract": "CRYPTO_PERPS_1H_V1",
+    "panel_rows": 738428,
+    "panel_assets": 19,
+    "positions": {
+     "shape": [
+      45848,
+      19
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      1395
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "positions_abs_sum": 1400.0,
+    "positions_nonzero": 8400,
+    "ic_len": 1395,
+    "mean_ic_old": -0.0025872162665864723,
+    "mean_ic_new": -0.0025872162665864723
+   }
+  },
+  "cs_bab_1h": {
+   "v2": {
+    "contract": "CRYPTO_PERPS_1H_V2",
+    "panel_rows": 105024,
+    "panel_assets": 8,
+    "positions": {
+     "shape": [
+      13128,
+      8
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      4339
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "positions_abs_sum": 4344.0,
+    "positions_nonzero": 26064,
+    "ic_len": 4339,
+    "mean_ic_old": -0.05865906585116338,
+    "mean_ic_new": -0.05865906585116338
+   },
+   "v1": {
+    "contract": "CRYPTO_PERPS_1H_V1",
+    "panel_rows": 738428,
+    "panel_assets": 19,
+    "positions": {
+     "shape": [
+      45848,
+      19
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      1395
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "positions_abs_sum": 1400.0,
+    "positions_nonzero": 8400,
+    "ic_len": 1395,
+    "mean_ic_old": -0.05526818317230871,
+    "mean_ic_new": -0.05526818317230871
+   }
+  },
+  "cs_vwap_tracking_error_1h": {
+   "v2": {
+    "contract": "CRYPTO_PERPS_1H_V2",
+    "panel_rows": 105024,
+    "panel_assets": 8,
+    "positions": {
+     "shape": [
+      13128,
+      8
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      4339
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "positions_abs_sum": 4344.0,
+    "positions_nonzero": 34752,
+    "ic_len": 4339,
+    "mean_ic_old": -0.035958997494472233,
+    "mean_ic_new": -0.035958997494472233
+   },
+   "top100": {
+    "contract": "CRYPTO_PERPS_TOP100_1H_V1",
+    "panel_rows": 2174396,
+    "panel_assets": 100,
+    "positions": {
+     "shape": [
+      21888,
+      100
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "ic_series": {
+     "shape": [
+      8755
+     ],
+     "array_equal": true,
+     "array_equal_ignoring_nan": true,
+     "tobytes_equal": true,
+     "nan_mask_equal": true,
+     "identical": true,
+     "dtype_equal": true,
+     "max_abs_diff": 0.0,
+     "n_nan_a": 0,
+     "n_nan_b": 0
+    },
+    "positions_abs_sum": 8712.0,
+    "positions_nonzero": 87120,
+    "ic_len": 8755,
+    "mean_ic_old": -0.017884195618717028,
+    "mean_ic_new": -0.017884195618717028
+   }
+  }
+ },
+ "fail_closed": {
+  "cs_ridge_1h": {
+   "cases": 12,
+   "mismatches_normalised": [],
+   "mismatches_raw": [
+    "duplicated_rows"
+   ],
+   "detail": {
+    "empty_panel": {
+     "old": [
+      "raise",
+      "UFuncTypeError",
+      "Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int8') with casting rule 'same_kind'"
+     ],
+     "new": [
+      "raise",
+      "UFuncTypeError",
+      "Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int8') with casting rule 'same_kind'"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_funding_rate": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"funding_rate\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"funding_rate\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_open": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_close": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"close\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"close\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "one_timestamp": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "twenty_timestamps": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Found array with 0 sample(s) (shape=(0, 3)) while a minimum of 1 is required by Ridge."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Found array with 0 sample(s) (shape=(0, 3)) while a minimum of 1 is required by Ridge."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "duplicated_rows": {
+     "old": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"close\").filter([(col(\"asset\")) ==v (\"ADAUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "new": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"close\").filter([(col(\"asset\")) ==v (\"BNBUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "same_raw": false,
+     "same_normalised": true
+    },
+    "nan_funding_rate": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Input X contains NaN.\nRidge does not accept missing values encoded as NaN natively. For supervised learning, you might want to consider sklearn.ensemble.HistGradientBoostingClassifier and Regressor which accept missing values encoded as NaNs natively. Alternatively, it is possible to preprocess the data, for instance by using an imputer transformer in a pipeline or drop samples with missing values. See https://scikit-learn.org/stable/modules/impute.html You can find a list of all estimators that handle NaN values at the following page: https://scikit-learn.org/stable/modules/impute.html#estimators-that-handle-nan-values"
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Input X contains NaN.\nRidge does not accept missing values encoded as NaN natively. For supervised learning, you might want to consider sklearn.ensemble.HistGradientBoostingClassifier and Regressor which accept missing values encoded as NaNs natively. Alternatively, it is possible to preprocess the data, for instance by using an imputer transformer in a pipeline or drop samples with missing values. See https://scikit-learn.org/stable/modules/impute.html You can find a list of all estimators that handle NaN values at the following page: https://scikit-learn.org/stable/modules/impute.html#estimators-that-handle-nan-values"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "single_asset": {
+     "old": [
+      "ok",
+      724.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      724.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "nan_close_block": {
+     "old": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "negative_volume": {
+     "old": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "unsorted": {
+     "old": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    }
+   }
+  },
+  "cs_lgbm_1h": {
+   "cases": 12,
+   "mismatches_normalised": [],
+   "mismatches_raw": [
+    "duplicated_rows"
+   ],
+   "detail": {
+    "empty_panel": {
+     "old": [
+      "raise",
+      "UFuncTypeError",
+      "Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int8') with casting rule 'same_kind'"
+     ],
+     "new": [
+      "raise",
+      "UFuncTypeError",
+      "Cannot cast ufunc 'divide' output from dtype('float64') to dtype('int8') with casting rule 'same_kind'"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_funding_rate": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"funding_rate\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"funding_rate\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_open": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_close": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"close\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"close\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "one_timestamp": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "twenty_timestamps": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Found array with 0 sample(s) (shape=(0, 3)) while a minimum of 2 is required by LGBMRegressor."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Found array with 0 sample(s) (shape=(0, 3)) while a minimum of 2 is required by LGBMRegressor."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "duplicated_rows": {
+     "old": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"close\").filter([(col(\"asset\")) ==v (\"SOLUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "new": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"close\").filter([(col(\"asset\")) ==v (\"ADAUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "same_raw": false,
+     "same_normalised": true
+    },
+    "nan_funding_rate": {
+     "old": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "single_asset": {
+     "old": [
+      "ok",
+      724.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      724.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "nan_close_block": {
+     "old": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "negative_volume": {
+     "old": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "unsorted": {
+     "old": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4340
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    }
+   }
+  },
+  "cs_amihud_1h": {
+   "cases": 12,
+   "mismatches_normalised": [],
+   "mismatches_raw": [
+    "duplicated_rows"
+   ],
+   "detail": {
+    "empty_panel": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_funding_rate": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_open": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_close": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "unable to find column \"close\"; valid columns: [\"timestamp\", \"asset\", \"open\", \"high\", \"low\", \"volume\", \"funding_rate\"]"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "unable to find column \"close\"; valid columns: [\"timestamp\", \"asset\", \"open\", \"high\", \"low\", \"volume\", \"funding_rate\"]"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "one_timestamp": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "twenty_timestamps": {
+     "old": [
+      "ok",
+      0.0,
+      0
+     ],
+     "new": [
+      "ok",
+      0.0,
+      0
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "duplicated_rows": {
+     "old": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"open\").filter([(col(\"asset\")) ==v (\"DOGEUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "new": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"open\").filter([(col(\"asset\")) ==v (\"BNBUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "same_raw": false,
+     "same_normalised": true
+    },
+    "nan_funding_rate": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "single_asset": {
+     "old": [
+      "raise",
+      "ZeroDivisionError",
+      "float division by zero"
+     ],
+     "new": [
+      "raise",
+      "ZeroDivisionError",
+      "float division by zero"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "nan_close_block": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "negative_volume": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "unsorted": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    }
+   }
+  },
+  "cs_bab_1h": {
+   "cases": 12,
+   "mismatches_normalised": [],
+   "mismatches_raw": [
+    "duplicated_rows"
+   ],
+   "detail": {
+    "empty_panel": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_funding_rate": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_open": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_close": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "unable to find column \"close\"; valid columns: [\"timestamp\", \"asset\", \"open\", \"high\", \"low\", \"volume\", \"funding_rate\"]"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "unable to find column \"close\"; valid columns: [\"timestamp\", \"asset\", \"open\", \"high\", \"low\", \"volume\", \"funding_rate\"]"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "one_timestamp": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "twenty_timestamps": {
+     "old": [
+      "ok",
+      0.0,
+      0
+     ],
+     "new": [
+      "ok",
+      0.0,
+      0
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "duplicated_rows": {
+     "old": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"open\").filter([(col(\"asset\")) ==v (\"ETHUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "new": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"open\").filter([(col(\"asset\")) ==v (\"BNBUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "same_raw": false,
+     "same_normalised": true
+    },
+    "nan_funding_rate": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "single_asset": {
+     "old": [
+      "raise",
+      "ZeroDivisionError",
+      "float division by zero"
+     ],
+     "new": [
+      "raise",
+      "ZeroDivisionError",
+      "float division by zero"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "nan_close_block": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "negative_volume": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "unsorted": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    }
+   }
+  },
+  "cs_vwap_tracking_error_1h": {
+   "cases": 12,
+   "mismatches_normalised": [],
+   "mismatches_raw": [
+    "duplicated_rows"
+   ],
+   "detail": {
+    "empty_panel": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_funding_rate": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_open": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "\"open\" not found"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "missing_close": {
+     "old": [
+      "raise",
+      "ColumnNotFoundError",
+      "unable to find column \"close\"; valid columns: [\"timestamp\", \"asset\", \"open\", \"high\", \"low\", \"volume\", \"funding_rate\"]"
+     ],
+     "new": [
+      "raise",
+      "ColumnNotFoundError",
+      "unable to find column \"close\"; valid columns: [\"timestamp\", \"asset\", \"open\", \"high\", \"low\", \"volume\", \"funding_rate\"]"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "one_timestamp": {
+     "old": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "new": [
+      "raise",
+      "ValueError",
+      "Insufficient timestamps for requested folds."
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "twenty_timestamps": {
+     "old": [
+      "ok",
+      0.0,
+      0
+     ],
+     "new": [
+      "ok",
+      0.0,
+      0
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "duplicated_rows": {
+     "old": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"open\").filter([(col(\"asset\")) ==v (\"BNBUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "new": [
+      "raise",
+      "ComputeError",
+      "aggregation 'item' expected no or a single value, got 2 values\n\nThis error occurred in the following expression:\n\tcol(\"open\").filter([(col(\"asset\")) ==v (\"SOLUSDT\")]).item(allow_empty=true)\n"
+     ],
+     "same_raw": false,
+     "same_normalised": true
+    },
+    "nan_funding_rate": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "single_asset": {
+     "old": [
+      "raise",
+      "ZeroDivisionError",
+      "float division by zero"
+     ],
+     "new": [
+      "raise",
+      "ZeroDivisionError",
+      "float division by zero"
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "nan_close_block": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "negative_volume": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    },
+    "unsorted": {
+     "old": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "new": [
+      "ok",
+      4344.0,
+      4339
+     ],
+     "same_raw": true,
+     "same_normalised": true
+    }
+   }
+  }
+ }
+}

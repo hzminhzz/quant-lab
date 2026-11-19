@@ -1,0 +1,2 @@
+{"env": {"mode": "backtest", "spec": "experiments/active/hyp_2026_002_lgbm.yaml", "strat_src": "/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119", "loadavg": [3.31884765625, 7.9072265625, 7.91845703125], "live_strategies_md5_ok": true}}
+{"mode": "backtest", "rep": 0, "spec": "experiments/active/hyp_2026_002_lgbm.yaml", "strat_src": "/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119", "wall_s": 0.003, "verdict": null, "error": "LinearBaselineRequiredError: Linear baseline required for 'HYP-BENCH-ULWPERF' before non-linear model 'lightgbm'.", "extras": {}}

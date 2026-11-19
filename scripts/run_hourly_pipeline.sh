@@ -58,27 +58,46 @@ for spec in "${QUEUE_SPECS[@]}"; do
         continue
     fi
 
-    # Step A: Prefix-Invariance Causality Proof
-    if ! uv run warden verify "$spec" --json; then
-        echo "[FAIL] Lookahead leakage or invalid pipeline: $spec"
+    # Steps A-C: verify (prefix-invariance), Stage 1 screen and Stage 2/3 backtest run in
+    # ONE process (scripts/run_spec_session.py). Each stage keeps its own policy decision,
+    # its own worktree integrity check, its own audit-log entry and its own exit code; only
+    # the interpreter, the `uv run` sync and the registry handle are shared.
+    SESSION_OUTPUT=$(uv run --frozen python -m scripts.run_spec_session "$spec" --json || true)
+    echo "$SESSION_OUTPUT"
+    if ! echo "$SESSION_OUTPUT" | grep -q '"ok"'; then
+        echo "[ERROR] Spec session produced no result envelope (policy or worktree refusal): $spec"
         mv "$spec" experiments/active/failed/
         continue
     fi
+    FAILED_STAGE=$(echo "$SESSION_OUTPUT" | grep -o '"failed_stage": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
 
-    # Step B: Stage 1 Signal Triage Gate (Fail-Fast)
-    if ! uv run warden screen "$spec" --json; then
-        echo "[REVISE] Failed Stage 1 screen: $spec. Halting before Stage 2 backtest."
-        mv "$spec" experiments/active/failed/
-        continue
-    fi
-
-    # Step C: Stage 2 & 3 Walk-Forward Backtest, 2x Cost Stress, and DSR
-    OUTPUT=$(uv run warden backtest "$spec" --json || true)
-    echo "$OUTPUT"
+    case "$FAILED_STAGE" in
+        verify)
+            echo "[FAIL] Lookahead leakage or invalid pipeline: $spec"
+            mv "$spec" experiments/active/failed/
+            continue
+            ;;
+        screen)
+            echo "[REVISE] Failed Stage 1 screen: $spec. Halting before Stage 2 backtest."
+            mv "$spec" experiments/active/failed/
+            continue
+            ;;
+        backtest)
+            echo "[FAIL] Stage 2/3 backtest error: $spec"
+            mv "$spec" experiments/active/failed/
+            continue
+            ;;
+        "") ;;
+        *)
+            echo "[FAIL] Stage '$FAILED_STAGE' was refused or failed for $spec"
+            mv "$spec" experiments/active/failed/
+            continue
+            ;;
+    esac
 
     # Step D: Parse Results & Trigger Adversarial Audit for Qualifying Runs
-    RUN_ID=$(echo "$OUTPUT" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
-    VERDICT=$(echo "$OUTPUT" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+    RUN_ID=$(echo "$SESSION_OUTPUT" | grep -o '"run_id": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
+    VERDICT=$(echo "$SESSION_OUTPUT" | grep -o '"verdict": *"[^"]*"' | head -n1 | cut -d'"' -f4 || true)
 
     if [ "$VERDICT" == "CANDIDATE_FOR_QUALIFICATION" ] && [ -n "$RUN_ID" ]; then
         echo ">>> CANDIDATE FOUND! Executing 6-check adversarial audit for $RUN_ID"

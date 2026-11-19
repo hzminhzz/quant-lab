@@ -203,10 +203,18 @@ def test_inventory_counts_must_exclude_stage1_rejections_from_full_trial_backlog
 def test_hourly_runner_checks_failure_memory_before_screening() -> None:
     source = Path("scripts/run_hourly_pipeline.sh").read_text()
     guard = source.index("python -m scripts.research_outcome_memory --check-spec")
-    verify = source.index('uv run warden verify "$spec"')
-    screen = source.index('uv run warden screen "$spec"')
-    assert guard < verify < screen
+    session = source.index("python -m scripts.run_spec_session")
+    assert guard < session
+    # verify, screen and backtest now run in one process: no per-stage warden invocations
+    assert 'uv run warden verify "$spec"' not in source
+    assert 'uv run warden screen "$spec"' not in source
+    assert 'uv run warden backtest "$spec"' not in source
+    # fail-fast is preserved: each stage's failure still parks the spec in failed/
+    for stage in ("verify", "screen", "backtest"):
+        assert f"        {stage})" in source
+    assert '"failed_stage"' in source
     assert 'mv "$spec" experiments/active/failed/' in source
+    assert 'mv "$spec" experiments/active/archive/' in source
     assert "WARDEN_NON_INTERACTIVE=1" in source
 
 

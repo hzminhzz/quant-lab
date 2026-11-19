@@ -1,0 +1,292 @@
+{
+  "audit": "ultraperf: quant-lab workflow performance",
+  "budget_proposal": {
+    "ci_gate": "none exists today; propose perf_audit/bench_funnel.py --budget check wired into the hourly job or a pre-merge check",
+    "gate_rule": "fail if median composite wall > 8.1s (lower-is-better)",
+    "metric": "per-spec funnel wall: verify(warm)+screen+backtest with full governance checks, median of 3 measured reps after 1 warm-up",
+    "observed_baseline_cold_s": 12.65,
+    "observed_baseline_warm_s": 11.66,
+    "observed_spread_pct": "~5% screen, ~2.5% backtest, ~6.5% composite reps",
+    "post_restructure_budget_s": 8.1,
+    "proposed_tolerance_pct": 10,
+    "status": "proposal only - tolerance not yet accepted by principal"
+  },
+  "cli_baseline": {
+    "backtest": {
+      "command": "uv run --frozen warden backtest experiments/active/bench_ultraperf.yaml --json",
+      "median_s": 4.373,
+      "note": "rc=0 WARDEN_RUN_COMPLETE; fresh registry snapshot per rep",
+      "reps_s": [
+        4.478,
+        4.366,
+        4.373
+      ],
+      "spread_s": 0.112
+    },
+    "check_worktree_s": [
+      0.031,
+      0.018,
+      0.018
+    ],
+    "cli_startup_warden_version_s": 1.99,
+    "funnel_total_cold_verify_plus_medians_s": 12.646,
+    "funnel_total_warm_verify_plus_medians_s": 11.663,
+    "screen": {
+      "command": "uv run --frozen warden screen experiments/active/bench_ultraperf.yaml --json",
+      "median_s": 4.353,
+      "note": "rc=1 = stage1 gate fail (scientific outcome); full work executed",
+      "reps_s": [
+        4.162,
+        4.353,
+        4.61
+      ],
+      "spread_s": 0.448
+    },
+    "verify": {
+      "cold_s": 3.92,
+      "note": "n=1 each; cold = empty feature cache",
+      "warm_s": 2.937
+    }
+  },
+  "composite_prototype": {
+    "description": "OBSERVED prototype of proposed restructure: cmd_verify logic + run_stage1_screen + run_spec in ONE process, same warden functions, no repo edits",
+    "reps": [
+      {
+        "backtest_s": 2.523,
+        "rep": 0,
+        "screen_s": 2.527,
+        "verify_s": 2.101,
+        "wall_s": 7.151
+      },
+      {
+        "backtest_s": 2.693,
+        "rep": 1,
+        "screen_s": 2.541,
+        "verify_s": 2.405,
+        "wall_s": 7.639
+      }
+    ],
+    "saving_vs_cli_cold_pct": 41.5,
+    "wall_median_s": 7.395
+  },
+  "env": {
+    "cpus": 8,
+    "git_head": "0e09a22",
+    "loadavg_at_start": [
+      1.1,
+      0.88,
+      0.98
+    ],
+    "polars": "2.0.0",
+    "python": "3.13.5"
+  },
+  "evaluator_commands": [
+    "cd /home/quant/dev/quant-lab && uv run --frozen python perf_audit/bench_warden.py {micro|screen|backtest|verify|selhist} --reps 4",
+    "cd /home/quant/dev/quant-lab && uv run --frozen python perf_audit/composite_proto.py",
+    "CLI: uv run --frozen warden {verify|screen|backtest} experiments/active/bench_ultraperf.yaml --json (cwd=isolated worktree)"
+  ],
+  "fix_1_session": {
+    "implementation": {
+      "governance_invariant": "per-stage authorize(), per-stage check_worktree(), per-stage .workspace/audit entry with identical schema; an observed backtest entry has the same result_bytes (5316) under the CLI and under the session",
+      "pipeline": "scripts/run_hourly_pipeline.sh replaces former steps A-C; step D parsing now reads the session envelope",
+      "script": "scripts/run_spec_session.py",
+      "test": "tests/test_run_spec_session.py (11 tests: orchestration with stub handlers + end-to-end tiny repo equality vs the three CLI handlers)",
+      "verdicts_preserved": {
+        "backtest_verdict": "REVISE",
+        "run_id": "RUN-BENCH-CLI-003",
+        "screen_passed": false
+      }
+    },
+    "measurement_interleaved_load5": {
+      "cli": {
+        "median_s": 14.694,
+        "reps_s": [
+          14.694,
+          16.232,
+          14.139
+        ]
+      },
+      "loadavg": [
+        5.05,
+        4.88,
+        3.6
+      ],
+      "median_delta_pct": 32.2,
+      "median_delta_s": 4.737,
+      "note": "both arms interleaved per rep so machine load hits them equally; tree also carried an uncommitted sibling strategy edit, so absolute numbers are higher for both arms",
+      "session": {
+        "median_s": 9.957,
+        "reps_s": [
+          9.957,
+          10.341,
+          8.113
+        ],
+        "stage_wall_ms_rep2": {
+          "backtest": 2530.9,
+          "screen": 2566.0,
+          "verify": 850.3
+        }
+      }
+    },
+    "measurement_quiet_window": {
+      "cli": {
+        "cold_s": 13.942,
+        "median_s": 13.215,
+        "reps_s": [
+          13.942,
+          13.215,
+          12.607
+        ],
+        "stage_medians_s": {
+          "backtest": 5.142,
+          "screen": 4.979,
+          "verify": 3.094
+        }
+      },
+      "cold_delta_pct": 39.1,
+      "cold_delta_s": 5.453,
+      "loadavg": [
+        1.1,
+        0.88,
+        0.98
+      ],
+      "median_delta_pct": 36.2,
+      "median_delta_s": 4.787,
+      "session": {
+        "cold_s": 8.489,
+        "median_s": 8.428,
+        "reps_s": [
+          8.489,
+          8.045,
+          8.428
+        ]
+      }
+    },
+    "reproduce": [
+      "uv run --frozen python perf_audit/reset_registry.py   # snapshot registry from live (mode=ro) + fixture hypothesis",
+      "uv run --frozen python perf_audit/bench_funnel.py cli --reps 3",
+      "uv run --frozen python perf_audit/bench_funnel.py session --reps 3",
+      "uv run --frozen python perf_audit/bench_funnel.py ab --reps 3   # interleaved arms"
+    ],
+    "status": "IMPLEMENTED and measured",
+    "vs_documented_baseline": {
+      "baseline_cold_s": 12.65,
+      "delta_pct": -32.9,
+      "session_cold_s": 8.489
+    }
+  },
+  "governance": "All writes confined to isolated worktree + scratch tmp roots: registry snapshots via sqlite backup from mode=ro source, fixture hypothesis HYP-BENCH-ULWPERF with fresh budget on copies only. Live registry.db, contracts/, src/warden/, data/holdout untouched. No qualify, no manifest signing.",
+  "hot_path_ranking": [
+    {
+      "evidence": "uv warden --version 1.99s; child import 1.887s; composite prototype 7.395s vs 12.646s CLI",
+      "fix": "single-process spec session (scripts-level, no warden core edit)",
+      "id": 1,
+      "path": "process startup x5 per spec (uv env+imports ~2s each) + strategy child interpreter import 1.9s per spawn",
+      "share": "~85% of funnel wall"
+    },
+    {
+      "evidence": "cold verify 2.0s in-process / 3.92s CLI; warm 0.95s / 2.937s; 19 computes cold, 9 warm",
+      "fix": "cache-first verify; skip duplicate proof (cli.py/leakage.py - protected, needs human approval)",
+      "id": 2,
+      "path": "verify runs pipeline.compute 19x cold (9 proof + 9 re-proof + 1 full), 9x even on cache hit"
+    },
+    {
+      "evidence": "child wall 2.3s, import-only 1.887s; screen and backtest each spawn one child for identical deterministic positions",
+      "fix": "reuse screen positions in backtest keyed by code/config/data sha; lean child entrypoint or warm pool (runner.py - protected)",
+      "id": 3,
+      "path": "duplicate strategy subprocess between screen and backtest + per-grid-point spawns"
+    },
+    {
+      "evidence": "cProfile: to_list 0.103s/16 calls, pairwise genexpr 0.024s/43776 calls, 71 lazy collects 0.066s; generate_positions total 0.228s",
+      "fix": "vectorise validation + holding-window fill (strategies are agent-owned; keep positions bit-identical)",
+      "id": 4,
+      "path": "strategy Python loops: _validate to_list/pairwise checks + per-bar weight loop"
+    },
+    {
+      "evidence": "54 streams/9MB parse 0.071s today; registry holds 75 trials + 230 attempts, ~32MB returns JSON; O(k^2) corrcoef dedup",
+      "fix": "read returns from parquet instead of JSON; vectorised correlation dedup (registry.py - protected)",
+      "id": 5,
+      "path": "growing-history costs: selection_history JSON re-parse + O(k^2) distinct_stream_indices"
+    }
+  ],
+  "in_process_baseline": {
+    "backtest": {
+      "median_s": 2.536,
+      "phase_shares_median_rep": {
+        "code_closure": 0.002,
+        "dsr_report": 0.002,
+        "execution_returns": 0.008,
+        "gates": 0.012,
+        "read_parquet": 0.029,
+        "resolve_dataset_sha": 0.04,
+        "selection_history": 0.002,
+        "shift_skill_diag": 0.042,
+        "simulate_positions_x3": 0.002,
+        "strategy_subprocess": 2.348
+      },
+      "reps_s": [
+        2.542,
+        2.536,
+        2.436
+      ],
+      "warmup_s": 2.678
+    },
+    "screen": {
+      "median_s": 2.545,
+      "reps_s": [
+        2.288,
+        2.59,
+        2.545
+      ],
+      "strategy_subprocess_share_pct": 93,
+      "warmup_s": 2.255
+    }
+  },
+  "micro": {
+    "child_import_warden_runner_s": 1.887,
+    "execution_returns_4sym_s": 0.028,
+    "file_sha256_45p6MB_s": 0.093,
+    "filter_4_symbols_s": 0.025,
+    "funding_mask_pyloop_21888ts_s": 0.002,
+    "pickle_panel_roundtrip_s": 0.027,
+    "read_parquet_full_s": 0.109,
+    "sort_full_panel_s": 0.141
+  },
+  "run_id": "20261119T041816429054Z-ultraperf-goal-execution-8992dd",
+  "selection_history_growth": {
+    "AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1": {
+      "json_mb": 0.53,
+      "parse_s": 0.004,
+      "streams": 5
+    },
+    "CRYPTO_PERPS_TOP100_1H_V1": {
+      "json_mb": 9.03,
+      "parse_s": 0.071,
+      "streams": 54
+    }
+  },
+  "strategy_profile": {
+    "generate_positions_total_s": 0.228,
+    "lazy_collect_71calls_s": 0.066,
+    "pairwise_genexpr_43776calls_s": 0.024,
+    "to_list_16calls_s": 0.103,
+    "validate_cum_s": 0.118
+  },
+  "verify_internals": {
+    "cold_cache_step_s": 1.083,
+    "cold_prefix_invariance_s": 0.949,
+    "cold_wall_s": 2.032,
+    "computes_cold": "19 (9 cmd_verify proof + 9 re-proof in cache step + 1 full compute; code-derived, timing-consistent)",
+    "computes_warm": 9,
+    "warm_cache_hit_s": 0.012,
+    "warm_wall_s": 0.995
+  },
+  "workload": {
+    "contract": "AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1",
+    "data": "data/exploratory/crypto_perps_top100_1h.parquet 45.6MB, 2174396 rows x 8 cols",
+    "family": "rules_ts",
+    "filtered_panel": "87552 rows (BTC/ETH/LTC/XRP), 21888 hourly timestamps",
+    "spec": "experiments/active/soc_wbx_downshock_1h_20261031.yaml",
+    "val_window_bars": 8760
+  }
+}

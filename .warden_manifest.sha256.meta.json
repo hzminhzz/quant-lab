@@ -1,14 +1,6 @@
 {
-  "mode": "bounded_principal_delegation_unsigned",
-  "approver": "principal explicit 2026-10-30 authorization",
-  "approved_at": "2026-10-30T08:21:28.577966+00:00",
-  "manifest_sha256": "0ce4448782deddc45ae184225651d59ef3474f79c865650e4f2f33c55c149874",
-  "previous_manifest_sha256": "30a98ca66d9b3127dfb7e23f30da6aa757696d44f93f099c525cae7ab026d106",
-  "added_paths": [
-    "contracts/auto_indices_30m_v1_h24_e24_f5_s10_v1.yaml",
-    "contracts/datasets/AUTO_INDICES_30M_V1_H24_E24_F5_S10_V1.json"
-  ],
-  "previous_manifest_entries_verified": 88,
-  "independent_signature": "none",
-  "note": "Research contract creation delegated, never protected holdout unsealing or live execution"
+  "mode": "interactive",
+  "approver": "human-operator",
+  "approved_at": "2026-11-19T06:07:02+00:00",
+  "manifest_sha256": "1b67e7d2bb86a33e35ee89f14562ce99049ec11f39b3efb6d403e6588f79fed0"
 }

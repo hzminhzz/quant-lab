@@ -24,13 +24,23 @@ files change, the governance manifest (`.warden_manifest.sha256`) is re-signed b
 - Legacy asset-column normalization: 38 top-level candidate modules call
   `ts_common.normalize_asset_column` instead of an inline `symbol`→`asset` guard. Bit-identical on
   asset- and symbol-column panels.
-- Deferred (grounded): `recovery/cs_*_v2` use a structurally different older walk-forward scaffold
-  (`rebalance_every`, `contract.val_start` split); a forced merge onto `cs_positions` would change
-  behavior, and they are unwired historical artifacts. The cross-directory `symbol`→`asset` guards in
-  `carver_daily/`, `books/`, `baselines/` stay inline — centralizing them would require reintroducing
-  the per-module `sys.path` bootstraps the untangle removed.
+- Deferred (grounded): the cross-directory `symbol`→`asset` guards in `carver_daily/`, `books/`,
+  `baselines/` stay inline — centralizing them would require reintroducing the per-module `sys.path`
+  bootstraps the untangle removed. (`recovery/cs_*_v2` were deduped in the follow-up pass below.)
 - Verify: `uv run --frozen pytest -q` (403 passed, 8 skipped); `uv run --frozen warden check-worktree`
   (rc=0; strategies are unprotected, so the manifest signature is unchanged).
+
+### Recovery scaffold dedup (final pre-production pass)
+- The four `recovery/cs_*_v2` historical variants now call `recovery/recovery_common.py::recovery_positions`,
+  which owns their older walk-forward scaffold once (`contract.val_start` split, per-factor warmup,
+  purged folds, top-k/bottom-k dollar-neutral book). The genuine structural differences between the
+  copies are explicit named axes — `k_floor_one`, `ic_std_guard` (1e-8), `fill_missing_feature_assets` —
+  never silent forks; each module keeps its own feature pipeline and public signature.
+- Behavior bit-identical (`np.array_equal` on positions/ic_series/mean_ic) on synthetic + real pinned
+  panels for all four. These are unwired historical artifacts: behavior is preserved, but their code
+  identity (`strategy_code_sha256`) changes — re-run to re-bind before any future qualification.
+- Verify: `uv run --frozen pytest -q` (403 passed, 8 skipped); `uv run --frozen warden check-worktree`
+  (rc=0; strategies unprotected, manifest signature unchanged).
 
 ### Evidence integrity (merge `35335de`, commit `c081fba`)
 - Code identity is now complete: `warden.codeid.code_closure` walks all imports (module-level and

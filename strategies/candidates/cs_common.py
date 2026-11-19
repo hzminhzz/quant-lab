@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 from sklearn.linear_model import Ridge
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 from warden.leakage import compute_open_forward_label, purged_walk_forward_splits
@@ -46,8 +47,7 @@ def cs_positions(
     should_invert = invert_factor
     if invert_aliases:
         should_invert = invert_factor or kwargs.get("invert", False) or kwargs.get("invert_weights", False)
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     df = panel_df.sort("timestamp", "asset")
     timestamps = sorted(df["timestamp"].unique().to_list())

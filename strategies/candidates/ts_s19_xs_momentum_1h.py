@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 from ts_common import capped_waterfall_weights_clamp as capped_waterfall_weights
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 
@@ -101,8 +102,7 @@ def generate_positions(
 ) -> dict[str, Any]:
     """Compute causal AF30 Strategy 19 cross-sectional momentum positions with symmetric trailing ATR-14 stop overlay."""
     _ = kwargs
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     pipe = FeaturePipeline(
         lookback_bars=lookback_bars,

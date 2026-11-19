@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 
@@ -51,8 +52,7 @@ def generate_positions(
 ) -> dict[str, Any]:
     """Causal London ORB: Asian range (00:00-08:00 UTC), enter on breakout with expanding volume, exit at 16:00 UTC."""
     _ = kwargs
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     pipe = LondonORBPipeline(
         asian_start_hour=asian_start_hour,

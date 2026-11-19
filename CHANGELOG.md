@@ -17,6 +17,21 @@ files change, the governance manifest (`.warden_manifest.sha256`) is re-signed b
   `docs/WORKFLOW.md` Stage-1 unwired families, holdout code binding, and symbol refs replacing stale
   line numbers.
 
+### Strategy dedup backlog (commit on `refactor/dedup-backlog-20261119`)
+- Trailing-ATR-stop overlays: the verbatim-identical stop loops across 20 `rules_ts` modules now call
+  three shared `ts_common` helpers (`trailing_atr_stop_symmetric` / `_long_only` / `_symmetric_obs`),
+  selected by exact-body clustering. Bit-identical on synthetic + real pinned panels.
+- Legacy asset-column normalization: 38 top-level candidate modules call
+  `ts_common.normalize_asset_column` instead of an inline `symbol`→`asset` guard. Bit-identical on
+  asset- and symbol-column panels.
+- Deferred (grounded): `recovery/cs_*_v2` use a structurally different older walk-forward scaffold
+  (`rebalance_every`, `contract.val_start` split); a forced merge onto `cs_positions` would change
+  behavior, and they are unwired historical artifacts. The cross-directory `symbol`→`asset` guards in
+  `carver_daily/`, `books/`, `baselines/` stay inline — centralizing them would require reintroducing
+  the per-module `sys.path` bootstraps the untangle removed.
+- Verify: `uv run --frozen pytest -q` (403 passed, 8 skipped); `uv run --frozen warden check-worktree`
+  (rc=0; strategies are unprotected, so the manifest signature is unchanged).
+
 ### Evidence integrity (merge `35335de`, commit `c081fba`)
 - Code identity is now complete: `warden.codeid.code_closure` walks all imports (module-level and
   function-local) and unions a module's `CODE_DEPENDENCIES` declaration of runtime-loaded paths. The

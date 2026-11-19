@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from ts_common import normalize_asset_column
 
 from warden.contracts import EvaluationContract
 
@@ -79,8 +80,7 @@ def generate_positions(
 ) -> dict[str, Any]:
     """Compute causal squeeze breakout positions: enter when Bollinger Band width expands out of Keltner Channel with directional momentum."""
     _ = kwargs
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     pipe = VolCompressionBreakoutPipeline(
         bb_window=bb_window,

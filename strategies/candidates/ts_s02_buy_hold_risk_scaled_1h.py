@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from ts_common import capped_waterfall_weights
+from ts_common import capped_waterfall_weights, normalize_asset_column, trailing_atr_stop_long_only
 
 from warden.contracts import EvaluationContract
 
@@ -80,8 +80,7 @@ def generate_positions(
 ) -> dict[str, Any]:
     """Compute causal AF30 Strategy 2 risk scaled positions with trailing ATR-14 stop overlay."""
     _ = kwargs
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = normalize_asset_column(panel_df)
 
     pipe = FeaturePipeline(
         atr_window=atr_window,
@@ -180,15 +179,7 @@ def generate_positions(
                     for a_idx in rebal_indices:
                         positions[t, a_idx] = 0.0
 
-        for a_idx in active_indices:
-            if not obs_mat[t, a_idx]:
-                continue
-            pos = positions[t, a_idx]
-            if pos > 1e-6:
-                peak_prices[a_idx] = max(peak_prices[a_idx], high_mat[t, a_idx])
-                stop_price = peak_prices[a_idx] - stop_multiple * atr_mat[t, a_idx]
-                if close_mat[t, a_idx] < stop_price:
-                    positions[t, a_idx] = 0.0
+        trailing_atr_stop_long_only(active_indices, positions, obs_mat, t, peak_prices, high_mat, stop_multiple, close_mat, atr_mat)
 
     return {"positions": positions, "forecast": fc_mat}
 

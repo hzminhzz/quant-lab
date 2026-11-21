@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -19,7 +20,8 @@ class GateFalsificationError(ValueError): pass
 # PER_HYPOTHESIS_CAP is a governance fact owned by the registry (imported above), not redefined here.
 MIN_SR = {"cross_sectional_ml": 1.2, "rules_ts": 1.0}
 SR2_FLOOR, SRD_FLOOR, DSR_FLOOR, IC_T_FLOOR = 0.50, 0.0, 0.90, 2.0
-AUDIT_DSR_FLOOR, TRIM_MEAN_FLOOR = 0.80, -0.001
+AUDIT_DSR_FLOOR, TRIMMED_SHARPE_FLOOR = 0.80, 0.0
+NEIGHBOR_STABILITY_RATIO, NEIGHBOR_MAX_SR_FLOOR = 0.70, 0.0
 HOLDOUT_SR_FLOOR, HOLDOUT_RATIO_FLOOR, REVISE_SR_FLOOR = 0.80, 0.50, 1.0
 
 
@@ -113,6 +115,23 @@ def annualised_sharpe(returns, bars_per_year: int) -> float:
     return per_bar_sharpe(returns) * math.sqrt(bars_per_year)
 
 
+def compute_trimmed_sharpe(
+    returns: Sequence[float] | np.ndarray,
+    bars_per_year: int,
+    percentile: float = 95.0,
+) -> float | None:
+    """Annualised Sharpe after dropping returns above the given percentile."""
+    r = np.asarray(returns, dtype=float)
+    r = r[np.isfinite(r)]
+    if len(r) < 2 or bars_per_year < 1:
+        return None
+    trimmed = r[r <= np.percentile(r, percentile)]
+    if len(trimmed) < 2:
+        return None
+    sr = annualised_sharpe(trimmed, bars_per_year)
+    return float(sr) if math.isfinite(sr) else None
+
+
 def empirical_holding_volatility(panel_df: pl.DataFrame, expected_holding_bars: int) -> float:
     h = int(expected_holding_bars)
     if h < 1:
@@ -145,3 +164,42 @@ def empirical_holding_volatility(panel_df: pl.DataFrame, expected_holding_bars: 
     )
     med = stats_df.select(pl.col("vol").filter(pl.col("vol").is_finite()).median()).item()
     return float(med) if med is not None and math.isfinite(med) else 0.0
+
+
+def evaluate_neighbor_stability(
+    neighbor_sharpes: Sequence[float], baseline_net_sharpe: float
+) -> dict[str, Any]:
+    """Sign-safe parameter neighbor stability without negative/negative ratio inversion."""
+    base = float(baseline_net_sharpe)
+    if not neighbor_sharpes:
+        return {
+            "neighbor_tested": False,
+            "passed": None,
+            "stability": None,
+            "min_sharpe": None,
+            "max_sharpe": None,
+            "baseline_net_sharpe": base if math.isfinite(base) else None,
+        }
+    vals = [float(s) for s in neighbor_sharpes]
+    if not math.isfinite(base) or not all(math.isfinite(v) for v in vals):
+        return {
+            "neighbor_tested": True,
+            "passed": False,
+            "stability": 0.0,
+            "min_sharpe": None,
+            "max_sharpe": None,
+            "baseline_net_sharpe": base if math.isfinite(base) else None,
+        }
+    min_sr = min(vals)
+    max_sr = max(vals)
+    positive_anchor = max_sr > NEIGHBOR_MAX_SR_FLOOR and base > NEIGHBOR_MAX_SR_FLOOR
+    passed = positive_anchor and (min_sr >= NEIGHBOR_STABILITY_RATIO * base)
+    stability = float(min_sr / base) if positive_anchor else 0.0
+    return {
+        "neighbor_tested": True,
+        "passed": bool(passed),
+        "stability": stability,
+        "min_sharpe": min_sr,
+        "max_sharpe": max_sr,
+        "baseline_net_sharpe": base,
+    }

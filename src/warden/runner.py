@@ -36,7 +36,10 @@ from warden.gates import (
     REVISE_SR_FLOOR,
     SR2_FLOOR,
     SRD_FLOOR,
+    TRIMMED_SHARPE_FLOOR,
+    compute_trimmed_sharpe,
     empirical_holding_volatility,
+    evaluate_neighbor_stability,
     evaluate_stage0_feasibility,
     evaluate_stage1_cross_sectional_ml,
     evaluate_stage1_rules_ts,
@@ -357,9 +360,10 @@ class ExperimentRunner:
                 mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
                 if not s1.passed:
                     # Store the observed validation signal, never a placeholder zero return vector.
-                    diag = {"dataset": dataset, "stage1_signal": {"metrics": s1.metrics, "notes": s1.notes,
-                                                                  "vector": np.asarray(ic_series, dtype=float).tolist()}}
-                    res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, n_attempts, float(prior_keff), mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, f"Rejected at Stage 1: {s1.notes}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
+                    diag = {"dataset": dataset, "neighbor_tested": False, "failed_gates": ["ic_hac"],
+                            "stage1_signal": {"metrics": s1.metrics, "notes": s1.notes,
+                                              "vector": np.asarray(ic_series, dtype=float).tolist()}}
+                    res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, n_attempts, float(prior_keff), mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, f"Rejected at Stage 1: {s1.notes}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
                     res = dc_replace(res, **provenance_kw, diagnostics_json=canonical_json(diag))
                     self.registry.record_trial(res, params, np.zeros(0), trial_number=trial_num, diagnostics=diag)
                     return res
@@ -380,7 +384,7 @@ class ExperimentRunner:
             sr2 = float(np.mean(sim2["net_returns"]) / (np.std(sim2["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
             srd = float(np.mean(sim_d["net_returns"]) / (np.std(sim_d["net_returns"], ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year))
 
-            ngrid, n_sr = cfg.get("param_grid", []), []
+            ngrid, n_sr = cfg.get("param_grid") or [], []
             for grid_params in ngrid:
                 grid_sim = simulate_positions(_run_strategy_isolated(strat_file, panel_df, contract, grid_params)["positions"],
                                               ret_p["long"], fund_p, contract, v_slice, funding_mask=fund_mask,
@@ -395,7 +399,9 @@ class ExperimentRunner:
                     config_hash=hashlib.sha256(canonical_json(grid_params).encode()).hexdigest()[:12],
                     data_provenance=dataset.provenance, returns=grid_sim["net_returns"],
                     diagnostics={"net_sharpe": n_sr[-1]})
-            stability = float(min(n_sr) / (max(n_sr) + 1e-8)) if n_sr else 1.0
+            neighbor_report = evaluate_neighbor_stability(n_sr, m["net_sharpe"])
+            stability = neighbor_report["stability"]
+            trimmed_sr = compute_trimmed_sharpe(net_ret, contract.bars_per_year)
 
             report = compute_selection_report(net_ret, hist["streams"], contract.bars_per_year,
                                               raw_attempt_count=n_attempts, prior_max_keff=prior_keff,
@@ -414,11 +420,30 @@ class ExperimentRunner:
             diag["metrics"] = m
             diag["timing_skill"] = compute_shift_skill_pvalue(sim1["positions"], ret_p["long"][v_slice],
                                                               contract.label_horizon_bars)
+            diag["neighbor_tested"] = neighbor_report["neighbor_tested"]
+            diag["neighbor_stability"] = neighbor_report
+            diag["trimmed_sharpe"] = trimmed_sr
+
             min_sr = MIN_SR.get(family, REVISE_SR_FLOOR)
-            ic_ok = (ic_hac_t >= IC_T_FLOOR) if family == "cross_sectional_ml" and ic_hac_t is not None else True
-            rules_ok = s1_rules.passed if s1_rules is not None else True
-            statistical = (m["net_sharpe"] > min_sr and sr2 > SR2_FLOOR and srd > SRD_FLOOR and dsr_p >= DSR_FLOOR
-                           and not report["non_promotable_reason"] and ic_ok and rules_ok)
+            failed_gates: list[str] = []
+            if not (m["net_sharpe"] > min_sr):
+                failed_gates.append("net_sharpe")
+            if not (dsr_p >= DSR_FLOOR) or bool(report["non_promotable_reason"]):
+                failed_gates.append("dsr")
+            if not (sr2 > SR2_FLOOR):
+                failed_gates.append("cost_2x")
+            if not (srd > SRD_FLOOR):
+                failed_gates.append("latency_plus1")
+            if neighbor_report["neighbor_tested"] and not neighbor_report["passed"]:
+                failed_gates.append("neighbor_stability")
+            if trimmed_sr is None or not (trimmed_sr > TRIMMED_SHARPE_FLOOR):
+                failed_gates.append("trimmed_sharpe")
+            if s1_rules is not None and not s1_rules.passed:
+                failed_gates.append("stage1_rules")
+            if family == "cross_sectional_ml" and (ic_hac_t is None or not (ic_hac_t >= IC_T_FLOOR)):
+                failed_gates.append("ic_hac")
+            diag["failed_gates"] = failed_gates
+            statistical = len(failed_gates) == 0
             if not dataset.eligible_market:
                 verdict = "NON_PROMOTABLE"
             else:
@@ -428,7 +453,7 @@ class ExperimentRunner:
             self.registry.record_trial(res, params, net_ret, trial_number=trial_num, diagnostics=diag)
             return res
         except Exception as exc:
-            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "", strategy_code_sha256=code_sha)
+            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "", strategy_code_sha256=code_sha)
             try:
                 self.registry.record_trial(res_failed, params, np.zeros(0), trial_number=trial_num,
                                            diagnostics={"error": str(exc), "dataset": dataset})

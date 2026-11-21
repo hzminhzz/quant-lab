@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Sequence
+from datetime import date, datetime, timedelta
+from itertools import pairwise
 from typing import Protocol
 
 import numpy as np
 import polars as pl
 
-from warden.contracts import EvaluationContract
+from warden.contracts import FREQUENCY_BAR_DURATION, EvaluationContract
 
 
 class LookaheadLeakageError(ValueError): pass
@@ -117,18 +120,120 @@ def verify_asset_independence(pipeline: FeaturePipelineProtocol, bars_df: pl.Dat
             raise CrossAssetLeakageError(f"Cross-asset leakage detected in column '{col}' when shocking '{shock}'")
 
 
-def verify_fold_isolation(model: WalkForwardModelProtocol, train_df: pl.DataFrame, val_df: pl.DataFrame, feature_cols: Sequence[str], label_col: str, label_horizon_bars: int = 0, embargo_bars: int = 0, seed: int = 42) -> pl.DataFrame:
-    from datetime import datetime, timedelta
-    max_train_ts = train_df["timestamp"].max()
-    min_val_ts = val_df["timestamp"].min()
-    if max_train_ts >= min_val_ts:
-        raise LookaheadLeakageError(f"Train timestamp ({max_train_ts}) overlaps validation timestamp ({min_val_ts})")
-    required_gap = label_horizon_bars + embargo_bars
+def _resolve_bar_duration(
+    train_df: pl.DataFrame,
+    val_df: pl.DataFrame,
+    contract: EvaluationContract | None,
+    frequency: str | None,
+    bar_duration: timedelta | None,
+) -> tuple[timedelta, str]:
+    if bar_duration is not None:
+        if bar_duration <= timedelta(0):
+            raise ValueError("bar_duration must be positive")
+        return bar_duration, "explicit"
+    if frequency is not None and contract is not None and frequency != contract.frequency:
+        raise ValueError(
+            f"frequency '{frequency}' conflicts with contract frequency '{contract.frequency}'"
+        )
+    freq = frequency if frequency is not None else (contract.frequency if contract is not None else None)
+    if freq is not None:
+        if freq not in FREQUENCY_BAR_DURATION:
+            raise ValueError(f"Unsupported frequency '{freq}'")
+        return FREQUENCY_BAR_DURATION[freq], freq
+    train_ts = sorted(set(train_df["timestamp"].to_list()))
+    val_ts = sorted(set(val_df["timestamp"].to_list()))
+    deltas = [b - a for ts_list in (train_ts, val_ts) for a, b in pairwise(ts_list) if b > a]
+    if not deltas:
+        raise ValueError(
+            "Cannot infer bar duration from single-timestamp splits without contract, frequency, or bar_duration"
+        )
+    return min(deltas), "inferred"
+
+
+def _check_ordered_boundary(train_df: pl.DataFrame, val_df: pl.DataFrame, col: str, label: str):
+    max_train = train_df[col].max()
+    min_val = val_df[col].min()
+    if max_train is None or min_val is None:
+        raise LookaheadLeakageError(f"Null {label} values in '{col}'")
+    if max_train >= min_val:
+        raise LookaheadLeakageError(
+            f"{label} overlap on '{col}': train max ({max_train}) >= val min ({min_val})"
+        )
+    return max_train, min_val
+
+
+def verify_fold_isolation(
+    model: WalkForwardModelProtocol,
+    train_df: pl.DataFrame,
+    val_df: pl.DataFrame,
+    feature_cols: Sequence[str],
+    label_col: str,
+    label_horizon_bars: int | None = None,
+    embargo_bars: int | None = None,
+    seed: int = 42,
+    contract: EvaluationContract | None = None,
+    frequency: str | None = None,
+    bar_duration: timedelta | None = None,
+    panel_timestamps: Sequence | None = None,
+    session_col: str | None = None,
+) -> pl.DataFrame:
+    if train_df.is_empty() or val_df.is_empty():
+        raise LookaheadLeakageError("Train and validation DataFrames must be non-empty")
+    horizon = (
+        contract.label_horizon_bars
+        if label_horizon_bars is None and contract is not None
+        else (0 if label_horizon_bars is None else label_horizon_bars)
+    )
+    embargo = (
+        contract.embargo_bars
+        if embargo_bars is None and contract is not None
+        else (0 if embargo_bars is None else embargo_bars)
+    )
+    if horizon < 0 or embargo < 0:
+        raise ValueError("label_horizon_bars and embargo_bars must be non-negative")
+
+    max_train_ts, min_val_ts = _check_ordered_boundary(train_df, val_df, "timestamp", "Timestamp")
+
+    if session_col is not None:
+        if session_col not in train_df.columns or session_col not in val_df.columns:
+            raise ValueError(f"session_col '{session_col}' missing from train_df or val_df")
+        _check_ordered_boundary(train_df, val_df, session_col, "Session")
+
+    required_gap = horizon + embargo
     if required_gap > 0:
-        if isinstance(max_train_ts, (int, float)) and max_train_ts + required_gap > min_val_ts:
-            raise LookaheadLeakageError(f"Fold purge/embargo violation: max_train ({max_train_ts}) + {required_gap} > min_val ({min_val_ts})")
-        elif isinstance(max_train_ts, datetime) and (min_val_ts - max_train_ts) < timedelta(hours=required_gap):
-            raise LookaheadLeakageError(f"Fold purge/embargo violation: gap {min_val_ts - max_train_ts} < {required_gap} bars")
+        if panel_timestamps is not None:
+            ts_seq = panel_timestamps.to_list() if isinstance(panel_timestamps, pl.Series) else list(panel_timestamps)
+            unique_ts = sorted(set(ts_seq))
+            train_idx = bisect_left(unique_ts, max_train_ts)
+            val_idx = bisect_left(unique_ts, min_val_ts)
+            if (
+                train_idx >= len(unique_ts)
+                or unique_ts[train_idx] != max_train_ts
+                or val_idx >= len(unique_ts)
+                or unique_ts[val_idx] != min_val_ts
+            ):
+                raise ValueError(
+                    f"Split boundaries ({max_train_ts}, {min_val_ts}) must exist in panel_timestamps"
+                )
+            bar_gap = val_idx - train_idx
+            if bar_gap < required_gap:
+                raise LookaheadLeakageError(
+                    f"Fold purge/embargo violation: bar gap {bar_gap} < {required_gap} bars"
+                )
+        elif isinstance(max_train_ts, (int, float)) and not isinstance(max_train_ts, bool):
+            if max_train_ts + required_gap > min_val_ts:
+                raise LookaheadLeakageError(
+                    f"Fold purge/embargo violation: max_train ({max_train_ts}) + {required_gap} > min_val ({min_val_ts})"
+                )
+        elif isinstance(max_train_ts, (datetime, date)):
+            step, label = _resolve_bar_duration(train_df, val_df, contract, frequency, bar_duration)
+            if (min_val_ts - max_train_ts) < step * required_gap:
+                raise LookaheadLeakageError(
+                    f"Fold purge/embargo violation ({label}): gap {min_val_ts - max_train_ts} < {step * required_gap} ({required_gap} bars)"
+                )
+        else:
+            raise TypeError(f"Unsupported timestamp type: {type(max_train_ts).__name__}")
+
     drop_cols = [c for c in val_df.columns if c == label_col or any(k in c.lower() for k in ("label", "target", "forward", "fut_"))]
     val_feat = val_df.drop(drop_cols)
     preds = model.fit_predict_fold(train_df=train_df, val_features_df=val_feat, feature_cols=feature_cols, label_col=label_col, seed=seed)

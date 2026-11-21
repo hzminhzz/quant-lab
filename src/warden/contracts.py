@@ -7,7 +7,7 @@ import json
 import math
 import re
 from dataclasses import asdict, dataclass, field, fields
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -15,6 +15,15 @@ import yaml
 from ml4t.specs import FeedSpec
 
 MARKET = "verified_market"
+FREQUENCY_BAR_DURATION: dict[str, timedelta] = {
+    "1m": timedelta(minutes=1),
+    "5m": timedelta(minutes=5),
+    "15m": timedelta(minutes=15),
+    "30m": timedelta(minutes=30),
+    "1h": timedelta(hours=1),
+    "4h": timedelta(hours=4),
+    "1d": timedelta(days=1),
+}
 
 
 class ContractValidationError(ValueError):
@@ -71,7 +80,7 @@ class EvaluationContract:
         d = [self.train_start, self.val_start, self.val_end, self.holdout_start, self.holdout_end]
         if not (d[0] < d[1] < d[2] <= d[3] < d[4]):
             raise ContractValidationError("chronological boundaries overlap")
-        if self.asset_class not in {"crypto_perps", "fx", "indices", "metals", "commodities", "multi_asset"} or self.frequency not in {"1m", "5m", "15m", "30m", "1h", "4h", "1d"} or self.execution_mode not in {"NEXT_BAR", "QUOTE_SIDE"}:
+        if self.asset_class not in {"crypto_perps", "fx", "indices", "metals", "commodities", "multi_asset"} or self.frequency not in FREQUENCY_BAR_DURATION or self.execution_mode not in {"NEXT_BAR", "QUOTE_SIDE"}:
             raise ContractValidationError("invalid asset_class, frequency, or execution_mode")
         for n in ("bars_per_year", "n_folds", "label_horizon_bars", "embargo_bars", "execution_delay_bars"):
             if type(getattr(self, n)) is not int or getattr(self, n) < 1:
@@ -89,6 +98,9 @@ class EvaluationContract:
 
     def total_one_way_cost_decimal(self) -> float:
         return (self.taker_fee_bps + self.slippage_bps) * 1e-4
+
+    def bar_duration(self) -> timedelta:
+        return FREQUENCY_BAR_DURATION[self.frequency]
 
     def spec_hash(self) -> str:
         return hashlib.sha256(canonical_json(asdict(self)).encode()).hexdigest()[:16]
@@ -251,7 +263,7 @@ class ExperimentResult:
     annualized_turnover: float
     breakeven_cost_bps: float
     stress_2x_cost_sharpe: float
-    param_neighbor_stability: float
+    param_neighbor_stability: float | None
     notes: str
     delay_plus1_sharpe: float = 0.0
     cvar_99_pct: float = 0.0

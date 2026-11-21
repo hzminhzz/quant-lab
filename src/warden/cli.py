@@ -12,13 +12,17 @@ import re
 import sys
 from pathlib import Path
 
-import numpy as np
-
 from warden import __version__
 from warden.audit import record as audit_record
 from warden.codeid import code_closure
 from warden.contracts import canonical_json, load_hypothesis
-from warden.gates import AUDIT_DSR_FLOOR, SR2_FLOOR, SRD_FLOOR, TRIM_MEAN_FLOOR
+from warden.gates import (
+    AUDIT_DSR_FLOOR,
+    SR2_FLOOR,
+    SRD_FLOOR,
+    TRIMMED_SHARPE_FLOOR,
+    compute_trimmed_sharpe,
+)
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
 from warden.lease import MutationBusy, mutation_lease
 from warden.policy import Decision, authorize
@@ -197,18 +201,18 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     has_causal_proof = runner.registry.causal_proof_for_run(args.run_id, runner.repo_root)["verified"]
     contract = runner.resolve_contract(trial["contract_id"])
     eligibility = runner.registry.effective_eligibility(args.run_id)
-    r_path = runner.repo_root / trial.get("returns_parquet_path", "")
-    trimmed_ok = False
+    r_path = runner.repo_root / (trial.get("returns_parquet_path") or "")
+    trimmed_sharpe: float | None = None
     if r_path.is_file():
         import polars as pl
+
         r_series = pl.read_parquet(r_path)["net_return"].to_numpy()
-        if len(r_series) > 0:
-            p95 = float(np.percentile(r_series, 95.0))
-            trimmed_ok = float(np.mean(r_series[r_series <= p95])) > TRIM_MEAN_FLOOR
+        trimmed_sharpe = compute_trimmed_sharpe(r_series, contract.bars_per_year)
+    trimmed_ok = (trimmed_sharpe is not None) and (trimmed_sharpe > TRIMMED_SHARPE_FLOOR)
 
     c = {
         "1_target_rebalance_alignment": trial.get("stage_reached") in {"STAGE_2_BACKTEST", "STAGE_3_STRESS"} and contract.label_horizon_bars >= 1,
-        "2_outlier_sensitivity": trimmed_ok and trial.get("net_sharpe", 0.0) > 0.0 and trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
+        "2_outlier_sensitivity": trimmed_ok and trial.get("net_sharpe", TRIMMED_SHARPE_FLOOR) > TRIMMED_SHARPE_FLOOR and trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
         "3_point_in_time_causality": has_causal_proof and contract.execution_delay_bars >= 1,
         "4_fold_local_fitting": (contract.n_folds >= 2 and contract.embargo_bars >= 1) or trial.get("strategy_family") == "rules_ts",
         "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > SR2_FLOOR) and (trial.get("delay_plus1_sharpe", -1.0) > SRD_FLOOR),
@@ -218,14 +222,26 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     approved = historical_passed and eligibility["eligible"]
     verdict = "APPROVED" if approved else ("REVOKED_INELIGIBLE" if historical_passed else "REJECTED")
     runner.registry.record_audit(args.run_id, trial["contract_id"], verdict, c, eligibility["reason"])
-    audit = {"run_id": args.run_id, "checks": {k: {"passed": v} for k, v in c.items()},
-             "audit_passed": approved, "historical_checks_passed": historical_passed, "verdict": verdict,
-             "effective_eligibility": eligibility}
+    checks = {k: {"passed": v} for k, v in c.items()}
+    checks["2_outlier_sensitivity"]["trimmed_sharpe"] = trimmed_sharpe
+    audit = {
+        "run_id": args.run_id,
+        "checks": checks,
+        "trimmed_sharpe": trimmed_sharpe,
+        "audit_passed": approved,
+        "historical_checks_passed": historical_passed,
+        "verdict": verdict,
+        "effective_eligibility": eligibility,
+    }
     out = runner.repo_root / ".workspace" / "hypotheses" / f"AUDIT_{args.run_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(f"# 6-Check Audit: {args.run_id}\nVerdict: {verdict}\n"
-                   f"Effective eligibility: {eligibility['eligible']} ({eligibility['reason']})\n"
-                   + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n")
+    trimmed_line = f"{trimmed_sharpe:.4f}" if trimmed_sharpe is not None else "N/A"
+    out.write_text(
+        f"# 6-Check Audit: {args.run_id}\nVerdict: {verdict}\n"
+        f"Effective eligibility: {eligibility['eligible']} ({eligibility['reason']})\n"
+        f"Trimmed Sharpe (ex top-5%): {trimmed_line}\n"
+        + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n"
+    )
     print(json.dumps(audit, indent=2) if args.json else
           f"Audit for {args.run_id}: {verdict} (eligible={eligibility['eligible']}: {eligibility['reason']})\nReport: {out}")
     return 0 if approved else 1

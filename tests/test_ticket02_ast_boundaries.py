@@ -217,7 +217,9 @@ def test_deleted_dead_surfaces_and_centralized_gate_constants() -> None:
         "DSR_FLOOR",
         "IC_T_FLOOR",
         "AUDIT_DSR_FLOOR",
-        "TRIM_MEAN_FLOOR",
+        "TRIMMED_SHARPE_FLOOR",
+        "NEIGHBOR_STABILITY_RATIO",
+        "NEIGHBOR_MAX_SR_FLOOR",
         "HOLDOUT_SR_FLOOR",
         "HOLDOUT_RATIO_FLOOR",
         "REVISE_SR_FLOOR",
@@ -239,6 +241,7 @@ def test_deleted_dead_surfaces_and_centralized_gate_constants() -> None:
         "STAGE0_VOL_PROXY",
         "stage0_holding_volatility",
         "warden.runner import load_module_from_path",
+        "TRIM_MEAN_FLOOR",
     )
     self_path = Path(__file__).resolve()
 
@@ -325,12 +328,12 @@ def test_deleted_dead_surfaces_and_centralized_gate_constants() -> None:
         return names, cmp_floats
 
     runner_names, runner_floats = _func_names_and_compare_floats(Path(runner.__file__), "run_spec")
-    assert {"MIN_SR", "REVISE_SR_FLOOR", "SR2_FLOOR", "SRD_FLOOR", "DSR_FLOOR", "IC_T_FLOOR"} <= runner_names
-    assert runner_floats.isdisjoint({0.5, 0.8, 0.9, 1.0, 1.2, 2.0, -0.001, 0.0})
+    assert {"MIN_SR", "REVISE_SR_FLOOR", "SR2_FLOOR", "SRD_FLOOR", "DSR_FLOOR", "IC_T_FLOOR", "TRIMMED_SHARPE_FLOOR"} <= runner_names
+    assert runner_floats.isdisjoint({0.5, 0.7, 0.8, 0.9, 1.0, 1.2, 2.0, -0.001, 0.0})
 
     cli_names, cli_floats = _func_names_and_compare_floats(Path(cli.__file__), "cmd_audit_check")
-    assert {"TRIM_MEAN_FLOOR", "SR2_FLOOR", "SRD_FLOOR", "AUDIT_DSR_FLOOR"} <= cli_names
-    assert cli_floats.isdisjoint({0.5, 0.8, 0.9, 1.0, 1.2, 2.0, -0.001})
+    assert {"TRIMMED_SHARPE_FLOOR", "SR2_FLOOR", "SRD_FLOOR", "AUDIT_DSR_FLOOR"} <= cli_names
+    assert cli_floats.isdisjoint({0.5, 0.7, 0.8, 0.9, 1.0, 1.2, 2.0, -0.001, 0.0})
 
     qual_names, qual_floats = _func_names_and_compare_floats(Path(qualify.__file__), "qualify_candidate")
     assert {"HOLDOUT_SR_FLOOR", "HOLDOUT_RATIO_FLOOR"} <= qual_names

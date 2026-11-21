@@ -54,6 +54,11 @@ DEFAULT_DB = Path("registry/registry.db")
 PREREG_KEYS = {"hypothesis_id", "contract_id", "revisions"}
 REVISION_KEYS = {"run_id", "axis", "parameters", "rationale"}
 AXES = ("2x_cost_survival", "latency_survival", "breakeven_cost", "param_neighbour_stability")
+AXIS_TO_FAILED_GATE = {
+    "2x_cost_survival": "cost_2x",
+    "latency_survival": "latency_plus1",
+    "param_neighbour_stability": "neighbor_stability",
+}
 
 
 def load_prereg(path: Path) -> dict[str, Any]:
@@ -102,6 +107,29 @@ def validate_prereg(data: dict[str, Any]) -> list[str]:
 
 def axis_fails(axis: str, row: dict[str, Any], grid_sharpes: list[float]) -> tuple[bool, str]:
     """Return (fails, human explanation) for one trial row under one axis rule."""
+    raw_diag = row.get("diagnostics_json")
+    try:
+        diag = (
+            json.loads(raw_diag)
+            if isinstance(raw_diag, str) and raw_diag.strip()
+            else (raw_diag if isinstance(raw_diag, dict) else {})
+        )
+    except ValueError:
+        diag = {}
+    if not isinstance(diag, dict):
+        diag = {}
+    if axis == "param_neighbour_stability" and diag.get("neighbor_tested") is False:
+        return False, "neighbor_tested=False (no param_grid evaluated; neighbor axis cannot justify a revision)"
+
+    failed_gates = diag.get("failed_gates")
+    gate_key = AXIS_TO_FAILED_GATE.get(axis)
+    if isinstance(failed_gates, list) and gate_key is not None:
+        if gate_key in failed_gates:
+            return True, f"diagnostics_json.failed_gates includes '{gate_key}' ({failed_gates})"
+        return False, f"diagnostics_json.failed_gates={failed_gates} does not include '{gate_key}'"
+    if axis == "param_neighbour_stability" and row.get("param_neighbor_stability") is None and not grid_sharpes:
+        return False, "param_neighbor_stability is None with no param_grid rows; neighbor axis cannot justify a revision"
+
     def metric(name: str) -> float:
         value = row.get(name)
         if value is None:

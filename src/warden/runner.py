@@ -20,6 +20,7 @@ import yaml
 
 from warden.codeid import code_closure
 from warden.contracts import (
+    DEFAULT_SIMULATION_EPOCH,
     EvaluationContract,
     ExperimentResult,
     HypothesisSpec,
@@ -243,14 +244,18 @@ class ExperimentRunner:
                 return load_contract(p)
         raise FileNotFoundError(f"Contract not found: '{contract_id}'")
 
-    def _prepare_and_check_stage0(self, contract, hyp, hyp_id, family, strat_module, params, trials_used):
+    def _prepare_and_check_stage0(
+        self, contract, hyp, hyp_id, family, strat_module, params, trials_used,
+        simulation_epoch: str = DEFAULT_SIMULATION_EPOCH,
+    ):
         try:
             dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
             panel_df, ts, assets, v_slice = prepare_panel(self.repo_root, dataset, params, contract)
             require_execution_columns(panel_df, contract)
             validate_panel_feed_spec(panel_df, contract)
         except (ValueError, OSError) as exc:
-            self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc)
+            self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc,
+                               simulation_epoch=simulation_epoch)
             raise
         vol_key = (dataset.sha256, tuple(assets), hyp.expected_holding_bars)
         if vol_key not in self._stage0_vol_cache:
@@ -258,7 +263,8 @@ class ExperimentRunner:
         try:
             evaluate_stage0_feasibility(contract, hyp, self._stage0_vol_cache[vol_key], trials_used)
         except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module, params, dataset.to_dict(), "STAGE_0", exc)
+            self._note_failure(contract, hyp_id, family, strat_module, params, dataset.to_dict(), "STAGE_0", exc,
+                               simulation_epoch=simulation_epoch)
             raise
         code_sha, _ = code_closure(self.repo_root, strat_module)
         return dataset, panel_df, ts, assets, v_slice, code_sha
@@ -268,6 +274,7 @@ class ExperimentRunner:
         contract = self.resolve_contract(cfg["contract_id"])
         hyp_id, family = cfg["hypothesis_id"], cfg.get("strategy_family", "rules_ts")
         params = cfg.get("parameters", {})
+        simulation_epoch = str(cfg.get("simulation_epoch") or DEFAULT_SIMULATION_EPOCH)
         strat_module = normalise_module(str(cfg.get("strategy_module", "")))
         with self.registry._connect() as conn:
             h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
@@ -276,7 +283,7 @@ class ExperimentRunner:
             hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
             trials_used = h[5]
         dataset, panel_df, ts, assets, v_slice, _ = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module, params, trials_used)
+            contract, hyp, hyp_id, family, strat_module, params, trials_used, simulation_epoch=simulation_epoch)
         screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
         strat_file = self.repo_root / strat_module
         out = _run_strategy_isolated(strat_file, panel_df, contract, params)
@@ -287,7 +294,7 @@ class ExperimentRunner:
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
                 returns=out["ic_series"], diagnostics={**report.metrics, "dataset": dataset.to_dict()},
-                screen_key=screen_key)
+                screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
         sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
@@ -299,7 +306,7 @@ class ExperimentRunner:
             stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
             strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
             returns=sim1["net_returns"], diagnostics={**report.metrics, "dataset": dataset.to_dict()},
-            screen_key=screen_key)
+            screen_key=screen_key, simulation_epoch=simulation_epoch)
         return report
 
     def run_spec(self, exp_yaml_path: Path, override_run_id: str | None = None) -> ExperimentResult:
@@ -307,15 +314,17 @@ class ExperimentRunner:
         contract = self.resolve_contract(cfg["contract_id"])
         hyp_id, family = cfg["hypothesis_id"], cfg.get("strategy_family", "rules_ts")
         strat_name, model_type, params = cfg.get("strategy_name", Path(exp_yaml_path).stem), cfg.get("model_type", "rules"), cfg.get("parameters", {})
+        simulation_epoch = str(cfg.get("simulation_epoch") or DEFAULT_SIMULATION_EPOCH)
 
         with self.registry._connect() as conn:
-            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, strategy_family FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
+            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, strategy_family, source_published_at FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
             if not h:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
             reg_family = h[6]
             if family != reg_family:
                 raise ValueError(f"Experiment spec strategy_family '{family}' does not match registered hypothesis family '{reg_family}'.")
-            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], reg_family, h[1], h[2], int(h[3]), h[4])
+            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], reg_family, h[1], h[2], int(h[3]), h[4],
+                                 source_published_at=h[7])
             trials_used = h[5]
 
         is_linear = model_type.lower() in {"ridge", "linear", "elasticnet", "ols", "lasso"}
@@ -330,11 +339,12 @@ class ExperimentRunner:
 
         strat_module = strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
         dataset, panel_df, ts, assets, v_slice, code_sha = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module_str, params, trials_used)
+            contract, hyp, hyp_id, family, strat_module_str, params, trials_used, simulation_epoch=simulation_epoch)
         run_id = override_run_id or cfg.get("run_id") or default_run_id(hyp_id, trials_used + 1)
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
-        provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha}
+        provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha,
+                         "simulation_epoch": simulation_epoch}
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
@@ -348,9 +358,7 @@ class ExperimentRunner:
                     f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
             raw_pos, ic_series = out["positions"], out.get("ic_series")
 
-            hist = self.registry.selection_history(contract.contract_id, v_slice.stop - v_slice.start)
             prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
-            n_attempts = hist["raw_attempt_count"] + 1
 
             mean_ic, ic_hac_t = None, None
             if family == "cross_sectional_ml":
@@ -359,6 +367,8 @@ class ExperimentRunner:
                 s1 = evaluate_stage1_cross_sectional_ml(ic_series)
                 mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
                 if not s1.passed:
+                    n_attempts = self.registry.validation_attempt_count(
+                        contract.contract_id, simulation_epoch=simulation_epoch) + 1
                     # Store the observed validation signal, never a placeholder zero return vector.
                     diag = {"dataset": dataset, "neighbor_tested": False, "failed_gates": ["ic_hac"],
                             "stage1_signal": {"metrics": s1.metrics, "notes": s1.notes,
@@ -398,22 +408,30 @@ class ExperimentRunner:
                     strategy_module=strat_module_str, parameters=grid_params,
                     config_hash=hashlib.sha256(canonical_json(grid_params).encode()).hexdigest()[:12],
                     data_provenance=dataset.provenance, returns=grid_sim["net_returns"],
-                    diagnostics={"net_sharpe": n_sr[-1]})
+                    diagnostics={"net_sharpe": n_sr[-1]}, simulation_epoch=simulation_epoch)
             neighbor_report = evaluate_neighbor_stability(n_sr, m["net_sharpe"])
             stability = neighbor_report["stability"]
             trimmed_sr = compute_trimmed_sharpe(net_ret, contract.bars_per_year)
 
+            # Record param_grid attempts before evaluating n_attempts and effective_rank.
+            hist = self.registry.selection_history(
+                contract.contract_id, v_slice.stop - v_slice.start, simulation_epoch=simulation_epoch)
+            n_attempts = hist["raw_attempt_count"] + 1
             report = compute_selection_report(net_ret, hist["streams"], contract.bars_per_year,
                                               raw_attempt_count=n_attempts, prior_max_keff=prior_keff,
                                               prior_max_noise=prior_noise)
             self.registry.update_search_floor(contract.contract_id, report["k_eff_gate"],
                                              report["expected_max_sharpe_noise"])
             dsr_p, exp_max, k_eff = report["probability"], report["expected_max_sharpe_noise"], report["k_eff_gate"]
+            retrospective = hyp.is_retrospective_for(contract)
             diag = {"dataset": dataset, "family_key": family_key,
-                    "selection": {k: report[k] for k in ("raw_attempt_count", "streams_used", "unvectorized_attempts",
-                                                         "prior_max_keff", "k_eff_dedup", "k_eff_gate",
-                                                         "noise_floor_applied", "correction_policy",
-                                                         "non_promotable_reason")},
+                    "retrospective_replication_only": retrospective,
+                    "source_published_at": hyp.source_published_at,
+                    "selection": {**{k: report[k] for k in ("raw_attempt_count", "streams_used", "unvectorized_attempts",
+                                                            "prior_max_keff", "k_eff_dedup", "k_eff_effective",
+                                                            "k_eff_gate", "noise_floor_applied", "correction_policy",
+                                                            "non_promotable_reason")},
+                                  "simulation_epoch": simulation_epoch},
                     "excluded_streams": hist["excluded"]}
             if s1_rules is not None:
                 diag["stage1_rules"] = {"metrics": s1_rules.metrics, "notes": s1_rules.notes}
@@ -444,7 +462,9 @@ class ExperimentRunner:
                 failed_gates.append("ic_hac")
             diag["failed_gates"] = failed_gates
             statistical = len(failed_gates) == 0
-            if not dataset.eligible_market:
+            if retrospective:
+                verdict = "RETROSPECTIVE_REPLICATION_ONLY"
+            elif not dataset.eligible_market:
                 verdict = "NON_PROMOTABLE"
             else:
                 verdict = "CANDIDATE_FOR_QUALIFICATION" if statistical else "REVISE"
@@ -453,7 +473,7 @@ class ExperimentRunner:
             self.registry.record_trial(res, params, net_ret, trial_number=trial_num, diagnostics=diag)
             return res
         except Exception as exc:
-            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "", strategy_code_sha256=code_sha)
+            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "", strategy_code_sha256=code_sha, simulation_epoch=simulation_epoch)
             try:
                 self.registry.record_trial(res_failed, params, np.zeros(0), trial_number=trial_num,
                                            diagnostics={"error": str(exc), "dataset": dataset})
@@ -461,9 +481,11 @@ class ExperimentRunner:
                 pass
             raise
 
-    def _note_failure(self, contract, hyp_id, family, strat_module, params, dataset, stage, exc):
+    def _note_failure(self, contract, hyp_id, family, strat_module, params, dataset, stage, exc,
+                      simulation_epoch: str = DEFAULT_SIMULATION_EPOCH):
         """Record validation-consuming failures that never reach a trial row."""
         self.registry.record_selection_attempt(
             hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="failed_reservation", stage=stage,
             outcome="ERROR", strategy_family=family, strategy_module=strat_module, parameters=params,
-            data_provenance=(dataset or {}).get("provenance", "unknown"), diagnostics={"error": str(exc)})
+            data_provenance=(dataset or {}).get("provenance", "unknown"), diagnostics={"error": str(exc)},
+            simulation_epoch=simulation_epoch)

@@ -7,7 +7,7 @@ import json
 import math
 import re
 from dataclasses import asdict, dataclass, field, fields
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -15,6 +15,7 @@ import yaml
 from ml4t.specs import FeedSpec
 
 MARKET = "verified_market"
+DEFAULT_SIMULATION_EPOCH = "legacy_matrix"
 FREQUENCY_BAR_DURATION: dict[str, timedelta] = {
     "1m": timedelta(minutes=1),
     "5m": timedelta(minutes=5),
@@ -39,6 +40,24 @@ def utc(value) -> datetime:
     if not isinstance(result, datetime) or result.tzinfo is None:
         raise ContractValidationError("timestamps must include an explicit timezone")
     return result.astimezone(UTC)
+
+
+def _normalize_optional_utc(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return utc(value).isoformat()
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC).isoformat()
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+            parsed = date.fromisoformat(text)
+            return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC).isoformat()
+        return utc(text).isoformat()
+    raise ContractValidationError("source_published_at must be an ISO-8601 date or timezone-aware datetime")
 
 
 def valid_id(value: str) -> None:
@@ -205,6 +224,7 @@ class HypothesisSpec:
     source_provenance: str = "internal_research"
     llm_model_id: str = "unspecified"
     strategy_module: str = ""
+    source_published_at: str | None = None
 
     def __post_init__(self):
         valid_id(self.hypothesis_id)
@@ -218,6 +238,14 @@ class HypothesisSpec:
                 raise ContractValidationError(f"{n} must explain at least 20 chars")
         if type(self.expected_holding_bars) is not int or self.expected_holding_bars < 1 or not self.title.strip() or not self.falsification_criteria.strip():
             raise ContractValidationError("invalid holding bars, title, or criteria")
+        object.__setattr__(self, "source_published_at", _normalize_optional_utc(self.source_published_at))
+
+    def source_published_utc(self) -> datetime | None:
+        return utc(self.source_published_at) if self.source_published_at else None
+
+    def is_retrospective_for(self, contract: EvaluationContract) -> bool:
+        pub = self.source_published_utc()
+        return pub is not None and pub >= contract.val_start
 
     @classmethod
     def from_yaml(cls, path: Path):
@@ -276,6 +304,7 @@ class ExperimentResult:
     diagnostics_json: str = "{}"
     stress_1p5_cost_sharpe: float | None = None
     strategy_code_sha256: str = ""
+    simulation_epoch: str = DEFAULT_SIMULATION_EPOCH
 
     def to_dict(self):
         return asdict(self)

@@ -18,14 +18,23 @@ from scipy import stats
 
 from warden.codeid import code_closure
 from warden.contracts import (
+    DEFAULT_SIMULATION_EPOCH,
     EvaluationContract,
     ExperimentResult,
     HypothesisSpec,
     canonical_json,
+    utc,
     valid_id,
 )
 
-BLOCKING = frozenset({"QUARANTINED_SYNTHETIC", "QUARANTINED", "REVOKED", "SUPERSEDED"})
+BLOCKING = frozenset({
+    "QUARANTINED_SYNTHETIC",
+    "QUARANTINED",
+    "REVOKED",
+    "SUPERSEDED",
+    "RETROSPECTIVE_REPLICATION_ONLY",
+})
+RUNNABLE_HYPOTHESIS_STATUSES = frozenset({"ACTIVE", "RETROSPECTIVE_REPLICATION_ONLY"})
 MARKET = "verified_market"
 LEGACY_RUNS = ("RUN-RULES-001", "RUN-RULES-002", "RUN-RULES-003", "RUN-ML-001", "RUN-ML-002")
 LEGACY_REASON = "Synthetic benchmark evidence; not evaluated on verified exploratory market data"
@@ -85,16 +94,18 @@ def compute_selection_report(candidate_returns, historical_return_streams, bars_
     floor = max(1.0, float(prior_max_keff))
     report = {"raw_attempt_count": raw, "streams_used": len(streams), "unvectorized_attempts": unvectorized,
               "prior_max_keff": float(prior_max_keff), "prior_max_noise": float(prior_max_noise),
-              "k_eff_dedup": 1.0, "k_eff_gate": floor + UNVECTORIZED_PENALTY * unvectorized,
+              "k_eff_dedup": 1.0, "k_eff_effective": 1.0 + UNVECTORIZED_PENALTY * unvectorized,
+              "k_eff_gate": max(1.0 + UNVECTORIZED_PENALTY * unvectorized, floor),
               "probability": 0.0, "expected_max_sharpe_noise": 0.0, "noise_floor_applied": False,
-              "correction_policy": "dedup@0.9995 + max(prior floor) + 0.50/unvectorized",
+              "correction_policy": "max(dedup@0.9995 + 0.50/unvectorized, prior_floor)",
               "non_promotable_reason": ""}
     if n < 10 or float(np.std(candidate)) < 1e-12:
         report["non_promotable_reason"] = "candidate return stream is empty or degenerate"
         return report
     matrix = np.column_stack(streams)
     k_dedup = _eigen_rank(matrix[:, distinct_stream_indices(matrix)])
-    k_gate = max(k_dedup, floor) + UNVECTORIZED_PENALTY * unvectorized
+    k_effective = k_dedup + UNVECTORIZED_PENALTY * unvectorized
+    k_gate = max(k_effective, floor)
     sharpes = [float(np.mean(v) / (np.std(v, ddof=1) + 1e-12)) for v in streams]
     sr_std = max(float(np.std(sharpes, ddof=1)) if len(sharpes) > 1 else 0.0, 1.0 / math.sqrt(n))
     if matrix.shape[1] > 1:
@@ -116,7 +127,7 @@ def compute_selection_report(candidate_returns, historical_return_streams, bars_
     variance = 1 - stats.skew(candidate) * sr + (stats.kurtosis(candidate, fisher=False) - 1) / 4 * sr ** 2
     probability = float(stats.norm.cdf((sr - noise) / math.sqrt(max(variance, 1e-8) / (n - 1))))
     report.update(probability=probability, expected_max_sharpe_noise=noise_ann,
-                  k_eff_dedup=k_dedup, k_eff_gate=k_gate, sr_std=sr_std)
+                  k_eff_dedup=k_dedup, k_eff_effective=k_effective, k_eff_gate=k_gate, sr_std=sr_std)
     return report
 
 
@@ -130,6 +141,14 @@ def compute_effective_trials_and_dsr(candidate_returns, historical_return_stream
 
 def normalise_module(module: str | None) -> str:
     return (module or "").strip().removeprefix("./")
+
+
+def _normalize_epoch(simulation_epoch: str | None) -> str:
+    return (simulation_epoch or DEFAULT_SIMULATION_EPOCH).strip() or DEFAULT_SIMULATION_EPOCH
+
+
+def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    return any(r[1] == column for r in conn.execute(f"PRAGMA table_info({table})").fetchall())
 
 
 def _columns(cls):
@@ -169,7 +188,7 @@ class ResearchRegistry:
                 CREATE TABLE IF NOT EXISTS audit_reports (run_id TEXT PRIMARY KEY,contract_id TEXT,verdict TEXT,checks_json TEXT,created_at REAL);
                 CREATE TABLE IF NOT EXISTS trial_dispositions (disposition_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,disposition TEXT NOT NULL,reason TEXT NOT NULL,attributed_to TEXT NOT NULL,created_at REAL NOT NULL,contract_id TEXT DEFAULT '');
                 CREATE TABLE IF NOT EXISTS audit_evidence (audit_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,contract_id TEXT DEFAULT '',verdict TEXT NOT NULL,checks_json TEXT NOT NULL DEFAULT '{{}}',reason TEXT NOT NULL DEFAULT '',created_at REAL NOT NULL);
-                CREATE TABLE IF NOT EXISTS selection_attempts (attempt_id TEXT PRIMARY KEY,attempt_base TEXT NOT NULL,run_id TEXT DEFAULT '',hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,strategy_family TEXT DEFAULT '',strategy_module TEXT DEFAULT '',kind TEXT NOT NULL,stage TEXT NOT NULL,outcome TEXT NOT NULL,config_hash TEXT DEFAULT '',parameters_json TEXT DEFAULT '{{}}',data_provenance TEXT DEFAULT 'unknown',returns_observed INTEGER NOT NULL DEFAULT 0,returns_json TEXT DEFAULT '',returns_sha256 TEXT DEFAULT '',diagnostics_json TEXT DEFAULT '{{}}',created_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS selection_attempts (attempt_id TEXT PRIMARY KEY,attempt_base TEXT NOT NULL,run_id TEXT DEFAULT '',hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,strategy_family TEXT DEFAULT '',strategy_module TEXT DEFAULT '',kind TEXT NOT NULL,stage TEXT NOT NULL,outcome TEXT NOT NULL,config_hash TEXT DEFAULT '',parameters_json TEXT DEFAULT '{{}}',data_provenance TEXT DEFAULT 'unknown',returns_observed INTEGER NOT NULL DEFAULT 0,returns_json TEXT DEFAULT '',returns_sha256 TEXT DEFAULT '',diagnostics_json TEXT DEFAULT '{{}}',simulation_epoch TEXT DEFAULT '{DEFAULT_SIMULATION_EPOCH}',created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS contract_search_state (contract_id TEXT PRIMARY KEY,max_keff_gate REAL NOT NULL,max_noise REAL NOT NULL,updated_at REAL NOT NULL);
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_update BEFORE UPDATE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_delete BEFORE DELETE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
@@ -203,6 +222,8 @@ class ResearchRegistry:
             for table, cls in (("contracts", EvaluationContract), ("hypotheses", HypothesisSpec),
                                ("trials", ExperimentResult)):
                 _ensure_columns(conn, table, cls)
+            if not _has_column(conn, "selection_attempts", "simulation_epoch"):
+                conn.execute("ALTER TABLE selection_attempts ADD COLUMN simulation_epoch TEXT")
             # Idempotent legacy reconstruction: never reset counters or overwrite
             # old verdicts; unfinalized consumed attempts remain review-required.
             conn.execute("""INSERT OR IGNORE INTO attempt_receipts
@@ -316,14 +337,26 @@ class ResearchRegistry:
                 "SELECT reason,quarantined_at FROM trial_quarantine WHERE run_id=?", (run_id,))]
             audit = conn.execute("SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
                                  (run_id,)).fetchone()
+            h_pub = None
+            if _has_column(conn, "hypotheses", "source_published_at"):
+                h_row = conn.execute("SELECT source_published_at FROM hypotheses WHERE hypothesis_id=?",
+                                     (trial.get("hypothesis_id"),)).fetchone()
+                h_pub = h_row[0] if h_row else None
+            c_row = conn.execute("SELECT val_start FROM contracts WHERE contract_id=?",
+                                 (trial.get("contract_id"),)).fetchone()
+            c_val_start = c_row[0] if c_row else None
         blocking = [d["disposition"] for d in dispositions if d["disposition"] in BLOCKING]
         if quarantine:
             blocking.append("QUARANTINED")
+        is_retrospective = (trial.get("verdict") == "RETROSPECTIVE_REPLICATION_ONLY") or (
+            h_pub is not None and c_val_start is not None and utc(h_pub) >= utc(c_val_start)
+        )
         provenance = trial.get("data_provenance") or "unknown"
         if provenance == "unknown" and trial.get("synthetic") in (1, 1.0, True):
             provenance = "synthetic"
         receipt = self.reconcile_attempt(run_id)
         checks = [
+            (not is_retrospective, "RETROSPECTIVE_REPLICATION_ONLY: source_published_at >= contract.val_start"),
             (not blocking, f"blocking disposition(s): {', '.join(sorted(set(blocking)))}" if blocking else ""),
             (provenance == MARKET, f"provenance '{provenance}' is not verified market data"),
             (bool(trial.get("data_snapshot_sha256")), "trial has no pinned dataset digest"),
@@ -423,7 +456,8 @@ class ResearchRegistry:
 
     def register_hypothesis(self, hyp):
         with self._connect() as conn:
-            if not conn.execute("SELECT 1 FROM contracts WHERE contract_id=?", (hyp.contract_id,)).fetchone():
+            c_row = conn.execute("SELECT val_start FROM contracts WHERE contract_id=?", (hyp.contract_id,)).fetchone()
+            if not c_row:
                 raise ValueError("Register the contract first")
             existing = conn.execute("SELECT * FROM hypotheses WHERE hypothesis_id=?", (hyp.hypothesis_id,)).fetchone()
             if existing:
@@ -438,7 +472,10 @@ class ResearchRegistry:
             if shared and not hyp.parent_hypothesis_id:
                 raise ValueError(f"strategy module '{module}' is already registered to {shared[0]}; "
                                  "declare parent_hypothesis_id to share the exhausted lineage budget")
-            _insert(conn, "hypotheses", {**asdict(hyp), "created_at": time.time()})
+            pub = hyp.source_published_utc()
+            retrospective = pub is not None and pub >= utc(c_row[0])
+            initial_status = "RETROSPECTIVE_REPLICATION_ONLY" if retrospective else "ACTIVE"
+            _insert(conn, "hypotheses", {**asdict(hyp), "status": initial_status, "created_at": time.time()})
 
     def record_hypothesis_module(self, hypothesis_id, module):
         """Normalise the module once; later drift is a governance error, not a silent rebind."""
@@ -481,12 +518,16 @@ class ResearchRegistry:
             if row is None:
                 raise ValueError("Unknown hypothesis")
             if row[0] >= PER_HYPOTHESIS_CAP:
-                conn.execute("UPDATE hypotheses SET status='REJECTED' WHERE hypothesis_id=? AND status='ACTIVE'", (hypothesis_id,))
+                conn.execute(
+                    "UPDATE hypotheses SET status='REJECTED' "
+                    "WHERE hypothesis_id=? AND status IN ('ACTIVE', 'RETROSPECTIVE_REPLICATION_ONLY')",
+                    (hypothesis_id,),
+                )
             root, members = self._lineage(conn, hypothesis_id)
             used = sum(r[0] for r in conn.execute(
                 f"SELECT trials_used FROM hypotheses WHERE hypothesis_id IN ({','.join('?' * len(members))})",
                 tuple(members)))
-        if row[0] >= PER_HYPOTHESIS_CAP or row[1] != "ACTIVE":
+        if row[0] >= PER_HYPOTHESIS_CAP or row[1] not in RUNNABLE_HYPOTHESIS_STATUSES:
             raise HypothesisBudgetExhaustedError(hypothesis_id)
         if used >= LINEAGE_CAP:
             raise HypothesisBudgetExhaustedError(
@@ -580,7 +621,7 @@ class ResearchRegistry:
                                (hypothesis_id,)).fetchone()
             if row is None:
                 raise ValueError("Unknown hypothesis")
-            if row[0] >= PER_HYPOTHESIS_CAP or row[1] != "ACTIVE":
+            if row[0] >= PER_HYPOTHESIS_CAP or row[1] not in RUNNABLE_HYPOTHESIS_STATUSES:
                 raise HypothesisBudgetExhaustedError(hypothesis_id)
             root, members = self._lineage(conn, hypothesis_id)
             used = sum(r[0] for r in conn.execute(
@@ -629,8 +670,10 @@ class ResearchRegistry:
 
     def record_selection_attempt(self, *, hypothesis_id, contract_id, kind, stage, outcome,
                                  strategy_family="", strategy_module="", config_hash="", parameters=None,
-                                 data_provenance="unknown", returns=None, diagnostics=None, run_id="", screen_key=None):
+                                 data_provenance="unknown", returns=None, diagnostics=None, run_id="",
+                                 screen_key=None, simulation_epoch: str = DEFAULT_SIMULATION_EPOCH):
         """Persist one validation-consuming configuration. Repeats are counted, never merged."""
+        epoch = _normalize_epoch(simulation_epoch)
         base = hashlib.sha256(canonical_json([hypothesis_id, contract_id, kind, stage, outcome, config_hash,
                                               normalise_module(strategy_module)]).encode()).hexdigest()[:16]
         vector = None if returns is None else np.asarray(returns, dtype=float)
@@ -643,13 +686,13 @@ class ResearchRegistry:
             conn.execute(
                 "INSERT INTO selection_attempts (attempt_id,attempt_base,run_id,hypothesis_id,contract_id,"
                 "strategy_family,strategy_module,kind,stage,outcome,config_hash,parameters_json,data_provenance,"
-                "returns_observed,returns_json,returns_sha256,diagnostics_json,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "returns_observed,returns_json,returns_sha256,diagnostics_json,simulation_epoch,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (attempt_id, base, run_id, hypothesis_id, contract_id, strategy_family,
                  normalise_module(strategy_module), kind, stage, outcome, config_hash,
                  canonical_json(parameters or {}), data_provenance, int(vector is not None), payload,
                  hashlib.sha256(payload.encode()).hexdigest() if vector is not None else "",
-                 canonical_json(diagnostics or {}), time.time()))
+                 canonical_json(diagnostics or {}), epoch, time.time()))
             if screen_key is not None:
                 updated = conn.execute("""UPDATE screen_receipts SET state='FINALIZED',attempt_id=?,finalized_at=?
                                           WHERE screen_key=? AND hypothesis_id=? AND contract_id=? AND state='RESERVED'""",
@@ -658,18 +701,53 @@ class ResearchRegistry:
                     raise ScreenAlreadyAttemptedError("No matching exclusive Stage 1 reservation to finalize")
         return attempt_id
 
-    def validation_attempt_count(self, contract_id):
+    @staticmethod
+    def _epoch_clause(conn: sqlite3.Connection, table: str, epoch: str) -> tuple[str, tuple[str, ...]]:
+        if _has_column(conn, table, "simulation_epoch"):
+            return " AND COALESCE(NULLIF(simulation_epoch,''),?)=?", (DEFAULT_SIMULATION_EPOCH, epoch)
+        if epoch == DEFAULT_SIMULATION_EPOCH:
+            return "", ()
+        return " AND 1=0", ()
+
+    def validation_attempt_count(self, contract_id, simulation_epoch: str | None = None):
         with self._connect() as conn:
-            trials = conn.execute("SELECT COUNT(*) FROM trials WHERE contract_id=?", (contract_id,)).fetchone()[0]
-            screens = conn.execute("SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?",
-                                   (contract_id,)).fetchone()[0]
+            if simulation_epoch is None:
+                trials = conn.execute("SELECT COUNT(*) FROM trials WHERE contract_id=?", (contract_id,)).fetchone()[0]
+                screens = conn.execute("SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?",
+                                       (contract_id,)).fetchone()[0]
+                return int(trials + screens)
+            epoch = _normalize_epoch(simulation_epoch)
+            t_clause, t_params = self._epoch_clause(conn, "trials", epoch)
+            s_clause, s_params = self._epoch_clause(conn, "selection_attempts", epoch)
+            trials = conn.execute(
+                f"SELECT COUNT(*) FROM trials WHERE contract_id=?{t_clause}",
+                (contract_id, *t_params),
+            ).fetchone()[0]
+            screens = conn.execute(
+                f"SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?{s_clause}",
+                (contract_id, *s_params),
+            ).fetchone()[0]
         return int(trials + screens)
 
-    def selection_history(self, contract_id, expected_len):
+    def selection_history(self, contract_id, expected_len, simulation_epoch: str = DEFAULT_SIMULATION_EPOCH):
         """Observed return streams plus explicit accounting of unvectorised attempts."""
+        epoch = _normalize_epoch(simulation_epoch)
         with self._connect() as conn:
-            rows = conn.execute("SELECT run_id,returns_json,stage_reached FROM trials WHERE contract_id=? "
-                                "ORDER BY created_at,run_id", (contract_id,)).fetchall()
+            t_clause, t_params = self._epoch_clause(conn, "trials", epoch)
+            s_clause, s_params = self._epoch_clause(conn, "selection_attempts", epoch)
+            rows = conn.execute(
+                f"SELECT run_id,returns_json,stage_reached FROM trials WHERE contract_id=?{t_clause} "
+                "ORDER BY created_at,run_id",
+                (contract_id, *t_params),
+            ).fetchall()
+            attempt_rows = conn.execute(
+                "SELECT attempt_id,returns_json FROM selection_attempts "
+                "WHERE contract_id=? AND returns_observed=1 "
+                "AND (kind='param_grid' OR (kind='standalone_screen' AND strategy_family='rules_ts'))"
+                f"{s_clause} ORDER BY created_at,attempt_id",
+                (contract_id, *s_params),
+            ).fetchall()
+
         streams, excluded = [], []
         for run_id, r_json, stage in rows:
             if stage == "STAGE_1_SIGNAL" or not r_json or r_json == "[]":
@@ -684,9 +762,23 @@ class ResearchRegistry:
                     f"Unaligned selection history: {run_id} has {len(arr)} bars but the candidate has "
                     f"{expected_len}; refusing to pad, slice or correlate incompatible windows")
             streams.append(arr)
-        raw = self.validation_attempt_count(contract_id)
+
+        for attempt_id, r_json in attempt_rows:
+            if not r_json or r_json == "[]":
+                excluded.append({"attempt_id": attempt_id, "reason": "no observed return stream"})
+                continue
+            arr = np.array(json.loads(r_json), dtype=float)
+            if arr.ndim != 1 or not np.isfinite(arr).all() or float(np.std(arr)) < 1e-12:
+                excluded.append({"attempt_id": attempt_id, "reason": "zero-variance or non-finite selection_attempt stream"})
+                continue
+            if len(arr) != expected_len:
+                excluded.append({"attempt_id": attempt_id, "reason": "unaligned selection_attempt return length"})
+                continue
+            streams.append(arr)
+
+        raw = self.validation_attempt_count(contract_id, simulation_epoch=epoch)
         return {"streams": streams, "excluded": excluded, "raw_attempt_count": raw,
-                "unvectorized_attempts": max(0, raw - len(streams))}
+                "unvectorized_attempts": max(0, raw - len(streams)), "simulation_epoch": epoch}
 
     def prior_search_floor(self, contract: EvaluationContract):
         """Historical floor, inherited by later contract versions of the same market/frequency."""
@@ -709,9 +801,9 @@ class ResearchRegistry:
                 "max_noise=MAX(max_noise,excluded.max_noise),updated_at=excluded.updated_at",
                 (contract_id, float(k_eff_gate), float(noise), time.time()))
 
-    def load_prior_trial_returns(self, contract_id, expected_len):
+    def load_prior_trial_returns(self, contract_id, expected_len, simulation_epoch: str = DEFAULT_SIMULATION_EPOCH):
         try:
-            return self.selection_history(contract_id, expected_len)["streams"]
+            return self.selection_history(contract_id, expected_len, simulation_epoch=simulation_epoch)["streams"]
         except SelectionHistoryError as exc:
             raise ValueError(str(exc).replace("Unaligned selection history",
                                               "Contract-wide trial histories are not aligned")) from exc

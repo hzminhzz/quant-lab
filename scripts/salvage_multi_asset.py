@@ -11,6 +11,12 @@ import polars as pl
 import yaml
 
 from warden.contracts import load_contract
+from warden_evidence.market_validation import (
+    assign_multi_exchange_sessions,
+    build_dataset_manifest,
+    validate_ohlcv_panel,
+    write_contract_and_manifest_atomic,
+)
 
 COLUMNS = ["timestamp", "asset", "open", "high", "low", "close", "volume", "funding_rate"]
 
@@ -31,32 +37,21 @@ CRYPTO_1M_SYMBOLS = [
 ]
 
 
-def normalize_panel(panel: pl.DataFrame) -> pl.DataFrame:
-    aliases = {"symbol": "asset", "ticker": "asset", "datetime": "timestamp"}
-    panel = panel.rename({k: v for k, v in aliases.items() if k in panel.columns and v not in panel.columns})
-    if "funding_rate" not in panel.columns:
-        panel = panel.with_columns(funding_rate=pl.lit(0.0))
-    if missing := set(COLUMNS) - set(panel.columns):
-        raise ValueError(f"Missing source columns: {sorted(missing)}")
-    if panel.schema["timestamp"] == pl.String:
-        panel = panel.with_columns(pl.col("timestamp").str.to_datetime(time_zone="UTC"))
-    panel = panel.select(
-        pl.col("timestamp").cast(pl.Datetime("us", "UTC")),
-        pl.col("asset").cast(pl.String),
-        pl.col(COLUMNS[2:]).cast(pl.Float64),
-    ).sort("timestamp", "asset")
-    if panel.is_empty() or panel.null_count().row(0) != (0,) * len(COLUMNS):
-        raise ValueError("Empty panel or null market values")
-    if panel.select(pl.struct("timestamp", "asset").is_duplicated().any()).item():
-        raise ValueError("Duplicate timestamp/asset keys; refusing silent data loss")
-    bad = pl.any_horizontal(~pl.col(COLUMNS[2:]).is_finite())
-    bad |= pl.any_horizontal(pl.col(["open", "high", "low", "close"]) <= 0)
-    bad |= (pl.col("volume") < 0) | (pl.col("asset").str.len_chars() == 0)
-    bad |= pl.col("high") < pl.max_horizontal("open", "close", "low")
-    bad |= pl.col("low") > pl.min_horizontal("open", "close", "high")
-    if panel.filter(bad).height:
-        raise ValueError("Invalid prices, OHLC ordering, volume or non-finite market values")
-    return panel
+def normalize_panel(
+    panel: pl.DataFrame,
+    asset_class: str = "multi_asset",
+    *,
+    max_return_threshold: float | None = None,
+    assign_sessions: bool = False,
+) -> pl.DataFrame:
+    validated = validate_ohlcv_panel(
+        panel,
+        asset_class,
+        max_return_threshold=max_return_threshold,
+    )
+    if assign_sessions:
+        return assign_multi_exchange_sessions(validated)
+    return validated
 
 
 def load_fx_panel(
@@ -91,8 +86,8 @@ def load_fx_panel(
             frames.append(df.sort("timestamp"))
     if not frames:
         raise FileNotFoundError(f"No minute FX data found under {store_dir}")
-    panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
-    return normalize_panel(panel)
+    panel = pl.concat(frames).rename({"symbol": "asset"})
+    return normalize_panel(panel, asset_class="fx", max_return_threshold=0.20)
 
 
 def load_indices_panel(
@@ -127,8 +122,8 @@ def load_indices_panel(
             frames.append(df)
     if not frames:
         raise FileNotFoundError(f"No minute Index data found under {store_dir}")
-    panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
-    return normalize_panel(panel)
+    panel = pl.concat(frames).rename({"symbol": "asset"})
+    return normalize_panel(panel, asset_class="indices", max_return_threshold=0.20, assign_sessions=True)
 
 
 def load_metals_panel(
@@ -171,8 +166,8 @@ def load_metals_panel(
             frames.append(df_sym.sort("timestamp"))
     if not frames:
         raise FileNotFoundError(f"No minute Metals data found under {store_dir}")
-    panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
-    return normalize_panel(panel)
+    panel = pl.concat(frames).rename({"symbol": "asset"})
+    return normalize_panel(panel, asset_class="metals", max_return_threshold=0.20)
 
 
 def load_commodities_panel(
@@ -215,17 +210,17 @@ def load_commodities_panel(
             frames.append(df_sym.sort("timestamp"))
     if not frames:
         raise FileNotFoundError(f"No minute Commodity data found under {store_dir}")
-    panel = pl.concat(frames).rename({"symbol": "asset"}).with_columns(funding_rate=pl.lit(0.0))
-    return normalize_panel(panel)
+    panel = pl.concat(frames).rename({"symbol": "asset"})
+    return normalize_panel(panel, asset_class="commodities", max_return_threshold=0.40)
 
 
 def load_multi_asset_panel(store_dir: Path, freq: str = "1h", min_year: int = 2015) -> pl.DataFrame:
-    idx = load_indices_panel(store_dir, freq=freq, min_year=min_year)
+    idx = load_indices_panel(store_dir, freq=freq, min_year=min_year).drop("session_date", strict=False)
     fx = load_fx_panel(store_dir, freq=freq, min_year=min_year)
     metals = load_metals_panel(store_dir, freq=freq, min_year=min_year)
     commodities = load_commodities_panel(store_dir, freq=freq, min_year=min_year)
     panel = pl.concat([idx, fx, metals, commodities])
-    panel = normalize_panel(panel)
+    panel = normalize_panel(panel, asset_class="multi_asset", max_return_threshold=0.40, assign_sessions=True)
     if sorted(panel["asset"].unique().to_list()) != sorted(MULTI_ASSET_SYMBOLS):
         raise ValueError(
             f"Universe mismatch: expected {sorted(MULTI_ASSET_SYMBOLS)}, got {sorted(panel['asset'].unique().to_list())}"
@@ -260,7 +255,7 @@ def load_crypto_1m_panel(store_dir: Path, symbols: list[str] = CRYPTO_1M_SYMBOLS
     if not frames:
         raise FileNotFoundError(f"No minute Crypto futures data found under {store_dir}")
     panel = pl.concat(frames).rename({"symbol": "asset"}).sort("timestamp", "asset")
-    return normalize_panel(panel)
+    return normalize_panel(panel, asset_class="crypto_perps", max_return_threshold=0.80)
 
 
 def salvage_dataset(
@@ -305,9 +300,21 @@ def salvage_dataset(
         }
 
     if update_contract:
-        doc = yaml.safe_load(Path(contract_path).read_text())
+        cpath = Path(contract_path)
+        doc = yaml.safe_load(cpath.read_text())
         doc["data_snapshot_sha256"] = evidence["exploratory"]["sha256"]
-        Path(contract_path).write_text(yaml.safe_dump(doc, sort_keys=False))
+        if doc.get("data_provenance") in (None, "unknown"):
+            doc["data_provenance"] = "verified_market"
+        manifest_path = cpath.parent / "datasets" / f"{contract.contract_id}.json"
+        manifest_doc = build_dataset_manifest(
+            contract_id=contract.contract_id,
+            path=doc["exploratory_data_path"],
+            sha256=doc["data_snapshot_sha256"],
+            provenance=doc["data_provenance"],
+            source="ml4t-data/.data/store",
+            pipeline="scripts/salvage_multi_asset.py",
+        )
+        write_contract_and_manifest_atomic(cpath, doc, manifest_path, manifest_doc)
 
     return evidence
 

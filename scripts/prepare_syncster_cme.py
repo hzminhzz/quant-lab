@@ -18,6 +18,13 @@ from pathlib import Path
 import polars as pl
 import yaml
 
+from warden_evidence.market_validation import (
+    assign_multi_exchange_sessions,
+    build_dataset_manifest,
+    validate_ohlcv_panel,
+    write_contract_and_manifest_atomic,
+)
+
 SOURCE_SHA256 = {
     "ES": "e6320a6772fc5819b12605ffc63f88ac1861c26b8fa528d052e1b21d914438a8",
     "NQ": "35071bdad8b4abefabdf2543543d56b39c54dd56ee0ae7251ffed73107fb1681",
@@ -124,6 +131,8 @@ def prepare_panel(path: Path, symbol: str, frequency: str,
         .sort("timestamp")
         .collect()
     )
+    panel = validate_ohlcv_panel(panel, "futures", max_return_threshold=0.20)
+    panel = assign_multi_exchange_sessions(panel, {symbol: "CME_Equity"})
     if panel.is_empty() or panel["timestamp"].max() >= VAL_END:
         raise ValueError("Derived panel violates the frozen validation cutoff")
     first, last = df["ts"].min(), df["ts"].max()
@@ -194,22 +203,24 @@ def stage(symbol: str, frequency: str, repo_root: Path, ml4t_root: Path | None =
         "data_snapshot_sha256": data_sha,
         "data_provenance": "verified_market",
     }
-    manifest = {
-        "contract_id": key, "path": data_rel, "sha256": data_sha,
-        "provenance": "verified_market",
-        "source": "syncster_market_data",
-        "market_type": "cme_futures",
-        "source_repo": "syncster-data/historical-market-data",
-        "raw_source_sha256": audit.sha256,
-        "raw_source_name": f"data/futures/{symbol}.parquet",
-        "pipeline": "scripts/prepare_syncster_cme.py",
-        "cutoff_exclusive": VAL_END.isoformat(),
-        "roll_method": "provider_continuous_unverified",
-        "execution_evidence": "OHLCV_NEXT_BAR_only",
-        "costs": "assumed, not actual CME fill/commission TCA",
-        "attestation": "Exact SHA-256 for provider-labeled CME series; independent exchange origin "
-                       "and continuous-roll economic fidelity are not yet attested.",
-    }
+    manifest = build_dataset_manifest(
+        contract_id=key,
+        path=data_rel,
+        sha256=data_sha,
+        provenance="verified_market",
+        source="syncster_market_data",
+        pipeline="scripts/prepare_syncster_cme.py",
+        market_type="cme_futures",
+        source_repo="syncster-data/historical-market-data",
+        raw_source_sha256=audit.sha256,
+        raw_source_name=f"data/futures/{symbol}.parquet",
+        cutoff_exclusive=VAL_END.isoformat(),
+        roll_method="provider_continuous_unverified",
+        execution_evidence="OHLCV_NEXT_BAR_only",
+        costs="assumed, not actual CME fill/commission TCA",
+        attestation="Exact SHA-256 for provider-labeled CME series; independent exchange origin "
+                    "and continuous-roll economic fidelity are not yet attested.",
+    )
     result = {
         "source": audit.__dict__, "derived_rows": len(panel),
         "incomplete_derived_bars": int((panel["observed_minutes"] <
@@ -220,7 +231,7 @@ def stage(symbol: str, frequency: str, repo_root: Path, ml4t_root: Path | None =
     }
     if commit_files:
         from warden.contracts import EvaluationContract
-        EvaluationContract(**spec)  # Validate before touching any file.
+        EvaluationContract(**spec)
         data_dest = repo_root / data_rel
         # Refuse mismatched existing contract/manifest before materializing the panel.
         contract_bytes = yaml.safe_dump(spec, sort_keys=False).encode()
@@ -231,8 +242,9 @@ def stage(symbol: str, frequency: str, repo_root: Path, ml4t_root: Path | None =
             if target.exists() and sha256(target) != hashlib.sha256(blob).hexdigest():
                 raise FileExistsError(f"Conflicting pinned source/contract: {target}")
         write_once(data_dest, payload)
-        write_once(repo_root / contract_rel, contract_bytes)
-        write_once(repo_root / manifest_rel, manifest_bytes)
+        write_contract_and_manifest_atomic(
+            repo_root / contract_rel, spec, repo_root / manifest_rel, manifest, repo_root=repo_root
+        )
     return result
 
 

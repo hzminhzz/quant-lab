@@ -21,7 +21,7 @@ from urllib.parse import quote
 import polars as pl
 
 from warden.cli import MANIFEST_FILE, check_worktree
-from warden.contracts import EvaluationContract, load_contract
+from warden.contracts import EvaluationContract, load_contract, validate_panel_feed_spec
 from warden.provenance import resolve_dataset
 from warden.runner import require_execution_columns
 
@@ -125,6 +125,12 @@ def contract_card(cid: str, registry: Path) -> dict:
         except Exception as exc:  # noqa: BLE001 - the point is to report why it is unusable
             card["execution_columns_ok"] = False
             card["execution_columns_error"] = f"{type(exc).__name__}: {exc}"
+        try:
+            validate_panel_feed_spec(panel, contract)
+            card["feed_spec_ok"] = True
+        except Exception as exc:  # noqa: BLE001 - report FeedSpec validation failure
+            card["feed_spec_ok"] = False
+            card["feed_spec_error"] = f"{type(exc).__name__}: {exc}"
         span = pl.scan_parquet(data_path).select(
             pl.col("timestamp").min().alias("first"), pl.col("timestamp").max().alias("last"),
             pl.col("asset").n_unique().alias("assets")).collect().row(0, named=True)
@@ -205,6 +211,8 @@ def next_step(state: dict, contract: dict | None, hypothesis: dict | None) -> di
             and hypothesis["contract_id"] != contract.get("contract_id")):
         return {"command": "STOP",
                 "why": f"contract mismatch: {hypothesis['hypothesis_id']} belongs to {hypothesis['contract_id']}"}
+    if contract and contract.get("feed_spec_ok") is False:
+        return {"command": "STOP", "why": f"feed spec violation: {contract.get('feed_spec_error')}"}
     if contract and contract.get("execution_columns_ok") is False:
         return {"command": "STOP", "why": f"contract is not executable: {contract.get('execution_columns_error')}"}
     if contract and contract.get("validation_window_covered") is False:

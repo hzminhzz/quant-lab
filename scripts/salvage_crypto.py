@@ -9,10 +9,14 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-import yaml
 
 from warden.contracts import load_contract
 from warden.runner import ExperimentRunner
+from warden_evidence.market_validation import (
+    build_dataset_manifest,
+    validate_ohlcv_panel,
+    write_contract_and_manifest_atomic,
+)
 
 COLUMNS = ["timestamp", "asset", "open", "high", "low", "close", "volume", "funding_rate"]
 
@@ -68,8 +72,8 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
                     .item()
                 )
                 valid.append((sym, qvol))
-            except Exception:
-                pass
+            except (OSError, pl.exceptions.PolarsError, ValueError) as exc:
+                print(f"Skipping {sym}: {exc}")
 
     valid.sort(key=lambda x: x[1], reverse=True)
     selected_symbols = [x[0] for x in valid[:n_assets]]
@@ -122,15 +126,8 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
         ohlcv_df.sort("timestamp")
         .join_asof(f_df, on="timestamp", by="asset", strategy="backward")
         .with_columns(pl.col("funding_rate").fill_null(0.0))
-        .filter(
-            (pl.col("open") > 0)
-            & (pl.col("high") > 0)
-            & (pl.col("low") > 0)
-            & (pl.col("close") > 0)
-            & (pl.col("volume") >= 0)
-        )
-        .sort("timestamp", "asset")
     )
+    panel = validate_ohlcv_panel(panel, "crypto_perps", max_return_threshold=0.80)
 
     exp_df = panel.filter((pl.col("timestamp") >= begin_dt) & (pl.col("timestamp") < split_dt))
     holdout_df = panel.filter(
@@ -169,10 +166,20 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
         "funding_bps_per_8h": 1.0,
         "min_expected_move_to_cost_ratio": 2.5,
         "data_snapshot_sha256": exp_sha,
+        "data_provenance": "verified_market",
     }
+    manifest_json = Path(f"contracts/datasets/{contract_id}.json")
+    manifest_dict = build_dataset_manifest(
+        contract_id=contract_id,
+        path=str(out_exp_path),
+        sha256=exp_sha,
+        provenance="verified_market",
+        source="Binance USD-M perpetual futures OHLCV/funding store (ml4t-data/.data/store)",
+        pipeline="scripts/salvage_crypto.py",
+    )
 
-    contract_yaml.write_text(yaml.dump(contract_dict, sort_keys=False))
-    print(f"6. Wrote contract YAML: {contract_yaml}")
+    write_contract_and_manifest_atomic(contract_yaml, contract_dict, manifest_json, manifest_dict)
+    print(f"6. Wrote contract YAML & dataset manifest atomically: {contract_yaml}, {manifest_json}")
 
     runner = ExperimentRunner()
     contract_obj = load_contract(contract_yaml)

@@ -11,33 +11,17 @@ import yaml
 
 from warden.contracts import load_contract
 from warden.synthetic import generate_canonical_market_panel
+from warden_evidence.market_validation import (
+    build_dataset_manifest,
+    validate_ohlcv_panel,
+    write_contract_and_manifest_atomic,
+)
 
 COLUMNS = ["timestamp", "asset", "open", "high", "low", "close", "volume", "funding_rate"]
 
 
-def normalize(panel):
-    aliases = {"symbol": "asset", "ticker": "asset", "datetime": "timestamp"}
-    panel = panel.rename({k: v for k, v in aliases.items() if k in panel.columns and v not in panel.columns})
-    if missing := set(COLUMNS) - set(panel.columns):
-        raise ValueError(f"Missing source columns: {sorted(missing)}")
-    if panel.schema["timestamp"] == pl.String:
-        panel = panel.with_columns(pl.col("timestamp").str.to_datetime(time_zone="UTC"))
-    panel = panel.select(
-        pl.col("timestamp").cast(pl.Datetime("us", "UTC")), pl.col("asset").cast(pl.String),
-        pl.col(COLUMNS[2:]).cast(pl.Float64),
-    ).sort("timestamp", "asset")
-    if panel.is_empty() or panel.null_count().row(0) != (0,) * len(COLUMNS):
-        raise ValueError("Empty panel or null market values")
-    if panel.select(pl.struct("timestamp", "asset").is_duplicated().any()).item():
-        raise ValueError("Duplicate timestamp/asset keys; refusing silent data loss")
-    bad = pl.any_horizontal(~pl.col(COLUMNS[2:]).is_finite())
-    bad |= pl.any_horizontal(pl.col(["open", "high", "low", "close"]) <= 0)
-    bad |= (pl.col("volume") < 0) | (pl.col("asset").str.len_chars() == 0)
-    bad |= (pl.col("high") < pl.max_horizontal("open", "close", "low"))
-    bad |= (pl.col("low") > pl.min_horizontal("open", "close", "high"))
-    if panel.filter(bad).height:
-        raise ValueError("Invalid prices, OHLC ordering, volume or non-finite market values")
-    return panel
+def normalize(panel: pl.DataFrame, asset_class: str = "crypto_perps") -> pl.DataFrame:
+    return validate_ohlcv_panel(panel, asset_class)
 
 
 def load_source_panel(source_dir: Path) -> pl.DataFrame:
@@ -55,7 +39,7 @@ def load_source_panel(source_dir: Path) -> pl.DataFrame:
                 prem.sort("timestamp"), on="timestamp", by="symbol", strategy="backward"
             ).fill_null(0.0)
         return perps
-    files = sorted(list(s_dir.glob("*.parquet")) + list(s_dir.glob("**/*.parquet")))
+    files = sorted(s_dir.rglob("*.parquet"))
     if not files:
         raise FileNotFoundError(f"No parquet files under {s_dir}")
     return pl.read_parquet(files[0] if len(files) == 1 else files)
@@ -63,7 +47,8 @@ def load_source_panel(source_dir: Path) -> pl.DataFrame:
 
 def salvage(contract_path, out_dir, source_dir=None, synthetic=False, update_contract=False):
     contract = load_contract(contract_path)
-    panel = generate_canonical_market_panel() if synthetic else load_source_panel(source_dir)
+    raw_panel = generate_canonical_market_panel() if synthetic else load_source_panel(source_dir)
+    panel = normalize(raw_panel, asset_class=contract.asset_class)
     splits = {"exploratory": panel.filter(pl.col("timestamp") < contract.holdout_start),
               "holdout": panel.filter(pl.col("timestamp") >= contract.holdout_start)}
     evidence = {"synthetic": synthetic, "schema": {k: str(v) for k, v in panel.schema.items()}}
@@ -79,11 +64,23 @@ def salvage(contract_path, out_dir, source_dir=None, synthetic=False, update_con
                           "min": str(frame["timestamp"].min()), "max": str(frame["timestamp"].max()),
                           "sha256": hashlib.sha256(output.read_bytes()).hexdigest()}
     if update_contract:
-        document = yaml.safe_load(Path(contract_path).read_text())
+        cpath = Path(contract_path)
+        document = yaml.safe_load(cpath.read_text())
+        provenance = "synthetic" if synthetic else "verified_market"
         document["data_snapshot_sha256"] = evidence["exploratory"]["sha256"]
+        document["data_provenance"] = provenance
         for name in splits:
             document[f"{name}_data_path"] = evidence[name]["path"]
-        Path(contract_path).write_text(yaml.safe_dump(document, sort_keys=False))
+        manifest_path = cpath.parent / "datasets" / f"{contract.contract_id}.json"
+        manifest_doc = build_dataset_manifest(
+            contract_id=contract.contract_id,
+            path=document["exploratory_data_path"],
+            sha256=document["data_snapshot_sha256"],
+            provenance=provenance,
+            source="synthetic_canonical" if synthetic else str(source_dir),
+            pipeline="scripts/salvage_crypto_perps.py",
+        )
+        write_contract_and_manifest_atomic(cpath, document, manifest_path, manifest_doc)
     return evidence
 
 

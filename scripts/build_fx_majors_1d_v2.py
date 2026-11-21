@@ -27,9 +27,16 @@ import sys
 from pathlib import Path
 
 import polars as pl
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from salvage_multi_asset import FX_PAIRS, normalize_panel  # noqa: E402  (one schema, one set of checks)
+from salvage_multi_asset import FX_PAIRS
+
+from warden_evidence.market_validation import (
+    build_dataset_manifest,
+    validate_ohlcv_panel,
+    write_contract_and_manifest_atomic,
+)
 
 STORE = Path("/home/quant/dev/quant/ml4t-data/.data/store")
 CONTRACT = Path("contracts/fx_majors_1d_v2.yaml")
@@ -66,8 +73,8 @@ def build(store: Path = STORE) -> tuple[pl.DataFrame, dict]:
             mismatches[pair] = labels
         frames.append(df.select(
             pl.lit(pair).alias("asset"), "timestamp", "open", "high", "low", "close", "volume"))
-    panel = pl.concat(frames).with_columns(funding_rate=pl.lit(0.0))
-    panel = normalize_panel(panel)
+    panel = pl.concat(frames)
+    panel = validate_ohlcv_panel(panel, "fx", max_return_threshold=0.20)
 
     cutoff = pl.lit(HOLDOUT_START).str.to_datetime(time_zone="UTC")
     exploratory = panel.filter(pl.col("timestamp") < cutoff)
@@ -102,25 +109,40 @@ def main(argv=None) -> int:
     p.add_argument("--contract", type=Path, default=CONTRACT)
     a = p.parse_args(argv)
 
+    if not a.contract.is_file():
+        raise FileNotFoundError(f"Contract YAML not found: {a.contract}")
+
     panel, stats = build(a.store_dir)
     a.out.parent.mkdir(parents=True, exist_ok=True)
     panel.write_parquet(a.out)
     sha = hashlib.sha256(a.out.read_bytes()).hexdigest()
 
-    a.manifest.parent.mkdir(parents=True, exist_ok=True)
-    a.manifest.write_text(json.dumps({
-        "contract_id": "FX_MAJORS_1D_V2",
-        "path": str(a.out),
-        "sha256": sha,
-        "provenance": "verified_market",
-        "source": "ml4t-data Dukascopy daily OHLCV store (forex_daily_*)",
-        "pipeline": "scripts/build_fx_majors_1d_v2.py",
-        "recorded_at": "2026-10-28T00:00:00+00:00",
-        "recorded_by": "agent:fx_stage3",
-        "attestation": ("Dukascopy is the daily FX authority; OHLCV only, so execution_mode is "
-                        "NEXT_BAR. Digest verified independently against manifest and contract pin."),
-        "coverage": stats,
-    }, indent=2) + "\n")
+    manifest_doc = build_dataset_manifest(
+        contract_id="FX_MAJORS_1D_V2",
+        path=str(a.out),
+        sha256=sha,
+        provenance="verified_market",
+        source="ml4t-data Dukascopy daily OHLCV store (forex_daily_*)",
+        pipeline="scripts/build_fx_majors_1d_v2.py",
+        recorded_at="2026-10-28T00:00:00+00:00",
+        recorded_by="agent:fx_stage3",
+        attestation=(
+            "Dukascopy is the daily FX authority; OHLCV only, so execution_mode is "
+            "NEXT_BAR. Digest verified independently against manifest and contract pin."
+        ),
+        coverage=stats,
+    )
+    contract_doc = yaml.safe_load(a.contract.read_text())
+    contract_doc["exploratory_data_path"] = str(a.out)
+    contract_doc["data_snapshot_sha256"] = sha
+    contract_doc["data_provenance"] = "verified_market"
+    write_contract_and_manifest_atomic(
+        a.contract,
+        contract_doc,
+        a.manifest,
+        manifest_doc,
+        repo_root=a.contract.parent.parent if a.contract.parent.name == "contracts" else None,
+    )
 
     print(json.dumps({"panel": str(a.out), "sha256": sha, "stats": stats}, indent=2))
     print(f"pin this in {a.contract}: data_snapshot_sha256: {sha}")

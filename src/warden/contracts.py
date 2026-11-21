@@ -10,7 +10,9 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
 
+import polars as pl
 import yaml
+from ml4t.specs import FeedSpec
 
 MARKET = "verified_market"
 
@@ -90,6 +92,91 @@ class EvaluationContract:
 
     def spec_hash(self) -> str:
         return hashlib.sha256(canonical_json(asdict(self)).encode()).hexdigest()[:16]
+
+    def to_feed_spec(self) -> FeedSpec:
+        return FeedSpec(
+            timestamp_col="timestamp",
+            entity_col="asset",
+            open_col="open",
+            high_col="high",
+            low_col="low",
+            close_col="close",
+            volume_col="volume",
+            bid_col="bid" if self.execution_mode == "QUOTE_SIDE" else None,
+            ask_col="ask" if self.execution_mode == "QUOTE_SIDE" else None,
+            calendar=None,
+            timezone="UTC",
+            data_frequency=self.frequency,
+            time_contract_version=2,
+        )
+
+
+def validate_panel_feed_spec(panel: pl.DataFrame, contract: EvaluationContract) -> FeedSpec:
+    spec = contract.to_feed_spec()
+    if panel.is_empty():
+        raise ContractValidationError(f"{contract.contract_id}: panel is empty")
+    try:
+        resolved = spec.resolve(panel.columns, ("asset",))
+    except ValueError as exc:
+        raise ContractValidationError(f"{contract.contract_id}: {exc}") from exc
+
+    ts_col = resolved.timestamp_col
+    ts_dtype = panel.schema[ts_col]
+    if not isinstance(ts_dtype, pl.Datetime) or ts_dtype.time_zone not in {"UTC", "Etc/UTC"}:
+        raise ContractValidationError(
+            f"{contract.contract_id}: '{ts_col}' must be UTC-aware Datetime, got {ts_dtype}"
+        )
+    if panel.select(pl.col(ts_col).is_null().any()).item():
+        raise ContractValidationError(f"{contract.contract_id}: null timestamps are not allowed")
+    entity_col = str(resolved.entity_col)
+    if panel.select(
+        (pl.col(entity_col).is_null() | (pl.col(entity_col).cast(pl.String).str.len_chars() == 0)).any()
+    ).item():
+        raise ContractValidationError(f"{contract.contract_id}: null or empty '{entity_col}' values")
+
+    ohlcv_cols = [resolved.open_col, resolved.high_col, resolved.low_col, resolved.close_col, resolved.volume_col]
+    missing_ohlcv = [c for c in ohlcv_cols if c not in panel.columns]
+    if missing_ohlcv:
+        raise ContractValidationError(f"{contract.contract_id}: missing OHLCV columns {missing_ohlcv}")
+    for col in ohlcv_cols:
+        if not panel.schema[col].is_numeric():
+            raise ContractValidationError(f"{contract.contract_id}: '{col}' must be numeric, got {panel.schema[col]}")
+        if panel.select((pl.col(col).is_null() | ~pl.col(col).is_finite()).any()).item():
+            raise ContractValidationError(f"{contract.contract_id}: null or non-finite values in '{col}'")
+    for col in ohlcv_cols[:4]:
+        if panel.select((pl.col(col) <= 0).any()).item():
+            raise ContractValidationError(f"{contract.contract_id}: non-positive prices in '{col}'")
+    if panel.select((pl.col(resolved.volume_col) < 0).any()).item():
+        raise ContractValidationError(f"{contract.contract_id}: negative volume in '{resolved.volume_col}'")
+
+    if contract.execution_mode == "QUOTE_SIDE":
+        for col in (resolved.bid_col, resolved.ask_col):
+            if col not in panel.columns:
+                raise ContractValidationError(f"{contract.contract_id}: QUOTE_SIDE requires '{col}'")
+            if not panel.schema[col].is_numeric():
+                raise ContractValidationError(f"{contract.contract_id}: '{col}' must be numeric")
+            if panel.select((pl.col(col).is_null() | ~pl.col(col).is_finite() | (pl.col(col) <= 0)).any()).item():
+                raise ContractValidationError(f"{contract.contract_id}: '{col}' must be non-null finite positive")
+        if panel.select((pl.col(resolved.ask_col) < pl.col(resolved.bid_col)).any()).item():
+            raise ContractValidationError(f"{contract.contract_id}: QUOTE_SIDE requires ask >= bid")
+
+    if contract.asset_class == "crypto_perps":
+        if "funding_rate" not in panel.columns:
+            raise ContractValidationError(f"{contract.contract_id}: crypto_perps requires 'funding_rate'")
+        if not panel.schema["funding_rate"].is_numeric():
+            raise ContractValidationError(f"{contract.contract_id}: 'funding_rate' must be numeric")
+        if panel.select((pl.col("funding_rate").is_null() | ~pl.col("funding_rate").is_finite()).any()).item():
+            raise ContractValidationError(f"{contract.contract_id}: crypto_perps requires non-null finite 'funding_rate'")
+    elif "funding_rate" in panel.columns:
+        f_dtype = panel.schema["funding_rate"]
+        if f_dtype != pl.Null and not f_dtype.is_numeric():
+            raise ContractValidationError(f"{contract.contract_id}: 'funding_rate' must be numeric or null")
+        if f_dtype != pl.Null and panel.select(
+            (pl.col("funding_rate").is_not_null() & ~pl.col("funding_rate").is_finite()).any()
+        ).item():
+            raise ContractValidationError(f"{contract.contract_id}: non-finite values in 'funding_rate'")
+
+    return resolved
 
 
 @dataclass(frozen=True)

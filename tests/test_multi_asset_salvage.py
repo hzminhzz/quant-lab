@@ -371,7 +371,8 @@ def test_normalize_panel_validation():
     normalized = normalize_panel(df)
     assert "asset" in normalized.columns
     assert "funding_rate" in normalized.columns
-    assert normalized["funding_rate"].to_list() == [0.0, 0.0]
+    assert normalized.schema["funding_rate"] == pl.Float64
+    assert normalized["funding_rate"].to_list() == [None, None]
 
     # Reject duplicate timestamp/asset
     dup_df = pl.concat([df, df[:1]])

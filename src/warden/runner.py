@@ -26,6 +26,7 @@ from warden.contracts import (
     Stage1Report,
     canonical_json,
     load_contract,
+    validate_panel_feed_spec,
 )
 from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.gates import (
@@ -244,6 +245,7 @@ class ExperimentRunner:
             dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
             panel_df, ts, assets, v_slice = prepare_panel(self.repo_root, dataset, params, contract)
             require_execution_columns(panel_df, contract)
+            validate_panel_feed_spec(panel_df, contract)
         except (ValueError, OSError) as exc:
             self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc)
             raise

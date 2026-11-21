@@ -1,0 +1,13 @@
+# FUTURE WARDEN RUN ONLY AFTER NEW CONTRACT SIGNATURE / REGISTRY RECONCILIATION
+contract_id: CRYPTO_PERPS_TOP100_ORDERFLOW_1H_H72_V1
+hypothesis_id: HYP-ORDERFLOW-NTR-H72-20261102
+run_id: RUN-ORDERFLOW-NTR-H72-20261102-001
+strategy_family: cross_sectional_ml
+model_type: ridge
+strategy_module: strategies/candidates/recovery/binance_ntr_h72.py
+strategy_name: ACTUAL_BINANCE_NET_TAKER_QUOTE_FLOW_72H_RIDGE
+parameters:
+  alpha: 10.0
+  rebalance_every: 72
+  top_k: 5
+param_grid: []

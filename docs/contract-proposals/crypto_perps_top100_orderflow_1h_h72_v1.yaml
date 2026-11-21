@@ -1,0 +1,27 @@
+# UNAPPROVED research-contract proposal. NOT in contracts/, NOT in Warden manifest.
+# Do not run Stage 1 on this contract without principal contract approval.
+# Source panel: Binance UM 1h actual OHLCV + actual quote/trade/taker totals,
+# with 100 explicit zero-trade bars at 2024-10-28 20:00 UTC masked
+# as flow_valid=False. Original OHLCV and funding values unchanged.
+contract_id: CRYPTO_PERPS_TOP100_ORDERFLOW_1H_H72_V1
+asset_class: crypto_perps
+frequency: 1h
+bars_per_year: 8760
+exploratory_data_path: data/exploratory/crypto_perps_top100_1h_orderflow_v1.parquet
+holdout_data_path: data/holdout/crypto_perps_top100_1h_orderflow_v1.parquet
+train_start: '2023-01-01T00:00:00Z'
+val_start: '2024-07-01T00:00:00Z'
+val_end: '2025-07-01T00:00:00Z'
+holdout_start: '2025-07-01T00:00:00Z'
+holdout_end: '2026-10-24T00:00:00Z'
+n_folds: 4
+label_horizon_bars: 72
+embargo_bars: 72
+execution_delay_bars: 1
+execution_mode: NEXT_BAR
+taker_fee_bps: 4.0
+slippage_bps: 2.0
+funding_bps_per_8h: 1.0
+min_expected_move_to_cost_ratio: 2.5
+data_snapshot_sha256: 3045cb84e059810beec5a0f8afc2945cb7d3aee1425297a93d175126c428eafa
+data_provenance: verified_market

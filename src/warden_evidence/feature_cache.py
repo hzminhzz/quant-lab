@@ -54,13 +54,19 @@ def _registry_proof(registry: ResearchRegistry, identity: str, cid: str, path: P
     return row is not None and row[0] == cid and row[1] == 1 and Path(row[2]).resolve() == path.resolve()
 
 
+def _ml4t_engineer_version() -> str:
+    import ml4t.engineer
+
+    return str(ml4t.engineer.__version__)
+
+
 def _register_proof(registry: ResearchRegistry, identity: str, cid: str, path: Path) -> None:
     with registry._connect() as conn:
         conn.execute("""INSERT OR IGNORE INTO feature_sets
                         (feature_hash,contract_id,feature_names_json,ml4t_engineer_version,
                          prefix_invariance_passed,parquet_cache_path,created_at)
                         VALUES (?,?,?, ?,1,?,?)""",
-                     (identity, cid, "[]", "0.2.0", str(path), time.time()))
+                     (identity, cid, "[]", _ml4t_engineer_version(), str(path), time.time()))
     if not _registry_proof(registry, identity, cid, path):
         raise UnverifiedFeatureCacheError("existing contradictory SQLite causal proof cannot be overwritten")
 
@@ -74,7 +80,7 @@ def feature_identity(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame,
         source = pipeline.__class__.__qualname__
     params = json.dumps(vars(pipeline), sort_keys=True, default=str)
     config = {"contract": contract.spec_hash(), "source": hashlib.sha256(source.encode()).hexdigest(),
-              "params": params, "polars": pl.__version__, "engine": "0.2.0",
+              "params": params, "polars": pl.__version__, "engine": _ml4t_engineer_version(),
               "input": _hash_panel(bars_df)}
     return hashlib.sha256(canonical_json(config).encode()).hexdigest()[:20], config
 

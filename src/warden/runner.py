@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import bisect
 import hashlib
-import importlib.util
 import math
 import pickle
 import sqlite3
@@ -30,6 +29,12 @@ from warden.contracts import (
 )
 from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.gates import (
+    DSR_FLOOR,
+    IC_T_FLOOR,
+    MIN_SR,
+    REVISE_SR_FLOOR,
+    SR2_FLOOR,
+    SRD_FLOOR,
     empirical_holding_volatility,
     evaluate_stage0_feasibility,
     evaluate_stage1_cross_sectional_ml,
@@ -49,19 +54,6 @@ class ExecutionDataError(ValueError):
 
 class DoubleLatencyError(ValueError):
     """A strategy pre-lags its own signals on top of Warden's mandatory execution delay."""
-
-
-def load_module_from_path(module_path: Path):
-    module_dir = str(module_path.resolve().parent)
-    if module_dir not in sys.path:
-        sys.path.insert(0, module_dir)
-    spec = importlib.util.spec_from_file_location(module_path.stem, module_path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load strategy module from {module_path}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[module_path.stem] = mod
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[str]) -> np.ndarray:
@@ -156,7 +148,7 @@ def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, c
         (
             "import sys, pickle\n"
             "from pathlib import Path\n"
-            "from warden.runner import load_module_from_path\n"
+            "from warden.strategy_loader import load_module_from_path\n"
             "inp, out = sys.argv[1], sys.argv[2]\n"
             "with open(inp, 'rb') as f: mod_str, p, c, kwargs = pickle.load(f)\n"
             "mod = load_module_from_path(Path(mod_str))\n"
@@ -420,10 +412,10 @@ class ExperimentRunner:
             diag["metrics"] = m
             diag["timing_skill"] = compute_shift_skill_pvalue(sim1["positions"], ret_p["long"][v_slice],
                                                               contract.label_horizon_bars)
-            min_sr = 1.2 if family == "cross_sectional_ml" else 1.0
-            ic_ok = (ic_hac_t >= 2.0) if family == "cross_sectional_ml" and ic_hac_t is not None else True
+            min_sr = MIN_SR.get(family, REVISE_SR_FLOOR)
+            ic_ok = (ic_hac_t >= IC_T_FLOOR) if family == "cross_sectional_ml" and ic_hac_t is not None else True
             rules_ok = s1_rules.passed if s1_rules is not None else True
-            statistical = (m["net_sharpe"] > min_sr and sr2 > 0.50 and srd > 0.0 and dsr_p >= 0.90
+            statistical = (m["net_sharpe"] > min_sr and sr2 > SR2_FLOOR and srd > SRD_FLOOR and dsr_p >= DSR_FLOOR
                            and not report["non_promotable_reason"] and ic_ok and rules_ok)
             if not dataset.eligible_market:
                 verdict = "NON_PROMOTABLE"

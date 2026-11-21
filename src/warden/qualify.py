@@ -11,6 +11,7 @@ import polars as pl
 import yaml
 
 from warden.codeid import code_closure
+from warden.gates import HOLDOUT_RATIO_FLOOR, HOLDOUT_SR_FLOOR
 from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
@@ -19,9 +20,9 @@ from warden.runner import (
     execution_returns,
     filter_target_symbols,
     funding_settlement_mask,
-    load_module_from_path,
     simulate_positions,
 )
+from warden.strategy_loader import load_module_from_path
 
 
 class HoldoutAlreadyUnsealedError(PermissionError): pass
@@ -149,7 +150,7 @@ def qualify_candidate(
 
     h_net_sr = m["net_sharpe"]
     ratio = float(h_net_sr / max(float(trial.get("net_sharpe", 0.0)), 1e-6))
-    promoted = (h_net_sr > 0.80) and (ratio >= 0.50)
+    promoted = (h_net_sr > HOLDOUT_SR_FLOOR) and (ratio >= HOLDOUT_RATIO_FLOOR)
     verdict = "PROMOTED" if promoted else "REJECTED_ON_HOLDOUT"
     qual_id = f"QUAL-{run_id}"
 

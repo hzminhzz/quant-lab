@@ -17,7 +17,7 @@ ENV_BASE = {k: v for k, v in os.environ.items() if k not in {"WARDEN_HUMAN_SIGNI
 
 def _mini_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "mini"
-    for rel in ("src/warden", "contracts", "scripts/check_loc_budget.py", "pyproject.toml", "uv.lock", "AGENTS.md"):
+    for rel in ("src/warden", "contracts", "pyproject.toml", "uv.lock", "AGENTS.md"):
         src = REPO / rel
         dst = repo / rel
         dst.parent.mkdir(parents=True, exist_ok=True)

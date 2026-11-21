@@ -15,6 +15,14 @@ from warden.registry import PER_HYPOTHESIS_CAP, HypothesisBudgetExhaustedError
 class GateFalsificationError(ValueError): pass
 
 
+# Single gate vocabulary: runner, cli audit and qualify compare against these, never literals.
+# PER_HYPOTHESIS_CAP is a governance fact owned by the registry (imported above), not redefined here.
+MIN_SR = {"cross_sectional_ml": 1.2, "rules_ts": 1.0}
+SR2_FLOOR, SRD_FLOOR, DSR_FLOOR, IC_T_FLOOR = 0.50, 0.0, 0.90, 2.0
+AUDIT_DSR_FLOOR, TRIM_MEAN_FLOOR = 0.80, -0.001
+HOLDOUT_SR_FLOOR, HOLDOUT_RATIO_FLOOR, REVISE_SR_FLOOR = 0.80, 0.50, 1.0
+
+
 def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:
     x = np.asarray(ic_series, dtype=float)
     x = x[np.isfinite(x)]
@@ -41,7 +49,7 @@ def evaluate_stage0_feasibility(
 
 
 def evaluate_stage1_cross_sectional_ml(
-    ic_series: Sequence[float] | np.ndarray, min_mean_ic: float = 0.015, min_hac_tstat: float = 2.0, max_lags: int = 5
+    ic_series: Sequence[float] | np.ndarray, min_mean_ic: float = 0.015, min_hac_tstat: float = IC_T_FLOOR, max_lags: int = 5
 ) -> Stage1Report:
     arr = np.asarray(ic_series, dtype=float)
     arr = arr[np.isfinite(arr)]
@@ -97,25 +105,12 @@ def evaluate_stage1_rules_ts(
     return Stage1Report("rules_ts", passed, {"conditional_edge": cond_edge, "profit_factor": profit_factor, "time_in_market": time_in_market, "bootstrap_p_value": p_value, "avg_holding_bars": avg_holding, "trade_edge": trade_edge}, f"PF={profit_factor:.2f}, Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%, Holding={avg_holding:.1f}h")
 
 
-# Single gate vocabulary: runner, cli audit and qualify compare against these, never literals.
-# PER_HYPOTHESIS_CAP is a governance fact owned by the registry (imported above), not redefined here.
-MIN_SR = {"cross_sectional_ml": 1.2, "rules_ts": 1.0}
-SR2_FLOOR, SRD_FLOOR, DSR_FLOOR, IC_T_FLOOR = 0.50, 0.0, 0.90, 2.0
-AUDIT_DSR_FLOOR, TRIM_MEAN_FLOOR = 0.80, -0.001
-HOLDOUT_SR_FLOOR, HOLDOUT_RATIO_FLOOR, REVISE_SR_FLOOR = 0.80, 0.50, 1.0
-STAGE0_VOL_PROXY = 0.0085
-
-
 def per_bar_sharpe(returns) -> float:
     r = np.asarray(returns, dtype=float)
     return float(np.mean(r) / (np.std(r, ddof=1) + 1e-12))
 
 def annualised_sharpe(returns, bars_per_year: int) -> float:
     return per_bar_sharpe(returns) * math.sqrt(bars_per_year)
-
-
-def stage0_holding_volatility(hypothesis: HypothesisSpec) -> float:
-    return STAGE0_VOL_PROXY * math.sqrt(hypothesis.expected_holding_bars)
 
 
 def empirical_holding_volatility(panel_df: pl.DataFrame, expected_holding_bars: int) -> float:

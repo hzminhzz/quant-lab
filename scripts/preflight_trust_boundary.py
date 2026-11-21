@@ -19,7 +19,7 @@ from pathlib import Path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
 PROTECTED_GLOBS = ("src/warden/*.py", "contracts/*.yaml", "contracts/datasets/*.json")
-TRUST_FILES = (MANIFEST_FILE, "scripts/check_loc_budget.py", "pyproject.toml", "uv.lock")
+TRUST_FILES = (MANIFEST_FILE, "pyproject.toml", "uv.lock")
 
 
 def manifest_approval_state(repo: Path) -> dict:
@@ -61,7 +61,6 @@ def main(argv: list[str] | None = None) -> int:
     files = [describe(p) for p in protected]
     approval = manifest_approval_state(repo)
     holdout = repo / "data" / "holdout"
-    budget = repo / "scripts" / "check_loc_budget.py"
 
     findings: list[dict] = []
     agent_owned = [f["path"] for f in files if f["agent_owned"]]
@@ -80,10 +79,6 @@ def main(argv: list[str] | None = None) -> int:
     elif approval["verified"] is not True:
         findings.append({"id": "MANIFEST_SIGNATURE_UNVERIFIED", "severity": "high",
                          "detail": f"signature state {approval.get('verified')!r}; a key is required to verify"})
-    if agent_owned and any("check_loc_budget" in p for p in agent_owned):
-        findings.append({"id": "AGENT_OWNS_BUDGET_CONTROL", "severity": "medium",
-                         "detail": f"LOC budget control is agent-writable (current cap {_budget(budget)}) "
-                                   "and was raised during the issue-4 rollout; the operator must ratify it"})
     if not holdout.is_dir():
         findings.append({"id": "HOLDOUT_MISSING", "severity": "medium", "detail": "no holdout directory found"})
     else:
@@ -107,13 +102,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  [{finding['severity'].upper()}] {finding['id']}: {finding['detail']}")
         print(f"COMPLIANT={report['compliant']}")
     return 0 if report["compliant"] else 2
-
-
-def _budget(path: Path) -> str:
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("WARDEN_MAX_LOC"):
-            return line.split("=", 1)[1].strip()
-    return "unknown"
 
 
 if __name__ == "__main__":

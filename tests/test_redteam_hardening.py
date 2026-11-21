@@ -288,7 +288,7 @@ def test_continue_exact_match_rejects_substring_count_drift(tmp_path: Path) -> N
 
 
 def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contract) -> None:
-    """cmd_verify on a module without FeaturePipeline must exit with code 1."""
+    """cmd_verify on a module without a pipeline or compute() method must exit with code 1."""
     runner = ExperimentRunner(repo_root=Path("."))
     nopipe = tmp_path / "nopipe.py"
     nopipe.write_text("def generate_positions(df, contract, **kw): return {}\n")
@@ -298,12 +298,13 @@ def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contrac
     assert ret == 1
 
 
-def test_missing_loc_budget_script_fails_worktree_check(tmp_path: Path) -> None:
-    """Deleting scripts/check_loc_budget.py must cause check_worktree() to return False."""
+def test_ast_boundary_violation_fails_worktree_check(tmp_path: Path) -> None:
+    """Banned strategy imports fail check_worktree() via AST boundary enforcement."""
     copy_dir = tmp_path / "copy_repo"
     shutil.copytree(Path("."), copy_dir, ignore=shutil.ignore_patterns(".git", ".venv", "data", "cache", "__pycache__", ".pytest_cache", ".ruff_cache"))
     generate_manifest(copy_dir)
     assert check_worktree(copy_dir) is True
 
-    (copy_dir / "scripts" / "check_loc_budget.py").unlink()
+    bad_strat = copy_dir / "strategies" / "candidates" / "bad_redteam_probe.py"
+    bad_strat.write_text("import sqlite3\n", encoding="utf-8")
     assert check_worktree(copy_dir) is False

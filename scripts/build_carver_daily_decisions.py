@@ -28,6 +28,8 @@ from typing import Any
 
 from scipy import stats
 
+from warden.gates import DSR_FLOOR, REVISE_SR_FLOOR, SR2_FLOOR, SRD_FLOOR
+
 DEFAULT_DB = Path("registry/registry.db")
 DEFAULT_OUT = Path(".workspace/af30_campaign/decision")
 DEFAULT_AUDIT = Path(".workspace/hypotheses")
@@ -44,11 +46,11 @@ MIN_TIME_IN_MARKET = 0.05
 EDGE_COST_MULTIPLIER = 1.5
 MAX_BOOTSTRAP_P = 0.05
 
-# Runner gates (src/warden/runner.py), restated here because the records quote them.
-NET_SR_HURDLE = 1.0
-STRESS_SR_HURDLE = 0.50
-DELAY_SR_HURDLE = 0.0
-DSR_HURDLE = 0.90
+# Runner gates (src/warden/gates.py).
+NET_SR_HURDLE = REVISE_SR_FLOOR
+STRESS_SR_HURDLE = SR2_FLOOR
+DELAY_SR_HURDLE = SRD_FLOOR
+DSR_HURDLE = DSR_FLOOR
 
 
 def connect(db_path: Path) -> sqlite3.Connection:

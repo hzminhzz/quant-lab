@@ -11,7 +11,6 @@ import pytest
 from warden.contracts import load_contract
 from warden.leakage import (
     compute_open_forward_label,
-    executable_label_span,
     purged_walk_forward_splits,
 )
 from warden.runner import (
@@ -121,7 +120,6 @@ def test_forward_label_uses_the_executable_interval():
             raw = (opens[t + delay + horizon] - opens[t + delay]) / opens[t + delay]
             np.testing.assert_allclose(labels[t], raw - raw.mean(), rtol=1e-12, atol=1e-12)
         assert np.allclose(labels[len(opens) - delay - horizon:], 0.0)
-    assert executable_label_span(REPO_CONTRACT) == REPO_CONTRACT.label_horizon_bars + REPO_CONTRACT.execution_delay_bars
 
 
 def test_purge_covers_execution_delay_when_it_exceeds_embargo():

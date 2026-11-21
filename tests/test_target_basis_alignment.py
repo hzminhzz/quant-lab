@@ -8,7 +8,8 @@ import polars as pl
 
 from warden.contracts import EvaluationContract, utc
 from warden.leakage import compute_open_forward_label
-from warden.runner import _aligned_matrix, load_module_from_path, simulate_positions
+from warden.runner import _aligned_matrix, simulate_positions
+from warden.strategy_loader import load_module_from_path
 
 amihud_positions = load_module_from_path(Path("strategies/candidates/cs_amihud_1h.py")).generate_positions
 bab_positions = load_module_from_path(Path("strategies/candidates/cs_bab_1h.py")).generate_positions

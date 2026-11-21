@@ -18,28 +18,18 @@ from warden import __version__
 from warden.audit import record as audit_record
 from warden.codeid import code_closure
 from warden.contracts import canonical_json, load_hypothesis
+from warden.gates import AUDIT_DSR_FLOOR, SR2_FLOOR, SRD_FLOOR, TRIM_MEAN_FLOOR
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
 from warden.lease import MutationBusy, mutation_lease
 from warden.policy import Decision, authorize
 from warden.provenance import resolve_dataset
 from warden.registry import normalise_module
-from warden.runner import ExperimentRunner, load_module_from_path
+from warden.runner import ExperimentRunner
+from warden.strategy_loader import load_module_from_path
 from warden_evidence.feature_cache import verified_feature_evidence
 
 MANIFEST_FILE = ".warden_manifest.sha256"
-STATE_FILE = Path(".workspace") / "state" / "current.json"
-HISTORY_FILE = Path(".workspace") / "state" / "history.jsonl"
-WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and LOC budgets intact."
-TRACE_OPS = frozenset({"git_head", "registry_count", "worktree_check"})
-REGISTRY_TABLES = frozenset({"trials", "hypotheses"})
-# Exact legacy literals only: SQL text is never executed, and writefile()/load_extension()
-# make a SELECT-shaped allowlist unusable. See scripts/ and plan 2026-10-26.
-LEGACY_TRACE = {
-    "git rev-parse --short HEAD": {"op": "git_head"},
-    'sqlite3 registry/registry.db "SELECT COUNT(*) FROM trials"': {"op": "registry_count", "table": "trials"},
-    'sqlite3 registry/registry.db "SELECT COUNT(*) FROM hypotheses"': {"op": "registry_count", "table": "hypotheses"},
-    "uv run warden check-worktree": {"op": "worktree_check"},
-}
+WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and AST boundaries intact."
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
 MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt"})
 
@@ -138,9 +128,9 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     contract = runner.resolve_contract(cfg["contract_id"])
     strat_module = normalise_module(cfg["strategy_module"])
     mod = load_module_from_path(runner.repo_root / strat_module)
-    pipeline = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None) or (mod if hasattr(mod, "compute") else None)
+    pipeline = getattr(mod, "pipeline", None) or (mod if hasattr(mod, "compute") else None)
     if not pipeline:
-        print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
+        print("Error: Strategy module does not expose a pipeline or compute() method.", file=sys.stderr)
         return 1
     dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
     panel = pl.read_parquet(runner.repo_root / dataset.path)
@@ -214,15 +204,15 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         r_series = pl.read_parquet(r_path)["net_return"].to_numpy()
         if len(r_series) > 0:
             p95 = float(np.percentile(r_series, 95.0))
-            trimmed_ok = float(np.mean(r_series[r_series <= p95])) > -0.001
+            trimmed_ok = float(np.mean(r_series[r_series <= p95])) > TRIM_MEAN_FLOOR
 
     c = {
         "1_target_rebalance_alignment": trial.get("stage_reached") in {"STAGE_2_BACKTEST", "STAGE_3_STRESS"} and contract.label_horizon_bars >= 1,
         "2_outlier_sensitivity": trimmed_ok and trial.get("net_sharpe", 0.0) > 0.0 and trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
         "3_point_in_time_causality": has_causal_proof and contract.execution_delay_bars >= 1,
         "4_fold_local_fitting": (contract.n_folds >= 2 and contract.embargo_bars >= 1) or trial.get("strategy_family") == "rules_ts",
-        "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > 0.50) and (trial.get("delay_plus1_sharpe", -1.0) > 0.0),
-        "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= 0.80),
+        "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > SR2_FLOOR) and (trial.get("delay_plus1_sharpe", -1.0) > SRD_FLOOR),
+        "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= AUDIT_DSR_FLOOR),
     }
     historical_passed = all(c.values())
     approved = historical_passed and eligibility["eligible"]

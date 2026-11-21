@@ -70,7 +70,7 @@ def _hash_file(path: Path) -> str:
 def _setup_isolated_repo(tmp_path: Path, *, name: str = "iso") -> Path:
     import shutil
     repo = tmp_path / name
-    for rel in ("src", "scripts/check_loc_budget.py", "pyproject.toml", "uv.lock", "AGENTS.md"):
+    for rel in ("src", "pyproject.toml", "uv.lock", "AGENTS.md"):
         src = REPO_ROOT / rel
         dst = repo / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -139,7 +139,7 @@ def _write_closure_strategy(repo: Path, main_name: str, sibling_name: str, runti
 import numpy as np
 import polars as pl
 from {sibling_name} import SIBLING_WEIGHT
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 CODE_DEPENDENCIES = ("strategies/candidates/{runtime_name}.py",)
 

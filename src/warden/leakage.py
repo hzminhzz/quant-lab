@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Sequence
-from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -50,11 +48,6 @@ def purged_walk_forward_splits(n_timestamps: int, n_folds: int, min_train_timest
     return splits
 
 
-def executable_label_span(contract: EvaluationContract) -> int:
-    """Bars from decision to label exit: execution delay plus the holding horizon."""
-    return contract.execution_delay_bars + contract.label_horizon_bars
-
-
 def compute_open_forward_label(open_mat: np.ndarray, delay: int, horizon: int) -> np.ndarray:
     """Causal open-to-open forward cross-sectionally demeaned returns matching runner execution.
 
@@ -70,15 +63,6 @@ def compute_open_forward_label(open_mat: np.ndarray, delay: int, horizon: int) -
         fwd = np.divide(exit_open - entry_open, entry_open, out=np.zeros_like(entry_open), where=entry_open > 0)
         forward_label[t] = fwd - np.mean(fwd)
     return forward_label
-
-def call_ml4t_compute_features(data: pl.DataFrame | pl.LazyFrame, features: list[str | dict] | str | Path, **kwargs) -> pl.DataFrame:
-    import ml4t.engineer
-    sig = inspect.signature(ml4t.engineer.compute_features)
-    if "calendar" in sig.parameters and "calendar" not in kwargs:
-        kwargs["calendar"] = None
-    res = ml4t.engineer.compute_features(data, features, **kwargs)
-    return res.collect() if isinstance(res, pl.LazyFrame) else res
-
 
 def verify_prefix_invariance(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract, cut_idx: int | None = None) -> None:
     """Sampled leakage detection at 3 cut points (default 1/4, 1/2, 3/4), tolerance 1e-10.

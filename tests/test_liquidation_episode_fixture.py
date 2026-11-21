@@ -13,7 +13,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 MODULE = load_module_from_path(Path(__file__).resolve().parent / "fixtures" /
                                "untracked_review" / "ts_liquidation_reversal_1h.py")

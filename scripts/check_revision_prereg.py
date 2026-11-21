@@ -47,6 +47,8 @@ from typing import Any
 
 import yaml
 
+from warden.gates import SR2_FLOOR, SRD_FLOOR
+
 DEFAULT_PREREG = Path(".workspace/af30_campaign/revisions/HYP-2026-099.md")
 DEFAULT_DB = Path("registry/registry.db")
 PREREG_KEYS = {"hypothesis_id", "contract_id", "revisions"}
@@ -108,10 +110,10 @@ def axis_fails(axis: str, row: dict[str, Any], grid_sharpes: list[float]) -> tup
 
     if axis == "2x_cost_survival":
         v = metric("stress_2x_cost_sharpe")
-        return v <= 0.50, f"stress_2x_cost_sharpe={v:.4f} (fails at <= 0.50)"
+        return v <= SR2_FLOOR, f"stress_2x_cost_sharpe={v:.4f} (fails at <= {SR2_FLOOR:.2f})"
     if axis == "latency_survival":
         v = metric("delay_plus1_sharpe")
-        return v <= 0.0, f"delay_plus1_sharpe={v:.4f} (fails at <= 0.0)"
+        return v <= SRD_FLOOR, f"delay_plus1_sharpe={v:.4f} (fails at <= {SRD_FLOOR:.1f})"
     if axis == "breakeven_cost":
         v = metric("breakeven_cost_bps")
         return v < 1.0, f"breakeven_cost_bps={v:.4f} (fails at < 1.0)"

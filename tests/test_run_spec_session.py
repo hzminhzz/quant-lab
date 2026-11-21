@@ -13,7 +13,6 @@ import argparse
 import contextlib
 import io
 import json
-import shutil
 import sqlite3
 from pathlib import Path
 
@@ -232,9 +231,6 @@ def test_tiny_repo_session_matches_cli_handlers_stage_by_stage(tiny_repo, tmp_pa
                                                               monkeypatch) -> None:
     case = tiny_repo(module_source=TINY_MODULE, module_name="tiny_momentum")
     repo = case.repo
-    (repo / "scripts").mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(Path(__file__).resolve().parents[1] / "scripts" / "check_loc_budget.py",
-                    repo / "scripts" / "check_loc_budget.py")
     (repo / "registry").mkdir(exist_ok=True)
     db = repo / "registry" / "registry.db"
     with sqlite3.connect(case.registry.db_path) as src, sqlite3.connect(db) as dst:

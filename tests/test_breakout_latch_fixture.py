@@ -7,7 +7,8 @@ from pathlib import Path
 
 import polars as pl
 
-from warden.runner import ExperimentRunner, load_module_from_path
+from warden.runner import ExperimentRunner
+from warden.strategy_loader import load_module_from_path
 
 s21_mod = load_module_from_path(Path(__file__).resolve().parent / "fixtures" / "untracked_review" / "ts_breakout_20_1h.py")
 generate_positions = s21_mod.generate_positions

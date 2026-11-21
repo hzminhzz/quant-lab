@@ -11,7 +11,7 @@ import polars as pl
 
 from warden.contracts import load_contract
 from warden.leakage import purged_walk_forward_splits
-from warden.runner import load_module_from_path
+from warden.strategy_loader import load_module_from_path
 
 MODULE = load_module_from_path(Path("strategies/baselines/cs_ridge_1h.py"))
 

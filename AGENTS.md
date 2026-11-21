@@ -165,8 +165,7 @@ principal-delegation authorization trails.
 
 ### Commands (verified by observed run this session)
 - `uv run --frozen pytest -q` — full suite (observed green).
-- `uv run --frozen warden check-worktree` — integrity gate (observed rc=0).
-- `uv run --frozen python scripts/check_loc_budget.py` — src/warden LOC budget (observed pass).
+- `uv run --frozen warden check-worktree` — integrity + AST boundary gate (observed rc=0).
 - `uv run --frozen ruff check <paths>` — lint (observed clean on touched files).
 
 ### Generated files

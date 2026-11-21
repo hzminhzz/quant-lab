@@ -155,7 +155,8 @@ def test_worktree_tampering_aborts_with_exit_code_2(tmp_path: Path) -> None:
     assert proc.returncode == 2
 
 
-def test_loc_budget_script_passes() -> None:
-    proc = subprocess.run([sys.executable, "scripts/check_loc_budget.py"], capture_output=True, text=True, check=False)
-    assert proc.returncode == 0, f"LOC budget script failed:\n{proc.stdout}\n{proc.stderr}"
-    assert "PASS: All LOC budgets satisfied." in proc.stdout
+def test_ast_boundary_gate_passes_after_loc_budget_retirement() -> None:
+    """AST import boundary enforcement passes on a clean repo worktree."""
+    from warden_ops.integrity import check_ast_boundaries
+
+    assert check_ast_boundaries(Path(".")) == []

@@ -56,7 +56,12 @@ def compute_trade_metrics(positions, net_returns, asset_returns=None, bars_per_y
         "trade_conventions": TRADE_CONVENTIONS,
     }
     if asset_returns is not None:
-        bench = np.asarray(asset_returns, dtype=float).mean(axis=1)
+        arr = np.asarray(asset_returns, dtype=float)
+        if arr.ndim == 2 and pos.ndim == 2 and arr.shape[1] == pos.shape[1]:
+            active_cols = np.any(np.abs(pos) > 1e-9, axis=0)
+            if np.any(active_cols):
+                arr = arr[:, active_cols]
+        bench = arr.mean(axis=1) if arr.ndim > 1 else arr
         diff = net - bench
         metrics.update({
             "benchmark_net_sharpe": annualised_sharpe(bench, bars_per_year),

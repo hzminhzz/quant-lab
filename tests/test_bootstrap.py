@@ -45,7 +45,6 @@ REQUIRED_PACKAGES: tuple[str, ...] = (
     "ml4t-engineer",
     "ml4t-diagnostic",
     "ml4t-backtest",
-    "ml4t-live",
 )
 
 
@@ -89,6 +88,9 @@ def test_env_manifest_validity_and_imports() -> None:
             f"Import failed for {pkg}: {entry.get('error')}"
         )
         assert entry.get("version"), f"Version missing for {pkg}"
+
+    assert "ml4t-live" not in packages
+    assert "ml4t-models" in manifest.get("optional_packages", {})
 
     probes = manifest.get("api_signatures", {})
     cf_probe = probes.get("ml4t.engineer:compute_features")

@@ -1,7 +1,540 @@
 {
   "api_signatures": {
+    "ml4t.backtest.execution.rebalancer:RebalanceConfig": {
+      "attribute": "RebalanceConfig",
+      "fields": [
+        "min_trade_value",
+        "min_weight_change",
+        "allow_fractional",
+        "round_lots",
+        "lot_size",
+        "allow_short",
+        "max_single_weight",
+        "max_gross_leverage",
+        "cancel_before_rebalance",
+        "account_for_pending",
+        "rebalance_mode",
+        "share_rounding",
+        "schedule",
+        "calendar",
+        "timezone",
+        "session_start_time",
+        "data_frequency",
+        "timestamp_semantics"
+      ],
+      "module": "ml4t.backtest.execution.rebalancer",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "min_trade_value"
+        },
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "min_weight_change"
+        },
+        {
+          "annotation": "bool | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "allow_fractional"
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "round_lots"
+        },
+        {
+          "annotation": "int",
+          "default": "100",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "lot_size"
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "allow_short"
+        },
+        {
+          "annotation": "float",
+          "default": "1.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "max_single_weight"
+        },
+        {
+          "annotation": "float | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "max_gross_leverage"
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "cancel_before_rebalance"
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "account_for_pending"
+        },
+        {
+          "annotation": "RebalanceMode",
+          "default": "<RebalanceMode.SNAPSHOT: 'snapshot'>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "rebalance_mode"
+        },
+        {
+          "annotation": "ShareRounding | str",
+          "default": "<ShareRounding.NEAREST: 'nearest'>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "share_rounding"
+        },
+        {
+          "annotation": "RebalanceSchedule | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "schedule"
+        },
+        {
+          "annotation": "str | None | CalendarUnset",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "calendar"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "timezone"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "session_start_time"
+        },
+        {
+          "annotation": "DataFrequency | str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "data_frequency"
+        },
+        {
+          "annotation": "TimestampSemantics | str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "timestamp_semantics"
+        }
+      ],
+      "signature": "(min_trade_value: 'float' = 0.0, min_weight_change: 'float' = 0.0, allow_fractional: 'bool | None' = None, round_lots: 'bool' = False, lot_size: 'int' = 100, allow_short: 'bool' = False, max_single_weight: 'float' = 1.0, max_gross_leverage: 'float | None' = None, cancel_before_rebalance: 'bool' = True, account_for_pending: 'bool' = True, rebalance_mode: 'RebalanceMode' = <RebalanceMode.SNAPSHOT: 'snapshot'>, share_rounding: 'ShareRounding | str' = <ShareRounding.NEAREST: 'nearest'>, schedule: 'RebalanceSchedule | None' = None, calendar: 'str | None | CalendarUnset' = <CalendarUnset.UNSET: 'unset'>, timezone: 'str | None' = None, session_start_time: 'str | None' = None, data_frequency: 'DataFrequency | str | None' = None, timestamp_semantics: 'TimestampSemantics | str | None' = None) -> None",
+      "target": "ml4t.backtest.execution.rebalancer.RebalanceConfig"
+    },
+    "ml4t.backtest.execution.rebalancer:TargetWeightExecutor": {
+      "attribute": "TargetWeightExecutor",
+      "module": "ml4t.backtest.execution.rebalancer",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "RebalanceConfig | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "config"
+        }
+      ],
+      "signature": "(config: 'RebalanceConfig | None' = None)",
+      "target": "ml4t.backtest.execution.rebalancer.TargetWeightExecutor"
+    },
+    "ml4t.backtest.risk:StopLoss": {
+      "attribute": "StopLoss",
+      "fields": [
+        "pct"
+      ],
+      "module": "ml4t.backtest.risk",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "<class 'float'>",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "pct"
+        }
+      ],
+      "signature": "(pct: float) -> None",
+      "target": "ml4t.backtest.risk.StopLoss"
+    },
+    "ml4t.backtest.risk:TrailingStop": {
+      "attribute": "TrailingStop",
+      "fields": [
+        "pct"
+      ],
+      "module": "ml4t.backtest.risk",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "<class 'float'>",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "pct"
+        }
+      ],
+      "signature": "(pct: float) -> None",
+      "target": "ml4t.backtest.risk.TrailingStop"
+    },
+    "ml4t.backtest:BacktestConfig": {
+      "attribute": "BacktestConfig",
+      "fields": [
+        "allow_short_selling",
+        "allow_leverage",
+        "initial_margin",
+        "long_maintenance_margin",
+        "short_maintenance_margin",
+        "fixed_margin_schedule",
+        "margin_pct_schedule",
+        "short_cash_policy",
+        "lock_notional_update_mode",
+        "execution_price",
+        "mark_price",
+        "next_bar_execution_price",
+        "cancel_policy",
+        "corporate_action_policy",
+        "conditional_order_mode",
+        "execution_mode",
+        "stop_fill_mode",
+        "stop_level_basis",
+        "trail_hwm_source",
+        "trail_include_entry_bar_extremes",
+        "initial_hwm_source",
+        "trail_stop_timing",
+        "share_type",
+        "share_rounding",
+        "commission_type",
+        "commission_rate",
+        "commission_per_share",
+        "commission_per_trade",
+        "commission_minimum",
+        "slippage_type",
+        "slippage_rate",
+        "slippage_fixed",
+        "slippage_spread",
+        "slippage_spread_by_asset",
+        "slippage_spread_convention",
+        "stop_slippage_rate",
+        "initial_cash",
+        "cash_buffer_pct",
+        "settlement_delay",
+        "settlement_reduces_buying_power",
+        "reject_on_insufficient_cash",
+        "skip_cash_validation",
+        "partial_fills_allowed",
+        "fill_ordering",
+        "entry_order_priority",
+        "next_bar_submission_precheck",
+        "next_bar_simple_cash_check",
+        "buying_power_reservation",
+        "next_bar_queue_shadow_validation",
+        "immediate_fill",
+        "rebalance_mode",
+        "rebalance_headroom_pct",
+        "missing_price_policy",
+        "late_asset_policy",
+        "late_asset_min_bars",
+        "calendar",
+        "time_contract_version",
+        "periods_per_year",
+        "timezone",
+        "data_frequency",
+        "enforce_sessions",
+        "preset_name",
+        "feed_spec",
+        "metadata",
+        "retain_intent_history",
+        "retain_lifecycle_history",
+        "_explicit_timezone",
+        "_explicit_data_frequency"
+      ],
+      "module": "ml4t.backtest",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "Any",
+          "default": null,
+          "kind": "VAR_POSITIONAL",
+          "name": "args"
+        },
+        {
+          "annotation": "Any",
+          "default": null,
+          "kind": "VAR_KEYWORD",
+          "name": "kwargs"
+        }
+      ],
+      "signature": "(*args: 'Any', **kwargs: 'Any')",
+      "target": "ml4t.backtest.BacktestConfig"
+    },
+    "ml4t.backtest:ContractSpec": {
+      "attribute": "ContractSpec",
+      "fields": [
+        "symbol",
+        "asset_class",
+        "multiplier",
+        "tick_size",
+        "margin",
+        "margin_pct",
+        "currency",
+        "accounting_method",
+        "settlement_policy"
+      ],
+      "module": "ml4t.backtest",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "<class 'str'>",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "symbol"
+        },
+        {
+          "annotation": "<enum 'AssetClass'>",
+          "default": "<AssetClass.EQUITY: 'equity'>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "asset_class"
+        },
+        {
+          "annotation": "<class 'float'>",
+          "default": "1.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "multiplier"
+        },
+        {
+          "annotation": "<class 'float'>",
+          "default": "0.01",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "tick_size"
+        },
+        {
+          "annotation": "float | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "margin"
+        },
+        {
+          "annotation": "tuple[float, float] | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "margin_pct"
+        },
+        {
+          "annotation": "<class 'str'>",
+          "default": "'USD'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "currency"
+        },
+        {
+          "annotation": "typing.Literal['signed_notional', 'futures_variation']",
+          "default": "'signed_notional'",
+          "kind": "KEYWORD_ONLY",
+          "name": "accounting_method"
+        },
+        {
+          "annotation": "typing.Literal['scheduled', 'on_mark']",
+          "default": "'scheduled'",
+          "kind": "KEYWORD_ONLY",
+          "name": "settlement_policy"
+        }
+      ],
+      "signature": "(symbol: str, asset_class: ml4t.backtest.types.AssetClass = <AssetClass.EQUITY: 'equity'>, multiplier: float = 1.0, tick_size: float = 0.01, margin: float | None = None, margin_pct: tuple[float, float] | None = None, currency: str = 'USD', *, accounting_method: Literal['signed_notional', 'futures_variation'] = 'signed_notional', settlement_policy: Literal['scheduled', 'on_mark'] = 'scheduled') -> None",
+      "target": "ml4t.backtest.ContractSpec"
+    },
+    "ml4t.backtest:DataFeed": {
+      "attribute": "DataFeed",
+      "has_feed_spec": true,
+      "has_session_col": true,
+      "module": "ml4t.backtest",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "prices_path"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "signals_path"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "context_path"
+        },
+        {
+          "annotation": "polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame | pandas.DataFrame | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "prices_df"
+        },
+        {
+          "annotation": "polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame | pandas.DataFrame | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "signals_df"
+        },
+        {
+          "annotation": "polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame | pandas.DataFrame | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "context_df"
+        },
+        {
+          "annotation": "ml4t.specs.market_data.FeedSpec | typing.Any | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "feed_spec"
+        },
+        {
+          "annotation": "typing.Any | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "feature_spec"
+        },
+        {
+          "annotation": "ml4t.specs.market_data.FeedSpec | typing.Any | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "contract"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "entity_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "timestamp_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "price_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "open_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "high_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "low_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "close_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "volume_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "vwap_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "bid_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "ask_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "mid_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "bid_size_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "ask_size_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "session_col"
+        },
+        {
+          "annotation": "str | None | ml4t.specs.time.CalendarUnset",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "KEYWORD_ONLY",
+          "name": "calendar"
+        },
+        {
+          "annotation": "polars.dataframe.frame.DataFrame | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "capital_flows"
+        },
+        {
+          "annotation": "polars.dataframe.frame.DataFrame | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "corporate_actions"
+        },
+        {
+          "annotation": "dict[str, typing.Any] | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "input_manifest"
+        }
+      ],
+      "signature": "(prices_path: str | None = None, signals_path: str | None = None, context_path: str | None = None, prices_df: polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame | pandas.DataFrame | None = None, signals_df: polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame | pandas.DataFrame | None = None, context_df: polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame | pandas.DataFrame | None = None, *, feed_spec: ml4t.specs.market_data.FeedSpec | typing.Any | None = None, feature_spec: typing.Any | None = None, contract: ml4t.specs.market_data.FeedSpec | typing.Any | None = None, entity_col: str | None = None, timestamp_col: str | None = None, price_col: str | None = None, open_col: str | None = None, high_col: str | None = None, low_col: str | None = None, close_col: str | None = None, volume_col: str | None = None, vwap_col: str | None = None, bid_col: str | None = None, ask_col: str | None = None, mid_col: str | None = None, bid_size_col: str | None = None, ask_size_col: str | None = None, session_col: str | None = None, calendar: str | None | ml4t.specs.time.CalendarUnset = <CalendarUnset.UNSET: 'unset'>, capital_flows: polars.dataframe.frame.DataFrame | None = None, corporate_actions: polars.dataframe.frame.DataFrame | None = None, input_manifest: dict[str, typing.Any] | None = None)",
+      "target": "ml4t.backtest.DataFeed"
+    },
     "ml4t.backtest:Engine": {
       "attribute": "Engine",
+      "has_funding_df": true,
       "module": "ml4t.backtest",
       "object_kind": "class",
       "parameters": [
@@ -105,6 +638,191 @@
       "signature": "(feed: 'DataFeed', strategy: 'Strategy', config: 'BacktestConfig | None' = None, *, contract_specs: 'dict[str, Any] | None' = None, market_impact_model: 'Any | None' = None, commission_model: 'CommissionModel | None' = None, slippage_model: 'SlippageModel | None' = None, execution_limits: 'Any | None' = None, funding_df: 'pl.DataFrame | None' = None, settlement_events: 'pl.DataFrame | None' = None, lifecycle_version: 'LifecycleVersion | str' = <LifecycleVersion.V1: '1'>, execution_policy: 'ExecutionPolicy | None' = None, target_intent_state: 'dict[str, Any] | None' = None, holdings_sampling: 'str' = 'none', runtime: 'RuntimeServices | None' = None, benchmark: 'BenchmarkData | None' = None)",
       "target": "ml4t.backtest.Engine"
     },
+    "ml4t.data.anomaly:AnomalyManager": {
+      "attribute": "AnomalyManager",
+      "module": "ml4t.data.anomaly",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "AnomalyConfig | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "config"
+        },
+        {
+          "annotation": "list[AnomalyDetector] | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "custom_detectors"
+        }
+      ],
+      "signature": "(config: 'AnomalyConfig | None' = None, custom_detectors: 'list[AnomalyDetector] | None' = None)",
+      "target": "ml4t.data.anomaly.AnomalyManager"
+    },
+    "ml4t.data.sessions:SessionAssigner": {
+      "attribute": "SessionAssigner",
+      "module": "ml4t.data.sessions",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "str | None | CalendarUnset",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "calendar"
+        },
+        {
+          "annotation": "str | None | CalendarUnset",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "KEYWORD_ONLY",
+          "name": "calendar_name"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "exchange"
+        },
+        {
+          "annotation": "Any | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "feed_spec"
+        }
+      ],
+      "signature": "(calendar: 'str | None | CalendarUnset' = <CalendarUnset.UNSET: 'unset'>, *, calendar_name: 'str | None | CalendarUnset' = <CalendarUnset.UNSET: 'unset'>, exchange: 'str | None' = None, feed_spec: 'Any | None' = None) -> 'None'",
+      "target": "ml4t.data.sessions.SessionAssigner"
+    },
+    "ml4t.data.sessions:SessionCompleter": {
+      "attribute": "SessionCompleter",
+      "module": "ml4t.data.sessions",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "str | None | CalendarUnset",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "calendar"
+        },
+        {
+          "annotation": "str | None | CalendarUnset",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "KEYWORD_ONLY",
+          "name": "calendar_name"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "exchange"
+        },
+        {
+          "annotation": "Any | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "feed_spec"
+        }
+      ],
+      "signature": "(calendar: 'str | None | CalendarUnset' = <CalendarUnset.UNSET: 'unset'>, *, calendar_name: 'str | None | CalendarUnset' = <CalendarUnset.UNSET: 'unset'>, exchange: 'str | None' = None, feed_spec: 'Any | None' = None) -> 'None'",
+      "target": "ml4t.data.sessions.SessionCompleter"
+    },
+    "ml4t.data.validation.rules:ValidationRulePresets": {
+      "attribute": "ValidationRulePresets",
+      "module": "ml4t.data.validation.rules",
+      "object_kind": "class",
+      "parameters": [],
+      "signature": "()",
+      "target": "ml4t.data.validation.rules.ValidationRulePresets"
+    },
+    "ml4t.data.validation:OHLCVValidator": {
+      "attribute": "OHLCVValidator",
+      "module": "ml4t.data.validation",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "check_nulls"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "check_price_consistency"
+        },
+        {
+          "annotation": "typing.Literal['forbid', 'warn', 'allow']",
+          "default": "'forbid'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "negative_price_policy"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "check_negative_volume"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "check_duplicate_timestamps"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "check_chronological_order"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "check_price_staleness"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "check_extreme_returns"
+        },
+        {
+          "annotation": "<class 'float'>",
+          "default": "0.5",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "max_return_threshold"
+        },
+        {
+          "annotation": "<class 'int'>",
+          "default": "5",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "staleness_threshold"
+        }
+      ],
+      "signature": "(check_nulls: bool = True, check_price_consistency: bool = True, negative_price_policy: Literal['forbid', 'warn', 'allow'] = 'forbid', check_negative_volume: bool = True, check_duplicate_timestamps: bool = True, check_chronological_order: bool = True, check_price_staleness: bool = True, check_extreme_returns: bool = True, max_return_threshold: float = 0.5, staleness_threshold: int = 5) -> None",
+      "target": "ml4t.data.validation.OHLCVValidator"
+    },
+    "ml4t.diagnostic.evaluation.stats:compute_pbo": {
+      "attribute": "compute_pbo",
+      "module": "ml4t.diagnostic.evaluation.stats",
+      "object_kind": "function",
+      "parameters": [
+        {
+          "annotation": "np.ndarray[Any, np.dtype[Any]]",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "is_performance"
+        },
+        {
+          "annotation": "np.ndarray[Any, np.dtype[Any]]",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "oos_performance"
+        }
+      ],
+      "signature": "(is_performance: 'np.ndarray[Any, np.dtype[Any]]', oos_performance: 'np.ndarray[Any, np.dtype[Any]]') -> 'PBOResult'",
+      "target": "ml4t.diagnostic.evaluation.stats.compute_pbo"
+    },
     "ml4t.diagnostic.evaluation.stats:deflated_sharpe_ratio": {
       "attribute": "deflated_sharpe_ratio",
       "module": "ml4t.diagnostic.evaluation.stats",
@@ -180,6 +898,520 @@
       "signature": "(returns: 'ArrayLike | Sequence[ArrayLike]', frequency: 'Frequency' = 'daily', benchmark_sharpe: 'float' = 0.0, confidence_level: 'float' = 0.95, periods_per_year: 'int | None' = None, *, skewness: 'float | None' = None, excess_kurtosis: 'float | None' = None, autocorrelation: 'float | None' = None, effective_trials: 'float | None' = None, correlation_method: 'EffectiveTrialsMethod | None' = None, min_k_eff: 'float' = 1.0) -> 'DSRResult'",
       "target": "ml4t.diagnostic.evaluation.stats.deflated_sharpe_ratio"
     },
+    "ml4t.diagnostic.evaluation.stats:deflated_sharpe_ratio_from_statistics": {
+      "attribute": "deflated_sharpe_ratio_from_statistics",
+      "module": "ml4t.diagnostic.evaluation.stats",
+      "object_kind": "function",
+      "parameters": [
+        {
+          "annotation": "float",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "observed_sharpe"
+        },
+        {
+          "annotation": "int",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "n_samples"
+        },
+        {
+          "annotation": "int",
+          "default": "1",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "n_trials"
+        },
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "variance_trials"
+        },
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "benchmark_sharpe"
+        },
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "skewness"
+        },
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "excess_kurtosis"
+        },
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "autocorrelation"
+        },
+        {
+          "annotation": "float",
+          "default": "0.95",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "confidence_level"
+        },
+        {
+          "annotation": "Frequency",
+          "default": "'daily'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "frequency"
+        },
+        {
+          "annotation": "int | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "periods_per_year"
+        },
+        {
+          "annotation": "float | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "effective_trials"
+        },
+        {
+          "annotation": "EffectiveTrialsMethod | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "correlation_method"
+        },
+        {
+          "annotation": "float",
+          "default": "1.0",
+          "kind": "KEYWORD_ONLY",
+          "name": "min_k_eff"
+        }
+      ],
+      "signature": "(observed_sharpe: 'float', n_samples: 'int', n_trials: 'int' = 1, variance_trials: 'float' = 0.0, benchmark_sharpe: 'float' = 0.0, skewness: 'float' = 0.0, excess_kurtosis: 'float' = 0.0, autocorrelation: 'float' = 0.0, confidence_level: 'float' = 0.95, frequency: 'Frequency' = 'daily', periods_per_year: 'int | None' = None, *, effective_trials: 'float | None' = None, correlation_method: 'EffectiveTrialsMethod | None' = None, min_k_eff: 'float' = 1.0) -> 'DSRResult'",
+      "target": "ml4t.diagnostic.evaluation.stats.deflated_sharpe_ratio_from_statistics"
+    },
+    "ml4t.diagnostic.evaluation.stats:effective_number_of_trials": {
+      "attribute": "effective_number_of_trials",
+      "module": "ml4t.diagnostic.evaluation.stats",
+      "object_kind": "function",
+      "parameters": [
+        {
+          "annotation": "ArrayLike",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "returns"
+        },
+        {
+          "annotation": "EffectiveTrialsMethod",
+          "default": "'effective_rank'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "method"
+        },
+        {
+          "annotation": "int | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "random_state"
+        }
+      ],
+      "signature": "(returns: 'ArrayLike', method: 'EffectiveTrialsMethod' = 'effective_rank', *, random_state: 'int | None' = None) -> 'EffectiveTrialsResult'",
+      "target": "ml4t.diagnostic.evaluation.stats.effective_number_of_trials"
+    },
+    "ml4t.diagnostic.evaluation.stats:ras_sharpe_adjustment": {
+      "attribute": "ras_sharpe_adjustment",
+      "module": "ml4t.diagnostic.evaluation.stats",
+      "object_kind": "function",
+      "parameters": [
+        {
+          "annotation": "NDArray[Any]",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "observed_sharpe"
+        },
+        {
+          "annotation": "float",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "complexity"
+        },
+        {
+          "annotation": "int",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "n_samples"
+        },
+        {
+          "annotation": "int",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "n_strategies"
+        },
+        {
+          "annotation": "float",
+          "default": "0.05",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "delta"
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "return_result"
+        }
+      ],
+      "signature": "(observed_sharpe: 'NDArray[Any]', complexity: 'float', n_samples: 'int', n_strategies: 'int', delta: 'float' = 0.05, return_result: 'bool' = False) -> 'NDArray[Any] | RASResult'",
+      "target": "ml4t.diagnostic.evaluation.stats.ras_sharpe_adjustment"
+    },
+    "ml4t.diagnostic.evaluation:PortfolioAnalysis": {
+      "attribute": "PortfolioAnalysis",
+      "module": "ml4t.diagnostic.evaluation",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "ArrayLike | pl.Series",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "returns"
+        },
+        {
+          "annotation": "ArrayLike | pl.Series | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "benchmark"
+        },
+        {
+          "annotation": "DataFrameLike | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "positions"
+        },
+        {
+          "annotation": "DataFrameLike | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "transactions"
+        },
+        {
+          "annotation": "pl.Series | np.ndarray | pd.DatetimeIndex | list[date | datetime] | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "dates"
+        },
+        {
+          "annotation": "float",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "risk_free"
+        },
+        {
+          "annotation": "int",
+          "default": "252",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "periods_per_year"
+        },
+        {
+          "annotation": "date | datetime | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "initial_timestamp"
+        }
+      ],
+      "signature": "(returns: 'ArrayLike | pl.Series', benchmark: 'ArrayLike | pl.Series | None' = None, positions: 'DataFrameLike | None' = None, transactions: 'DataFrameLike | None' = None, dates: 'pl.Series | np.ndarray | pd.DatetimeIndex | list[date | datetime] | None' = None, risk_free: 'float' = 0.0, periods_per_year: 'int' = 252, *, initial_timestamp: 'date | datetime | None' = None)",
+      "target": "ml4t.diagnostic.evaluation.PortfolioAnalysis"
+    },
+    "ml4t.diagnostic.evaluation:TradeAnalysis": {
+      "attribute": "TradeAnalysis",
+      "module": "ml4t.diagnostic.evaluation",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "list[TradeRecord] | list[TradeMetrics]",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "trades"
+        },
+        {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "filter_config"
+        },
+        {
+          "annotation": "TradeFilters | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "filters"
+        },
+        {
+          "annotation": "dict[str, Any] | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "source_metadata"
+        }
+      ],
+      "signature": "(trades: 'list[TradeRecord] | list[TradeMetrics]', filter_config: 'dict[str, Any] | None' = None, *, filters: 'TradeFilters | None' = None, source_metadata: 'dict[str, Any] | None' = None)",
+      "target": "ml4t.diagnostic.evaluation.TradeAnalysis"
+    },
+    "ml4t.diagnostic.metrics:compute_ic_hac_stats": {
+      "attribute": "compute_ic_hac_stats",
+      "module": "ml4t.diagnostic.metrics",
+      "object_kind": "function",
+      "parameters": [
+        {
+          "annotation": "typing.Union[polars.dataframe.frame.DataFrame, pandas.DataFrame, ForwardRef('NDArray[Any]')]",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "ic_series"
+        },
+        {
+          "annotation": "<class 'str'>",
+          "default": "'ic'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "ic_col"
+        },
+        {
+          "annotation": "int | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "maxlags"
+        },
+        {
+          "annotation": "int | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "label_horizon"
+        },
+        {
+          "annotation": "<class 'str'>",
+          "default": "'bartlett'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "kernel"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "True",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "use_correction"
+        },
+        {
+          "annotation": "<class 'bool'>",
+          "default": "False",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "allow_naive_fallback"
+        }
+      ],
+      "signature": "(ic_series: Union[polars.dataframe.frame.DataFrame, pandas.DataFrame, ForwardRef('NDArray[Any]')], ic_col: str = 'ic', maxlags: int | None = None, label_horizon: int | None = None, kernel: str = 'bartlett', use_correction: bool = True, allow_naive_fallback: bool = False) -> ml4t.diagnostic.metrics.ic_inference.ICHACStats",
+      "target": "ml4t.diagnostic.metrics.compute_ic_hac_stats"
+    },
+    "ml4t.diagnostic.splitters:WalkForwardCV": {
+      "attribute": "WalkForwardCV",
+      "module": "ml4t.diagnostic.splitters",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "WalkForwardConfig | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "config"
+        },
+        {
+          "annotation": "int",
+          "default": "5",
+          "kind": "KEYWORD_ONLY",
+          "name": "n_splits"
+        },
+        {
+          "annotation": "float | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "test_size"
+        },
+        {
+          "annotation": "float | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "train_size"
+        },
+        {
+          "annotation": "int",
+          "default": "0",
+          "kind": "KEYWORD_ONLY",
+          "name": "gap"
+        },
+        {
+          "annotation": "int | pd.Timedelta",
+          "default": "0",
+          "kind": "KEYWORD_ONLY",
+          "name": "label_horizon"
+        },
+        {
+          "annotation": "int | pd.Timedelta | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "embargo_size"
+        },
+        {
+          "annotation": "float | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "embargo_pct"
+        },
+        {
+          "annotation": "bool",
+          "default": "True",
+          "kind": "KEYWORD_ONLY",
+          "name": "expanding"
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "KEYWORD_ONLY",
+          "name": "consecutive"
+        },
+        {
+          "annotation": "str | CalendarConfig | TradingCalendar | CalendarUnset | None",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "KEYWORD_ONLY",
+          "name": "calendar"
+        },
+        {
+          "annotation": "FeedSpec | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "feed_spec"
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "KEYWORD_ONLY",
+          "name": "align_to_sessions"
+        },
+        {
+          "annotation": "str",
+          "default": "'session_date'",
+          "kind": "KEYWORD_ONLY",
+          "name": "session_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "timestamp_col"
+        },
+        {
+          "annotation": "bool",
+          "default": "False",
+          "kind": "KEYWORD_ONLY",
+          "name": "isolate_groups"
+        },
+        {
+          "annotation": "int | str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "test_period"
+        },
+        {
+          "annotation": "date | str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "test_start"
+        },
+        {
+          "annotation": "date | str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "test_end"
+        },
+        {
+          "annotation": "Literal['forward', 'backward']",
+          "default": "'forward'",
+          "kind": "KEYWORD_ONLY",
+          "name": "fold_direction"
+        }
+      ],
+      "signature": "(config: 'WalkForwardConfig | None' = None, *, n_splits: 'int' = 5, test_size: 'float | None' = None, train_size: 'float | None' = None, gap: 'int' = 0, label_horizon: 'int | pd.Timedelta' = 0, embargo_size: 'int | pd.Timedelta | None' = None, embargo_pct: 'float | None' = None, expanding: 'bool' = True, consecutive: 'bool' = False, calendar: 'str | CalendarConfig | TradingCalendar | CalendarUnset | None' = <CalendarUnset.UNSET: 'unset'>, feed_spec: 'FeedSpec | None' = None, align_to_sessions: 'bool' = False, session_col: 'str' = 'session_date', timestamp_col: 'str | None' = None, isolate_groups: 'bool' = False, test_period: 'int | str | None' = None, test_start: 'date | str | None' = None, test_end: 'date | str | None' = None, fold_direction: \"Literal['forward', 'backward']\" = 'forward') -> 'None'",
+      "target": "ml4t.diagnostic.splitters.WalkForwardCV"
+    },
+    "ml4t.engineer.labeling:meta_labels": {
+      "attribute": "meta_labels",
+      "module": "ml4t.engineer.labeling",
+      "object_kind": "function",
+      "parameters": [
+        {
+          "annotation": "<class 'polars.dataframe.frame.DataFrame'>",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "data"
+        },
+        {
+          "annotation": "<class 'str'>",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "signal_col"
+        },
+        {
+          "annotation": "<class 'str'>",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "return_col"
+        },
+        {
+          "annotation": "<class 'float'>",
+          "default": "0.0",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "threshold"
+        }
+      ],
+      "signature": "(data: polars.dataframe.frame.DataFrame, signal_col: str, return_col: str, threshold: float = 0.0) -> polars.dataframe.frame.DataFrame",
+      "target": "ml4t.engineer.labeling.meta_labels"
+    },
+    "ml4t.engineer:MLDatasetBuilder": {
+      "attribute": "MLDatasetBuilder",
+      "fields": [
+        "features",
+        "labels",
+        "dates",
+        "_scaler",
+        "_feature_columns"
+      ],
+      "module": "ml4t.engineer",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "pl.DataFrame",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "features"
+        },
+        {
+          "annotation": "pl.Series",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "labels"
+        },
+        {
+          "annotation": "pl.Series | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "dates"
+        },
+        {
+          "annotation": "BaseScaler | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "_scaler"
+        },
+        {
+          "annotation": "list[str]",
+          "default": "<factory>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "_feature_columns"
+        }
+      ],
+      "signature": "(features: 'pl.DataFrame', labels: 'pl.Series', dates: 'pl.Series | None' = None, _scaler: 'BaseScaler | None' = None, _feature_columns: 'list[str]' = <factory>) -> None",
+      "target": "ml4t.engineer.MLDatasetBuilder"
+    },
     "ml4t.engineer:compute_features": {
       "accepts_calendar_none": true,
       "attribute": "compute_features",
@@ -239,10 +1471,293 @@
       ],
       "signature": "(data: polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame, features: list[str | dict[str, typing.Any]] | pathlib._local.Path | str, *, group_col: str | list[str] | None = None, timestamp_col: str | None = None, assume_sorted: bool = False, calendar: str | None | ml4t.specs.time.CalendarUnset = <CalendarUnset.UNSET: 'unset'>, feed_spec: ml4t.specs.market_data.FeedSpec | collections.abc.Mapping[str, typing.Any] | None = None, window_unit: ml4t.specs.time.WindowUnit | str | None = None) -> polars.dataframe.frame.DataFrame | polars.lazyframe.frame.LazyFrame",
       "target": "ml4t.engineer.compute_features"
+    },
+    "ml4t.specs:FeedSpec": {
+      "attribute": "FeedSpec",
+      "fields": [
+        "timestamp_col",
+        "entity_col",
+        "price_col",
+        "open_col",
+        "high_col",
+        "low_col",
+        "close_col",
+        "volume_col",
+        "vwap_col",
+        "bid_col",
+        "ask_col",
+        "mid_col",
+        "bid_size_col",
+        "ask_size_col",
+        "calendar",
+        "timezone",
+        "data_frequency",
+        "bar_type",
+        "timestamp_semantics",
+        "session_start_time",
+        "time_contract_version",
+        "bar_grid_anchor",
+        "bar_label",
+        "partial_bar_policy"
+      ],
+      "module": "ml4t.specs",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "str",
+          "default": "'timestamp'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "timestamp_col"
+        },
+        {
+          "annotation": "str | Sequence[str] | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "entity_col"
+        },
+        {
+          "annotation": "str",
+          "default": "'close'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "price_col"
+        },
+        {
+          "annotation": "str",
+          "default": "'open'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "open_col"
+        },
+        {
+          "annotation": "str",
+          "default": "'high'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "high_col"
+        },
+        {
+          "annotation": "str",
+          "default": "'low'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "low_col"
+        },
+        {
+          "annotation": "str",
+          "default": "'close'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "close_col"
+        },
+        {
+          "annotation": "str",
+          "default": "'volume'",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "volume_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "vwap_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "bid_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "ask_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mid_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "bid_size_col"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "ask_size_col"
+        },
+        {
+          "annotation": "str | None | CalendarUnset",
+          "default": "<CalendarUnset.UNSET: 'unset'>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "calendar"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "timezone"
+        },
+        {
+          "annotation": "Any | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "data_frequency"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "bar_type"
+        },
+        {
+          "annotation": "TimestampSemantics | str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "timestamp_semantics"
+        },
+        {
+          "annotation": "str | None",
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "session_start_time"
+        },
+        {
+          "annotation": "int",
+          "default": "1",
+          "kind": "KEYWORD_ONLY",
+          "name": "time_contract_version"
+        },
+        {
+          "annotation": "BarGridAnchor | str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "bar_grid_anchor"
+        },
+        {
+          "annotation": "BarLabel | str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "bar_label"
+        },
+        {
+          "annotation": "PartialBarPolicy | str | None",
+          "default": "None",
+          "kind": "KEYWORD_ONLY",
+          "name": "partial_bar_policy"
+        }
+      ],
+      "semantics_fields": [
+        "bar_grid_anchor",
+        "bar_label",
+        "bar_type",
+        "calendar",
+        "data_frequency",
+        "partial_bar_policy",
+        "session_start_time",
+        "time_contract_version",
+        "timestamp_semantics",
+        "timezone"
+      ],
+      "signature": "(timestamp_col: 'str' = 'timestamp', entity_col: 'str | Sequence[str] | None' = None, price_col: 'str' = 'close', open_col: 'str' = 'open', high_col: 'str' = 'high', low_col: 'str' = 'low', close_col: 'str' = 'close', volume_col: 'str' = 'volume', vwap_col: 'str | None' = None, bid_col: 'str | None' = None, ask_col: 'str | None' = None, mid_col: 'str | None' = None, bid_size_col: 'str | None' = None, ask_size_col: 'str | None' = None, calendar: 'str | None | CalendarUnset' = <CalendarUnset.UNSET: 'unset'>, timezone: 'str | None' = None, data_frequency: 'Any | None' = None, bar_type: 'str | None' = None, timestamp_semantics: 'TimestampSemantics | str | None' = None, session_start_time: 'str | None' = None, *, time_contract_version: 'int' = 1, bar_grid_anchor: 'BarGridAnchor | str | None' = None, bar_label: 'BarLabel | str | None' = None, partial_bar_policy: 'PartialBarPolicy | str | None' = None) -> None",
+      "supports_time_contract_version_2": true,
+      "target": "ml4t.specs.FeedSpec",
+      "v1_fields": [
+        "timestamp_col",
+        "entity_col",
+        "price_col",
+        "open_col",
+        "high_col",
+        "low_col",
+        "close_col",
+        "volume_col",
+        "vwap_col",
+        "bid_col",
+        "ask_col",
+        "mid_col",
+        "bid_size_col",
+        "ask_size_col",
+        "calendar",
+        "timezone",
+        "data_frequency",
+        "bar_type",
+        "timestamp_semantics",
+        "session_start_time"
+      ],
+      "v2_only_fields": [
+        "time_contract_version",
+        "bar_grid_anchor",
+        "bar_label",
+        "partial_bar_policy"
+      ]
+    },
+    "ml4t.specs:MarketDataSpec": {
+      "attribute": "MarketDataSpec",
+      "fields": [
+        "artifact_id",
+        "kind",
+        "version",
+        "storage",
+        "provenance",
+        "schema",
+        "semantics"
+      ],
+      "module": "ml4t.specs",
+      "object_kind": "class",
+      "parameters": [
+        {
+          "annotation": "str",
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "artifact_id"
+        },
+        {
+          "annotation": "int",
+          "default": "1",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "version"
+        },
+        {
+          "annotation": "ArtifactStorage",
+          "default": "<factory>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "storage"
+        },
+        {
+          "annotation": "ArtifactProvenance",
+          "default": "<factory>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "provenance"
+        },
+        {
+          "annotation": "MarketDataSchema",
+          "default": "<factory>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "schema"
+        },
+        {
+          "annotation": "MarketDataSemantics",
+          "default": "<factory>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "semantics"
+        }
+      ],
+      "signature": "(artifact_id: 'str', version: 'int' = 1, storage: 'ArtifactStorage' = <factory>, provenance: 'ArtifactProvenance' = <factory>, schema: 'MarketDataSchema' = <factory>, semantics: 'MarketDataSemantics' = <factory>) -> None",
+      "target": "ml4t.specs.MarketDataSpec"
     }
   },
-  "generated_at": "2026-10-25T13:57:18+00:00",
+  "generated_at": "2026-11-21T02:01:26+00:00",
   "import_errors": [],
+  "optional_packages": {
+    "ml4t-models": {
+      "distribution": "ml4t-models",
+      "error": "ModuleNotFoundError: No module named 'ml4t.models'",
+      "import_ok": false,
+      "module": "ml4t.models",
+      "version": null
+    }
+  },
   "packages": {
     "duckdb": {
       "distribution": "duckdb",
@@ -270,42 +1785,35 @@
       "error": null,
       "import_ok": true,
       "module": "ml4t.data",
-      "version": "0.3.0"
+      "version": "0.3.1"
     },
     "ml4t-diagnostic": {
       "distribution": "ml4t-diagnostic",
       "error": null,
       "import_ok": true,
       "module": "ml4t.diagnostic",
-      "version": "0.1.9"
+      "version": "0.2.1"
     },
     "ml4t-engineer": {
       "distribution": "ml4t-engineer",
       "error": null,
       "import_ok": true,
       "module": "ml4t.engineer",
-      "version": "0.2.0"
-    },
-    "ml4t-live": {
-      "distribution": "ml4t-live",
-      "error": null,
-      "import_ok": true,
-      "module": "ml4t.live",
-      "version": "0.1.0b3"
+      "version": "0.2.1"
     },
     "ml4t-specs": {
       "distribution": "ml4t-specs",
       "error": null,
       "import_ok": true,
       "module": "ml4t.specs",
-      "version": "0.2.0"
+      "version": "0.2.1"
     },
     "numpy": {
       "distribution": "numpy",
       "error": null,
       "import_ok": true,
       "module": "numpy",
-      "version": "2.5.4"
+      "version": "2.4.6"
     },
     "polars": {
       "distribution": "polars",
@@ -357,7 +1865,7 @@
   },
   "probe_errors": [],
   "python": {
-    "executable": "/home/quant/dev/quant-lab/.venv/bin/python",
+    "executable": "/home/quant/.devspace/worktrees/quant-lab-arch-t01-t06/.venv/bin/python",
     "implementation": "CPython",
     "version": "3.13.5"
   }

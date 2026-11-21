@@ -19,6 +19,7 @@ import numpy as np
 import polars as pl
 import yaml
 
+from warden.codeid import code_closure
 from warden.contracts import (
     EvaluationContract,
     ExperimentResult,
@@ -29,6 +30,7 @@ from warden.contracts import (
 )
 from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.gates import (
+    empirical_holding_volatility,
     evaluate_stage0_feasibility,
     evaluate_stage1_cross_sectional_ml,
     evaluate_stage1_rules_ts,
@@ -62,7 +64,7 @@ def load_module_from_path(module_path: Path):
     return mod
 
 
-def _aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[str]) -> np.ndarray:
+def aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[str]) -> np.ndarray:
     p = panel_df.pivot(index="timestamp", on="asset", values=value_col).fill_null(0.0)
     for a in sorted_assets:
         if a not in p.columns:
@@ -70,10 +72,16 @@ def _aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[
     return p.select(sorted_assets).to_numpy()
 
 
-def _funding_settlement_mask(timestamps: list, contract: EvaluationContract) -> np.ndarray:
+_aligned_matrix = aligned_matrix
+
+
+def funding_settlement_mask(timestamps: list, contract: EvaluationContract) -> np.ndarray:
     if contract.asset_class == "crypto_perps" and contract.frequency == "1h":
         return np.array([t.hour % 8 == 0 for t in timestamps], dtype=bool)
     return np.ones(len(timestamps), dtype=bool)
+
+
+_funding_settlement_mask = funding_settlement_mask
 
 
 def require_execution_columns(panel_df: pl.DataFrame, contract: EvaluationContract) -> None:
@@ -99,9 +107,42 @@ def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, asse
         df = panel_df.with_columns(
             long_ret=pl.col("bid").shift(-1).over("asset") / pl.col("ask") - 1.0,
             short_ret=-(pl.col("ask").shift(-1).over("asset") / pl.col("bid") - 1.0))
-        return {"long": _aligned_matrix(df, "long_ret", assets), "short": _aligned_matrix(df, "short_ret", assets)}
+        return {"long": aligned_matrix(df, "long_ret", assets), "short": aligned_matrix(df, "short_ret", assets)}
     df = panel_df.with_columns(ret=pl.col("open").shift(-1).over("asset") / pl.col("open") - 1.0)
-    return {"long": _aligned_matrix(df, "ret", assets), "short": None}
+    return {"long": aligned_matrix(df, "ret", assets), "short": None}
+
+
+def filter_target_symbols(panel_df: pl.DataFrame, params: dict, path: str = "") -> pl.DataFrame:
+    if not params or "target_symbols" not in params or params["target_symbols"] is None:
+        return panel_df
+    tgt = params["target_symbols"]
+    if not isinstance(tgt, (list, tuple, set)) or len(tgt) == 0:
+        raise ValueError(f"target_symbols must be a non-empty list of symbols, got {tgt!r}")
+    sym_col = "asset" if "asset" in panel_df.columns else "symbol"
+    available = set(panel_df[sym_col].unique().to_list())
+    unknown = set(tgt) - available
+    if unknown:
+        raise ValueError(
+            f"target_symbols contains unknown symbols {sorted(unknown)}; available in {path or 'panel'}: {sorted(available)}"
+        )
+    return panel_df.filter(pl.col(sym_col).is_in(list(tgt)))
+
+
+def prepare_panel(repo_root: Path, dataset, params: dict, contract: EvaluationContract) -> tuple[pl.DataFrame, list, list, slice]:
+    panel_df = pl.read_parquet(repo_root / dataset.path)
+    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
+        panel_df = panel_df.rename({"symbol": "asset"})
+    panel_df = filter_target_symbols(panel_df, params, str(dataset.path)).sort("timestamp", "asset")
+    ts = sorted(panel_df["timestamp"].unique().to_list())
+    assets = sorted(panel_df["asset"].unique().to_list())
+    v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
+    return panel_df, ts, assets, v_slice
+
+
+def simulation_inputs(panel_df: pl.DataFrame, contract: EvaluationContract, ts: list, assets: list) -> tuple[dict, np.ndarray | None, np.ndarray]:
+    ret_p = execution_returns(panel_df, contract, assets)
+    fund_p = aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
+    return ret_p, fund_p, funding_settlement_mask(ts, contract)
 
 
 def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, contract: EvaluationContract, params: dict) -> dict[str, Any]:
@@ -197,6 +238,7 @@ class ExperimentRunner:
     def __init__(self, registry: ResearchRegistry | None = None, repo_root: Path = Path(".")):
         self.repo_root = Path(repo_root)
         self.registry = registry or ResearchRegistry(self.repo_root / "registry" / "registry.db")
+        self._stage0_vol_cache: dict[tuple[str, tuple[str, ...], int], float] = {}
 
     def resolve_contract(self, contract_id: str) -> EvaluationContract:
         cid = contract_id.lower()
@@ -204,6 +246,25 @@ class ExperimentRunner:
             if p.is_file():
                 return load_contract(p)
         raise FileNotFoundError(f"Contract not found: '{contract_id}'")
+
+    def _prepare_and_check_stage0(self, contract, hyp, hyp_id, family, strat_module, params, trials_used):
+        try:
+            dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
+            panel_df, ts, assets, v_slice = prepare_panel(self.repo_root, dataset, params, contract)
+            require_execution_columns(panel_df, contract)
+        except (ValueError, OSError) as exc:
+            self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc)
+            raise
+        vol_key = (dataset.sha256, tuple(assets), hyp.expected_holding_bars)
+        if vol_key not in self._stage0_vol_cache:
+            self._stage0_vol_cache[vol_key] = empirical_holding_volatility(panel_df, hyp.expected_holding_bars)
+        try:
+            evaluate_stage0_feasibility(contract, hyp, self._stage0_vol_cache[vol_key], trials_used)
+        except ValueError as exc:
+            self._note_failure(contract, hyp_id, family, strat_module, params, dataset.to_dict(), "STAGE_0", exc)
+            raise
+        code_sha, _ = code_closure(self.repo_root, strat_module)
+        return dataset, panel_df, ts, assets, v_slice, code_sha
 
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
         cfg = yaml.safe_load(Path(exp_yaml_path).read_text(encoding="utf-8"))
@@ -217,16 +278,9 @@ class ExperimentRunner:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
             hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
             trials_used = h[5]
-        evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
-        try:
-            dataset = resolve_dataset(contract, self.repo_root)
-        except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc)
-            raise
+        dataset, panel_df, ts, assets, v_slice, _ = self._prepare_and_check_stage0(
+            contract, hyp, hyp_id, family, strat_module, params, trials_used)
         screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
-        panel_df = pl.read_parquet(self.repo_root / dataset.path)
-        if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
-        panel_df = panel_df.sort("timestamp", "asset")
         strat_file = self.repo_root / strat_module
         out = _run_strategy_isolated(strat_file, panel_df, contract, params)
         if family == "cross_sectional_ml":
@@ -238,12 +292,7 @@ class ExperimentRunner:
                 returns=out["ic_series"], diagnostics={**report.metrics, "dataset": dataset.to_dict()},
                 screen_key=screen_key)
             return report
-        ts = sorted(panel_df["timestamp"].unique().to_list())
-        assets = sorted(panel_df["asset"].unique().to_list())
-        v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-        ret_p = execution_returns(panel_df, contract, assets)
-        fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-        fund_mask = _funding_settlement_mask(ts, contract)
+        ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
         sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
                                   funding_mask=fund_mask, quote_returns=ret_p)
         report = evaluate_stage1_rules_ts(sim1["net_returns"].tolist(), sim1["gross_returns"].tolist(),
@@ -283,32 +332,16 @@ class ExperimentRunner:
                     raise LinearBaselineRequiredError(f"Linear baseline required for '{hyp_id}' before non-linear model '{model_type}'.")
 
         strat_module = strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
-        try:
-            evaluate_stage0_feasibility(contract, hyp, 0.0085 * math.sqrt(hyp.expected_holding_bars), trials_used)
-        except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "STAGE_0", exc)
-            raise
+        dataset, panel_df, ts, assets, v_slice, code_sha = self._prepare_and_check_stage0(
+            contract, hyp, hyp_id, family, strat_module_str, params, trials_used)
         run_id = override_run_id or cfg.get("run_id") or default_run_id(hyp_id, trials_used + 1)
-        try:
-            dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
-        except ValueError as exc:
-            self._note_failure(contract, hyp_id, family, strat_module_str, params, None, "DATA", exc)
-            raise
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
-        provenance_kw = {"data_provenance": dataset.provenance}
+        provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha}
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
-            panel_df = pl.read_parquet(self.repo_root / dataset.path)
-            if "symbol" in panel_df.columns and "asset" not in panel_df.columns: panel_df = panel_df.rename({"symbol": "asset"})
-            panel_df = panel_df.sort("timestamp", "asset")
-            ts = sorted(panel_df["timestamp"].unique().to_list())
-            assets = sorted(panel_df["asset"].unique().to_list())
-            v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-            ret_p = execution_returns(panel_df, contract, assets)
-            fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-            fund_mask = _funding_settlement_mask(ts, contract)
+            ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
 
             strat_file = self.repo_root / strat_module
             out = _run_strategy_isolated(strat_file, panel_df, contract, params)
@@ -401,7 +434,7 @@ class ExperimentRunner:
             self.registry.record_trial(res, params, net_ret, trial_number=trial_num, diagnostics=diag)
             return res
         except Exception as exc:
-            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
+            res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "", strategy_code_sha256=code_sha)
             try:
                 self.registry.record_trial(res_failed, params, np.zeros(0), trial_number=trial_num,
                                            diagnostics={"error": str(exc), "dataset": dataset})

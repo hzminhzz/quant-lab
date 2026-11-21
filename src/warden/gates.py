@@ -6,6 +6,7 @@ import math
 from collections.abc import Sequence
 
 import numpy as np
+import polars as pl
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
 from warden.registry import PER_HYPOTHESIS_CAP, HypothesisBudgetExhaustedError
@@ -115,3 +116,37 @@ def annualised_sharpe(returns, bars_per_year: int) -> float:
 
 def stage0_holding_volatility(hypothesis: HypothesisSpec) -> float:
     return STAGE0_VOL_PROXY * math.sqrt(hypothesis.expected_holding_bars)
+
+
+def empirical_holding_volatility(panel_df: pl.DataFrame, expected_holding_bars: int) -> float:
+    h = int(expected_holding_bars)
+    if h < 1:
+        raise ValueError("expected_holding_bars must be >= 1")
+    cols = set(panel_df.columns)
+    if panel_df.height == 0:
+        return 0.0
+    if "close" in cols:
+        px = pl.col("close")
+    elif "mid" in cols:
+        px = pl.col("mid")
+    elif {"bid", "ask"} <= cols:
+        px = (pl.col("bid") + pl.col("ask")) / 2.0
+    elif "open" in cols:
+        px = pl.col("open")
+    else:
+        return 0.0
+    sym_col = "asset" if "asset" in cols else "symbol"
+    df = panel_df.select(pl.col("timestamp"), pl.col(sym_col), px.cast(pl.Float64).alias("_px")).sort("timestamp", sym_col)
+    stats_df = (
+        df.with_columns(
+            ret_h=pl.col("_px") / pl.col("_px").shift(h).over(sym_col) - 1.0,
+            ret_1=pl.col("_px") / pl.col("_px").shift(1).over(sym_col) - 1.0,
+        )
+        .group_by(sym_col)
+        .agg(n=pl.col("_px").count(), vol_h=pl.col("ret_h").std(), vol_1=pl.col("ret_1").std())
+        .with_columns(
+            vol=pl.when(pl.col("n") >= h + 2).then(pl.col("vol_h")).otherwise(pl.col("vol_1") * math.sqrt(h))
+        )
+    )
+    med = stats_df.select(pl.col("vol").filter(pl.col("vol").is_finite()).median()).item()
+    return float(med) if med is not None and math.isfinite(med) else 0.0

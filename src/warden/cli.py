@@ -16,11 +16,13 @@ import numpy as np
 
 from warden import __version__
 from warden.audit import record as audit_record
+from warden.codeid import code_closure
 from warden.contracts import canonical_json, load_hypothesis
 from warden.leakage import compute_and_cache_features, verify_prefix_invariance
 from warden.lease import MutationBusy, mutation_lease
 from warden.policy import Decision, authorize
 from warden.provenance import resolve_dataset
+from warden.registry import normalise_module
 from warden.runner import ExperimentRunner, load_module_from_path
 from warden_evidence.feature_cache import verified_feature_evidence
 
@@ -134,7 +136,8 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     import yaml
     cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
     contract = runner.resolve_contract(cfg["contract_id"])
-    mod = load_module_from_path(runner.repo_root / cfg["strategy_module"])
+    strat_module = normalise_module(cfg["strategy_module"])
+    mod = load_module_from_path(runner.repo_root / strat_module)
     pipeline = getattr(mod, "pipeline", None) or getattr(mod, "FeaturePipeline", None) or (mod if hasattr(mod, "compute") else None)
     if not pipeline:
         print("Error: Strategy module does not expose a FeaturePipeline or compute() method.", file=sys.stderr)
@@ -149,10 +152,10 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
         raise ValueError("Causal cache artifact could not be independently reconciled")
     evidence = runner.registry.record_spec_causality(
         hypothesis_id=cfg["hypothesis_id"], contract_id=contract.contract_id,
-        strategy_module=cfg["strategy_module"],
+        strategy_module=strat_module,
         config_hash=hashlib.sha256(canonical_json(cfg.get("parameters", {})).encode()).hexdigest()[:12],
         data_sha256=dataset.sha256,
-        module_sha256=hashlib.sha256((runner.repo_root / cfg["strategy_module"]).read_bytes()).hexdigest(),
+        module_sha256=code_closure(runner.repo_root, strat_module)[0],
         feature_identity=proof["feature_identity"], artifact_sha256=proof["artifact_sha256"],
         proof_sha256=hashlib.sha256((cache_dir / f"{proof['feature_identity']}.proof.json").read_bytes()).hexdigest())
     res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),

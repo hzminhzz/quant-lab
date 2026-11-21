@@ -16,6 +16,7 @@ import polars as pl
 from ml4t.diagnostic.evaluation.stats import deflated_sharpe_ratio
 from scipy import stats
 
+from warden.codeid import code_closure
 from warden.contracts import (
     EvaluationContract,
     ExperimentResult,
@@ -359,11 +360,11 @@ class ResearchRegistry:
         """No strategy import, no exploratory data read; verify exact retained proof bytes."""
         with self._connect() as conn:
             trial = conn.execute("""SELECT hypothesis_id,contract_id,strategy_module,config_hash,
-                                           config_json,data_snapshot_sha256
+                                           config_json,data_snapshot_sha256,strategy_code_sha256
                                     FROM trials WHERE run_id=?""", (run_id,)).fetchone()
             if not trial:
                 return {"verified": False, "reason": "run not found", "proof_key": ""}
-            h, cid, module, config_hash, config_json, data_sha = trial
+            h, cid, module, config_hash, config_json, data_sha, trial_code_sha = trial
             expected_hash = hashlib.sha256(canonical_json(json.loads(config_json or "{}")).encode()).hexdigest()[:12]
             if not module or not data_sha or config_hash != expected_hash:
                 return {"verified": False, "reason": "run configuration or dataset identity is unbound", "proof_key": ""}
@@ -381,7 +382,9 @@ class ResearchRegistry:
         src = (root / module).resolve()
         if not src.is_relative_to(root / "strategies") or not src.is_file():
             return {"verified": False, "reason": "frozen strategy module unavailable", "proof_key": ""}
-        module_sha = hashlib.sha256(src.read_bytes()).hexdigest()
+        module_sha, _ = code_closure(root, normalise_module(module))
+        if trial_code_sha and trial_code_sha != module_sha:
+            return {"verified": False, "reason": "causality proof drift: strategy code closure changed since trial", "proof_key": ""}
         for key, recorded_module_sha, identity, artifact_sha, proof_sha in rows:
             art = root / "cache" / "features" / f"{identity}.parquet"
             proof = root / "cache" / "features" / f"{identity}.proof.json"

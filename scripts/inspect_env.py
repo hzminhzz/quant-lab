@@ -5,6 +5,7 @@ Generates .workspace/env_manifest.json as required by TKT-01.
 
 from __future__ import annotations
 
+import dataclasses
 import importlib
 import importlib.metadata
 import inspect
@@ -33,13 +34,40 @@ PACKAGES: dict[str, str] = {
     "ml4t-engineer": "ml4t.engineer",
     "ml4t-diagnostic": "ml4t.diagnostic",
     "ml4t-backtest": "ml4t.backtest",
-    "ml4t-live": "ml4t.live",
+}
+
+OPTIONAL_PACKAGES: dict[str, str] = {
+    "ml4t-models": "ml4t.models",
 }
 
 SIGNATURE_PROBES: tuple[tuple[str, str], ...] = (
+    ("ml4t.specs", "FeedSpec"),
+    ("ml4t.specs", "MarketDataSpec"),
+    ("ml4t.data.validation", "OHLCVValidator"),
+    ("ml4t.data.validation.rules", "ValidationRulePresets"),
+    ("ml4t.data.anomaly", "AnomalyManager"),
+    ("ml4t.data.sessions", "SessionAssigner"),
+    ("ml4t.data.sessions", "SessionCompleter"),
     ("ml4t.engineer", "compute_features"),
+    ("ml4t.engineer", "MLDatasetBuilder"),
+    ("ml4t.engineer.labeling", "meta_labels"),
+    ("ml4t.diagnostic.metrics", "compute_ic_hac_stats"),
+    ("ml4t.diagnostic.splitters", "WalkForwardCV"),
     ("ml4t.diagnostic.evaluation.stats", "deflated_sharpe_ratio"),
+    ("ml4t.diagnostic.evaluation.stats", "deflated_sharpe_ratio_from_statistics"),
+    ("ml4t.diagnostic.evaluation.stats", "effective_number_of_trials"),
+    ("ml4t.diagnostic.evaluation.stats", "compute_pbo"),
+    ("ml4t.diagnostic.evaluation.stats", "ras_sharpe_adjustment"),
+    ("ml4t.diagnostic.evaluation", "TradeAnalysis"),
+    ("ml4t.diagnostic.evaluation", "PortfolioAnalysis"),
     ("ml4t.backtest", "Engine"),
+    ("ml4t.backtest", "DataFeed"),
+    ("ml4t.backtest", "BacktestConfig"),
+    ("ml4t.backtest", "ContractSpec"),
+    ("ml4t.backtest.execution.rebalancer", "TargetWeightExecutor"),
+    ("ml4t.backtest.execution.rebalancer", "RebalanceConfig"),
+    ("ml4t.backtest.risk", "StopLoss"),
+    ("ml4t.backtest.risk", "TrailingStop"),
 )
 
 
@@ -107,24 +135,52 @@ def _inspect_callable(module_name: str, attr_name: str) -> dict[str, Any]:
             calendar_default = default_repr
 
     record["parameters"] = params_info
+    field_names: list[str] | None = None
+    if dataclasses.is_dataclass(target):
+        field_names = [f.name for f in dataclasses.fields(target)]
+    elif hasattr(target, "model_fields"):
+        field_names = list(target.model_fields.keys())
+    if field_names is not None:
+        record["fields"] = field_names
+
     if attr_name == "compute_features":
         record["has_calendar_parameter"] = has_calendar
         record["calendar_default"] = calendar_default
-        # accepts calendar=None if parameter is present
         record["accepts_calendar_none"] = has_calendar
+    elif module_name == "ml4t.specs" and attr_name == "FeedSpec":
+        supports_v2 = False
+        v1_fields: list[str] = []
+        v2_only_fields: list[str] = []
+        if field_names and "time_contract_version" in field_names:
+            try:
+                v1_spec = target()
+                supports_v2 = target(time_contract_version=2).time_contract_version == 2
+                v1_set = set(v1_spec.to_dict()) if hasattr(v1_spec, "to_dict") else set(field_names)
+                v1_fields = [f for f in field_names if f in v1_set]
+                v2_only_fields = [f for f in field_names if f not in v1_set]
+            except Exception:  # noqa: BLE001
+                supports_v2 = False
+        elif field_names:
+            v1_fields = list(field_names)
+        record["supports_time_contract_version_2"] = supports_v2
+        record["v1_fields"] = v1_fields
+        record["v2_only_fields"] = v2_only_fields
+        if (sem_fields := getattr(target, "_SEMANTICS_FIELDS", None)) is not None:
+            record["semantics_fields"] = sorted(sem_fields)
+    elif module_name == "ml4t.backtest" and attr_name == "Engine":
+        record["has_funding_df"] = "funding_df" in sig.parameters
+    elif module_name == "ml4t.backtest" and attr_name == "DataFeed":
+        record["has_feed_spec"] = "feed_spec" in sig.parameters
+        record["has_session_col"] = "session_col" in sig.parameters
 
     return record
 
 
-def inspect_environment() -> dict[str, Any]:
-    packages_result: dict[str, Any] = {}
-    import_errors: list[str] = []
-
-    for dist_name, mod_name in PACKAGES.items():
-        entry: dict[str, Any] = {
-            "distribution": dist_name,
-            "module": mod_name,
-        }
+def _probe_packages(packages: dict[str, str]) -> tuple[dict[str, Any], list[str]]:
+    result: dict[str, Any] = {}
+    errors: list[str] = []
+    for dist_name, mod_name in packages.items():
+        entry: dict[str, Any] = {"distribution": dist_name, "module": mod_name}
         try:
             mod = importlib.import_module(mod_name)
             entry["import_ok"] = True
@@ -134,8 +190,14 @@ def inspect_environment() -> dict[str, Any]:
             entry["import_ok"] = False
             entry["version"] = None
             entry["error"] = f"{type(exc).__name__}: {exc}"
-            import_errors.append(f"{mod_name}: {type(exc).__name__}: {exc}")
-        packages_result[dist_name] = entry
+            errors.append(f"{mod_name}: {type(exc).__name__}: {exc}")
+        result[dist_name] = entry
+    return result, errors
+
+
+def inspect_environment() -> dict[str, Any]:
+    packages_result, import_errors = _probe_packages(PACKAGES)
+    optional_result, _ = _probe_packages(OPTIONAL_PACKAGES)
 
     probes_result: dict[str, Any] = {}
     probe_errors: list[str] = []
@@ -146,7 +208,7 @@ def inspect_environment() -> dict[str, Any]:
         if "error" in probe_rec:
             probe_errors.append(f"{key}: {probe_rec['error']}")
 
-    manifest: dict[str, Any] = {
+    return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "platform": {
             "system": platform.system(),
@@ -159,11 +221,11 @@ def inspect_environment() -> dict[str, Any]:
             "executable": sys.executable,
         },
         "packages": packages_result,
+        "optional_packages": optional_result,
         "api_signatures": probes_result,
         "import_errors": import_errors,
         "probe_errors": probe_errors,
     }
-    return manifest
 
 
 def main() -> int:

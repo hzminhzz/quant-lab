@@ -108,7 +108,7 @@ def main() -> int:
 
     v0 = idx.get(contract.val_start, 0)
     v1 = idx.get(contract.val_end, n_bars)
-    grid = [t for t in range(0, n_bars - horizon - 2) if t % horizon == 0 and v0 <= t < v1]
+    grid = [t for t in range(n_bars - horizon - 2) if t % horizon == 0 and v0 <= t < v1]
     ret_p = execution_returns(df, contract, assets)
     fund_p = aligned_matrix(df, "funding_rate", assets)
     fmask = funding_settlement_mask(ts, contract)

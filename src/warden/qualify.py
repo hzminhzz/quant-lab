@@ -14,8 +14,11 @@ from warden.codeid import code_closure
 from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
+    aligned_matrix,
     calculate_metrics_from_returns,
     execution_returns,
+    filter_target_symbols,
+    funding_settlement_mask,
     load_module_from_path,
     simulate_positions,
 )
@@ -116,7 +119,14 @@ def qualify_candidate(
         if not holdout_res.eligible_market:
             raise ValueError(f"Holdout dataset for '{cid}' is not market-eligible: {holdout_res.reason}")
 
-    raw_panel = pl.read_parquet(h_path).sort("timestamp", "asset")
+    raw_cfg = trial.get("config_json", "{}")
+    cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}
+    params = cfg_data.get("parameters", cfg_data) if isinstance(cfg_data, dict) else {}
+
+    raw_panel = pl.read_parquet(h_path)
+    if "symbol" in raw_panel.columns and "asset" not in raw_panel.columns:
+        raw_panel = raw_panel.rename({"symbol": "asset"})
+    raw_panel = filter_target_symbols(raw_panel, params, str(h_path)).sort("timestamp", "asset")
     window_df = raw_panel.filter(
         (pl.col("timestamp") >= contract.holdout_start) & (pl.col("timestamp") <= contract.holdout_end)
     )
@@ -128,18 +138,13 @@ def qualify_candidate(
     n_bars = len(ts)
 
     mod = load_module_from_path(strat_path)
-    raw_cfg = trial.get("config_json", "{}")
-    cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}
-    params = cfg_data.get("parameters", cfg_data) if isinstance(cfg_data, dict) else {}
-
     out = mod.generate_positions(panel_df, contract, **params)
-    from warden.runner import _aligned_matrix, _funding_settlement_mask
     # Qualification and validation use exactly the same price-side, latency,
     # turnover, funding-settlement and cost convention. No close fallback.
     ret_p = execution_returns(panel_df, contract, assets)
-    fund_p = _aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
+    fund_p = aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
     sim = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, slice(0, n_bars),
-                             funding_mask=_funding_settlement_mask(ts, contract), quote_returns=ret_p)
+                             funding_mask=funding_settlement_mask(ts, contract), quote_returns=ret_p)
     m = calculate_metrics_from_returns(sim["gross_returns"], sim["net_returns"], sim["turnover"], contract.bars_per_year)
 
     h_net_sr = m["net_sharpe"]

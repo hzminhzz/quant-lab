@@ -11,16 +11,13 @@ import polars as pl
 import yaml
 
 from warden.codeid import code_closure
+from warden.engine_sim import extract_execution_policy, run_engine_simulation
 from warden.gates import HOLDOUT_RATIO_FLOOR, HOLDOUT_SR_FLOOR
 from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
-    aligned_matrix,
     calculate_metrics_from_returns,
-    execution_returns,
     filter_target_symbols,
-    funding_settlement_mask,
-    simulate_positions,
 )
 from warden.strategy_loader import load_module_from_path
 
@@ -122,7 +119,10 @@ def qualify_candidate(
 
     raw_cfg = trial.get("config_json", "{}")
     cfg_data = yaml.safe_load(raw_cfg) if raw_cfg else {}
-    params = cfg_data.get("parameters", cfg_data) if isinstance(cfg_data, dict) else {}
+    cfg_dict = cfg_data if isinstance(cfg_data, dict) else {}
+    params = cfg_dict.get("parameters", cfg_dict)
+
+    policy_kw = extract_execution_policy(cfg_dict, params, trial.get("diagnostics_json"))
 
     raw_panel = pl.read_parquet(h_path)
     if "symbol" in raw_panel.columns and "asset" not in raw_panel.columns:
@@ -140,13 +140,12 @@ def qualify_candidate(
 
     mod = load_module_from_path(strat_path)
     out = mod.generate_positions(panel_df, contract, **params)
-    # Qualification and validation use exactly the same price-side, latency,
-    # turnover, funding-settlement and cost convention. No close fallback.
-    ret_p = execution_returns(panel_df, contract, assets)
-    fund_p = aligned_matrix(panel_df, "funding_rate", assets) if "funding_rate" in panel_df.columns else None
-    sim = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, slice(0, n_bars),
-                             funding_mask=funding_settlement_mask(ts, contract), quote_returns=ret_p)
-    m = calculate_metrics_from_returns(sim["gross_returns"], sim["net_returns"], sim["turnover"], contract.bars_per_year)
+    sim = run_engine_simulation(
+        panel_df, out["positions"], ts, assets, contract, slice(0, n_bars), **policy_kw
+    )
+    m = calculate_metrics_from_returns(
+        sim.gross_returns, sim.net_returns, sim.turnover, contract.bars_per_year
+    )
 
     h_net_sr = m["net_sharpe"]
     ratio = float(h_net_sr / max(float(trial.get("net_sharpe", 0.0)), 1e-6))
@@ -163,4 +162,7 @@ def qualify_candidate(
 
     return {"qual_id": qual_id, "run_id": run_id, "lineage_id": lineage_id, "holdout_net_sharpe": h_net_sr,
             "val_to_holdout_ratio": ratio, "promoted": promoted, "verdict": verdict,
-            "holdout_override": holdout_override, "data_provenance": eligibility["data_provenance"]}
+            "holdout_override": holdout_override, "data_provenance": eligibility["data_provenance"],
+            "terminal_equity": sim.terminal_equity,
+            "engine_fills_count": len(sim.backtest_result.fills),
+            "engine_trades_count": len(sim.backtest_result.trades)}

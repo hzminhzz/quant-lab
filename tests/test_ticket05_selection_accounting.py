@@ -19,6 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 from warden.cli import main as cli_main
 from warden.contracts import (
     DEFAULT_SIMULATION_EPOCH,
+    ENGINE_SIMULATION_EPOCH,
     ContractValidationError,
     ExperimentResult,
     HypothesisSpec,
@@ -167,6 +168,7 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) ->
         outcome="REJECT",
         strategy_family="cross_sectional_ml",
         returns=np.linspace(-0.02, 0.03, 9),
+        simulation_epoch=ENGINE_SIMULATION_EPOCH,
     )
 
     spec = fixture.spec.read_text() + "param_grid:\n- {lookback_bars: 3}\n- {lookback_bars: 6}\n"
@@ -184,6 +186,7 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) ->
 
 def test_simulation_epoch_isolation_and_same_epoch_alignment(tiny_repo) -> None:
     fixture = tiny_repo(n_bars=40)
+    fixture.spec.write_text(fixture.spec.read_text() + f"simulation_epoch: {DEFAULT_SIMULATION_EPOCH}\n")
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     r_legacy = runner.run_spec(fixture.spec)
     assert r_legacy.simulation_epoch == DEFAULT_SIMULATION_EPOCH
@@ -339,7 +342,7 @@ import numpy as np
 def generate_positions(panel_df, contract, **kwargs):
     ts = sorted(panel_df["timestamp"].unique().to_list())
     assets = sorted(panel_df["asset"].unique().to_list())
-    pos = np.full((len(ts), len(assets)), 0.5)
+    pos = np.full((len(ts), len(assets)), 0.4)
     return {"positions": pos}
 """
     fixture = tiny_repo(module_source=strong_module, module_name="strong", n_bars=60)

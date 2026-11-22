@@ -16,6 +16,7 @@ from ml4t.specs import FeedSpec
 
 MARKET = "verified_market"
 DEFAULT_SIMULATION_EPOCH = "legacy_matrix"
+ENGINE_SIMULATION_EPOCH = "ml4t_backtest_engine_v1"
 FREQUENCY_BAR_DURATION: dict[str, timedelta] = {
     "1m": timedelta(minutes=1),
     "5m": timedelta(minutes=5),

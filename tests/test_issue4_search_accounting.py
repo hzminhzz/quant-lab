@@ -94,15 +94,20 @@ def test_unvectorised_attempts_count_without_fake_streams(tiny_repo) -> None:
     res = runner.run_spec(fixture.spec)
     fixture.registry.record_selection_attempt(hypothesis_id="HYP-TINY", contract_id=fixture.contract.contract_id,
                                               kind="failed_reservation", stage="DATA", outcome="ERROR",
-                                              diagnostics={"error": "missing dataset"})
+                                              diagnostics={"error": "missing dataset"},
+                                              simulation_epoch=res.simulation_epoch)
     with fixture.registry._connect() as conn:
         observed_len = len(json.loads(conn.execute(
             "SELECT returns_json FROM trials WHERE run_id=?", (res.run_id,)).fetchone()[0]))
-    history = fixture.registry.selection_history(fixture.contract.contract_id, observed_len)
+    history = fixture.registry.selection_history(
+        fixture.contract.contract_id, observed_len, simulation_epoch=res.simulation_epoch
+    )
     assert len(history["streams"]) == 1 and history["raw_attempt_count"] == 2
     assert history["unvectorized_attempts"] == 1
     with pytest.raises(SelectionHistoryError, match="refusing to pad"):
-        fixture.registry.selection_history(fixture.contract.contract_id, observed_len + 1)
+        fixture.registry.selection_history(
+            fixture.contract.contract_id, observed_len + 1, simulation_epoch=res.simulation_epoch
+        )
     with pytest.raises(ValueError, match="finite and temporally aligned"):
         compute_selection_report(np.zeros(50), [np.zeros(49)], 8760)
 

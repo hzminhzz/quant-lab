@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from ml4t.diagnostic.metrics import compute_ic_hac_stats, cross_sectional_ic_series
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
 from warden.registry import PER_HYPOTHESIS_CAP, HypothesisBudgetExhaustedError
@@ -51,16 +52,79 @@ def evaluate_stage0_feasibility(
 
 
 def evaluate_stage1_cross_sectional_ml(
-    ic_series: Sequence[float] | np.ndarray, min_mean_ic: float = 0.015, min_hac_tstat: float = IC_T_FLOOR, max_lags: int = 5
+    ic_series: Sequence[float] | np.ndarray,
+    min_mean_ic: float = 0.015,
+    min_hac_tstat: float = IC_T_FLOOR,
+    max_lags: int = 5,
+    label_horizon: int | None = None,
 ) -> Stage1Report:
     arr = np.asarray(ic_series, dtype=float)
     arr = arr[np.isfinite(arr)]
     if len(arr) < 10:
         return Stage1Report("cross_sectional_ml", False, {"mean_ic": 0.0, "ic_hac_tstat": 0.0}, "Insufficient IC series")
-    mean_ic = float(np.mean(arr))
-    t_stat = compute_hac_tstat(arr, max_lags=max_lags)
+    if float(np.std(arr)) < 1e-6:
+        return Stage1Report(
+            "cross_sectional_ml",
+            False,
+            {"mean_ic": float(np.mean(arr)), "ic_hac_tstat": 0.0},
+            "Near-zero IC variance",
+        )
+    if label_horizon is not None:
+        eff_horizon = min(max(1, int(label_horizon)), max(1, len(arr) - 1))
+        eff_maxlags = None
+    else:
+        eff_horizon = None
+        eff_maxlags = min(max_lags, max(1, len(arr) // 2 - 1))
+    hac = compute_ic_hac_stats(
+        arr,
+        maxlags=eff_maxlags,
+        label_horizon=eff_horizon,
+        kernel="bartlett",
+        allow_naive_fallback=True,
+    )
+    raw_mean = float(hac["mean_ic"])
+    mean_ic = raw_mean if math.isfinite(raw_mean) else float(np.mean(arr))
+    raw_t = float(hac["t_stat"])
+    t_stat = raw_t if math.isfinite(raw_t) else 0.0
+    raw_p = float(hac["p_value"])
+    p_value = raw_p if math.isfinite(raw_p) else 1.0
+    effective_lags = int(hac["effective_lags"])
     passed = (mean_ic >= min_mean_ic) and (t_stat >= min_hac_tstat)
-    return Stage1Report("cross_sectional_ml", passed, {"mean_ic": mean_ic, "ic_hac_tstat": t_stat}, f"Mean IC={mean_ic:.4f}, HAC t={t_stat:.2f}")
+    return Stage1Report(
+        "cross_sectional_ml",
+        passed,
+        {
+            "mean_ic": mean_ic,
+            "ic_hac_tstat": t_stat,
+            "ic_hac_p_value": p_value,
+            "effective_lags": effective_lags,
+        },
+        f"Mean IC={mean_ic:.4f}, HAC t={t_stat:.2f}",
+    )
+
+
+def compute_cross_sectional_ic_for_screen(
+    predictions: pl.DataFrame,
+    forward_returns: pl.DataFrame,
+    *,
+    pred_col: str = "prediction",
+    ret_col: str = "forward_return",
+    date_col: str = "timestamp",
+    entity_col: str = "asset",
+    min_obs: int = 5,
+) -> np.ndarray:
+    """Compute per-timestamp cross-sectional Spearman IC array for Stage 1 screening."""
+    ic_df = cross_sectional_ic_series(
+        predictions,
+        forward_returns,
+        pred_col=pred_col,
+        ret_col=ret_col,
+        date_col=date_col,
+        entity_col=entity_col,
+        min_obs=min_obs,
+    )
+    arr = ic_df.get_column("ic").cast(pl.Float64).drop_nulls().to_numpy()
+    return arr[np.isfinite(arr)]
 
 
 def evaluate_stage1_rules_ts(
@@ -71,9 +135,22 @@ def evaluate_stage1_rules_ts(
     min_profit_factor: float = 1.15,
     min_time_in_market: float = 0.05,
     edge_cost_multiplier: float = 1.5,
+    bars_per_year: int = 8760,
+    holding_horizon_bars: int | None = None,
 ) -> Stage1Report:
-    net_arr, gross_arr = np.asarray(net_returns, dtype=float), np.asarray(gross_returns, dtype=float)
-    active = np.any(np.abs(np.asarray(positions)) > 1e-6, axis=1) if positions is not None else np.abs(gross_arr) > 1e-10
+    net_arr = np.asarray(net_returns, dtype=float)
+    gross_arr = np.asarray(gross_returns, dtype=float)
+    pos_arr = np.asarray(positions, dtype=float) if positions is not None else None
+    if pos_arr is not None:
+        if pos_arr.ndim == 2:
+            exposure = pos_arr.sum(axis=1)
+            active = np.any(np.abs(pos_arr) > 1e-6, axis=1)
+        else:
+            exposure = pos_arr
+            active = np.abs(pos_arr) > 1e-6
+    else:
+        exposure = None
+        active = np.abs(gross_arr) > 1e-10
     n_total, n_active = len(net_arr), int(np.sum(active))
     if n_total == 0 or n_active == 0:
         return Stage1Report("rules_ts", False, {}, "Zero active bars")
@@ -81,30 +158,96 @@ def evaluate_stage1_rules_ts(
     time_in_market = n_active / n_total
     active_gross = gross_arr[active]
     cond_edge = float(np.mean(active_gross))
-    gains = float(np.sum(net_arr[net_arr > 0]))
-    losses = float(np.abs(np.sum(net_arr[net_arr < 0]))) + 1e-12
-    profit_factor = gains / losses
-    if positions is not None:
-        pos_arr = np.asarray(positions, dtype=float)
+    bar_gains = float(np.sum(net_arr[net_arr > 0]))
+    bar_losses = float(np.abs(np.sum(net_arr[net_arr < 0]))) + 1e-12
+    bar_profit_factor = bar_gains / bar_losses
+    if pos_arr is not None:
         turn = float(np.sum(np.abs(np.diff(pos_arr, axis=0, prepend=0.0))))
         avg_holding = (2.0 * n_active / turn) if turn > 1e-6 else 1.0
     else:
         avg_holding = 1.0
-
     trade_edge = cond_edge * avg_holding
+
+    episodes = np.empty(0, dtype=float)
+    if exposure is not None:
+        exp_active = np.abs(exposure) > 1e-6
+        if np.any(exp_active):
+            sign = np.sign(exposure)
+            prev_active = np.concatenate(([False], exp_active[:-1]))
+            prev_sign = np.concatenate(([0.0], sign[:-1]))
+            starts = exp_active & (~prev_active | (sign != prev_sign))
+            n_episodes = int(starts.sum())
+            if n_episodes >= 2:
+                episode_ids = np.cumsum(starts)[exp_active] - 1
+                episodes = np.bincount(episode_ids, weights=net_arr[exp_active], minlength=n_episodes)
+
+    if len(episodes) >= 2:
+        gains = float(episodes[episodes > 0].sum())
+        losses = float(np.abs(episodes[episodes < 0].sum())) + 1e-12
+        profit_factor = gains / losses
+        pf_basis = "closed_trade"
+    else:
+        if holding_horizon_bars is not None:
+            h = max(1, int(holding_horizon_bars))
+        elif pos_arr is not None:
+            h = max(1, round(avg_holding))
+        else:
+            h = 1
+        active_net = net_arr[active]
+        n_full = len(active_net) // h
+        if n_full >= 2:
+            horizon_rets = active_net[: n_full * h].reshape(n_full, h).sum(axis=1)
+            rem = len(active_net) - n_full * h
+            if rem > 0:
+                horizon_rets = np.append(horizon_rets, float(active_net[n_full * h :].sum()))
+        else:
+            horizon_rets = active_net
+        gains = float(horizon_rets[horizon_rets > 0].sum())
+        losses = float(np.abs(horizon_rets[horizon_rets < 0].sum())) + 1e-12
+        profit_factor = gains / losses
+        pf_basis = "holding_horizon"
+
+    trimmed_sharpe = compute_trimmed_sharpe(net_arr, bars_per_year, percentile=95.0)
 
     rng = np.random.default_rng(42)
     block_size = max(1, min(24, int(math.sqrt(n_active))))
     n_blocks = math.ceil(n_active / block_size)
-    boot_means = []
-    for _ in range(200):
-        starts = rng.integers(0, n_active, size=n_blocks)
-        idxs = np.concatenate([(starts + i) % n_active for i in range(block_size)])[:n_active]
-        boot_means.append(np.mean(active_gross[idxs]))
-    p_value = float(np.mean(np.asarray(boot_means) <= 0.0))
+    wrapped = np.concatenate([active_gross, active_gross[:block_size]])
+    cs = np.concatenate(([0.0], np.cumsum(wrapped)))
+    starts = rng.integers(0, n_active, size=(200, n_blocks))
+    total_sums = np.zeros(200, dtype=float)
+    if n_blocks > 1:
+        s_full = starts[:, :-1]
+        total_sums += np.sum(cs[s_full + block_size] - cs[s_full], axis=1)
+    rem_len = n_active - (n_blocks - 1) * block_size
+    s_last = starts[:, -1]
+    total_sums += cs[s_last + rem_len] - cs[s_last]
+    boot_means = total_sums / n_active
+    p_value = float(np.mean(boot_means <= 0.0))
 
-    passed = (trade_edge > edge_cost_multiplier * one_way_cost) and (profit_factor >= min_profit_factor) and (time_in_market >= min_time_in_market) and (p_value < 0.05)
-    return Stage1Report("rules_ts", passed, {"conditional_edge": cond_edge, "profit_factor": profit_factor, "time_in_market": time_in_market, "bootstrap_p_value": p_value, "avg_holding_bars": avg_holding, "trade_edge": trade_edge}, f"PF={profit_factor:.2f}, Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%, Holding={avg_holding:.1f}h")
+    passed = (
+        (trade_edge > edge_cost_multiplier * one_way_cost)
+        and (profit_factor >= min_profit_factor)
+        and (time_in_market >= min_time_in_market)
+        and (p_value < 0.05)
+        and (trimmed_sharpe is not None and trimmed_sharpe > TRIMMED_SHARPE_FLOOR)
+    )
+    return Stage1Report(
+        "rules_ts",
+        passed,
+        {
+            "conditional_edge": cond_edge,
+            "profit_factor": profit_factor,
+            "bar_profit_factor": bar_profit_factor,
+            "pf_basis": pf_basis,
+            "trimmed_sharpe": trimmed_sharpe,
+            "time_in_market": time_in_market,
+            "bootstrap_p_value": p_value,
+            "avg_holding_bars": avg_holding,
+            "trade_edge": trade_edge,
+        },
+        f"PF={profit_factor:.2f} ({pf_basis}, barPF={bar_profit_factor:.2f}), Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%, Holding={avg_holding:.1f}h",
+    )
 
 
 def per_bar_sharpe(returns) -> float:

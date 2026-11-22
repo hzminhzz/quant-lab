@@ -656,8 +656,8 @@ def generate_positions(panel_df, contract, scale=1.0, **kwargs):
         "neg_grid",
         panel_prices=rising,
         module_source=neg_strat,
-        parameters={"scale": 0.5},
-        param_grid=[{"scale": 0.4}, {"scale": 0.6}],
+        parameters={"scale": 0.3},
+        param_grid=[{"scale": 0.2}, {"scale": 0.4}],
     )
     monkeypatch.chdir(repo_neg)
     buf = io.StringIO()
@@ -678,7 +678,7 @@ def generate_positions(panel_df, contract, scale=1.0, **kwargs):
     CONST_SCALE_STRAT = """
 import numpy as np
 
-def generate_positions(panel_df, contract, scale=0.5, **kwargs):
+def generate_positions(panel_df, contract, scale=0.4, **kwargs):
     n_ts = len(panel_df["timestamp"].unique())
     n_assets = len(panel_df["asset"].unique())
     pos = np.full((n_ts, n_assets), float(scale), dtype=float)
@@ -689,7 +689,7 @@ def generate_positions(panel_df, contract, scale=0.5, **kwargs):
         "empty_grid",
         panel_prices=rising,
         module_source=CONST_SCALE_STRAT,
-        parameters={"scale": 0.5},
+        parameters={"scale": 0.4},
         param_grid=None,
     )
     monkeypatch.chdir(repo_empty)
@@ -711,7 +711,7 @@ def generate_positions(panel_df, contract, scale=0.5, **kwargs):
         "null_grid",
         panel_prices=rising,
         module_source=CONST_SCALE_STRAT,
-        parameters={"scale": 0.5},
+        parameters={"scale": 0.4},
         param_grid=None,
     )
     spec_null.write_text(spec_null.read_text(encoding="utf-8") + "param_grid: null\n", encoding="utf-8")
@@ -732,7 +732,7 @@ def test_backtest_failed_gates_covers_all_eight_keys_and_candidate_empty(
     good_strat = """
 import numpy as np
 
-def generate_positions(panel_df, contract, scale=0.5, **kwargs):
+def generate_positions(panel_df, contract, scale=0.3, **kwargs):
     n_ts = len(panel_df["timestamp"].unique())
     n_assets = len(panel_df["asset"].unique())
     pos = np.full((n_ts, n_assets), float(scale), dtype=float)
@@ -743,8 +743,8 @@ def generate_positions(panel_df, contract, scale=0.5, **kwargs):
         "cand_ok",
         panel_prices=rising,
         module_source=good_strat,
-        parameters={"scale": 0.5},
-        param_grid=[{"scale": 0.4}, {"scale": 0.6}],
+        parameters={"scale": 0.3},
+        param_grid=[{"scale": 0.2}, {"scale": 0.4}],
     )
     res_ok = ExperimentRunner(repo_root=repo_ok).run_spec(spec_ok)
     assert res_ok.verdict == "CANDIDATE_FOR_QUALIFICATION"
@@ -762,10 +762,10 @@ def generate_positions(panel_df, contract, mode="ok", **kwargs):
     n_assets = len(panel_df["asset"].unique())
     pos = np.zeros((n_ts, n_assets), dtype=float)
     if mode == "ok":
-        pos[::2] = 0.5
-        pos[1::2] = -0.3
+        pos[::2] = 0.4
+        pos[1::2] = -0.25
     else:
-        pos[:] = -0.5
+        pos[:] = -0.4
     return {"positions": pos}
 """
     cost_prices = [100.0]
@@ -801,7 +801,7 @@ def generate_positions(panel_df, contract, mode="ok", **kwargs):
         "fail_trim",
         panel_prices=outlier_prices,
         module_source=good_strat,
-        parameters={"scale": 0.5},
+        parameters={"scale": 0.3},
         taker_fee_bps=0.01,
         slippage_bps=0.01,
     )

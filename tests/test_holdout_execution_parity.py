@@ -11,15 +11,12 @@ import pytest
 
 from warden.codeid import code_closure
 from warden.contracts import ExperimentResult
+from warden.engine_sim import run_engine_simulation
 from warden.qualify import HoldoutAlreadyUnsealedError, qualify_candidate
 from warden.runner import (
     ExecutionDataError,
     ExperimentRunner,
-    _aligned_matrix,
-    _funding_settlement_mask,
     calculate_metrics_from_returns,
-    execution_returns,
-    simulate_positions,
 )
 
 
@@ -62,14 +59,14 @@ def test_holdout_returns_are_identical_to_validation_simulator(tiny_repo, tmp_pa
     ts = sorted(panel["timestamp"].unique().to_list())
     positions = np.zeros((len(ts), len(assets)))
     positions[::4] = 0.1
-    prices = execution_returns(panel, f.contract, assets)
-    funding = _aligned_matrix(panel, "funding_rate", assets)
-    expected = simulate_positions(positions, prices["long"], funding, f.contract,
-                                  slice(0, len(ts)), quote_returns=prices,
-                                  funding_mask=_funding_settlement_mask(ts, f.contract))
-    metrics = calculate_metrics_from_returns(expected["gross_returns"], expected["net_returns"],
-                                              expected["turnover"], f.contract.bars_per_year)
+    expected = run_engine_simulation(panel, positions, ts, assets, f.contract, slice(0, len(ts)))
+    metrics = calculate_metrics_from_returns(
+        expected.gross_returns, expected.net_returns, expected.turnover, f.contract.bars_per_year
+    )
     assert report["holdout_net_sharpe"] == pytest.approx(metrics["net_sharpe"], abs=1e-12)
+    assert report["terminal_equity"] == pytest.approx(expected.terminal_equity, abs=1e-9)
+    assert report["engine_fills_count"] == len(expected.backtest_result.fills)
+    assert report["engine_trades_count"] == len(expected.backtest_result.trades)
     assert report["holdout_override"] is True
     with f.registry._connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM qualifications").fetchone()[0] == 1

@@ -224,10 +224,31 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     runner.registry.record_audit(args.run_id, trial["contract_id"], verdict, c, eligibility["reason"])
     checks = {k: {"passed": v} for k, v in c.items()}
     checks["2_outlier_sensitivity"]["trimmed_sharpe"] = trimmed_sharpe
+
+    diag_raw = trial.get("diagnostics_json")
+    try:
+        diag = json.loads(diag_raw) if isinstance(diag_raw, str) and diag_raw.strip() else {}
+    except json.JSONDecodeError:
+        diag = {}
+    if not isinstance(diag, dict):
+        diag = {}
+    simulation_epoch = trial.get("simulation_epoch")
+    portfolio_analysis = diag.get("portfolio_analysis")
+    trade_analysis = diag.get("trade_analysis")
+    pbo_diag = diag.get("pbo")
+    ras_diag = diag.get("ras")
+    engine_artifacts = diag.get("engine_artifacts")
+
     audit = {
         "run_id": args.run_id,
+        "simulation_epoch": simulation_epoch,
         "checks": checks,
         "trimmed_sharpe": trimmed_sharpe,
+        "portfolio_analysis": portfolio_analysis,
+        "trade_analysis": trade_analysis,
+        "pbo": pbo_diag,
+        "ras": ras_diag,
+        "engine_artifacts": engine_artifacts,
         "audit_passed": approved,
         "historical_checks_passed": historical_passed,
         "verdict": verdict,
@@ -236,10 +257,30 @@ def cmd_audit_check(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     out = runner.repo_root / ".workspace" / "hypotheses" / f"AUDIT_{args.run_id}.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     trimmed_line = f"{trimmed_sharpe:.4f}" if trimmed_sharpe is not None else "N/A"
+    extra_lines: list[str] = []
+    if simulation_epoch:
+        extra_lines.append(f"Simulation epoch: {simulation_epoch}")
+    if isinstance(portfolio_analysis, dict):
+        pa_sr = portfolio_analysis.get("sharpe_ratio")
+        pa_ret = portfolio_analysis.get("total_return")
+        extra_lines.append(f"Portfolio analysis: Sharpe={pa_sr}, TotalReturn={pa_ret}")
+    if isinstance(trade_analysis, dict):
+        extra_lines.append(
+            f"Trade analysis: trades={trade_analysis.get('n_trades')}, "
+            f"win_rate={trade_analysis.get('win_rate')}, pf={trade_analysis.get('profit_factor')}"
+        )
+    if isinstance(pbo_diag, dict):
+        extra_lines.append(f"PBO: {pbo_diag.get('pbo')} (blocks={pbo_diag.get('n_blocks')})")
+    if isinstance(ras_diag, dict):
+        extra_lines.append(f"RAS: complexity={ras_diag.get('rademacher_complexity')}")
+    if isinstance(engine_artifacts, dict) and engine_artifacts:
+        extra_lines.append(f"Engine artifacts: {', '.join(sorted(engine_artifacts))}")
+    extra_block = ("\n".join(extra_lines) + "\n") if extra_lines else ""
     out.write_text(
         f"# 6-Check Audit: {args.run_id}\nVerdict: {verdict}\n"
         f"Effective eligibility: {eligibility['eligible']} ({eligibility['reason']})\n"
         f"Trimmed Sharpe (ex top-5%): {trimmed_line}\n"
+        + extra_block
         + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n"
     )
     print(json.dumps(audit, indent=2) if args.json else

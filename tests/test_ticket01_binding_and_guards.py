@@ -132,7 +132,7 @@ def _register_funnel_contract(repo: Path, *, cid: str = "T01_FUNNEL_V1", n_bars:
 def _write_closure_strategy(repo: Path, main_name: str, sibling_name: str, runtime_name: str) -> str:
     strat_dir = repo / "strategies" / "candidates"
     strat_dir.mkdir(parents=True, exist_ok=True)
-    (strat_dir / f"{sibling_name}.py").write_text("SIBLING_WEIGHT = 0.5\n", encoding="utf-8")
+    (strat_dir / f"{sibling_name}.py").write_text("SIBLING_WEIGHT = 0.4\n", encoding="utf-8")
     (strat_dir / f"{runtime_name}.py").write_text("RUNTIME_SCALE = 1.0\n", encoding="utf-8")
     rel = f"strategies/candidates/{main_name}.py"
     (repo / rel).write_text(f"""from pathlib import Path

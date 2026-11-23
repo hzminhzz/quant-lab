@@ -6,6 +6,7 @@ import hashlib
 import itertools
 import json
 import math
+from collections import deque
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -296,6 +297,268 @@ def _extract_aligned_series(
     return gross_ret, net_ret, turnover, float(eq_vals[-1])
 
 
+class _WarmupGuardedBroker:
+    """Suppress order submissions during warmup bars while allowing rule setup/queries."""
+
+    def __init__(self, broker: Any) -> None:
+        self._broker = broker
+
+    def submit_order(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def close_position(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def order_target_percent(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def order_target_value(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def flatten_all_positions(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return []
+
+    def reduce_all_positions(self, *args: Any, **kwargs: Any) -> list[Any]:
+        return []
+
+    def reduce_position(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._broker, name)
+
+
+class _LifecycleStrategyAdapter(Strategy):
+    """Wrap a CausalRulesStrategy instance with warmup guarding and optional extra delay."""
+
+    def __init__(
+        self,
+        inner: Strategy,
+        *,
+        submit_from_ts: Any | None,
+        extra_delay: int,
+    ) -> None:
+        self._inner = inner
+        self._submit_from_ts = submit_from_ts
+        self._extra_delay = max(0, int(extra_delay))
+        self._buffer: deque[tuple[dict[str, dict[str, Any]], dict[str, Any]]] = deque()
+
+    def on_start(self, broker: Any) -> None:
+        self._inner.on_start(broker)
+
+    def on_end(self, broker: Any) -> None:
+        self._inner.on_end(broker)
+
+    def on_data(
+        self,
+        timestamp: datetime,
+        data: dict[str, dict[str, Any]],
+        context: dict[str, Any],
+        broker: Any,
+    ) -> None:
+        active_broker = (
+            _WarmupGuardedBroker(broker)
+            if self._submit_from_ts is not None and timestamp < self._submit_from_ts
+            else broker
+        )
+        if self._extra_delay > 0:
+            self._buffer.append((data, context))
+            if len(self._buffer) <= self._extra_delay:
+                return
+            delayed_data, delayed_ctx = self._buffer.popleft()
+            self._inner.on_data(timestamp, delayed_data, delayed_ctx, active_broker)
+            return
+        self._inner.on_data(timestamp, data, context, active_broker)
+
+
+def _reconstruct_held_weights(
+    res: BacktestResult,
+    feed_df: pl.DataFrame,
+    ts: list[Any],
+    assets: list[str],
+    start: int,
+    stop: int,
+) -> np.ndarray:
+    n_val = stop - start
+    n_assets = len(assets)
+    weights = np.zeros((n_val, n_assets), dtype=float)
+    asset_idx = {a: j for j, a in enumerate(assets)}
+    eq_map = {t: float(eq) for t, eq in res.equity_curve}
+
+    fills_by_ts: dict[Any, list[Any]] = {}
+    for fill in res.fills:
+        fills_by_ts.setdefault(fill.timestamp, []).append(fill)
+
+    close_pivot = feed_df.pivot(index="timestamp", on="asset", values="close").sort("timestamp")
+    close_by_ts: dict[Any, dict[str, float]] = {}
+    present_cols = [a for a in assets if a in close_pivot.columns]
+    for row in close_pivot.iter_rows(named=True):
+        close_by_ts[row["timestamp"]] = {
+            a: float(row[a]) for a in present_cols if row[a] is not None
+        }
+
+    qty_by_asset: dict[str, float] = {a: 0.0 for a in assets}
+    val_ts_set = {t: idx for idx, t in enumerate(ts[start:stop])}
+    for t in ts[:stop]:
+        for fill in fills_by_ts.get(t, ()):
+            if fill.asset not in qty_by_asset:
+                continue
+            side_raw = str(getattr(fill.side, "value", fill.side)).lower()
+            sign = -1.0 if side_raw == "sell" else 1.0
+            mult = float(fill.multiplier) if fill.multiplier is not None else 1.0
+            qty_by_asset[fill.asset] += sign * abs(float(fill.quantity)) * mult
+        k = val_ts_set.get(t)
+        if k is None:
+            continue
+        eq_t = eq_map.get(t, 0.0)
+        if eq_t == 0.0:
+            continue
+        px_map = close_by_ts.get(t, {})
+        for a, q in qty_by_asset.items():
+            if q != 0.0 and a in px_map:
+                weights[k, asset_idx[a]] = (q * px_map[a]) / eq_t
+    return weights
+
+
+def _execute_engine_run(
+    feed_df: pl.DataFrame,
+    strategy: Strategy,
+    ts: list[Any],
+    contract: EvaluationContract,
+    start: int,
+    stop: int,
+    *,
+    cost_multiplier: float,
+    initial_cash: float,
+    allow_leverage: bool,
+    allow_short_selling: bool,
+    max_volume_participation: float | None,
+    market_impact_coefficient: float | None,
+    market_impact_volatility: float,
+) -> tuple[BacktestResult, np.ndarray, np.ndarray, np.ndarray, float, str | None]:
+    is_quote = contract.execution_mode == "QUOTE_SIDE"
+    comm_rate = float(contract.taker_fee_bps) * 1e-4 * float(cost_multiplier)
+    slip_rate = float(contract.slippage_bps) * 1e-4 * float(cost_multiplier)
+    cfg = BacktestConfig(
+        initial_cash=float(initial_cash),
+        allow_short_selling=allow_short_selling,
+        allow_leverage=allow_leverage,
+        initial_margin=0.05 if allow_leverage else 1.0,
+        long_maintenance_margin=0.025 if allow_leverage else 0.25,
+        short_maintenance_margin=0.025 if allow_leverage else 0.30,
+        reject_on_insufficient_cash=not allow_leverage,
+        execution_mode=ExecutionMode.NEXT_BAR,
+        execution_price=ExecutionPrice.QUOTE_SIDE if is_quote else ExecutionPrice.OPEN,
+        mark_price=ExecutionPrice.QUOTE_SIDE if is_quote else ExecutionPrice.CLOSE,
+        share_type=ShareType.FRACTIONAL,
+        commission_type=CommissionType.PERCENTAGE if comm_rate > 0 else CommissionType.NONE,
+        commission_rate=comm_rate,
+        slippage_type=SlippageType.PERCENTAGE if slip_rate > 0 else SlippageType.NONE,
+        slippage_rate=slip_rate,
+    )
+    execution_limits = (
+        VolumeParticipationLimit(max_participation=float(max_volume_participation))
+        if max_volume_participation is not None
+        else None
+    )
+    market_impact_model = (
+        SquareRootImpact(
+            coefficient=float(market_impact_coefficient),
+            volatility=float(market_impact_volatility),
+        )
+        if market_impact_coefficient is not None
+        else None
+    )
+    funding_df = build_funding_df(feed_df, contract)
+    session_col_used = _select_session_col(feed_df)
+    feed = DataFeed(
+        prices_df=feed_df,
+        bid_col="bid" if is_quote else None,
+        ask_col="ask" if is_quote else None,
+        session_col=session_col_used,
+    )
+    res = Engine(
+        feed,
+        strategy,
+        cfg,
+        funding_df=funding_df,
+        execution_limits=execution_limits,
+        market_impact_model=market_impact_model,
+    ).run()
+    if not allow_leverage and res.rejected_orders:
+        raise LeveragePolicyError(
+            f"allow_leverage=False: {len(res.rejected_orders)} order(s) rejected for insufficient cash/margin"
+        )
+    gross_ret, net_ret, turnover, terminal_equity = _extract_aligned_series(
+        res, ts, start, stop, float(initial_cash)
+    )
+    return res, gross_ret, net_ret, turnover, terminal_equity, session_col_used
+
+
+def run_engine_strategy(
+    panel_df: pl.DataFrame,
+    strategy: Strategy,
+    ts: list[Any],
+    assets: list[str],
+    contract: EvaluationContract,
+    val_slice: slice,
+    *,
+    cost_multiplier: float = 1.0,
+    delay_offset: int = 0,
+    initial_cash: float = 1_000_000.0,
+    allow_leverage: bool = False,
+    allow_short_selling: bool = True,
+    max_volume_participation: float | None = None,
+    market_impact_coefficient: float | None = None,
+    market_impact_volatility: float = 0.02,
+) -> EngineSimOutput:
+    """Run canonical ml4t.backtest.Engine on a CausalRulesStrategy Strategy object."""
+    require_execution_columns(panel_df, contract)
+    start = val_slice.start or 0
+    stop = val_slice.stop if val_slice.stop is not None else len(ts)
+    if start < 0 or stop > len(ts) or start >= stop:
+        raise ValueError(f"invalid val_slice {val_slice} for {len(ts)} timestamps")
+
+    extra_delay = max(0, (int(contract.execution_delay_bars) - 1) + int(delay_offset))
+    submit_from_ts = ts[max(0, start - 1)] if start > 0 else None
+
+    feed_df = panel_df.filter(
+        (pl.col("timestamp") >= ts[0]) & (pl.col("timestamp") <= ts[stop - 1])
+    ).sort("timestamp", "asset")
+
+    wrapped = _LifecycleStrategyAdapter(
+        strategy,
+        submit_from_ts=submit_from_ts,
+        extra_delay=extra_delay,
+    )
+    res, gross_ret, net_ret, turnover, terminal_equity, session_col_used = _execute_engine_run(
+        feed_df,
+        wrapped,
+        ts,
+        contract,
+        start,
+        stop,
+        cost_multiplier=cost_multiplier,
+        initial_cash=initial_cash,
+        allow_leverage=allow_leverage,
+        allow_short_selling=allow_short_selling,
+        max_volume_participation=max_volume_participation,
+        market_impact_coefficient=market_impact_coefficient,
+        market_impact_volatility=market_impact_volatility,
+    )
+    held_weights = _reconstruct_held_weights(res, feed_df, ts, assets, start, stop)
+    return EngineSimOutput(
+        positions=held_weights,
+        gross_returns=gross_ret,
+        net_returns=net_ret,
+        turnover=turnover,
+        backtest_result=res,
+        terminal_equity=terminal_equity,
+        session_col_used=session_col_used,
+        funding_events=len(res.funding_payments),
+    )
+
+
 def run_engine_simulation(
     panel_df: pl.DataFrame,
     raw_positions: np.ndarray | Sequence[Sequence[float]],
@@ -354,72 +617,27 @@ def run_engine_simulation(
     ).sort("timestamp", "asset")
 
     weights_by_ts = _build_weights_by_ts(pos_shifted, ts, assets, feed_start, stop)
-
-    is_quote = contract.execution_mode == "QUOTE_SIDE"
-    comm_rate = float(contract.taker_fee_bps) * 1e-4 * float(cost_multiplier)
-    slip_rate = float(contract.slippage_bps) * 1e-4 * float(cost_multiplier)
-    cfg = BacktestConfig(
-        initial_cash=float(initial_cash),
-        allow_short_selling=allow_short_selling,
-        allow_leverage=allow_leverage,
-        initial_margin=0.05 if allow_leverage else 1.0,
-        long_maintenance_margin=0.025 if allow_leverage else 0.25,
-        short_maintenance_margin=0.025 if allow_leverage else 0.30,
-        reject_on_insufficient_cash=not allow_leverage,
-        execution_mode=ExecutionMode.NEXT_BAR,
-        execution_price=ExecutionPrice.QUOTE_SIDE if is_quote else ExecutionPrice.OPEN,
-        mark_price=ExecutionPrice.QUOTE_SIDE if is_quote else ExecutionPrice.CLOSE,
-        share_type=ShareType.FRACTIONAL,
-        commission_type=CommissionType.PERCENTAGE if comm_rate > 0 else CommissionType.NONE,
-        commission_rate=comm_rate,
-        slippage_type=SlippageType.PERCENTAGE if slip_rate > 0 else SlippageType.NONE,
-        slippage_rate=slip_rate,
-    )
     rebalance_cfg = RebalanceConfig(
         allow_short=allow_short_selling,
         allow_fractional=True,
         max_single_weight=10.0 if allow_leverage else 1.0,
         max_gross_leverage=None if allow_leverage else 1.0,
     )
-    execution_limits = (
-        VolumeParticipationLimit(max_participation=float(max_volume_participation))
-        if max_volume_participation is not None
-        else None
-    )
-    market_impact_model = (
-        SquareRootImpact(
-            coefficient=float(market_impact_coefficient),
-            volatility=float(market_impact_volatility),
-        )
-        if market_impact_coefficient is not None
-        else None
-    )
-
-    funding_df = build_funding_df(feed_df, contract)
-    session_col_used = _select_session_col(feed_df)
-    feed = DataFeed(
-        prices_df=feed_df,
-        bid_col="bid" if is_quote else None,
-        ask_col="ask" if is_quote else None,
-        session_col=session_col_used,
-    )
     strat = _TargetWeightReplayStrategy(weights_by_ts, rebalance_cfg)
-    res = Engine(
-        feed,
+    res, gross_ret, net_ret, turnover, terminal_equity, session_col_used = _execute_engine_run(
+        feed_df,
         strat,
-        cfg,
-        funding_df=funding_df,
-        execution_limits=execution_limits,
-        market_impact_model=market_impact_model,
-    ).run()
-
-    if not allow_leverage and res.rejected_orders:
-        raise LeveragePolicyError(
-            f"allow_leverage=False: {len(res.rejected_orders)} order(s) rejected for insufficient cash/margin"
-        )
-
-    gross_ret, net_ret, turnover, terminal_equity = _extract_aligned_series(
-        res, ts, start, stop, float(initial_cash)
+        ts,
+        contract,
+        start,
+        stop,
+        cost_multiplier=cost_multiplier,
+        initial_cash=initial_cash,
+        allow_leverage=allow_leverage,
+        allow_short_selling=allow_short_selling,
+        max_volume_participation=max_volume_participation,
+        market_impact_coefficient=market_impact_coefficient,
+        market_impact_volatility=market_impact_volatility,
     )
     held_positions = np.roll(pos_shifted, 1, axis=0)
     held_positions[0] = 0.0

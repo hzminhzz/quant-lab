@@ -21,7 +21,7 @@ Preflight exit codes: `0 proceed · 2 human must re-sign the manifest · 3 stop`
 | 1 | Resolve the contract | `contracts/<id>.yaml` → its `exploratory_data_path` | you have the pinned path, sha match, span, assets, cost per side, `label_horizon_bars`, `execution_mode` |
 | 2 | Source trace | read the **original** clipping, not a plan or summary | every rule carries `file:line`; every absent rule is written `[MISSING]` |
 | 3 | Pre-register | `uv run warden register-hypothesis .workspace/hypotheses/<ID>.md --json` | mechanism, counterparty, falsification and `expected_holding_bars` are all stated |
-| 4 | Pipeline | `uv run warden verify experiments/active/<spec>.yaml --json` | `status: PASS`; feature cache written |
+| 4 | Pipeline | `uv run warden verify experiments/active/<spec>.yaml --json` | `status: PASS`; feature cache written (proves causal protocol: `CausalModelStrategy` or `CausalRulesStrategy`; legacy `generate_positions` is frozen for historical replay only) |
 | 5 | Screen | `uv run warden screen <spec> --json` | family gate passes, or the hypothesis is done |
 | 6 | Trial | `uv run warden backtest <spec> --json` | `WARDEN_RUN_COMPLETE` and a verdict; max 3 trials, ever |
 | 7 | Audit / qualify | `uv run warden audit-check --run-id <ID> --json` | `AUDIT_<ID>.md`; `qualify` is human-only |

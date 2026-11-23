@@ -60,7 +60,7 @@ parameters:
   num_leaves: 15
 """)
 
-    runner = ExperimentRunner(registry=reg, repo_root=Path("."))
+    runner = ExperimentRunner(registry=reg, repo_root=Path("."), allow_legacy_replay=True)
     with pytest.raises(LinearBaselineRequiredError, match="Linear baseline required"):
         runner.run_spec(spec_yaml)
 

@@ -174,29 +174,36 @@ def test_human_mode_streams_stage_output_then_a_summary_line(stub_repo: Path, mo
 # --- end to end: same scientific output as the standalone CLI handlers -------------------
 
 TINY_MODULE = '''
-import numpy as np
-import polars as pl
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
 
-class _Momentum:
-    def compute(self, bars_df, contract):
-        return bars_df.with_columns(
-            mom=pl.col("close") / pl.col("close").shift(1).over("asset") - 1.0
-        ).with_columns(mom=pl.col("mom").fill_null(0.0))
+def required_symbols(params):
+    return None
 
 
-pipeline = _Momentum()
+class _TinyMomentumStrategy(Strategy):
+    def __init__(self):
+        self._prev = {}
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.5, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        targets = {}
+        for a, bar in data.items():
+            px = float(bar["close"])
+            prev = self._prev.get(a)
+            self._prev[a] = px
+            if prev is not None and prev > 0.0:
+                mom = px / prev - 1.0
+                targets[a] = 0.1 if mom > 0 else (-0.1 if mom < 0 else 0.0)
+        if targets:
+            self._exec.execute(targets, data, broker, timestamp=timestamp)
 
 
-def generate_positions(panel_df, contract, **kwargs):
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    close = panel_df.pivot(index="timestamp", on="asset", values="close").sort("timestamp").select(assets).to_numpy().astype(float)
-    mom = np.zeros_like(close)
-    mom[1:] = close[1:] / close[:-1] - 1.0
-    pos = np.sign(mom) * 0.1
-    pos[~np.isfinite(pos)] = 0.0
-    return {"positions": pos, "ic_series": np.full(max(len(ts) - 8, 0), 0.01)}
+def configure_strategy(contract, params):
+    return _TinyMomentumStrategy()
 '''
 
 def parse_text(text: str) -> dict:

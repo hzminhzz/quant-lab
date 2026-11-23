@@ -57,7 +57,7 @@ def test_hyp_2026_001_trials_recorded_in_registry() -> None:
 
 def test_hyp_2026_001_fourth_attempt_budget_exhausted() -> None:
     _require_historical_seed()
-    runner = ExperimentRunner(repo_root=Path("."))
+    runner = ExperimentRunner(repo_root=Path("."), allow_legacy_replay=True)
     spec_yaml = Path("experiments/active/hyp_2026_001.yaml")
 
     # Attempting to run a 4th trial on HYP-2026-001 must raise HypothesisBudgetExhaustedError

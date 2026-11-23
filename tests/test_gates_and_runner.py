@@ -93,7 +93,7 @@ def test_simulate_positions_delay_and_signed_funding() -> None:
 
 def test_linear_baseline_required_gate(tmp_path: Path) -> None:
     reg = ResearchRegistry(tmp_path / "reg.db")
-    runner = ExperimentRunner(registry=reg, repo_root=Path("."))
+    runner = ExperimentRunner(registry=reg, repo_root=Path("."), allow_legacy_replay=True)
 
     # Contract & Hypothesis registration
     contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))

@@ -48,7 +48,7 @@ def test_screens_grids_and_failed_reservations_are_all_counted(tiny_repo) -> Non
     # A reservation that dies before any result is still an attempt, with no fake zero returns.
     broken = tiny_repo(module_source="def generate_positions(*a, **k):\n    raise RuntimeError('boom')\n",
                        module_name="broken")
-    broken_runner = ExperimentRunner(registry=broken.registry, repo_root=broken.repo)
+    broken_runner = ExperimentRunner(registry=broken.registry, repo_root=broken.repo, allow_legacy_replay=True)
     with pytest.raises(RuntimeError):
         broken_runner.run_spec(broken.spec)
     with broken.registry._connect() as conn:
@@ -164,7 +164,7 @@ def generate_positions(panel_df, contract, **kwargs):
     spec = fixture.spec.read_text().replace("HYP-TINY", "HYP-ML").replace("rules_ts", "cross_sectional_ml")
     spec = spec.replace("model_type: rules", "model_type: ridge")
     fixture.spec.write_text(spec)
-    res = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo).run_spec(fixture.spec)
+    res = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo, allow_legacy_replay=True).run_spec(fixture.spec)
     assert res.verdict == "REJECTED_EARLY" and res.stage_reached == "STAGE_1_SIGNAL"
     with fixture.registry._connect() as conn:
         row = conn.execute("SELECT returns_json, returns_parquet_path, diagnostics_json, total_trials_n "

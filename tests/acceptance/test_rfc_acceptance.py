@@ -256,7 +256,7 @@ parameters:
   z_threshold: 2.0
   rebalance_every: 4
 """)
-    runner = ExperimentRunner(registry=timing_reg, repo_root=Path("."))
+    runner = ExperimentRunner(registry=timing_reg, repo_root=Path("."), allow_legacy_replay=True)
     res = runner.run_spec(timing_spec, override_run_id="RUN-TIME-TEST")
     total_time = time.perf_counter() - t2
     assert res.run_id == "RUN-TIME-TEST"

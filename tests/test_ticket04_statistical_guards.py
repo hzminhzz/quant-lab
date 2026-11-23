@@ -23,26 +23,29 @@ from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
 
 CAUSAL_MODULE = """
-import numpy as np
-import polars as pl
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
 
-class CausalPipeline:
-    def compute(self, bars_df, contract):
-        return bars_df.sort("timestamp", "asset").with_columns(
-            pl.col("close").shift(1).over("asset").alias("past_close")
+def required_symbols(params):
+    return None
+
+
+class _CausalT04Strategy(Strategy):
+    def __init__(self):
+        self._bar = 0
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.5, max_gross_leverage=1.0)
         )
 
+    def on_data(self, timestamp, data, context, broker):
+        if self._bar % 4 == 0:
+            self._exec.execute({a: 0.1 for a in data}, data, broker, timestamp=timestamp)
+        self._bar += 1
 
-pipeline = CausalPipeline()
 
-
-def generate_positions(panel_df, contract, **kwargs):
-    times = len(panel_df["timestamp"].unique())
-    assets = len(panel_df["asset"].unique())
-    pos = np.zeros((times, assets))
-    pos[::4] = 0.1
-    return {"positions": pos}
+def configure_strategy(contract, params):
+    return _CausalT04Strategy()
 """
 
 
@@ -637,13 +640,24 @@ def test_backtest_negative_neighbor_grid_and_empty_grid(tmp_path: Path, monkeypa
     monkeypatch.setattr("warden.cli.check_worktree", lambda: True)
 
     neg_strat = """
-import numpy as np
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
-def generate_positions(panel_df, contract, scale=1.0, **kwargs):
-    n_ts = len(panel_df["timestamp"].unique())
-    n_assets = len(panel_df["asset"].unique())
-    pos = np.full((n_ts, n_assets), -float(scale), dtype=float)
-    return {"positions": pos}
+def required_symbols(params):
+    return None
+
+class _NegStrategy(Strategy):
+    def __init__(self, scale):
+        self._scale = float(scale)
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=1.0, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        self._exec.execute({a: -self._scale for a in data}, data, broker, timestamp=timestamp)
+
+def configure_strategy(contract, params):
+    return _NegStrategy(params.get("scale", 1.0))
 """
     # Steadily rising panel with tiny jitter -> short position (-scale) has negative Sharpe across all grid points
     rng = np.random.default_rng(11)
@@ -676,13 +690,24 @@ def generate_positions(panel_df, contract, scale=1.0, **kwargs):
         assert conn.execute("SELECT param_neighbor_stability FROM trials").fetchone()[0] == 0.0
 
     CONST_SCALE_STRAT = """
-import numpy as np
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
-def generate_positions(panel_df, contract, scale=0.4, **kwargs):
-    n_ts = len(panel_df["timestamp"].unique())
-    n_assets = len(panel_df["asset"].unique())
-    pos = np.full((n_ts, n_assets), float(scale), dtype=float)
-    return {"positions": pos}
+def required_symbols(params):
+    return None
+
+class _ConstStrategy(Strategy):
+    def __init__(self, scale):
+        self._scale = float(scale)
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=1.0, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        self._exec.execute({a: self._scale for a in data}, data, broker, timestamp=timestamp)
+
+def configure_strategy(contract, params):
+    return _ConstStrategy(params.get("scale", 0.4))
 """
     repo_empty, reg_empty, spec_empty = _backtest_fixture(
         tmp_path,
@@ -730,13 +755,24 @@ def test_backtest_failed_gates_covers_all_eight_keys_and_candidate_empty(
         rising.append(rising[-1] * (1.003 + rng.normal(0.0, 0.0004)))
 
     good_strat = """
-import numpy as np
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
-def generate_positions(panel_df, contract, scale=0.3, **kwargs):
-    n_ts = len(panel_df["timestamp"].unique())
-    n_assets = len(panel_df["asset"].unique())
-    pos = np.full((n_ts, n_assets), float(scale), dtype=float)
-    return {"positions": pos}
+def required_symbols(params):
+    return None
+
+class _GoodStrategy(Strategy):
+    def __init__(self, scale):
+        self._scale = float(scale)
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=1.0, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        self._exec.execute({a: self._scale for a in data}, data, broker, timestamp=timestamp)
+
+def configure_strategy(contract, params):
+    return _GoodStrategy(params.get("scale", 0.3))
 """
     repo_ok, _, spec_ok = _backtest_fixture(
         tmp_path,
@@ -755,18 +791,27 @@ def generate_positions(panel_df, contract, scale=0.3, **kwargs):
 
     # 2. Weak/losing neighbor + cost/latency sensitive strategy triggers cost_2x, latency_plus1, neighbor_stability
     churn_strat = """
-import numpy as np
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
-def generate_positions(panel_df, contract, mode="ok", **kwargs):
-    n_ts = len(panel_df["timestamp"].unique())
-    n_assets = len(panel_df["asset"].unique())
-    pos = np.zeros((n_ts, n_assets), dtype=float)
-    if mode == "ok":
-        pos[::2] = 0.4
-        pos[1::2] = -0.25
-    else:
-        pos[:] = -0.4
-    return {"positions": pos}
+def required_symbols(params):
+    return None
+
+class _ChurnStrategy(Strategy):
+    def __init__(self, mode):
+        self._mode = str(mode)
+        self._bar = 0
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=1.0, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        w = (0.4 if self._bar % 2 == 0 else -0.25) if self._mode == "ok" else -0.4
+        self._exec.execute({a: w for a in data}, data, broker, timestamp=timestamp)
+        self._bar += 1
+
+def configure_strategy(contract, params):
+    return _ChurnStrategy(params.get("mode", "ok"))
 """
     cost_prices = [100.0]
     for _ in range(119):
@@ -829,7 +874,7 @@ def generate_positions(panel_df, contract, **kwargs):
         family="cross_sectional_ml",
         model_type="ridge",
     )
-    res_ml = ExperimentRunner(repo_root=repo_ml).run_spec(spec_ml)
+    res_ml = ExperimentRunner(repo_root=repo_ml, allow_legacy_replay=True).run_spec(spec_ml)
     assert res_ml.verdict == "REJECTED_EARLY"
     assert res_ml.param_neighbor_stability is None
     diag_ml = json.loads(res_ml.diagnostics_json)

@@ -266,7 +266,7 @@ def test_quote_side_missing_bid_ask_fails_preflight_and_runner_before_registry_t
     assert card["contract"]["feed_spec_error"]
 
     # 3) ExperimentRunner.run_spec fails closed BEFORE touching trials / trials_used
-    runner = ExperimentRunner(registry=reg, repo_root=repo)
+    runner = ExperimentRunner(registry=reg, repo_root=repo, allow_legacy_replay=True)
     with pytest.raises((ExecutionDataError, ContractValidationError)):
         runner.run_spec(spec_path)
 

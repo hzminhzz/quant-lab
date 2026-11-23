@@ -17,15 +17,29 @@ from warden.contracts import EvaluationContract, HypothesisSpec, utc
 from warden.registry import ResearchRegistry
 
 FLAT_MODULE = """
-import numpy as np
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
 
-def generate_positions(panel_df, contract, **kwargs):
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    pos = np.zeros((len(ts), len(assets)))
-    pos[::4] = 0.1
-    return {"positions": pos, "ic_series": np.full(max(len(ts) - 8, 0), 0.02)}
+def required_symbols(params):
+    return None
+
+
+class _FlatStrategy(Strategy):
+    def __init__(self):
+        self._bar = 0
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.5, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        w = 0.1 if self._bar % 4 == 0 else 0.0
+        self._exec.execute({a: w for a in data}, data, broker, timestamp=timestamp)
+        self._bar += 1
+
+
+def configure_strategy(contract, params):
+    return _FlatStrategy()
 """
 
 

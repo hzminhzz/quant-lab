@@ -6,7 +6,7 @@ from bisect import bisect_left
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from itertools import pairwise
-from typing import Protocol
+from typing import Any, Protocol
 
 import numpy as np
 import polars as pl
@@ -240,6 +240,295 @@ def verify_fold_isolation(
     if not {"timestamp", "asset", "prediction_value"}.issubset(set(preds.columns)):
         raise ValueError("Model output missing prediction_value columns")
     return preds
+
+
+def _apply_future_shock(bars_df: pl.DataFrame, cutoff_ts: Any) -> pl.DataFrame:
+    epoch_mod = (pl.col("timestamp").dt.epoch("s") % 97) * 0.005 + 0.10
+    shocks = {"close": 1.5, "open": 1.5, "high": 1.6, "low": 1.4, "volume": 3.0}
+    cols = [
+        pl.when(pl.col("timestamp") > cutoff_ts)
+        .then(pl.col(c) * (m + epoch_mod))
+        .otherwise(pl.col(c))
+        .alias(c)
+        for c, m in shocks.items()
+        if c in bars_df.columns
+    ]
+    if "funding_rate" in bars_df.columns:
+        cols.append(
+            pl.when(pl.col("timestamp") > cutoff_ts)
+            .then(pl.col("funding_rate") + 0.0100 + epoch_mod * 0.01)
+            .otherwise(pl.col("funding_rate"))
+            .alias("funding_rate")
+        )
+    return bars_df.with_columns(cols)
+
+
+def verify_model_prefix_invariance(
+    mod: Any,
+    bars_df: pl.DataFrame,
+    contract: EvaluationContract,
+    params: dict[str, Any] | None = None,
+) -> None:
+    """Prove prefix invariance on both pipeline features and CausalModelStrategy fold predictions."""
+    import bisect
+
+    from warden.protocols import (
+        iter_causal_model_folds,
+        prepare_causal_model_dataset,
+        resolve_protocol_target,
+        run_causal_model_strategy,
+    )
+
+    target = resolve_protocol_target(mod)
+    norm_df = (
+        bars_df.rename({"symbol": "asset"})
+        if "symbol" in bars_df.columns and "asset" not in bars_df.columns
+        else bars_df
+    ).sort("timestamp", "asset")
+
+    verify_prefix_invariance(target.pipeline, norm_df, contract)
+
+    ts = sorted(norm_df["timestamp"].unique().to_list())
+    assets = sorted(norm_df["asset"].unique().to_list())
+    v_start = bisect.bisect_left(ts, contract.val_start)
+    v_stop = bisect.bisect_left(ts, contract.val_end)
+    if v_stop <= v_start + 4:
+        v_start = max(16, len(ts) // 3)
+        v_stop = len(ts)
+    v_slice = slice(v_start, v_stop)
+
+    full_out = run_causal_model_strategy(mod, norm_df, contract, ts, assets, v_slice, dict(params or {}))
+    full_preds = full_out["predictions"].sort("timestamp", "asset")
+
+    val_ts = ts[v_start:v_stop]
+    cut_points = [val_ts[len(val_ts) // 3], val_ts[(2 * len(val_ts)) // 3]]
+    for t0 in cut_points:
+        pert_df = _apply_future_shock(norm_df, t0)
+        pert_out = run_causal_model_strategy(mod, pert_df, contract, ts, assets, v_slice, dict(params or {}))
+        pert_preds = pert_out["predictions"].sort("timestamp", "asset")
+
+        f_pref = full_preds.filter(pl.col("timestamp") <= t0).sort("timestamp", "asset")
+        p_pref = pert_preds.filter(pl.col("timestamp") <= t0).sort("timestamp", "asset")
+        if f_pref.height != p_pref.height:
+            raise LookaheadLeakageError(
+                f"Model prediction row count changed at cutoff {t0} under future perturbation"
+            )
+        if f_pref.height > 0:
+            v_f = f_pref["prediction_value"].to_numpy()
+            v_p = p_pref["prediction_value"].to_numpy()
+            if not np.allclose(v_f, v_p, rtol=1e-9, atol=1e-9, equal_nan=True):
+                raise LookaheadLeakageError(
+                    f"Lookahead leakage in model predictions before cutoff {t0}"
+                )
+
+    # Also test estimator invariance when future validation rows are truncated within a fold.
+    _, model_df, _, feature_cols, valid_train_mask = prepare_causal_model_dataset(
+        mod, norm_df, contract, ts
+    )
+    estimator = target.build_estimator(dict(params or {}))
+    for train_df, val_feat in iter_causal_model_folds(
+        model_df, feature_cols, valid_train_mask, ts, contract, v_start, v_stop
+    ):
+        fold_ts = sorted(val_feat["timestamp"].unique().to_list())
+        if len(fold_ts) < 4:
+            continue
+        t_mid = fold_ts[len(fold_ts) // 2]
+        p_full = estimator.fit_predict_fold(train_df, val_feat, feature_cols, "forward_label", seed=42).filter(pl.col("timestamp") <= t_mid).sort("timestamp", "asset")
+        p_trunc = estimator.fit_predict_fold(train_df, val_feat.filter(pl.col("timestamp") <= t_mid), feature_cols, "forward_label", seed=42).sort("timestamp", "asset")
+        if p_full.height != p_trunc.height or not np.allclose(
+            p_full["prediction_value"].to_numpy(),
+            p_trunc["prediction_value"].to_numpy(),
+            rtol=1e-9,
+            atol=1e-9,
+            equal_nan=True,
+        ):
+            raise LookaheadLeakageError(
+                f"Model fit_predict_fold predictions at <= {t_mid} depend on future validation rows"
+            )
+        break
+
+
+def _fills_signature(fills: Sequence[Any], cutoff_ts: Any) -> list[tuple[Any, str, str, float]]:
+    return [
+        (f.timestamp, str(f.asset), str(getattr(f.side, "value", f.side)), round(float(f.quantity), 8))
+        for f in fills
+        if f.timestamp <= cutoff_ts
+    ]
+
+
+def verify_rules_strategy_prefix_invariance(
+    mod: Any,
+    bars_df: pl.DataFrame,
+    contract: EvaluationContract,
+    params: dict[str, Any] | None = None,
+    *,
+    policy_cfg: dict[str, Any] | None = None,
+) -> None:
+    """Prove prefix invariance on CausalRulesStrategy's actual Engine orders/positions."""
+    import bisect
+    import tempfile
+    from dataclasses import replace as dc_replace
+    from pathlib import Path
+
+    from warden.engine_sim import extract_execution_policy, run_engine_strategy
+    from warden.protocols import resolve_protocol_target
+
+    target = resolve_protocol_target(mod)
+    norm_df = (
+        bars_df.rename({"symbol": "asset"})
+        if "symbol" in bars_df.columns and "asset" not in bars_df.columns
+        else bars_df
+    ).sort("timestamp", "asset")
+    if hasattr(mod, "pipeline") and callable(getattr(mod.pipeline, "compute", None)):
+        verify_prefix_invariance(mod.pipeline, norm_df, contract)
+
+    ts = sorted(norm_df["timestamp"].unique().to_list())
+    assets = sorted(norm_df["asset"].unique().to_list())
+    if len(ts) < 20:
+        raise ValueError("Insufficient distinct timestamps for prefix-invariance verification")
+
+    v_start = bisect.bisect_left(ts, contract.val_start)
+    v_stop = bisect.bisect_left(ts, contract.val_end)
+    if v_stop <= v_start + 6:
+        v_start = max(4, len(ts) // 4)
+        v_stop = len(ts)
+
+    policy = extract_execution_policy(policy_cfg or {}, dict(params or {}))
+    full_sim = run_engine_strategy(
+        norm_df,
+        target.configure_strategy(contract, dict(params or {})),
+        ts,
+        assets,
+        contract,
+        slice(v_start, v_stop),
+        **policy,
+    )
+
+    span = v_stop - v_start
+    cut_indices = sorted({v_start + max(4, span // 3), v_start + max(5, (2 * span) // 3)})
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_root = Path(tmp_dir)
+        for idx, c_idx in enumerate(cut_indices):
+            if c_idx >= v_stop:
+                continue
+            t0 = ts[c_idx]
+            n_prefix = c_idx + 1 - v_start
+            trunc_df = norm_df.filter(pl.col("timestamp") <= t0)
+            trunc_pq = tmp_root / f"trunc_{idx}.parquet"
+            trunc_df.write_parquet(trunc_pq)
+            trunc_contract = dc_replace(contract, exploratory_data_path=str(trunc_pq))
+            ts_trunc = ts[: c_idx + 1]
+            trunc_sim = run_engine_strategy(
+                trunc_df,
+                target.configure_strategy(trunc_contract, dict(params or {})),
+                ts_trunc,
+                assets,
+                trunc_contract,
+                slice(v_start, c_idx + 1),
+                **policy,
+            )
+
+            pert_df = _apply_future_shock(norm_df, t0)
+            pert_pq = tmp_root / f"pert_{idx}.parquet"
+            pert_df.write_parquet(pert_pq)
+            pert_contract = dc_replace(contract, exploratory_data_path=str(pert_pq))
+            pert_sim = run_engine_strategy(
+                pert_df,
+                target.configure_strategy(pert_contract, dict(params or {})),
+                ts,
+                assets,
+                pert_contract,
+                slice(v_start, v_stop),
+                **policy,
+            )
+
+            full_sigs = _fills_signature(full_sim.backtest_result.fills, t0)
+            trunc_sigs = _fills_signature(trunc_sim.backtest_result.fills, t0)
+            pert_sigs = _fills_signature(pert_sim.backtest_result.fills, t0)
+            if full_sigs != trunc_sigs or full_sigs != pert_sigs:
+                raise LookaheadLeakageError(
+                    f"Lookahead leakage detected in CausalRulesStrategy fills at cutoff {t0}"
+                )
+            if not np.allclose(full_sim.positions[:n_prefix], trunc_sim.positions, rtol=1e-8, atol=1e-8) or not np.allclose(
+                full_sim.positions[:n_prefix], pert_sim.positions[:n_prefix], rtol=1e-8, atol=1e-8
+            ):
+                raise LookaheadLeakageError(
+                    f"Lookahead leakage detected in CausalRulesStrategy positions at cutoff {t0}"
+                )
+
+
+def verify_rules_strategy_asset_independence(
+    mod: Any,
+    bars_df: pl.DataFrame,
+    contract: EvaluationContract,
+    params: dict[str, Any] | None = None,
+    target_asset: str | None = None,
+    *,
+    policy_cfg: dict[str, Any] | None = None,
+) -> None:
+    """Verify per-asset rules strategies do not leak signals/orders across assets."""
+    import bisect
+
+    from warden.engine_sim import extract_execution_policy, run_engine_strategy
+    from warden.protocols import resolve_protocol_target
+
+    target = resolve_protocol_target(mod)
+    if getattr(mod, "cross_sectional", False) or getattr(mod, "portfolio_coupled", False) or getattr(target, "cross_sectional", False) or getattr(target, "portfolio_coupled", False):
+        return
+
+    norm_df = (
+        bars_df.rename({"symbol": "asset"})
+        if "symbol" in bars_df.columns and "asset" not in bars_df.columns
+        else bars_df
+    ).sort("timestamp", "asset")
+    if hasattr(mod, "per_asset_pipeline") and callable(getattr(mod.per_asset_pipeline, "compute", None)):
+        verify_asset_independence(mod.per_asset_pipeline, norm_df, contract, target_asset=target_asset)
+
+    assets = sorted(norm_df["asset"].unique().to_list())
+    if len(assets) < 2:
+        return
+    shock_asset = assets[0] if target_asset is None else target_asset
+    ts = sorted(norm_df["timestamp"].unique().to_list())
+    v_start = bisect.bisect_left(ts, contract.val_start)
+    v_stop = bisect.bisect_left(ts, contract.val_end)
+    if v_stop <= v_start + 4:
+        v_start = max(4, len(ts) // 4)
+        v_stop = len(ts)
+
+    policy = extract_execution_policy(policy_cfg or {}, dict(params or {}))
+    base_sim = run_engine_strategy(
+        norm_df,
+        target.configure_strategy(contract, dict(params or {})),
+        ts,
+        assets,
+        contract,
+        slice(v_start, v_stop),
+        **policy,
+    )
+    shocked_df = norm_df.with_columns(
+        [
+            pl.when(pl.col("asset") == shock_asset).then(pl.col(c) * 2.0).otherwise(pl.col(c)).alias(c)
+            for c in ("open", "high", "low", "close")
+            if c in norm_df.columns
+        ]
+    )
+    shock_sim = run_engine_strategy(
+        shocked_df,
+        target.configure_strategy(contract, dict(params or {})),
+        ts,
+        assets,
+        contract,
+        slice(v_start, v_stop),
+        **policy,
+    )
+
+    for j, asset in enumerate(assets):
+        if asset == shock_asset:
+            continue
+        if not np.allclose(base_sim.positions[:, j], shock_sim.positions[:, j], rtol=1e-4, atol=1e-4):
+            raise CrossAssetLeakageError(
+                f"Cross-asset leakage detected in '{asset}' when shocking '{shock_asset}'"
+            )
 
 
 from warden_evidence.feature_cache import compute_and_cache_features  # noqa: F401

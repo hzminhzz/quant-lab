@@ -140,9 +140,14 @@ lists what landed; `UNTANGLE_DECISION_LOG.md` and `EVIDENCE_INTEGRITY.md` hold t
 principal-delegation authorization trails.
 
 ### Strategy authoring
-- Cross-sectional Ridge modules call `strategies/candidates/cs_common.py::cs_positions`; rules_ts
-  sizing calls `strategies/candidates/ts_common.py::capped_waterfall_weights` (standard / `_clamp` /
-  `_feasibility` variants). Extend these shared scaffolds rather than copying them into a new module.
+- New `ACTIVE` hypotheses must implement one of the two inverted causal protocols in `src/warden/protocols.py`
+  (`generate_positions` is frozen for read-only historical replay only and fails closed on `ACTIVE` hypotheses):
+  - `CausalModelStrategy` (`pipeline` + `build_estimator(params) -> WalkForwardModelProtocol`), where Warden owns
+    `WalkForwardCV`, `MLDatasetBuilder` fold scaling, label stripping, and `cross_sectional_ic_series`.
+    Reference template: `strategies/baselines/causal_ridge_1h.py`.
+  - `CausalRulesStrategy` (`required_symbols(params)` + `configure_strategy(contract, params) -> Strategy`),
+    where Warden owns `ml4t.backtest.Engine` execution and native risk overlays (`MaxDrawdownLimit`, `StopLoss`).
+    Reference template: `strategies/candidates/causal_rules_drawdown_template.py`.
 - Sibling helpers import by bare name; `warden.strategy_loader` puts the module's directory on
   `sys.path` once. Add no per-module `sys.path` bootstrap (the old carver convention is retired).
 - A strategy that loads code at runtime (`load_module_from_path`) or imports from a subdir declares

@@ -121,13 +121,19 @@ def test_synthetic_run_is_recorded_and_never_promoted(tmp_path: Path) -> None:
     _manifest(tmp_path, contract, provenance="synthetic")
     (tmp_path / "strategies").mkdir(exist_ok=True)
     (tmp_path / "strategies" / "flat.py").write_text(
-        "import numpy as np\n"
-        "def generate_positions(panel_df, contract, **kwargs):\n"
-        "    ts = sorted(panel_df['timestamp'].unique().to_list())\n"
-        "    assets = sorted(panel_df['asset'].unique().to_list())\n"
-        "    pos = np.zeros((len(ts), len(assets)))\n"
-        "    pos[::4] = 0.1\n"
-        "    return {'positions': pos}\n")
+        "from ml4t.backtest import Strategy\n"
+        "from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor\n"
+        "def required_symbols(params): return None\n"
+        "class _Flat(Strategy):\n"
+        "    def __init__(self):\n"
+        "        self._bar = 0\n"
+        "        self._exec = TargetWeightExecutor(RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.5, max_gross_leverage=1.0))\n"
+        "    def on_data(self, timestamp, data, context, broker):\n"
+        "        if self._bar % 4 == 0:\n"
+        "            self._exec.execute({a: 0.1 for a in data}, data, broker, timestamp=timestamp)\n"
+        "        self._bar += 1\n"
+        "def configure_strategy(contract, params): return _Flat()\n"
+    )
     (tmp_path / "contracts" / "tiny_v1.yaml").write_text(yaml.safe_dump({**contract.__dict__, "contract_id": "TINY_V1"}))
     reg = ResearchRegistry(tmp_path / "registry.db")
     reg.register_contract(contract)

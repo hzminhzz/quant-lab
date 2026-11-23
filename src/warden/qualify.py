@@ -11,8 +11,14 @@ import polars as pl
 import yaml
 
 from warden.codeid import code_closure
-from warden.engine_sim import extract_execution_policy, run_engine_simulation
+from warden.engine_sim import extract_execution_policy, run_engine_simulation, run_engine_strategy
 from warden.gates import HOLDOUT_RATIO_FLOOR, HOLDOUT_SR_FLOOR
+from warden.protocols import (
+    detect_strategy_protocol,
+    resolve_effective_params,
+    resolve_protocol_target,
+    run_causal_model_strategy,
+)
 from warden.provenance import resolve_dataset
 from warden.runner import (
     ExperimentRunner,
@@ -124,10 +130,14 @@ def qualify_candidate(
 
     policy_kw = extract_execution_policy(cfg_dict, params, trial.get("diagnostics_json"))
 
+    mod = load_module_from_path(strat_path)
+    protocol = detect_strategy_protocol(mod)
+    effective_params = resolve_effective_params(mod, protocol, params)
+
     raw_panel = pl.read_parquet(h_path)
     if "symbol" in raw_panel.columns and "asset" not in raw_panel.columns:
         raw_panel = raw_panel.rename({"symbol": "asset"})
-    raw_panel = filter_target_symbols(raw_panel, params, str(h_path)).sort("timestamp", "asset")
+    raw_panel = filter_target_symbols(raw_panel, effective_params, str(h_path)).sort("timestamp", "asset")
     window_df = raw_panel.filter(
         (pl.col("timestamp") >= contract.holdout_start) & (pl.col("timestamp") <= contract.holdout_end)
     )
@@ -138,11 +148,26 @@ def qualify_candidate(
     assets = sorted(panel_df["asset"].unique().to_list())
     n_bars = len(ts)
 
-    mod = load_module_from_path(strat_path)
-    out = mod.generate_positions(panel_df, contract, **params)
-    sim = run_engine_simulation(
-        panel_df, out["positions"], ts, assets, contract, slice(0, n_bars), **policy_kw
-    )
+    if protocol == "causal_rules":
+        strat_obj = resolve_protocol_target(mod).configure_strategy(contract, params)
+        sim = run_engine_strategy(
+            panel_df, strat_obj, ts, assets, contract, slice(0, n_bars), **policy_kw
+        )
+    elif protocol == "causal_model":
+        min_train = max(
+            int(contract.label_horizon_bars) + int(contract.execution_delay_bars) + int(contract.embargo_bars) + 4,
+            n_bars // 4,
+        )
+        holdout_slice = slice(min_train, n_bars)
+        out = run_causal_model_strategy(mod, panel_df, contract, ts, assets, holdout_slice, params)
+        sim = run_engine_simulation(
+            panel_df, out["positions"], ts, assets, contract, holdout_slice, **policy_kw
+        )
+    else:
+        out = mod.generate_positions(panel_df, contract, **params)
+        sim = run_engine_simulation(
+            panel_df, out["positions"], ts, assets, contract, slice(0, n_bars), **policy_kw
+        )
     m = calculate_metrics_from_returns(
         sim.gross_returns, sim.net_returns, sim.turnover, contract.bars_per_year
     )

@@ -136,31 +136,33 @@ def _write_closure_strategy(repo: Path, main_name: str, sibling_name: str, runti
     (strat_dir / f"{runtime_name}.py").write_text("RUNTIME_SCALE = 1.0\n", encoding="utf-8")
     rel = f"strategies/candidates/{main_name}.py"
     (repo / rel).write_text(f"""from pathlib import Path
-import numpy as np
-import polars as pl
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 from {sibling_name} import SIBLING_WEIGHT
 from warden.strategy_loader import load_module_from_path
 
 CODE_DEPENDENCIES = ("strategies/candidates/{runtime_name}.py",)
+portfolio_coupled = True
 
 
-class CausalClosurePipeline:
-    def compute(self, bars_df, contract):
-        return bars_df.sort("timestamp", "asset").with_columns(
-            pl.col("close").pct_change().shift(1).over("asset").fill_null(0.0).alias("sig")
+def required_symbols(params):
+    return None
+
+
+class _ClosureStrategy(Strategy):
+    def __init__(self):
+        dep = load_module_from_path(Path(CODE_DEPENDENCIES[0]))
+        self._wt = SIBLING_WEIGHT * dep.RUNTIME_SCALE
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.5, max_gross_leverage=1.0)
         )
 
+    def on_data(self, timestamp, data, context, broker):
+        self._exec.execute({{a: self._wt for a in data}}, data, broker, timestamp=timestamp)
 
-pipeline = CausalClosurePipeline()
 
-
-def generate_positions(panel_df, contract, **kwargs):
-    dep = load_module_from_path(Path(CODE_DEPENDENCIES[0]))
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    pos = np.full((len(ts), len(assets)), SIBLING_WEIGHT * dep.RUNTIME_SCALE, dtype=float)
-    pos[0] = 0.0
-    return {{"positions": pos}}
+def configure_strategy(contract, params):
+    return _ClosureStrategy()
 """, encoding="utf-8")
     return rel
 
@@ -291,7 +293,7 @@ def test_target_symbols_pre_reservation_guard_and_calendar_filtering(tmp_path: P
             "strategy_module": "strategies/candidates/ts_breakout_20_1h.py",
             "parameters": {"target_symbols": ["NOT_REAL"]},
         }), encoding="utf-8")
-        snap_runner = ExperimentRunner(registry=ResearchRegistry(snap_db), repo_root=REPO_ROOT)
+        snap_runner = ExperimentRunner(registry=ResearchRegistry(snap_db), repo_root=REPO_ROOT, allow_legacy_replay=True)
         with pytest.raises(ValueError, match="unknown symbols"):
             snap_runner.run_spec(typo_spec)
         with sqlite3.connect(snap_db) as conn:
@@ -325,15 +327,30 @@ def test_target_symbols_pre_reservation_guard_and_calendar_filtering(tmp_path: P
         "contract_id": "MULTI_STAG_V1", "path": c.exploratory_data_path,
         "sha256": sha, "provenance": "verified_market", "source": "fixture",
     }), encoding="utf-8")
-    (repo / "strategies" / "aaa_only.py").write_text("""import numpy as np
-def generate_positions(panel_df, contract, **kwargs):
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    assert assets == ["AAA"], f"expected filtered AAA only, got {assets}"
-    assert len(ts) == 80, f"expected 80 bars without BBB dead timestamps, got {len(ts)}"
-    pos = np.full((len(ts), len(assets)), 0.5, dtype=float)
-    pos[0] = 0.0
-    return {"positions": pos}
+    (repo / "strategies" / "aaa_only.py").write_text("""from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
+
+
+def required_symbols(params):
+    return params.get("target_symbols")
+
+
+class _AAAOnlyStrategy(Strategy):
+    def __init__(self):
+        self._bars = 0
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.6, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        assert sorted(data.keys()) == ["AAA"], f"expected filtered AAA only, got {sorted(data.keys())}"
+        if self._bars >= 1:
+            self._exec.execute({"AAA": 0.5}, data, broker, timestamp=timestamp)
+        self._bars += 1
+
+
+def configure_strategy(contract, params):
+    return _AAAOnlyStrategy()
 """, encoding="utf-8")
 
     reg = ResearchRegistry(repo / "registry" / "registry.db")
@@ -396,14 +413,30 @@ def generate_positions(panel_df, contract, **kwargs):
         "Testing holdout target_symbols filtering",
         "Friction explanation of twenty chars", 4, "Reject if holdout unfiltered",
     ))
-    (repo / "strategies" / "aaa_holdout.py").write_text("""import numpy as np
-def generate_positions(panel_df, contract, **kwargs):
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    assert assets == ["AAA"], f"expected AAA only on holdout, got {assets}"
-    pos = np.full((len(ts), len(assets)), 0.5, dtype=float)
-    pos[0] = 0.0
-    return {"positions": pos}
+    (repo / "strategies" / "aaa_holdout.py").write_text("""from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
+
+
+def required_symbols(params):
+    return params.get("target_symbols")
+
+
+class _AAAHoldoutStrategy(Strategy):
+    def __init__(self):
+        self._bars = 0
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.6, max_gross_leverage=1.0)
+        )
+
+    def on_data(self, timestamp, data, context, broker):
+        assert sorted(data.keys()) == ["AAA"], f"expected AAA only on holdout, got {sorted(data.keys())}"
+        if self._bars >= 1:
+            self._exec.execute({"AAA": 0.5}, data, broker, timestamp=timestamp)
+        self._bars += 1
+
+
+def configure_strategy(contract, params):
+    return _AAAHoldoutStrategy()
 """, encoding="utf-8")
     spec_q = tmp_path / "spec_q.yaml"
     spec_q.write_text(yaml.safe_dump({
@@ -442,7 +475,11 @@ def test_1m_low_volatility_fails_stage0_empirical_guard(tmp_path: Path) -> None:
         "contract_id": c.contract_id, "path": c.exploratory_data_path,
         "sha256": sha, "provenance": "verified_market", "source": "fixture",
     }), encoding="utf-8")
-    (repo / "strategies" / "scalper.py").write_text("def generate_positions(*a, **k): raise AssertionError('should not run')\n", encoding="utf-8")
+    (repo / "strategies" / "scalper.py").write_text(
+        "def required_symbols(params): return None\n"
+        "def configure_strategy(contract, params): raise AssertionError('should not run')\n",
+        encoding="utf-8",
+    )
 
     reg = ResearchRegistry(repo / "registry" / "registry.db")
     reg.register_contract(c)

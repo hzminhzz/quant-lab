@@ -194,7 +194,7 @@ def generate_positions(panel_df, contract, **kwargs):
         taker_fee_bps=1.0,
         slippage_bps=1.0,
     )
-    runner = ExperimentRunner(registry=reg, repo_root=repo)
+    runner = ExperimentRunner(registry=reg, repo_root=repo, allow_legacy_replay=True)
     report = runner.run_stage1_screen(spec_path)
 
     assert report.strategy_family == "rules_ts"
@@ -259,7 +259,7 @@ def generate_positions(panel_df, contract, **kwargs):
         taker_fee_bps=0.5,
         slippage_bps=0.5,
     )
-    runner = ExperimentRunner(registry=reg, repo_root=repo)
+    runner = ExperimentRunner(registry=reg, repo_root=repo, allow_legacy_replay=True)
     report = runner.run_stage1_screen(spec_path)
 
     assert report.passed is False
@@ -332,7 +332,7 @@ def generate_positions(panel_df, contract, **kwargs):
         holdout_start=val_end,
         holdout_end=holdout_end,
     )
-    runner = ExperimentRunner(registry=reg, repo_root=repo)
+    runner = ExperimentRunner(registry=reg, repo_root=repo, allow_legacy_replay=True)
 
     t0 = time.perf_counter()
     report = runner.run_stage1_screen(spec_path)
@@ -428,7 +428,7 @@ def generate_positions(panel_df, contract, **kwargs):
         return orig_eval_cs(ic_series, **kwargs)
 
     monkeypatch.setattr("warden.runner.evaluate_stage1_cross_sectional_ml", _spy_eval_cs)
-    runner = ExperimentRunner(registry=reg, repo_root=repo)
+    runner = ExperimentRunner(registry=reg, repo_root=repo, allow_legacy_replay=True)
     report = runner.run_stage1_screen(spec_path)
 
     assert seen_horizons == [4 + 1]
@@ -1057,7 +1057,7 @@ def generate_positions(panel_df, contract, **kwargs):
     spec_cfg["param_grid"] = [{"weight": 0.4}, {"weight": 0.6}]
     spec_path.write_text(yaml.safe_dump(spec_cfg), encoding="utf-8")
 
-    runner = ExperimentRunner(registry=reg, repo_root=repo)
+    runner = ExperimentRunner(registry=reg, repo_root=repo, allow_legacy_replay=True)
     res = runner.run_spec(spec_path)
 
     # 1. ENGINE_SIMULATION_EPOCH
@@ -1193,7 +1193,7 @@ def generate_positions(panel_df, contract, **kwargs):
         holdout_end=holdout_end,
         label_horizon_bars=1,
     )
-    runner_l = ExperimentRunner(registry=reg_l, repo_root=repo_l)
+    runner_l = ExperimentRunner(registry=reg_l, repo_root=repo_l, allow_legacy_replay=True)
     with pytest.raises(LeveragePolicyError):
         runner_l.run_spec(spec_l, override_run_id="RUN-LEV-FAIL")
 
@@ -1235,7 +1235,7 @@ def generate_positions(panel_df, contract, **kwargs):
         holdout_end=holdout_end,
         label_horizon_bars=1,
     )
-    runner_q = ExperimentRunner(registry=reg_q, repo_root=repo_q)
+    runner_q = ExperimentRunner(registry=reg_q, repo_root=repo_q, allow_legacy_replay=True)
     res_q = runner_q.run_spec(spec_q)
     assert res_q.verdict == "CANDIDATE_FOR_QUALIFICATION"
     with pytest.raises(LeveragePolicyError):

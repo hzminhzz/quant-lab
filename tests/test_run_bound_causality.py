@@ -12,22 +12,26 @@ from warden.contracts import ExperimentResult, canonical_json
 from warden.runner import ExperimentRunner
 
 MODULE = """
-import numpy as np
-import polars as pl
+from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 
-class CausalPipeline:
-    def compute(self, bars_df, contract):
-        return bars_df.sort("timestamp", "asset").with_columns(
-            pl.col("close").shift(1).over("asset").alias("past_close"))
+def required_symbols(params):
+    return None
 
-pipeline = CausalPipeline()
+class _CausalModuleStrategy(Strategy):
+    def __init__(self):
+        self._bar = 0
+        self._exec = TargetWeightExecutor(
+            RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=0.5, max_gross_leverage=1.0)
+        )
 
-def generate_positions(panel_df, contract, **kwargs):
-    times = len(panel_df["timestamp"].unique())
-    assets = len(panel_df["asset"].unique())
-    p = np.zeros((times, assets))
-    p[::4] = 0.1
-    return {"positions": p}
+    def on_data(self, timestamp, data, context, broker):
+        w = 0.1 if self._bar % 4 == 0 else 0.0
+        self._exec.execute({a: w for a in data}, data, broker, timestamp=timestamp)
+        self._bar += 1
+
+def configure_strategy(contract, params):
+    return _CausalModuleStrategy()
 """
 
 

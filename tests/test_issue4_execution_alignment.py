@@ -143,7 +143,7 @@ def generate_positions(panel_df, contract, **kwargs):
     pos[2::4] = 0.1
     return {"positions": pos, "signal_delay_bars": contract.execution_delay_bars}
 """)
-    runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
+    runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo, allow_legacy_replay=True)
     with pytest.raises(DoubleLatencyError, match="signals must not be pre-lagged"):
         runner.run_spec(fixture.spec)
     with fixture.registry._connect() as conn:

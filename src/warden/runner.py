@@ -39,6 +39,7 @@ from warden.engine_sim import (
     extract_execution_policy,
     require_execution_columns,
     run_engine_simulation,
+    run_engine_strategy,
 )
 from warden.gates import (
     DSR_FLOOR,
@@ -56,6 +57,12 @@ from warden.gates import (
     evaluate_stage0_feasibility,
     evaluate_stage1_cross_sectional_ml,
     evaluate_stage1_rules_ts,
+)
+from warden.protocols import (
+    load_and_enforce_strategy_protocol,
+    resolve_effective_params,
+    resolve_protocol_target,
+    run_causal_model_strategy,
 )
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
@@ -246,9 +253,16 @@ def default_run_id(hypothesis_id: str, trial_number: int) -> str:
 
 
 class ExperimentRunner:
-    def __init__(self, registry: ResearchRegistry | None = None, repo_root: Path = Path(".")):
+    def __init__(
+        self,
+        registry: ResearchRegistry | None = None,
+        repo_root: Path = Path("."),
+        *,
+        allow_legacy_replay: bool = False,
+    ):
         self.repo_root = Path(repo_root)
         self.registry = registry or ResearchRegistry(self.repo_root / "registry" / "registry.db")
+        self.allow_legacy_replay = bool(allow_legacy_replay)
         self._stage0_vol_cache: dict[tuple[str, tuple[str, ...], int], float] = {}
 
     def resolve_contract(self, contract_id: str) -> EvaluationContract:
@@ -291,16 +305,47 @@ class ExperimentRunner:
         simulation_epoch = str(cfg.get("simulation_epoch") or ENGINE_SIMULATION_EPOCH)
         strat_module = normalise_module(str(cfg.get("strategy_module", "")))
         with self.registry._connect() as conn:
-            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
+            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, status FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
             if not h:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
             hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
-            trials_used = h[5]
-        dataset, panel_df, ts, assets, v_slice, _ = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module, params, trials_used, simulation_epoch=simulation_epoch)
-        screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
+            trials_used, hyp_status = h[5], h[6]
         strat_file = self.repo_root / strat_module
-        out = _run_strategy_isolated(strat_file, panel_df, contract, params)
+        strat_mod, protocol = load_and_enforce_strategy_protocol(
+            strat_file,
+            hypothesis_status=str(hyp_status),
+            strategy_family=family,
+            allow_legacy_replay=self.allow_legacy_replay,
+        )
+        effective_params = resolve_effective_params(strat_mod, protocol, params)
+        dataset, panel_df, ts, assets, v_slice, _ = self._prepare_and_check_stage0(
+            contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch)
+        screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
+        if protocol == "causal_rules":
+            policy_dict = extract_execution_policy(cfg, params)
+            strat_obj = resolve_protocol_target(strat_mod).configure_strategy(contract, params)
+            sim1 = run_engine_strategy(
+                panel_df, strat_obj, ts, assets, contract, v_slice, cost_multiplier=1.0, **policy_dict
+            )
+            report = evaluate_stage1_rules_ts(
+                sim1.net_returns,
+                sim1.gross_returns,
+                contract.total_one_way_cost_decimal(),
+                sim1.positions,
+                bars_per_year=contract.bars_per_year,
+                holding_horizon_bars=hyp.expected_holding_bars,
+            )
+            self.registry.record_selection_attempt(
+                hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
+                stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
+                strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
+                returns=sim1.net_returns, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                screen_key=screen_key, simulation_epoch=simulation_epoch)
+            return report
+        if protocol == "causal_model":
+            out = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, params)
+        else:
+            out = _run_strategy_isolated(strat_file, panel_df, contract, params)
         if family == "cross_sectional_ml":
             report, ic_series = _evaluate_cs_ml_stage1(out, contract)
             self.registry.record_selection_attempt(
@@ -338,7 +383,7 @@ class ExperimentRunner:
         policy_dict = extract_execution_policy(cfg, params)
 
         with self.registry._connect() as conn:
-            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, strategy_family, source_published_at FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
+            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, strategy_family, source_published_at, status FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
             if not h:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
             reg_family = h[6]
@@ -346,7 +391,15 @@ class ExperimentRunner:
                 raise ValueError(f"Experiment spec strategy_family '{family}' does not match registered hypothesis family '{reg_family}'.")
             hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], reg_family, h[1], h[2], int(h[3]), h[4],
                                  source_published_at=h[7])
-            trials_used = h[5]
+            trials_used, hyp_status = h[5], h[8]
+
+        strat_module = strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
+        strat_mod, protocol = load_and_enforce_strategy_protocol(
+            self.repo_root / strat_module,
+            hypothesis_status=str(hyp_status),
+            strategy_family=family,
+            allow_legacy_replay=self.allow_legacy_replay,
+        )
 
         is_linear = model_type.lower() in {"ridge", "linear", "elasticnet", "ols", "lasso"}
         if family == "cross_sectional_ml" and not is_linear:
@@ -358,9 +411,10 @@ class ExperimentRunner:
                 if not r or r[0] == 0:
                     raise LinearBaselineRequiredError(f"Linear baseline required for '{hyp_id}' before non-linear model '{model_type}'.")
 
-        strat_module = strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
+        effective_params = resolve_effective_params(strat_mod, protocol, params)
+
         dataset, panel_df, ts, assets, v_slice, code_sha = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module_str, params, trials_used, simulation_epoch=simulation_epoch)
+            contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch)
         run_id = override_run_id or cfg.get("run_id") or default_run_id(hyp_id, trials_used + 1)
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
@@ -372,12 +426,29 @@ class ExperimentRunner:
             ret_p = execution_returns(panel_df, contract, assets)
 
             strat_file = self.repo_root / strat_module
-            out = _run_strategy_isolated(strat_file, panel_df, contract, params)
-            if int(out.get("signal_delay_bars", 0)) > 0:
-                raise DoubleLatencyError(
-                    f"'{strat_name}' declares signal_delay_bars={out['signal_delay_bars']} while Warden already "
-                    f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
-            raw_pos = out["positions"]
+            if protocol == "causal_rules":
+                strat_target = resolve_protocol_target(strat_mod)
+                sim1 = run_engine_strategy(
+                    panel_df,
+                    strat_target.configure_strategy(contract, params),
+                    ts,
+                    assets,
+                    contract,
+                    v_slice,
+                    cost_multiplier=1.0,
+                    **policy_dict,
+                )
+                raw_pos = None
+            else:
+                if protocol == "causal_model":
+                    out = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, params)
+                else:
+                    out = _run_strategy_isolated(strat_file, panel_df, contract, params)
+                if int(out.get("signal_delay_bars", 0)) > 0:
+                    raise DoubleLatencyError(
+                        f"'{strat_name}' declares signal_delay_bars={out['signal_delay_bars']} while Warden already "
+                        f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
+                raw_pos = out["positions"]
 
             prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
 
@@ -397,9 +468,10 @@ class ExperimentRunner:
                     self.registry.record_trial(res, params, np.zeros(0), trial_number=trial_num, diagnostics=diag)
                     return res
 
-            sim1 = run_engine_simulation(
-                panel_df, raw_pos, ts, assets, contract, v_slice, cost_multiplier=1.0, **policy_dict
-            )
+            if protocol != "causal_rules":
+                sim1 = run_engine_simulation(
+                    panel_df, raw_pos, ts, assets, contract, v_slice, cost_multiplier=1.0, **policy_dict
+                )
             sr_1p5 = analytical_1p5x_sharpe(
                 sim1.backtest_result, contract.bars_per_year, start_idx=v_slice.start or 0
             )
@@ -421,22 +493,59 @@ class ExperimentRunner:
                 else None
             )
 
-            sim2 = run_engine_simulation(
-                panel_df, raw_pos, ts, assets, contract, v_slice, cost_multiplier=2.0, **policy_dict
-            )
-            sim_d = run_engine_simulation(
-                panel_df, raw_pos, ts, assets, contract, v_slice, delay_offset=1, **policy_dict
-            )
+            if protocol == "causal_rules":
+                strat_target = resolve_protocol_target(strat_mod)
+                sim2 = run_engine_strategy(
+                    panel_df,
+                    strat_target.configure_strategy(contract, params),
+                    ts,
+                    assets,
+                    contract,
+                    v_slice,
+                    cost_multiplier=2.0,
+                    **policy_dict,
+                )
+                sim_d = run_engine_strategy(
+                    panel_df,
+                    strat_target.configure_strategy(contract, params),
+                    ts,
+                    assets,
+                    contract,
+                    v_slice,
+                    delay_offset=1,
+                    **policy_dict,
+                )
+            else:
+                sim2 = run_engine_simulation(
+                    panel_df, raw_pos, ts, assets, contract, v_slice, cost_multiplier=2.0, **policy_dict
+                )
+                sim_d = run_engine_simulation(
+                    panel_df, raw_pos, ts, assets, contract, v_slice, delay_offset=1, **policy_dict
+                )
             sr2 = annualised_sharpe(sim2.net_returns, contract.bars_per_year)
             srd = annualised_sharpe(sim_d.net_returns, contract.bars_per_year)
 
             ngrid, n_sr = cfg.get("param_grid") or [], []
             grid_returns_list: list[np.ndarray] = [net_ret]
             for grid_params in ngrid:
-                grid_pos = _run_strategy_isolated(strat_file, panel_df, contract, grid_params)["positions"]
-                grid_sim = run_engine_simulation(
-                    panel_df, grid_pos, ts, assets, contract, v_slice, **policy_dict
-                )
+                if protocol == "causal_rules":
+                    grid_sim = run_engine_strategy(
+                        panel_df,
+                        resolve_protocol_target(strat_mod).configure_strategy(contract, grid_params),
+                        ts,
+                        assets,
+                        contract,
+                        v_slice,
+                        **policy_dict,
+                    )
+                else:
+                    if protocol == "causal_model":
+                        grid_pos = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, grid_params)["positions"]
+                    else:
+                        grid_pos = _run_strategy_isolated(strat_file, panel_df, contract, grid_params)["positions"]
+                    grid_sim = run_engine_simulation(
+                        panel_df, grid_pos, ts, assets, contract, v_slice, **policy_dict
+                    )
                 grid_returns_list.append(grid_sim.net_returns)
                 n_sr.append(annualised_sharpe(grid_sim.net_returns, contract.bars_per_year))
                 # Grid configurations consume validation evidence: count them, never silently.

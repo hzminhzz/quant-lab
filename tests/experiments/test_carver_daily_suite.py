@@ -627,7 +627,7 @@ def test_a_raising_strategy_leaves_no_screen_row_and_no_trial(tiny_repo):
         module_source="def generate_positions(*a, **k):\n    raise RuntimeError('boom')\n",
         module_name="boom",
     )
-    runner = ExperimentRunner(registry=case.registry, repo_root=case.repo)
+    runner = ExperimentRunner(registry=case.registry, repo_root=case.repo, allow_legacy_replay=True)
 
     with pytest.raises(RuntimeError):
         runner.run_stage1_screen(case.spec)

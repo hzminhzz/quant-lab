@@ -23,12 +23,27 @@ from warden.gates import (
     TRIMMED_SHARPE_FLOOR,
     compute_trimmed_sharpe,
 )
-from warden.leakage import compute_and_cache_features, verify_prefix_invariance
+from warden.leakage import (
+    CrossAssetLeakageError,
+    LookaheadLeakageError,
+    compute_and_cache_features,
+    verify_model_prefix_invariance,
+    verify_prefix_invariance,
+    verify_rules_strategy_asset_independence,
+    verify_rules_strategy_prefix_invariance,
+)
 from warden.lease import MutationBusy, mutation_lease
 from warden.policy import Decision, authorize
+from warden.protocols import (
+    LegacyStrategyProtocolError,
+    RulesProofPipeline,
+    enforce_active_strategy_protocol,
+    resolve_effective_params,
+    resolve_protocol_target,
+)
 from warden.provenance import resolve_dataset
 from warden.registry import normalise_module
-from warden.runner import ExperimentRunner
+from warden.runner import ExperimentRunner, filter_target_symbols
 from warden.strategy_loader import load_module_from_path
 from warden_evidence.feature_cache import verified_feature_evidence
 
@@ -130,24 +145,73 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     import yaml
     cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
     contract = runner.resolve_contract(cfg["contract_id"])
+    params = cfg.get("parameters", {}) or {}
     strat_module = normalise_module(cfg["strategy_module"])
     mod = load_module_from_path(runner.repo_root / strat_module)
-    pipeline = getattr(mod, "pipeline", None) or (mod if hasattr(mod, "compute") else None)
-    if not pipeline:
-        print("Error: Strategy module does not expose a pipeline or compute() method.", file=sys.stderr)
+    hyp_status = "ACTIVE"
+    hyp_id = cfg.get("hypothesis_id")
+    if hyp_id and runner.registry.db_path.is_file():
+        with runner.registry._connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM hypotheses WHERE hypothesis_id=?",
+                (hyp_id,),
+            ).fetchone()
+            if row:
+                hyp_status = str(row[0])
+    try:
+        protocol = enforce_active_strategy_protocol(
+            mod,
+            hypothesis_status=hyp_status,
+            strategy_family=cfg.get("strategy_family"),
+            allow_legacy_replay=runner.allow_legacy_replay,
+        )
+        dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
+        panel = pl.read_parquet(runner.repo_root / dataset.path)
+        if "symbol" in panel.columns and "asset" not in panel.columns:
+            panel = panel.rename({"symbol": "asset"})
+        effective_params = resolve_effective_params(mod, protocol, params)
+        panel = filter_target_symbols(panel, effective_params, str(dataset.path)).sort("timestamp", "asset")
+
+        cache_dir = runner.repo_root / "cache" / "features"
+        if protocol == "causal_model":
+            verify_model_prefix_invariance(mod, panel, contract, params)
+            pipeline = resolve_protocol_target(mod).pipeline
+        elif protocol == "causal_rules":
+            verify_rules_strategy_prefix_invariance(mod, panel, contract, params, policy_cfg=cfg)
+            verify_rules_strategy_asset_independence(mod, panel, contract, params, policy_cfg=cfg)
+            mod_sha, _ = code_closure(runner.repo_root, strat_module)
+            pipeline = RulesProofPipeline(
+                repo_root=str(runner.repo_root.resolve()),
+                strategy_module=strat_module,
+                code_sha256=mod_sha,
+                params=dict(params),
+                policy_cfg=cfg,
+            )
+        else:
+            pipeline = getattr(mod, "pipeline", None) or (mod if hasattr(mod, "compute") else None)
+            if not pipeline:
+                raise ValueError("Strategy module does not expose a pipeline or compute() method.")
+            verify_prefix_invariance(pipeline, panel, contract)
+
+        compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry)
+        proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir)
+        if not proof["verified"]:
+            raise ValueError("Causal cache artifact could not be independently reconciled")
+    except (
+        LegacyStrategyProtocolError,
+        LookaheadLeakageError,
+        CrossAssetLeakageError,
+        ValueError,
+        RuntimeError,
+        KeyError,
+        pl.exceptions.PolarsError,
+    ) as exc:
+        print(f"Verify failed: {exc}", file=sys.stderr)
         return 1
-    dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
-    panel = pl.read_parquet(runner.repo_root / dataset.path)
-    verify_prefix_invariance(pipeline, panel, contract)
-    cache_dir = runner.repo_root / "cache" / "features"
-    compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry)
-    proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir)
-    if not proof["verified"]:
-        raise ValueError("Causal cache artifact could not be independently reconciled")
     evidence = runner.registry.record_spec_causality(
         hypothesis_id=cfg["hypothesis_id"], contract_id=contract.contract_id,
         strategy_module=strat_module,
-        config_hash=hashlib.sha256(canonical_json(cfg.get("parameters", {})).encode()).hexdigest()[:12],
+        config_hash=hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12],
         data_sha256=dataset.sha256,
         module_sha256=code_closure(runner.repo_root, strat_module)[0],
         feature_identity=proof["feature_identity"], artifact_sha256=proof["artifact_sha256"],
@@ -163,7 +227,20 @@ def cmd_verify(args: argparse.Namespace, runner: ExperimentRunner) -> int:
 def cmd_screen(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     if not check_worktree():
         sys.exit(2)
-    report = runner.run_stage1_screen(Path(args.spec_yaml))
+    import polars as pl
+    try:
+        report = runner.run_stage1_screen(Path(args.spec_yaml))
+    except (
+        LegacyStrategyProtocolError,
+        LookaheadLeakageError,
+        CrossAssetLeakageError,
+        ValueError,
+        RuntimeError,
+        KeyError,
+        pl.exceptions.PolarsError,
+    ) as exc:
+        print(f"Screen failed: {exc}", file=sys.stderr)
+        return 1
     import yaml
     contract = runner.resolve_contract(yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))["contract_id"])
     dataset = resolve_dataset(contract, runner.repo_root)

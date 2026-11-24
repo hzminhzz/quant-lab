@@ -1,0 +1,11 @@
+contract_id: CRYPTO_PERPS_4H_V1
+hypothesis_id: HYP-2026-130
+strategy_name: Causal XS Momentum + Carry 4h Ridge Baseline
+strategy_family: cross_sectional_ml
+strategy_module: strategies/candidates/causal_xs_momentum_carry_4h.py
+model_type: ridge
+parameters:
+  ridge_alpha: 10.0
+param_grid:
+  - ridge_alpha: 8.5
+  - ridge_alpha: 11.5

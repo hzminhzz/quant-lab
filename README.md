@@ -20,14 +20,14 @@
    - Templates: `.workspace/templates/hypothesis.md` and `.workspace/templates/experiment.yaml`
    - `CausalModelStrategy` baselines: `strategies/baselines/causal_ridge_1h.py`, `strategies/baselines/causal_linear_portfolio_1h.py`, `strategies/baselines/causal_ipca_1h.py`
    - `CausalRulesStrategy` template: `strategies/candidates/causal_rules_drawdown_template.py`
-4. **Run the falsification funnel (never bypass `warden`):**
+4. **Run the falsification funnel with one idempotent command (never bypass `warden`):**
+   - Put the hypothesis at `.workspace/hypotheses/<ID>.md` and experiment spec at `experiments/active/<spec>.yaml` (both stay in place permanently; lifecycle state lives solely in `registry/registry.db`).
    ```bash
-   uv run --frozen warden register-hypothesis .workspace/hypotheses/<ID>.md --json
-   uv run --frozen warden verify experiments/active/<spec>.yaml --json
-   uv run --frozen warden screen experiments/active/<spec>.yaml --json
-   uv run --frozen warden backtest experiments/active/<spec>.yaml --json
-   uv run --frozen warden audit-check --run-id <RUN_ID> --json
+   uv run --frozen warden advance experiments/active/<spec>.yaml --json
+   # Batch all pending specs (cron / unattended runner):
+   uv run --frozen warden advance --pending --json
    ```
+   `warden advance` idempotently registers the hypothesis, checks `research_outcome_memory`, runs `verify` → `screen` → `backtest` → `audit-check`, and is a clean no-op once terminal. Individual stage commands (`register-hypothesis`, `verify`, `screen`, `backtest`, `audit-check`) remain available for step-by-step control.
 
 ---
 
@@ -42,7 +42,7 @@
 | `strategies/baselines/` | Causal baseline templates: `causal_ridge_1h.py`, `causal_linear_portfolio_1h.py`, `causal_ipca_1h.py` (plus frozen legacy `cs_ridge_1h.py`). |
 | `strategies/candidates/` | Candidate strategy modules (including `causal_rules_drawdown_template.py`; legacy `generate_positions()` modules are frozen for historical replay only). |
 | `registry/` | Authoritative SQLite ledger (`registry/registry.db`), immutable return streams (`registry/returns/`), and `ml4t.backtest.Engine` backtest artifacts (`registry/backtest_results/<simulation_epoch>/<contract>/<run_id>`). |
-| `scripts/` | Operational tooling: typed hourly queue coordinator (`hourly_queue_coordinator.py`, invoked by `run_hourly_pipeline.sh`), reviewed stdio MCP adapter (`mcp_warden/adapter.py`), environment probe (`inspect_env.py`), thesis preflight (`preflight_thesis.py`), and shadow engine parity harness (`shadow_engine_parity.py`). |
+| `scripts/` | Operational tooling: thin hourly cron wrapper (`run_hourly_pipeline.sh` → `warden advance --pending`), reviewed stdio MCP adapter (`mcp_warden/adapter.py`), environment probe (`inspect_env.py`), thesis preflight (`preflight_thesis.py`), and shadow engine parity harness (`shadow_engine_parity.py`). |
 
 ---
 

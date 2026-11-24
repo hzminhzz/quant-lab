@@ -25,13 +25,14 @@ COMMANDS = {
     "spec-status": (1, 1, {}),
     "register-hypothesis": (1, 1, {}), "verify": (1, 1, {}),
     "screen": (1, 1, {}), "backtest": (1, 1, {}),
+    "advance": (0, 1, {"--hypothesis": "text"}),
     "audit-check": (0, 0, {"--run-id": "run_id"}),
     "verify-causality": (0, 0, {"--run-id": "run_id"}),
     "attempt-status": (0, 0, {"--run-id": "run_id"}),
     "handoff": (0, 0, {"--notes": "text", "--ticket": "text"}),
     "continue": (0, 1, {}),
 }
-MUTATING = frozenset({"register-hypothesis", "verify", "screen", "backtest", "audit-check", "handoff"})
+MUTATING = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff"})
 
 
 class RestrictedCommandError(ValueError):
@@ -81,11 +82,12 @@ def _trusted_spec(root: Path, relative: str) -> None:
 def _path_arg(root: Path, name: str, value: str) -> str:
     rel, target = _resolve_safe_relative(root, value)
     allowed = {
-        "register-hypothesis": (".workspace/hypotheses/queue", ".workspace/hypotheses/registered"),
-        "verify": ("experiments/active", "experiments/queue"),
-        "screen": ("experiments/active", "experiments/queue"),
-        "backtest": ("experiments/active", "experiments/queue"),
-        "spec-status": ("experiments/active", "experiments/queue"),
+        "register-hypothesis": (".workspace/hypotheses",),
+        "verify": ("experiments/active",),
+        "screen": ("experiments/active",),
+        "backtest": ("experiments/active",),
+        "advance": ("experiments/active",),
+        "spec-status": ("experiments/active",),
         "continue": (".workspace/state", ".workspace/transitions"),
     }[name]
     if not target.is_file() or not any(target.is_relative_to((root / p).resolve()) for p in allowed):
@@ -133,7 +135,9 @@ def build_argv(command: str, positional: list[str] | None = None,
     if not isinstance(raw_flags, dict):
         raise RestrictedCommandError("flags must be a JSON object")
     rendered = [_path_arg(effective_root, command, p) for p in args]
-    if command in {"verify", "screen", "backtest"}:
+    if command in {"verify", "screen", "backtest", "advance"}:
+        if not rendered:
+            raise RestrictedCommandError(f"{command} requires a reviewed spec path")
         _trusted_spec(effective_root, rendered[0])
     result = [sys.executable, "-m", "warden.cli", command, *rendered, "--json"]
     for key, val in raw_flags.items():

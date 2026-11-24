@@ -27,7 +27,7 @@ ExperimentRunner: Any = None
 MANIFEST_FILE = ".warden_manifest.sha256"
 WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and AST boundaries intact."
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
-MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt"})
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt"})
 
 
 def envelope(ok: bool, value, source: str, policy: str = "allow") -> dict:
@@ -394,6 +394,262 @@ def cmd_audit_check(args: argparse.Namespace, runner: _ExperimentRunnerType) -> 
     return 0 if approved else 1
 
 
+def _check_repo_worktree(repo_root: Path) -> bool:
+    if Path(repo_root).resolve() == Path.cwd():
+        return check_worktree()
+    return check_worktree(repo_root)
+
+
+def _invoke_quiet(fn, sub_args: argparse.Namespace, runner: _ExperimentRunnerType) -> tuple[int, str]:
+    import contextlib
+    import io
+
+    out_buf, err_buf = io.StringIO(), io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+            rc = int(fn(sub_args, runner))
+    except SystemExit as exc:
+        rc = 0 if exc.code is None else (exc.code if isinstance(exc.code, int) else 1)
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
+        return 1, f"{type(exc).__name__}: {exc}"
+    detail = (err_buf.getvalue() or out_buf.getvalue()).strip().splitlines()
+    return rc, detail[-1] if detail else ""
+
+
+def _resolve_hypothesis_file(repo_root: Path, hypothesis_id: str, explicit_path: str) -> Path | None:
+    if explicit_path:
+        cand = Path(explicit_path)
+        if cand.is_file():
+            return cand
+        rel_cand = repo_root / cand
+        return rel_cand if rel_cand.is_file() else None
+    hyp_dir = repo_root / ".workspace" / "hypotheses"
+    for ext in (".md", ".yaml", ".yml"):
+        cand = hyp_dir / f"{hypothesis_id}{ext}"
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _advance_one_spec(
+    spec_path: Path,
+    runner: _ExperimentRunnerType,
+    *,
+    hypothesis_path: str = "",
+    check_outcome_memory: bool = True,
+    pending_mode: bool = False,
+) -> dict[str, Any]:
+    import yaml
+
+    from warden.contracts import ContractValidationError, load_hypothesis
+    from warden.protocols import LegacyStrategyProtocolError, detect_strategy_protocol
+    from warden.registry import PER_HYPOTHESIS_CAP, RUNNABLE_HYPOTHESIS_STATUSES, normalise_module
+    from warden.strategy_loader import load_module_from_path
+
+    repo = Path(runner.repo_root)
+    try:
+        spec_rel = spec_path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        spec_rel = str(spec_path)
+
+    def _result(action: str, status_info: dict[str, Any], reason: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "spec": spec_rel,
+            "hypothesis_id": cfg.get("hypothesis_id", ""),
+            "contract_id": cfg.get("contract_id", ""),
+            "state": status_info.get("state", "UNKNOWN"),
+            "action": action,
+            "run_id": status_info.get("run_id"),
+            "verdict": status_info.get("verdict"),
+            "audit_verdict": status_info.get("audit_verdict"),
+            "reason": reason,
+            **extra,
+        }
+
+    try:
+        cfg = yaml.safe_load(spec_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        cfg = {}
+        return _result("REVIEW_REQUIRED", {}, f"Invalid spec YAML: {exc}")
+    if not isinstance(cfg, dict) or not cfg.get("hypothesis_id") or not cfg.get("contract_id"):
+        cfg = cfg if isinstance(cfg, dict) else {}
+        return _result("REVIEW_REQUIRED", {}, "Spec missing hypothesis_id or contract_id")
+
+    hyp_id = str(cfg["hypothesis_id"])
+    cid = str(cfg["contract_id"])
+    module = normalise_module(cfg.get("strategy_module", ""))
+    params = cfg.get("parameters", {}) or {}
+    status = runner.registry.spec_status(hyp_id, cid, module, params)
+
+    if status["state"] in {"STAGE1_REJECT", "STAGE3_FINAL"}:
+        return _result("SKIP_TERMINAL", status, status["reason"])
+    if status["state"] == "REQUIRES_RECONCILIATION":
+        return _result("REVIEW_REQUIRED", status, status["reason"])
+
+    if not status["hypothesis_registered"]:
+        hyp_file = _resolve_hypothesis_file(repo, hyp_id, hypothesis_path)
+        if hyp_file is None:
+            return _result(
+                "BLOCKED_UNREGISTERED",
+                status,
+                f"Hypothesis '{hyp_id}' is not registered and no file was found in .workspace/hypotheses/",
+            )
+        try:
+            hyp = load_hypothesis(hyp_file)
+            contract = runner.resolve_contract(hyp.contract_id)
+            runner.registry.register_contract(contract)
+            runner.registry.register_hypothesis(hyp)
+        except (ContractValidationError, FileNotFoundError, ValueError) as exc:
+            return _result("REVIEW_REQUIRED", status, f"Hypothesis registration failed: {exc}")
+        status = runner.registry.spec_status(hyp_id, cid, module, params)
+
+    if status["hypothesis_status"] not in RUNNABLE_HYPOTHESIS_STATUSES or (
+        int(status.get("hypothesis_trials_used") or 0) >= PER_HYPOTHESIS_CAP
+    ):
+        return _result(
+            "SKIP_TERMINAL",
+            status,
+            f"Hypothesis {hyp_id} non-runnable or budget exhausted "
+            f"(status={status['hypothesis_status']}, trials_used={status.get('hypothesis_trials_used')})",
+        )
+
+    if status["state"] == "NEW":
+        mod_path = repo / module if module else None
+        if mod_path and mod_path.is_file():
+            try:
+                proto = detect_strategy_protocol(load_module_from_path(mod_path))
+            except (LegacyStrategyProtocolError, ImportError, SyntaxError, ValueError):
+                proto = "invalid"
+            if proto == "legacy" and status["hypothesis_status"] == "ACTIVE" and not getattr(runner, "allow_legacy_replay", False):
+                return _result(
+                    "SKIP_LEGACY_FROZEN" if pending_mode else "BLOCKED_LEGACY_PROTOCOL",
+                    status,
+                    "Legacy generate_positions() is frozen for historical replay only; migrate to CausalModelStrategy or CausalRulesStrategy",
+                )
+
+        if check_outcome_memory:
+            index_path = repo / "docs" / "research-outcomes" / "branch-result-index-v1.json"
+            if index_path.is_file():
+                from scripts.research_outcome_memory import check_spec as check_outcome_spec
+
+                mem = check_outcome_spec(spec_path, runner.registry.db_path, index_path)
+                if not mem.get("eligible"):
+                    return _result(
+                        "BLOCKED_OUTCOME_MEMORY",
+                        status,
+                        str(mem.get("reason", "Blocked by research_outcome_memory")),
+                        outcome_memory=mem,
+                    )
+
+        v_rc, v_detail = _invoke_quiet(cmd_verify, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
+        if v_rc != 0:
+            return _result("REVIEW_REQUIRED", status, f"verify failed (exit={v_rc}): {v_detail}")
+
+        s_rc, s_detail = _invoke_quiet(cmd_screen, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
+        status = runner.registry.spec_status(hyp_id, cid, module, params)
+        if status["state"] == "STAGE1_REJECT":
+            return _result("STAGE1_REJECTED", status, f"Stage 1 rejected (exit={s_rc})")
+        if status["state"] != "STAGE1_PASS":
+            return _result(
+                "REVIEW_REQUIRED",
+                status,
+                f"Unexpected post-screen state {status['state']} (exit={s_rc}): {s_detail}",
+            )
+
+    if status["state"] == "STAGE1_PASS":
+        b_rc, b_detail = _invoke_quiet(cmd_backtest, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
+        status = runner.registry.spec_status(hyp_id, cid, module, params)
+        if status["state"] not in {"STAGE3_FINAL", "STAGE3_CANDIDATE_UNAUDITED"}:
+            return _result(
+                "REVIEW_REQUIRED",
+                status,
+                f"Backtest did not reach finalized Stage 3 state ({status['state']}, exit={b_rc}): {b_detail}",
+            )
+        if status["state"] == "STAGE3_FINAL":
+            return _result("BACKTEST_FINALIZED", status, f"Finalized {status.get('run_id')} ({status.get('verdict')})")
+
+    if status["state"] == "STAGE3_CANDIDATE_UNAUDITED":
+        run_id = status.get("run_id")
+        if not run_id:
+            return _result("REVIEW_REQUIRED", status, "Missing run_id for unaudited candidate")
+        a_rc, a_detail = _invoke_quiet(cmd_audit_check, SimpleNamespace(run_id=run_id, json=True), runner)
+        status = runner.registry.spec_status(hyp_id, cid, module, params)
+        return _result(
+            "AUDITED",
+            status,
+            f"Audited {run_id}: {status.get('audit_verdict')} (exit={a_rc})" + (f" ({a_detail})" if a_detail and a_rc != 0 else ""),
+        )
+
+    return _result("REVIEW_REQUIRED", status, f"Unhandled spec state: {status['state']}")
+
+
+def cmd_advance(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
+    if not _check_repo_worktree(runner.repo_root):
+        sys.exit(2)
+    repo = Path(runner.repo_root)
+    blocking_actions = {
+        "REVIEW_REQUIRED",
+        "BLOCKED_UNREGISTERED",
+        "BLOCKED_OUTCOME_MEMORY",
+        "BLOCKED_LEGACY_PROTOCOL",
+    }
+    if getattr(args, "pending", False):
+        raw_dir = Path(getattr(args, "dir", "experiments/active"))
+        spec_dir = raw_dir if raw_dir.is_absolute() else (repo / raw_dir)
+        spec_paths = (
+            sorted(p for p in spec_dir.iterdir() if p.is_file() and p.suffix.lower() in {".yaml", ".yml"})
+            if spec_dir.is_dir()
+            else []
+        )
+        outcomes = [
+            _advance_one_spec(
+                p,
+                runner,
+                check_outcome_memory=not getattr(args, "skip_outcome_memory", False),
+                pending_mode=True,
+            )
+            for p in spec_paths
+        ]
+        blocked = [o for o in outcomes if o["action"] in blocking_actions]
+        payload = {
+            "mode": "pending",
+            "dir": str(getattr(args, "dir", "experiments/active")),
+            "processed": len(outcomes),
+            "advanced": sum(1 for o in outcomes if o["action"] not in {"SKIP_TERMINAL", "SKIP_LEGACY_FROZEN"}),
+            "blocked": len(blocked),
+            "outcomes": outcomes,
+        }
+        if args.json:
+            print(json.dumps(envelope(len(blocked) == 0, payload, "warden.advance")))
+        else:
+            for o in outcomes:
+                if o["action"] != "SKIP_TERMINAL":
+                    print(f"[{o['action']}] {o['spec']}: {o['reason']}")
+            print(f"Processed {payload['processed']} spec(s); advanced={payload['advanced']}; blocked={payload['blocked']}.")
+        return 1 if blocked else 0
+
+    spec_yaml = getattr(args, "spec_yaml", None)
+    if not spec_yaml:
+        print("Error: provide <spec_yaml> or --pending", file=sys.stderr)
+        return 2
+    spec_path = Path(spec_yaml)
+    if not spec_path.is_absolute() and not spec_path.exists():
+        spec_path = repo / spec_yaml
+    outcome = _advance_one_spec(
+        spec_path,
+        runner,
+        hypothesis_path=getattr(args, "hypothesis", ""),
+        check_outcome_memory=not getattr(args, "skip_outcome_memory", False),
+        pending_mode=False,
+    )
+    ok = outcome["action"] not in blocking_actions
+    if args.json:
+        print(json.dumps(envelope(ok, outcome, "warden.advance")))
+    else:
+        print(f"[{outcome['action']}] {outcome['spec']}: {outcome['reason']}")
+    return 0 if ok else 1
+
+
 from warden_ops.checkpoint import _build_state as _build_state  # noqa: PLC0414
 from warden_ops.checkpoint import _legacy_trace as _legacy_trace  # noqa: PLC0414
 from warden_ops.checkpoint import _replay as _replay  # noqa: PLC0414
@@ -457,6 +713,12 @@ def build_parser() -> argparse.ArgumentParser:
     gm.add_argument("--human-approve-manifest", action="store_true")
     s.add_parser("register-hypothesis").add_argument("path")
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
+    adv = s.add_parser("advance")
+    adv.add_argument("spec_yaml", nargs="?", default=None)
+    adv.add_argument("--hypothesis", default="")
+    adv.add_argument("--pending", action="store_true")
+    adv.add_argument("--dir", default="experiments/active")
+    adv.add_argument("--skip-outcome-memory", action="store_true")
     s.add_parser("audit-check").add_argument("--run-id", required=True)
     s.add_parser("spec-status").add_argument("spec_yaml")
     for name in ("attempt-status", "reconcile-attempt", "verify-causality"):
@@ -567,7 +829,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             else:
                 runner = _get_runner(readonly=False)
-            cmds = {"status": cmd_status, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "audit-check": cmd_audit_check, "continue": cmd_continue, "qualify": cmd_qualify,
+            cmds = {"status": cmd_status, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "advance": cmd_advance, "audit-check": cmd_audit_check, "continue": cmd_continue, "qualify": cmd_qualify,
                     "attempt-status": cmd_attempt_status, "reconcile-attempt": cmd_attempt_status, "verify-causality": cmd_verify_causality,
                     "spec-status": cmd_spec_status}
             fn = cmds.get(args.subcommand)

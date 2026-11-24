@@ -61,6 +61,17 @@ principal — or by an agent under explicit in-session delegation, recorded in a
   `carry_rv` (`adf_p < 0.05`), and `RUNNABLE_HYPOTHESIS_STATUSES` in `docs/WORKFLOW.md`, and moved
   unreferenced dated audit docs (`THESIS-RECOVERY-AUDIT-20261101.md`,
   `STATE-MACHINE-HARDENING-BASELINE-20261107.md`) to `docs/archive/`.
+- **Immutable specs + single idempotent `warden advance` (`2026-11-24`, local `main`, principal-approved `"Approve option A"`):**
+  - Replaced mutable queue-folder moves (`experiments/queue/`, `.workspace/hypotheses/queue/`,
+    `scripts/hourly_queue_coordinator.py`) with immutable specs in `experiments/active/` and
+    `.workspace/hypotheses/` driven by `uv run --frozen warden advance <spec>|--pending --json`.
+  - Enriched `ResearchRegistry.spec_status` (`hypothesis_registered`, `hypothesis_status`,
+    `hypothesis_trials_used`, `audit_verdict`, `receipt_state`, `STAGE3_CANDIDATE_UNAUDITED`) and
+    made `register_hypothesis` idempotent after `record_hypothesis_module()` binds `strategy_module`.
+  - Added `"advance"` to `warden.policy.ALLOWED`, `cli.MUTATING_COMMANDS`, and
+    `scripts/mcp_warden/adapter.py`; pointed `scripts/run_hourly_pipeline.sh` to
+    `warden advance --pending` under `flock`; added `cache/features/*.proof.json` to `.gitignore`;
+    removed `status: QUEUED` and added `data_cutoff` / `evidence_type` to `.workspace/templates/hypothesis.md`.
 - Verify: `uv run --frozen warden check-worktree` (`rc=0`) and `uv run --frozen pytest -q` (full suite green on local `main`).
 
 ## 2026-11-19

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/run_hourly_pipeline.sh
-# Thin systemd/cron entrypoint delegating queue orchestration to scripts/hourly_queue_coordinator.py.
+# Thin systemd/cron entrypoint delegating idempotent progression to `warden advance --pending`.
 
 set -euo pipefail
 
@@ -11,13 +11,16 @@ export WARDEN_NON_INTERACTIVE=1
 export QUANT_LAB_REPO_DIR="$REPO_DIR"
 export QUANT_LAB_HOURLY_LOCK_FILE="${QUANT_LAB_HOURLY_LOCK_FILE:-/tmp/quant_lab_hourly.lock}"
 
-PYTHON_BIN="${QUANT_LAB_PYTHON:-}"
-if [[ -z "$PYTHON_BIN" ]]; then
-    if [[ -x "$SCRIPT_DIR/../.venv/bin/python" ]]; then
-        PYTHON_BIN="$SCRIPT_DIR/../.venv/bin/python"
+cd "$REPO_DIR"
+
+exec 9>"$QUANT_LAB_HOURLY_LOCK_FILE"
+if ! flock -n 9; then
+    if [[ " $* " == *" --json "* ]]; then
+        echo '{"locked": true, "processed": 0, "outcomes": []}'
     else
-        PYTHON_BIN="python3"
+        echo "Job already running. Exiting cleanly."
     fi
+    exit 0
 fi
 
-exec "$PYTHON_BIN" "$SCRIPT_DIR/hourly_queue_coordinator.py" "$@"
+exec uv run --frozen warden advance --pending "$@"

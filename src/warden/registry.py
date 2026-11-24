@@ -461,8 +461,11 @@ class ResearchRegistry:
                 raise ValueError("Register the contract first")
             existing = conn.execute("SELECT * FROM hypotheses WHERE hypothesis_id=?", (hyp.hypothesis_id,)).fetchone()
             if existing:
-                if any(existing[k] != v for k, v in asdict(hyp).items()):
-                    raise ValueError("Registered hypothesis specification is immutable")
+                for k, v in asdict(hyp).items():
+                    if k == "strategy_module" and not v and existing[k]:
+                        continue
+                    if existing[k] != v:
+                        raise ValueError("Registered hypothesis specification is immutable")
                 return
             if hyp.parent_hypothesis_id and not conn.execute("SELECT 1 FROM hypotheses WHERE hypothesis_id=?", (hyp.parent_hypothesis_id,)).fetchone():
                 raise ValueError("Register parent hypothesis first")
@@ -577,6 +580,10 @@ class ResearchRegistry:
         config_hash = hashlib.sha256(config.encode()).hexdigest()[:12]
         screen = self.screen_status(hypothesis_id, contract_id, module, parameters)
         with self._connect() as conn:
+            hyp_row = conn.execute(
+                "SELECT status,trials_used FROM hypotheses WHERE hypothesis_id=?",
+                (hypothesis_id,),
+            ).fetchone()
             trial = conn.execute("""SELECT run_id,verdict FROM trials WHERE hypothesis_id=? AND
                                    contract_id=? AND strategy_module=? AND config_hash=?
                                    ORDER BY created_at DESC LIMIT 1""",
@@ -585,19 +592,67 @@ class ResearchRegistry:
                                       hypothesis_id=? AND contract_id=? AND state!='FINALIZED'
                                       ORDER BY reserved_at DESC LIMIT 1""",
                                    (hypothesis_id, contract_id)).fetchone()
+            audit_row = (
+                conn.execute(
+                    "SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
+                    (trial[0],),
+                ).fetchone()
+                if trial
+                else None
+            )
+        hyp_registered = hyp_row is not None
+        hyp_status = hyp_row[0] if hyp_row else None
+        hyp_trials_used = int(hyp_row[1]) if hyp_row else 0
+        audit_verdict = audit_row[0] if audit_row else None
+        base = {
+            "hypothesis_registered": hyp_registered,
+            "hypothesis_status": hyp_status,
+            "hypothesis_trials_used": hyp_trials_used,
+            "audit_verdict": audit_verdict,
+            "receipt_state": None,
+            "screen": screen,
+        }
         if pending:
-            return {"state": "REQUIRES_RECONCILIATION", "reason": f"trial {pending[0]} is {pending[1]}",
-                    "run_id": pending[0], "screen": screen}
+            return {
+                **base,
+                "state": "REQUIRES_RECONCILIATION",
+                "reason": f"trial {pending[0]} is {pending[1]}",
+                "run_id": pending[0],
+                "receipt_state": pending[1],
+            }
         if trial:
             receipt = self.reconcile_attempt(trial[0])
+            base["receipt_state"] = receipt["state"]
             if receipt["state"] != "FINALIZED" or trial[1] == "FAILED":
-                return {"state": "REQUIRES_RECONCILIATION", "reason": receipt["reason"] or f"trial {trial[1]}",
-                        "run_id": trial[0], "screen": screen}
+                return {
+                    **base,
+                    "state": "REQUIRES_RECONCILIATION",
+                    "reason": receipt["reason"] or f"trial {trial[1]}",
+                    "run_id": trial[0],
+                }
             if trial[1] == "REJECTED_EARLY":
-                return {"state": "STAGE1_REJECT", "reason": "immutable early-rejection trial recorded",
-                        "run_id": trial[0], "verdict": trial[1], "screen": screen}
-            return {"state": "STAGE3_FINAL", "reason": "immutable Warden trial recorded",
-                    "run_id": trial[0], "verdict": trial[1], "screen": screen}
+                return {
+                    **base,
+                    "state": "STAGE1_REJECT",
+                    "reason": "immutable early-rejection trial recorded",
+                    "run_id": trial[0],
+                    "verdict": trial[1],
+                }
+            if trial[1] == "CANDIDATE_FOR_QUALIFICATION" and audit_verdict is None:
+                return {
+                    **base,
+                    "state": "STAGE3_CANDIDATE_UNAUDITED",
+                    "reason": "finalized candidate trial awaiting six-check audit",
+                    "run_id": trial[0],
+                    "verdict": trial[1],
+                }
+            return {
+                **base,
+                "state": "STAGE3_FINAL",
+                "reason": "immutable Warden trial recorded",
+                "run_id": trial[0],
+                "verdict": trial[1],
+            }
         if screen["state"] == "FINALIZED":
             if screen["outcome"] == "PASS":
                 state = "STAGE1_PASS"
@@ -609,7 +664,7 @@ class ResearchRegistry:
             state = "NEW"
         else:
             state = "REQUIRES_RECONCILIATION"
-        return {"state": state, "reason": screen["state"], "run_id": None, "screen": screen}
+        return {**base, "state": state, "reason": screen["state"], "run_id": None}
 
     def register_trial_start(self, hypothesis_id, run_id):
         """Atomically reserve unique run identity and monotonic hypothesis/lineage budget."""

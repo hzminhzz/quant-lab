@@ -225,16 +225,16 @@ def test_inventory_counts_must_exclude_stage1_rejections_from_full_trial_backlog
 def test_hourly_runner_checks_failure_memory_before_screening() -> None:
     wrapper = Path("scripts/run_hourly_pipeline.sh").read_text(encoding="utf-8")
     assert "WARDEN_NON_INTERACTIVE=1" in wrapper
-    assert "hourly_queue_coordinator.py" in wrapper
+    assert "warden advance --pending" in wrapper
 
-    coordinator = Path("scripts/hourly_queue_coordinator.py").read_text(encoding="utf-8")
-    assert '"scripts.research_outcome_memory", "--check-spec"' in coordinator
-    guard = coordinator.index("self._check_outcome_memory")
-    verify = coordinator.index('self._run_warden("verify"')
-    screen = coordinator.index('self._run_warden("screen"')
+    cli_src = Path("src/warden/cli.py").read_text(encoding="utf-8")
+    assert "scripts.research_outcome_memory" in cli_src
+    adv_idx = cli_src.index("def _advance_one_spec(")
+    adv_slice = cli_src[adv_idx:]
+    guard = adv_slice.index("check_outcome_spec")
+    verify = adv_slice.index("cmd_verify")
+    screen = adv_slice.index("cmd_screen")
     assert guard < verify < screen
-    assert "QueueRoute.FAILED" in coordinator
-    assert '"WARDEN_NON_INTERACTIVE"] = "1"' in coordinator
 
 
 def test_sqlite_verdict_takes_priority_over_conflicting_sidecar(tmp_path: Path) -> None:

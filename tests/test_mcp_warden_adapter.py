@@ -28,8 +28,8 @@ def fixture_root(tmp_path: Path) -> Path:
     root = tmp_path / "repo"
     (root / "experiments" / "active").mkdir(parents=True)
     (root / "experiments" / "active" / "test.yaml").write_text("contract_id: TEST\n")
-    (root / ".workspace" / "hypotheses" / "queue").mkdir(parents=True)
-    (root / ".workspace" / "hypotheses" / "queue" / "hyp.yaml").write_text("name: TEST\n")
+    (root / ".workspace" / "hypotheses").mkdir(parents=True)
+    (root / ".workspace" / "hypotheses" / "hyp.yaml").write_text("name: TEST\n")
     return root
 
 
@@ -41,9 +41,12 @@ def test_typed_allowed_command_argv_matches_native_parser(fixture_root: Path, mo
     assert build_argv("screen", ["experiments/active/test.yaml"], root=fixture_root)[-3:] == [
         "screen", "experiments/active/test.yaml", "--json",
     ]
-    assert build_argv("register-hypothesis", [".workspace/hypotheses/queue/hyp.yaml"],
+    assert build_argv("advance", ["experiments/active/test.yaml"], root=fixture_root)[-3:] == [
+        "advance", "experiments/active/test.yaml", "--json",
+    ]
+    assert build_argv("register-hypothesis", [".workspace/hypotheses/hyp.yaml"],
                       root=fixture_root)[-3:] == [
-        "register-hypothesis", ".workspace/hypotheses/queue/hyp.yaml", "--json",
+        "register-hypothesis", ".workspace/hypotheses/hyp.yaml", "--json",
     ]
 
 

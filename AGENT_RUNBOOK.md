@@ -20,11 +20,13 @@ Preflight exit codes: `0 proceed · 2 human must re-sign the manifest · 3 stop`
 | 0 | Gate check | `uv run warden check-worktree` | rc=0. If not, **STOP** — only the human re-signs (see Escalation) |
 | 1 | Resolve the contract | `contracts/<id>.yaml` → its `exploratory_data_path` | you have the pinned path, sha match, span, assets, cost per side, `label_horizon_bars`, `execution_mode` |
 | 2 | Source trace | read the **original** clipping, not a plan or summary | every rule carries `file:line`; every absent rule is written `[MISSING]` |
-| 3 | Pre-register | `uv run warden register-hypothesis .workspace/hypotheses/<ID>.md --json` | mechanism, counterparty, falsification and `expected_holding_bars` are all stated |
+| 3 | Pre-register | `uv run warden register-hypothesis .workspace/hypotheses/<ID>.md --json` | mechanism, counterparty, falsification and `expected_holding_bars` are all stated (or let `warden advance` auto-register) |
 | 4 | Pipeline | `uv run warden verify experiments/active/<spec>.yaml --json` | `status: PASS`; feature cache written (proves causal protocol: `CausalModelStrategy` or `CausalRulesStrategy`; legacy `generate_positions` is frozen for historical replay only) |
 | 5 | Screen | `uv run warden screen <spec> --json` | family gate passes, or the hypothesis is done |
 | 6 | Trial | `uv run warden backtest <spec> --json` | `WARDEN_RUN_COMPLETE` and a verdict; max 3 trials, ever |
 | 7 | Audit / qualify | `uv run warden audit-check --run-id <ID> --json` | `AUDIT_<ID>.md`; `qualify` is human-only |
+
+Shortcut: steps 3–7 up to `audit-check` run idempotently via `uv run warden advance experiments/active/<spec>.yaml --json` (specs and hypotheses never move folders; SQLite `registry/registry.db` owns all state).
 
 Paste the verbatim command output into the handoff. A summarized number is not evidence.
 
@@ -104,4 +106,4 @@ directory. Do not test that, and do not cite it as evidence that the data is or 
 `registry/returns/<contract>/<run>.parquet` · `registry/backtest_results/<simulation_epoch>/<contract>/<run_id>` ·
 `cache/features/` · `.workspace/memory/LESSONS.md` ·
 audits in `.workspace/hypotheses/AUDIT_<RUN_ID>.md` · templates in `.workspace/templates/` ·
-queue orchestration in `scripts/hourly_queue_coordinator.py` (invoked by `scripts/run_hourly_pipeline.sh`).
+cron entrypoint `scripts/run_hourly_pipeline.sh` (`warden advance --pending`).

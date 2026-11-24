@@ -13,7 +13,8 @@ falsification_criteria: >
   2x cost Sharpe <= 0.50, +1-bar Sharpe <= 0, or DSR < 0.90. No gate may be lowered afterwards.
 source_provenance: raw/clippings/<publication>/<file>.md:LINE-LINE   # original source, not a plan about it
 llm_model_id: <model>
-status: QUEUED
+data_cutoff: '<YYYY-MM-DDTHH:MM:SSZ>'  # match contract val_end
+evidence_type: verified_market          # verified_market | synthetic
 ---
 
 # <Title>

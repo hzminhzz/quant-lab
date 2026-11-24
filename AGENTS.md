@@ -94,6 +94,8 @@ uv run warden verify experiments/active/hyp_2026_001.yaml --json
 uv run warden screen experiments/active/hyp_2026_001.yaml --json
 uv run warden backtest experiments/active/hyp_2026_001.yaml --json
 uv run warden audit-check --run-id RUN-ML-001 --json
+uv run warden advance experiments/active/hyp_2026_001.yaml --json
+uv run warden advance --pending --json
 uv run warden handoff --notes "Evidence and next decision"
 uv run warden continue
 ```
@@ -176,10 +178,10 @@ principal-delegation authorization trails.
   - The legacy LOC-budget script and LOC cap are retired; `warden check-worktree` enforces repo-wide
     (`ml4t.live`) and `strategies/` (`sqlite3`, `subprocess`, HTTP/socket, `ml4t.backtest.Engine`) AST import
     boundaries via `warden_ops.integrity.check_ast_boundaries`.
-  - `scripts/mcp_warden/server.py` and `src/warden/causality.py` are removed; only the reviewed stdio adapter
-    `scripts/mcp_warden/adapter.py` remains.
-  - Bash `grep`/`cut` queue parsing in `scripts/run_hourly_pipeline.sh` is retired; `run_hourly_pipeline.sh` is
-    a thin wrapper delegating to `scripts/hourly_queue_coordinator.py`.
+  - `scripts/mcp_warden/server.py`, `src/warden/causality.py`, `scripts/hourly_queue_coordinator.py`, and
+    folder-based `experiments/queue/` / `.workspace/hypotheses/queue/` state moves are retired; specs live
+    immutably in `experiments/active/` and `.workspace/hypotheses/`, and `scripts/run_hourly_pipeline.sh` is a
+    thin `flock` wrapper calling `uv run --frozen warden advance --pending`.
 
 ### Commands (verified by observed run this session)
 - `uv run --frozen pytest -q` — full suite, parallel via `pytest-xdist` (`-n 4 --dist worksteal` in
@@ -191,7 +193,7 @@ principal-delegation authorization trails.
 ### Generated files
 - `.warden_manifest.sha256` — source: the protected files (`src/warden/`, `src/warden_ops/`,
   `src/warden_evidence/`, `contracts/`, `AGENTS.md`, `pyproject.toml`, `uv.lock`, and protected `scripts/`
-  including `scripts/hourly_queue_coordinator.py` and `scripts/mcp_warden/adapter.py`). Regenerate:
+  including `scripts/run_hourly_pipeline.sh` and `scripts/mcp_warden/adapter.py`). Regenerate:
   `uv run warden generate-manifest --human-approve-manifest` (HUMAN-ONLY; an agent runs it only under explicit
   in-session principal delegation and records an approval trail). Gate: `uv run warden check-worktree`.
   `.warden_manifest.sha256.meta.json` carries the signature (mode / approver / approved_at / manifest_sha256).

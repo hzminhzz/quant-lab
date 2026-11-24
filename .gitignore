@@ -14,6 +14,7 @@ artifacts/
 
 # Warden generated state (keep .gitkeep markers and env_manifest.json)
 cache/features/*.parquet
+cache/features/*.proof.json
 registry/returns/*.parquet
 registry/predictions/*.parquet
 /data/

@@ -161,8 +161,9 @@ def test_content_addressed_feature_cache_hit_speed(
     cold_seconds = time.perf_counter() - t0
     assert feat1.height == panel.height
 
-    # A hit must not recompute features or revalidate the prover.
-    import warden.leakage as leakage
+    # A hit must not recompute features or revalidate the prover. The spies are
+    # installed *before* the timed call so instrumentation setup is not measured.
+    from warden import leakage
 
     calls = {"compute": 0, "verify": 0}
     real_compute, real_verify = CausalTimeSeriesPipeline.compute, leakage.verify_prefix_invariance
@@ -179,21 +180,16 @@ def test_content_addressed_feature_cache_hit_speed(
     monkeypatch.setattr(CausalTimeSeriesPipeline, "compute", spy_compute)
     monkeypatch.setattr(leakage, "verify_prefix_invariance", spy_verify)
 
-    # Second call: hits Parquet cache directly. Best of three warm hits clears the
-    # 50ms budget without reporting scheduler noise; the call counters are the real proof.
-    hits = []
-    for _ in range(3):
-        t1 = time.perf_counter()
-        feat2 = compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=registry)
-        hits.append(time.perf_counter() - t1)
+    # Second call: hits the Parquet cache directly. One single sample, no
+    # warm-up and no best-of-N: the hit must clear the strict 50ms budget.
+    t1 = time.perf_counter()
+    feat2 = compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=registry)
+    t_second = time.perf_counter() - t1
 
     assert feat2.equals(feat1)
     assert calls == {"compute": 0, "verify": 0}, calls
-    # A hit must be a small fraction of the cold recompute even on a loaded machine.
-    budget = max(0.05, cold_seconds / 16)
-    assert min(hits) < budget, (
-        f"Cache hit took {min(hits) * 1000:.1f}ms (budget {budget * 1000:.1f}ms, "
-        f"cold {cold_seconds:.3f}s)"
+    assert t_second < 0.05, (
+        f"Cache hit took {t_second * 1000:.1f}ms (expected < 50ms; cold {cold_seconds:.3f}s)"
     )
 
     # Verify SQLite feature_sets record
@@ -287,9 +283,9 @@ def test_within_fold_lookahead_in_later_folds_is_detected(
     test_dataset: tuple[pl.DataFrame, EvaluationContract], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Acceptance #3: a leak planted only in fold 2+ must not hide behind fold 0."""
-    import warden.protocols as protocols
     from types import SimpleNamespace
 
+    from warden import protocols
     from warden.leakage import verify_model_prefix_invariance
 
     panel, contract = test_dataset

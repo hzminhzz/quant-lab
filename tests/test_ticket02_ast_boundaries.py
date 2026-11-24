@@ -662,4 +662,3 @@ def test_legacy_dynamic_primitive_exemptions_are_exact_and_path_pinned(tmp_path:
     repo = _make_ast_mini_repo(tmp_path, "strategies/candidates/copied_reference.py", legacy)
     violations = check_ast_boundaries(repo)
     assert violations and any("copied_reference.py" in v and "importlib" in v for v in violations)
-

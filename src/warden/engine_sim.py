@@ -83,11 +83,20 @@ def require_execution_columns(panel_df: pl.DataFrame, contract: EvaluationContra
 
 
 def extract_execution_policy(
-    cfg_dict: dict[str, Any],
-    params: dict[str, Any],
+    cfg_dict: dict[str, Any] | None = None,
+    params: dict[str, Any] | None = None,
     diagnostics: dict[str, Any] | str | None = None,
 ) -> dict[str, Any]:
-    """Extract execution policy kwargs from diagnostics, spec config, and strategy params."""
+    """Extract execution policy kwargs from Warden-recorded diagnostics only.
+
+    ``cfg_dict`` and ``params`` are accepted for call-site compatibility but are
+    deliberately ignored: an agent-authored experiment spec or strategy
+    parameter block must never unlock leverage/short selling or manufacture a
+    volume-participation/impact policy.  Historical replay reads the policy that
+    Warden itself recorded in the trial's diagnostics; absent that record the
+    engine runs fail-closed defaults (no leverage, shorts allowed, no
+    participation cap, no market-impact model).
+    """
     if isinstance(diagnostics, str):
         try:
             diag_data = json.loads(diagnostics) if diagnostics.strip() else {}
@@ -99,26 +108,11 @@ def extract_execution_policy(
         diag_data = {}
     ep = diag_data.get("execution_policy") if isinstance(diag_data, dict) else None
     ep = ep if isinstance(ep, dict) else {}
-    cfg = cfg_dict if isinstance(cfg_dict, dict) else {}
-    par = params if isinstance(params, dict) else {}
-    max_vp = ep.get(
-        "max_volume_participation",
-        cfg.get("max_volume_participation", par.get("max_volume_participation")),
-    )
-    impact_c = ep.get(
-        "market_impact_coefficient",
-        cfg.get("market_impact_coefficient", par.get("market_impact_coefficient")),
-    )
+    max_vp = ep.get("max_volume_participation")
+    impact_c = ep.get("market_impact_coefficient")
     return {
-        "allow_leverage": bool(
-            ep.get("allow_leverage", cfg.get("allow_leverage", par.get("allow_leverage", False)))
-        ),
-        "allow_short_selling": bool(
-            ep.get(
-                "allow_short_selling",
-                cfg.get("allow_short_selling", par.get("allow_short_selling", True)),
-            )
-        ),
+        "allow_leverage": bool(ep.get("allow_leverage", False)),
+        "allow_short_selling": bool(ep.get("allow_short_selling", True)),
         "max_volume_participation": float(max_vp) if max_vp is not None else None,
         "market_impact_coefficient": float(impact_c) if impact_c is not None else None,
     }

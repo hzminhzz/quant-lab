@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import datetime
 import hashlib
 import hmac
@@ -164,10 +165,9 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     if not check_worktree():
         sys.exit(2)
     import polars as pl
-    import yaml
 
     from warden.codeid import code_closure
-    from warden.contracts import canonical_json
+    from warden.contracts import ContractValidationError, canonical_json
     from warden.leakage import (
         CrossAssetLeakageError,
         LookaheadLeakageError,
@@ -187,17 +187,25 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     from warden.provenance import resolve_dataset
     from warden.registry import normalise_module
     from warden.runner import filter_target_symbols
+    from warden.schemas import load_experiment_spec
     from warden.strategy_loader import load_module_from_path
     from warden_evidence.feature_cache import verified_feature_evidence
-    cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
-    contract = runner.resolve_contract(cfg["contract_id"])
-    params = cfg.get("parameters", {}) or {}
-    strat_module = normalise_module(cfg["strategy_module"])
+    # #90: validate the frozen spec before any contract, registry, dataset or artifact
+    # side effect.  pydantic.ValidationError subclasses ValueError, so an unknown or
+    # policy-injecting key returns exit 1 here instead of being silently accepted.
+    try:
+        spec = load_experiment_spec(args.spec_yaml)
+    except ValueError as exc:
+        print(f"Verify failed: {exc}", file=sys.stderr)
+        return 1
+    contract = runner.resolve_contract(spec.contract_id)
+    params = spec.parameters
+    strat_module = normalise_module(spec.strategy_module)
     mod = load_module_from_path(runner.repo_root / strat_module)
     # One closure digest binds every cache/evidence row in this verify to the code that ran.
     closure_sha = code_closure(runner.repo_root, strat_module)[0]
     hyp_status = "ACTIVE"
-    hyp_id = cfg.get("hypothesis_id")
+    hyp_id = spec.hypothesis_id
     if hyp_id and runner.registry.db_path.is_file():
         with runner.registry._connect() as conn:
             row = conn.execute(
@@ -207,10 +215,11 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
             if row:
                 hyp_status = str(row[0])
     try:
+        family = spec.strategy_family if "strategy_family" in spec.model_fields_set else None
         protocol = enforce_active_strategy_protocol(
             mod,
             hypothesis_status=hyp_status,
-            strategy_family=cfg.get("strategy_family"),
+            strategy_family=family,
             allow_legacy_replay=runner.allow_legacy_replay,
         )
         dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
@@ -219,20 +228,39 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
             panel = panel.rename({"symbol": "asset"})
         effective_params = resolve_effective_params(mod, protocol, params)
         panel = filter_target_symbols(panel, effective_params, str(dataset.path)).sort("timestamp", "asset")
+        # #88 exploratory fence: the same boundary runner.prepare_panel enforces, checked
+        # here before any strategy proof or feature-cache write.  A panel reaching
+        # holdout_start or an empty validation window is refused; the holdout is never
+        # opened, and no staging fallback exists.
+        if "timestamp" not in panel.columns:
+            raise ContractValidationError(f"{contract.contract_id}: exploratory panel has no 'timestamp' column")
+        latest = panel["timestamp"].max() if not panel.is_empty() else None
+        if latest is not None and latest >= contract.holdout_start:
+            raise ContractValidationError(
+                f"{contract.contract_id}: exploratory panel reaches {latest} at or past holdout_start "
+                f"{contract.holdout_start.isoformat()}; holdout bars may not be loaded as exploratory data"
+            )
+        ts = panel["timestamp"].unique().sort().to_list()
+        v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
+        if v_slice.start >= v_slice.stop:
+            raise ContractValidationError(
+                f"{contract.contract_id}: validation slice {contract.val_start.isoformat()}.."
+                f"{contract.val_end.isoformat()} contains no bars; refusing an empty validation panel"
+            )
 
         cache_dir = runner.repo_root / "cache" / "features"
         if protocol == "causal_model":
             verify_model_prefix_invariance(mod, panel, contract, params)
             pipeline = resolve_protocol_target(mod).pipeline
         elif protocol == "causal_rules":
-            verify_rules_strategy_prefix_invariance(mod, panel, contract, params, policy_cfg=cfg)
-            verify_rules_strategy_asset_independence(mod, panel, contract, params, policy_cfg=cfg)
+            verify_rules_strategy_prefix_invariance(mod, panel, contract, params, policy_cfg=spec.model_dump())
+            verify_rules_strategy_asset_independence(mod, panel, contract, params, policy_cfg=spec.model_dump())
             pipeline = RulesProofPipeline(
                 repo_root=str(runner.repo_root.resolve()),
                 strategy_module=strat_module,
                 code_sha256=closure_sha,
                 params=dict(params),
-                policy_cfg=cfg,
+                policy_cfg=spec.model_dump(),
             )
         else:
             pipeline = getattr(mod, "pipeline", None) or (mod if hasattr(mod, "compute") else None)
@@ -257,8 +285,11 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     ) as exc:
         print(f"Verify failed: {exc}", file=sys.stderr)
         return 1
+    if not hyp_id:
+        print("Verify failed: spec declares no hypothesis_id; causal evidence cannot be recorded", file=sys.stderr)
+        return 1
     evidence = runner.registry.record_spec_causality(
-        hypothesis_id=cfg["hypothesis_id"], contract_id=contract.contract_id,
+        hypothesis_id=hyp_id, contract_id=contract.contract_id,
         strategy_module=strat_module,
         config_hash=hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12],
         data_sha256=dataset.sha256,

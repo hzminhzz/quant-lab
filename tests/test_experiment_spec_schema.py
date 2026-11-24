@@ -168,7 +168,7 @@ def test_runner_rejects_spec_without_hypothesis_before_any_write(tiny_repo) -> N
 
 
 def test_live_runner_pins_engine_epoch_and_records_it(tiny_repo) -> None:
-    fixture = tiny_repo(n_bars=40)
+    fixture = tiny_repo(n_bars=24)  # fence-compatible: ends before the fixture holdout_start
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     runner.run_stage1_screen(fixture.spec)
     res = runner.run_spec(fixture.spec)

@@ -46,6 +46,11 @@ def _build_stage1_repo(
     data_rel = f"data/exploratory/{contract_id.lower()}.parquet"
     data_path = repo / data_rel
     data_path.parent.mkdir(parents=True, exist_ok=True)
+    # #88 exploratory fence: no bar at or after holdout_start may be loaded as exploratory
+    # data.  These synthetic builders place a final price-anchor bar exactly on
+    # holdout_start; it was outside the validation slice either way, so drop it rather
+    # than relax the fence.  The validation sample is unchanged.
+    panel_df = panel_df.filter(pl.col("timestamp") < holdout_start)
     panel_df.write_parquet(data_path)
     sha = hashlib.sha256(data_path.read_bytes()).hexdigest()
 

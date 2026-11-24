@@ -1080,4 +1080,3 @@ def test_lifecycle_adapter_warmup_guard_follows_fill_bar_under_delay() -> None:
     # Replays are ts0@bar1, ts1@bar2, ts2@bar3; bar1 is still inside warmup.
     assert inner.calls == [stamps[0], stamps[1], stamps[2]]
     assert len(broker.orders) == 2
-

@@ -186,7 +186,7 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) ->
 
 
 def test_simulation_epoch_isolation_and_same_epoch_alignment(tiny_repo) -> None:
-    fixture = tiny_repo(n_bars=40)
+    fixture = tiny_repo(n_bars=24)  # fence-compatible: ends before the fixture holdout_start
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     r_live = runner.run_spec(fixture.spec)
     assert r_live.simulation_epoch == ENGINE_SIMULATION_EPOCH
@@ -364,7 +364,7 @@ def generate_positions(panel_df, contract, **kwargs):
     pos = np.full((len(ts), len(assets)), 0.4)
     return {"positions": pos}
 """
-    fixture = tiny_repo(module_source=strong_module, module_name="strong", n_bars=60)
+    fixture = tiny_repo(module_source=strong_module, module_name="strong", n_bars=24)  # fence-compatible
     # Register a retrospective hypothesis (source_published_at >= val_start)
     retro_hyp = HypothesisSpec(
         "HYP-RETRO",

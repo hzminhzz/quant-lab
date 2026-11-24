@@ -50,7 +50,11 @@ def configure_strategy(contract, params):
 """
 
 
-def tiny_panel(n_bars: int = 40, assets: tuple[str, ...] = ("AAA", "BBB")) -> pl.DataFrame:
+# 24 hourly bars from 2025-01-01T00:00 end at 2025-01-01T23:00, strictly before the
+# fixture contract's holdout_start (2025-01-02T00:00).  The #88 exploratory fence rejects
+# any panel bar at/after holdout_start, so a synthetic panel may not exceed the
+# train+validation window it is meant to model.
+def tiny_panel(n_bars: int = 24, assets: tuple[str, ...] = ("AAA", "BBB")) -> pl.DataFrame:
     rows, rng = [], np.random.default_rng(7)
     for asset, base in zip(assets, (100.0, 50.0, 25.0)):
         price = base
@@ -70,7 +74,7 @@ def tiny_repo(tmp_path: Path):
 
     def build(provenance: str = "verified_market", module_source: str = FLAT_MODULE,
               module_name: str = "flat", contract_overrides: dict | None = None,
-              n_bars: int = 40) -> SimpleNamespace:
+              n_bars: int = 24) -> SimpleNamespace:
         builds["n"] += 1
         root = tmp_path / f"case{builds['n']}"
         repo = root / "repo"

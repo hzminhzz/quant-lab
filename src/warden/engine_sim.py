@@ -323,7 +323,19 @@ class _WarmupGuardedBroker:
 
 
 class _LifecycleStrategyAdapter(Strategy):
-    """Wrap a CausalRulesStrategy instance with warmup guarding and optional extra delay."""
+    """Wrap a CausalRulesStrategy instance with warmup guarding and optional extra delay.
+
+    Delay buffers the full ``(timestamp, data, context)`` triple and replays it
+    untouched, so the inner strategy always sees a point-in-time-consistent bar.
+    Handing the *current* timestamp to stale data (or the current data under a
+    stale timestamp) would let a strategy attribute a decision to the wrong bar.
+    The order is still submitted during the current Engine bar, so NEXT_BAR
+    execution fills it one bar after the replayed bar: one extra bar of latency.
+
+    The Engine pools and mutates its per-bar mappings, so the buffered bar is
+    snapshotted at append time; holding the original reference would later read
+    a different bar's prices.
+    """
 
     def __init__(
         self,
@@ -335,7 +347,9 @@ class _LifecycleStrategyAdapter(Strategy):
         self._inner = inner
         self._submit_from_ts = submit_from_ts
         self._extra_delay = max(0, int(extra_delay))
-        self._buffer: deque[tuple[dict[str, dict[str, Any]], dict[str, Any]]] = deque()
+        self._buffer: deque[
+            tuple[datetime, dict[str, dict[str, Any]], dict[str, Any]]
+        ] = deque()
 
     def on_start(self, broker: Any) -> None:
         self._inner.on_start(broker)
@@ -356,11 +370,17 @@ class _LifecycleStrategyAdapter(Strategy):
             else broker
         )
         if self._extra_delay > 0:
-            self._buffer.append((data, context))
+            self._buffer.append(
+                (
+                    timestamp,
+                    {asset: dict(bar) for asset, bar in data.items()},
+                    dict(context),
+                )
+            )
             if len(self._buffer) <= self._extra_delay:
                 return
-            delayed_data, delayed_ctx = self._buffer.popleft()
-            self._inner.on_data(timestamp, delayed_data, delayed_ctx, active_broker)
+            delayed_ts, delayed_data, delayed_ctx = self._buffer.popleft()
+            self._inner.on_data(delayed_ts, delayed_data, delayed_ctx, active_broker)
             return
         self._inner.on_data(timestamp, data, context, active_broker)
 
@@ -651,28 +671,58 @@ def analytical_1p5x_sharpe(
     base_res: BacktestResult,
     bars_per_year: int,
     *,
+    val_ts: Sequence[Any] | None = None,
     start_idx: int = 0,
+    initial_cash: float = 1_000_000.0,
 ) -> float:
-    """Compute 1.5x cost-stressed annualised Sharpe analytically from baseline fills."""
+    """Compute 1.5x cost-stressed annualised Sharpe analytically from baseline fills.
+
+    ``val_ts`` must be the same validation timestamps handed to
+    :func:`_extract_aligned_series` (``ts[val_slice]``). The stressed return series
+    then spans exactly the validation window and takes its first denominator from
+    the bar immediately before it, so a long warmup cannot shift or empty the
+    sample. ``start_idx`` is the legacy positional form: the Engine feed starts at
+    ``max(0, start_idx - 1)``, so that predecessor bar stays as the denominator and
+    every later equity timestamp is validation evidence.
+    """
     extra_by_ts: dict[Any, float] = {}
     for fill in base_res.fills:
         extra = 0.5 * _fill_cost(fill)
         extra_by_ts[fill.timestamp] = extra_by_ts.get(fill.timestamp, 0.0) + extra
 
     cum_extra = 0.0
-    stressed_eq: list[float] = []
-    for ts_bar, eq in base_res.equity_curve:
-        cum_extra += extra_by_ts.get(ts_bar, 0.0)
-        stressed_eq.append(float(eq) - cum_extra)
+    stressed_eq: dict[Any, float] = {}
+    for bar_ts, eq in base_res.equity_curve:
+        cum_extra += extra_by_ts.get(bar_ts, 0.0)
+        stressed_eq[bar_ts] = float(eq) - cum_extra
 
-    eq_arr = np.asarray(stressed_eq, dtype=float)
-    if len(eq_arr) < 2:
+    window: list[Any]
+    if val_ts is None:
+        curve_ts = list(stressed_eq)
+        first = 1 if start_idx > 0 and len(curve_ts) > 1 else 0
+        window = curve_ts[first:]
+    else:
+        window = list(val_ts)
+    if len(window) < 2:
         return 0.0
-    denom = np.where(eq_arr[:-1] != 0.0, eq_arr[:-1], 1.0)
-    diffs = np.diff(eq_arr) / denom
-    rets = diffs if start_idx > 0 else np.concatenate(([0.0], diffs))
-    if len(rets) < 2:
-        return 0.0
+
+    predecessor = max((t for t in stressed_eq if t < window[0]), default=None)
+    prev_eq = (
+        stressed_eq[predecessor] if predecessor is not None else float(initial_cash)
+    )
+    rets = np.empty(len(window), dtype=float)
+    for k, bar_ts in enumerate(window):
+        if bar_ts not in stressed_eq:
+            raise ValueError(
+                f"equity curve is missing validation timestamp {bar_ts!r}"
+            )
+        eq_t = stressed_eq[bar_ts]
+        if k == 0 and predecessor is None:
+            rets[k] = 0.0
+        else:
+            denom = prev_eq if prev_eq != 0.0 else float(initial_cash)
+            rets[k] = eq_t / denom - 1.0
+        prev_eq = eq_t
     return annualised_sharpe(rets, bars_per_year)
 
 

@@ -4,17 +4,15 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import polars as pl
-from ml4t.diagnostic.config import DiagnosticConfig
-from ml4t.diagnostic.evaluation import FeatureDiagnostics
-from ml4t.diagnostic.metrics import compute_ic_hac_stats, cross_sectional_ic_series
-from ml4t.engineer.labeling import apply_meta_model, compute_bet_size, meta_labels
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
 from warden.registry import PER_HYPOTHESIS_CAP, HypothesisBudgetExhaustedError
+
+if TYPE_CHECKING:
+    import polars as pl
 
 
 class GateFalsificationError(ValueError): pass
@@ -82,6 +80,8 @@ def evaluate_stage1_cross_sectional_ml(
     else:
         eff_horizon = None
         eff_maxlags = min(max_lags, max(1, len(arr) // 2 - 1))
+    from ml4t.diagnostic.metrics import compute_ic_hac_stats
+
     hac = compute_ic_hac_stats(
         arr,
         maxlags=eff_maxlags,
@@ -121,6 +121,9 @@ def compute_cross_sectional_ic_for_screen(
     min_obs: int = 5,
 ) -> np.ndarray:
     """Compute per-timestamp cross-sectional Spearman IC array for Stage 1 screening."""
+    import polars as pl
+    from ml4t.diagnostic.metrics import cross_sectional_ic_series
+
     ic_df = cross_sectional_ic_series(
         predictions,
         forward_returns,
@@ -285,6 +288,9 @@ def evaluate_stage1_carry_rv(
             f"Insufficient or degenerate carry/spread series (n_obs={n_obs})",
         )
 
+    from ml4t.diagnostic.config import DiagnosticConfig
+    from ml4t.diagnostic.evaluation import FeatureDiagnostics
+
     cfg = DiagnosticConfig()
     cfg.stationarity.enabled = True
     cfg.stationarity.significance_level = float(max_adf_p_value)
@@ -354,6 +360,9 @@ def apply_causal_meta_overlay(
     threshold: float = 0.5,
 ) -> dict[str, np.ndarray]:
     """Compute ml4t-engineer meta-labels, bet sizes, and sized overlay signals."""
+    import polars as pl
+    from ml4t.engineer.labeling import apply_meta_model, compute_bet_size, meta_labels
+
     sig = np.asarray(primary_signal, dtype=float)
     ret = np.asarray(realized_returns, dtype=float)
     prob = np.asarray(meta_probability, dtype=float)
@@ -523,6 +532,8 @@ def compute_trimmed_sharpe(
 
 
 def empirical_holding_volatility(panel_df: pl.DataFrame, expected_holding_bars: int) -> float:
+    import polars as pl
+
     h = int(expected_holding_bars)
     if h < 1:
         raise ValueError("expected_holding_bars must be >= 1")

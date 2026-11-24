@@ -9,10 +9,13 @@ import re
 from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import polars as pl
 import yaml
-from ml4t.specs import FeedSpec
+
+if TYPE_CHECKING:
+    import polars as pl
+    from ml4t.specs import FeedSpec
 
 MARKET = "verified_market"
 DEFAULT_SIMULATION_EPOCH = "legacy_matrix"
@@ -126,6 +129,8 @@ class EvaluationContract:
         return hashlib.sha256(canonical_json(asdict(self)).encode()).hexdigest()[:16]
 
     def to_feed_spec(self) -> FeedSpec:
+        from ml4t.specs import FeedSpec
+
         return FeedSpec(
             timestamp_col="timestamp",
             entity_col="asset",
@@ -144,6 +149,8 @@ class EvaluationContract:
 
 
 def validate_panel_feed_spec(panel: pl.DataFrame, contract: EvaluationContract) -> FeedSpec:
+    import polars as pl
+
     spec = contract.to_feed_spec()
     if panel.is_empty():
         raise ContractValidationError(f"{contract.contract_id}: panel is empty")

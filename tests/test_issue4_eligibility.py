@@ -61,7 +61,10 @@ def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path
     assert "QUARANTINED_SYNTHETIC" in elig["reason"]
     assert [d["disposition"] for d in elig["dispositions"]] == ["QUARANTINED_SYNTHETIC"]
 
-    runner = ExperimentRunner(registry=reg, repo_root=REPO)
+    (tmp_path / "contracts").mkdir(parents=True, exist_ok=True)
+    import shutil
+    shutil.copy2(REPO / "contracts" / "crypto_perps_1h_v1.yaml", tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
+    runner = ExperimentRunner(registry=reg, repo_root=tmp_path)
     ret = cmd_audit_check(argparse.Namespace(run_id="RUN-ML-001", json=True), runner)
     assert ret == 1
     with reg._connect() as conn:
@@ -120,7 +123,10 @@ def test_unrelated_contract_feature_record_cannot_approve_market_trial(tmp_path:
     _with_returns(tmp_path, reg, _candidate("RUN-MARKET", "verified_market"))
     with reg._connect() as conn:
         conn.execute("INSERT INTO feature_sets VALUES ('fh','CRYPTO_PERPS_1H_V1','[]','0.2.0',1,'p',1.0)")
-    runner = ExperimentRunner(registry=reg, repo_root=REPO)
+    (tmp_path / "contracts").mkdir(parents=True, exist_ok=True)
+    import shutil
+    shutil.copy2(REPO / "contracts" / "crypto_perps_1h_v1.yaml", tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
+    runner = ExperimentRunner(registry=reg, repo_root=tmp_path)
     assert cmd_audit_check(argparse.Namespace(run_id="RUN-MARKET", json=True), runner) == 1
     with reg._connect() as conn:
         assert conn.execute("SELECT verdict FROM audit_evidence WHERE run_id='RUN-MARKET'").fetchone()[0] == "REJECTED"

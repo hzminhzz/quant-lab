@@ -30,6 +30,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
+    "pytest-xdist>=3.8.0",
     "ruff",
 ]
 
@@ -44,6 +45,7 @@ packages = ["src/warden"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-n auto --dist worksteal"
 
 [tool.ruff]
 line-length = 100

@@ -12,9 +12,6 @@ from dataclasses import asdict, fields
 from pathlib import Path
 
 import numpy as np
-import polars as pl
-from ml4t.diagnostic.evaluation.stats import deflated_sharpe_ratio
-from scipy import stats
 
 from warden.codeid import code_closure
 from warden.contracts import (
@@ -84,6 +81,9 @@ def compute_selection_report(candidate_returns, historical_return_streams, bars_
                             raw_attempt_count: int | None = None, prior_max_keff: float = 1.0,
                             prior_max_noise: float = 0.0) -> dict:
     """Auditable selection hurdle: raw N, dedup effective rank, and the applied gate penalty."""
+    from ml4t.diagnostic.evaluation.stats import deflated_sharpe_ratio
+    from scipy import stats
+
     streams = [np.asarray(v, dtype=float) for v in [*historical_return_streams, candidate_returns]]
     n = len(streams[-1])
     if any(v.ndim != 1 or len(v) != n or not np.isfinite(v).all() for v in streams):
@@ -866,6 +866,8 @@ class ResearchRegistry:
             observed = len(returns) > 0
             returns_sha256 = ""
             if observed:
+                import polars as pl
+
                 path.parent.mkdir(parents=True, exist_ok=True)
                 # Write, fsync, then atomically publish without replacing any
                 # previous artifact. A crash before commit remains reviewable.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -14,6 +15,31 @@ import pytest
 
 from warden.cli import check_worktree, generate_manifest
 from warden.runner import ExperimentRunner
+
+
+def _make_isolated_cli_repo(tmp_path: Path) -> Path:
+    """Create an isolated repo copy in tmp_path so tests never mutate repo-root .workspace/."""
+    src_root = Path.cwd()
+    work = tmp_path / "repo"
+    work.mkdir(parents=True, exist_ok=True)
+    for rel in ("src", "contracts", "scripts", "AGENTS.md", "pyproject.toml", "uv.lock"):
+        s = src_root / rel
+        if s.exists():
+            os.symlink(s, work / rel)
+    (work / "registry").mkdir(parents=True, exist_ok=True)
+    src_db = src_root / "registry" / "registry.db"
+    if src_db.is_file():
+        src_conn = sqlite3.connect(f"file:{src_db}?mode=ro", uri=True)
+        dst_conn = sqlite3.connect(work / "registry" / "registry.db")
+        src_conn.backup(dst_conn)
+        dst_conn.close()
+        src_conn.close()
+    subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.email", "test@quant-lab.local"], cwd=work, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=work, check=True)
+    subprocess.run(["git", "commit", "--allow-empty", "-m", "init", "-q"], cwd=work, check=True)
+    generate_manifest(work)
+    return work
 
 
 def test_herdr_dispatch_fallback_and_execution(tmp_path: Path) -> None:
@@ -50,14 +76,17 @@ fi
     assert "MOCK_HERDR: pane run w1:p2 uv run warden status" in proc_herdr.stdout
 
 
-def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001() -> None:
+def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Issue #4 tickets 02/03: historical checks may pass, effective verdict may not approve."""
     with sqlite3.connect("registry/registry.db") as conn:
         historic = conn.execute("SELECT 1 FROM trials WHERE run_id='RUN-ML-001'").fetchone()
     if historic is None:
         pytest.skip("Original RUN-ML-001 historic trial absent from clean checkout; dedicated fixture audit tests cover denial")
-    generate_manifest()
-    assert check_worktree() is True
+    work = _make_isolated_cli_repo(tmp_path)
+    monkeypatch.chdir(work)
+    assert check_worktree(work) is True
 
     cmd = [sys.executable, "-m", "warden.cli", "audit-check", "--run-id", "RUN-ML-001", "--json"]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -71,7 +100,7 @@ def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001() -> No
     assert data["verdict"] in {"REJECTED", "REVOKED_INELIGIBLE"}
     assert data["effective_eligibility"]["eligible"] is False
 
-    report = Path(".workspace/hypotheses/AUDIT_RUN-ML-001.md")
+    report = work / ".workspace" / "hypotheses" / "AUDIT_RUN-ML-001.md"
     assert report.is_file()
     assert any(f"Verdict: {v}" in report.read_text() for v in ("REJECTED", "REVOKED_INELIGIBLE"))
     assert "Verdict: APPROVED" not in report.read_text()
@@ -82,6 +111,8 @@ def test_audit_check_planted_violation_fails_closed(tmp_path: Path) -> None:
     from warden.contracts import ExperimentResult
     from warden.registry import ResearchRegistry
 
+    (tmp_path / "contracts").mkdir(parents=True, exist_ok=True)
+    shutil.copy2("contracts/crypto_perps_1h_v1.yaml", tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
     fake_db = tmp_path / "reg.db"
     reg = ResearchRegistry(fake_db)
 
@@ -114,10 +145,10 @@ def test_audit_check_planted_violation_fails_closed(tmp_path: Path) -> None:
         delay_plus1_sharpe=-0.5,  # FAILS check 5!
     )
 
-    runner = ExperimentRunner(registry=reg, repo_root=Path("."))
+    runner = ExperimentRunner(registry=reg, repo_root=tmp_path)
     # Must register contract first
     from warden.contracts import load_contract
-    reg.register_contract(load_contract(Path("contracts/crypto_perps_1h_v1.yaml")))
+    reg.register_contract(load_contract(tmp_path / "contracts" / "crypto_perps_1h_v1.yaml"))
 
     from warden.contracts import HypothesisSpec
     reg.register_hypothesis(HypothesisSpec(
@@ -136,19 +167,23 @@ def test_audit_check_planted_violation_fails_closed(tmp_path: Path) -> None:
     assert ret == 1
 
 
-def test_handoff_and_continue_drift_detection(tmp_path: Path) -> None:
+def test_handoff_and_continue_drift_detection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    work = _make_isolated_cli_repo(tmp_path)
+    monkeypatch.chdir(work)
     # Generate clean handoff
     cmd_h = [sys.executable, "-m", "warden.cli", "handoff", "--ticket", "TKT-10", "--notes", "Testing drift"]
     proc_h = subprocess.run(cmd_h, capture_output=True, text=True, check=False)
     assert proc_h.returncode == 0
 
     # Typed state artifact: schema, timestamped evidence, replayable trace, explicit gates
-    state = json.loads(Path(".workspace/state/current.json").read_text())
+    state = json.loads((work / ".workspace" / "state" / "current.json").read_text())
     assert state["schema"] == 1
     assert {"created_at", "evidence", "tool_trace", "quality_gates"} <= set(state)
     assert all("observed_at" in e for e in state["evidence"])
     assert all({"op", "expect"} <= set(t) for t in state["tool_trace"])
-    assert Path(".workspace/state/history.jsonl").read_text().strip()
+    assert (work / ".workspace" / "state" / "history.jsonl").read_text().strip()
 
     # Continue on clean state passes (zero drift)
     cmd_c = [sys.executable, "-m", "warden.cli", "continue"]

@@ -15,11 +15,13 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from warden.audit import AUDIT_LOG
 from warden.audit import fingerprint as audit_fingerprint
-from warden.registry import ResearchRegistry
-from warden.runner import ExperimentRunner
+
+if TYPE_CHECKING:
+    from warden.runner import ExperimentRunner
 
 STATE_FILE = Path(".workspace") / "state" / "current.json"
 HISTORY_FILE = Path(".workspace") / "state" / "history.jsonl"
@@ -45,6 +47,7 @@ def _contract_pins(repo_root: Path) -> dict[str, str]:
 def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
     """Typed, replayable checkpoint: evidence with timestamps, tool trace, explicit gates."""
     from warden.cli import WORKTREE_OK, check_worktree
+    from warden.registry import ResearchRegistry
     now = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=repo_root, text=True).strip()
     registry = ResearchRegistry(repo_root / "registry" / "registry.db")

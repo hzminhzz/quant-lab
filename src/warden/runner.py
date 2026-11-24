@@ -23,6 +23,7 @@ import yaml
 from warden.codeid import code_closure
 from warden.contracts import (
     ENGINE_SIMULATION_EPOCH,
+    ContractValidationError,
     EvaluationContract,
     ExperimentResult,
     HypothesisSpec,
@@ -301,9 +302,24 @@ def prepare_panel(repo_root: Path, dataset, params: dict, contract: EvaluationCo
     if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
         panel_df = panel_df.rename({"symbol": "asset"})
     panel_df = filter_target_symbols(panel_df, params, str(dataset.path)).sort("timestamp", "asset")
+    if "timestamp" not in panel_df.columns:
+        raise ContractValidationError(f"{contract.contract_id}: exploratory panel has no 'timestamp' column")
+    # Temporal fence: no bar at or after the holdout cutoff may enter exploratory
+    # loading, so it fails before Stage-0 volatility, feature caching or reservation.
+    latest = panel_df["timestamp"].max() if not panel_df.is_empty() else None
+    if latest is not None and latest >= contract.holdout_start:
+        raise ContractValidationError(
+            f"{contract.contract_id}: exploratory panel reaches {latest} at or past holdout_start "
+            f"{contract.holdout_start.isoformat()}; holdout bars may not be loaded as exploratory data"
+        )
     ts = panel_df["timestamp"].unique().sort().to_list()
     assets = sorted(panel_df["asset"].unique().to_list())
     v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
+    if v_slice.start >= v_slice.stop:
+        raise ContractValidationError(
+            f"{contract.contract_id}: validation slice {contract.val_start.isoformat()}.."
+            f"{contract.val_end.isoformat()} contains no bars; refusing an empty validation panel"
+        )
     return panel_df, ts, assets, v_slice
 
 

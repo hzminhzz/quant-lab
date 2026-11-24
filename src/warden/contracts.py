@@ -167,6 +167,12 @@ def validate_panel_feed_spec(panel: pl.DataFrame, contract: EvaluationContract) 
         )
     if panel.select(pl.col(ts_col).is_null().any()).item():
         raise ContractValidationError(f"{contract.contract_id}: null timestamps are not allowed")
+    latest = panel.select(pl.col(ts_col).max()).item()
+    if latest is not None and utc(latest) >= contract.holdout_start:
+        raise ContractValidationError(
+            f"{contract.contract_id}: '{ts_col}' reaches {latest} at or past holdout_start "
+            f"{contract.holdout_start.isoformat()}; exploratory panels may not contain holdout bars"
+        )
     entity_col = str(resolved.entity_col)
     if panel.select(
         (pl.col(entity_col).is_null() | (pl.col(entity_col).cast(pl.String).str.len_chars() == 0)).any()

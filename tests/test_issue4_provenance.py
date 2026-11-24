@@ -25,7 +25,7 @@ from warden.runner import ExperimentRunner
 REPO = Path(".")
 
 
-def _tiny_panel(n_bars: int = 40) -> pl.DataFrame:
+def _tiny_panel(n_bars: int = 24) -> pl.DataFrame:
     rows, rng = [], np.random.default_rng(7)
     for asset, base in (("AAA", 100.0), ("BBB", 50.0)):
         price = base
@@ -112,6 +112,71 @@ def test_declared_provenance_requires_a_pin() -> None:
         replace(contract, data_snapshot_sha256="", data_provenance="verified_market")
     with pytest.raises(ValueError, match="data_provenance must be"):
         replace(contract, data_provenance="market-ish")
+
+
+def test_holdout_pin_missing_is_ineligible_before_any_file_access(tmp_path: Path) -> None:
+    """#88: a holdout read needs a declared path + 64-hex digest pin in the manifest."""
+    contract = _contract(tmp_path, _tiny_panel())
+    holdout_path = tmp_path / contract.holdout_data_path
+    assert not holdout_path.exists()
+
+    # No holdout pin at all: ineligible with a reason, and no DatasetProvenanceError,
+    # proving the (absent) holdout file was never opened or statted.
+    _manifest(tmp_path, contract)
+    missing_pin = resolve_dataset(contract, tmp_path, role="holdout")
+    assert missing_pin.eligible_market is False
+    assert missing_pin.sha256 == "" and missing_pin.path == contract.holdout_data_path
+    assert "holdout_path" in missing_pin.reason and "pin" in missing_pin.reason
+
+    # Blank path, absent digest, malformed digest and uppercase-only digest all fail closed.
+    for override, needle in (
+        ({"holdout_path": "   ", "holdout_sha256": "0" * 64}, "holdout_path"),
+        ({"holdout_path": contract.holdout_data_path}, "holdout_sha256"),
+        ({"holdout_path": contract.holdout_data_path, "holdout_sha256": "abc123"}, "64 lowercase hex"),
+        ({"holdout_path": contract.holdout_data_path, "holdout_sha256": "A" * 64}, "64 lowercase hex"),
+    ):
+        _manifest(tmp_path, contract, **override)
+        res = resolve_dataset(contract, tmp_path, role="holdout")
+        assert res.eligible_market is False, override
+        assert needle in res.reason, (override, res.reason)
+        assert res.sha256 == ""
+
+    # A manifest-declared path that disagrees with the contract is refused before file access.
+    _manifest(tmp_path, contract, holdout_path="data/holdout/other.parquet", holdout_sha256="0" * 64)
+    mismatched = resolve_dataset(contract, tmp_path, role="holdout")
+    assert mismatched.eligible_market is False and "!= contract path" in mismatched.reason
+
+    # A missing manifest is a missing pin, not an exception during a holdout read.
+    (tmp_path / "contracts" / "datasets" / "TINY_V1.json").unlink()
+    assert "missing dataset manifest" in resolve_dataset(contract, tmp_path, role="holdout").reason
+
+
+def test_holdout_pin_without_a_contract_path_is_ineligible(tmp_path: Path) -> None:
+    contract = replace(_contract(tmp_path, _tiny_panel()), holdout_data_path="")
+    _manifest(tmp_path, contract, holdout_path="data/holdout/tiny.parquet", holdout_sha256="0" * 64)
+    res = resolve_dataset(contract, tmp_path, role="holdout")
+    assert res.eligible_market is False
+    assert "contract declares no holdout_data_path" in res.reason
+
+
+def test_holdout_valid_pin_resolves_market_eligible(tmp_path: Path) -> None:
+    panel = _tiny_panel()
+    contract = _contract(tmp_path, panel)
+    holdout_path = tmp_path / contract.holdout_data_path
+    holdout_path.parent.mkdir(parents=True, exist_ok=True)
+    panel.write_parquet(holdout_path)
+    holdout_sha = hashlib.sha256(holdout_path.read_bytes()).hexdigest()
+    _manifest(tmp_path, contract, holdout_path=contract.holdout_data_path, holdout_sha256=holdout_sha)
+
+    res = resolve_dataset(contract, tmp_path, role="holdout")
+    assert res.eligible_market is True
+    assert res.path == contract.holdout_data_path and res.sha256 == holdout_sha
+
+    # Arbitrary bytes can never satisfy the pinned digest.
+    _manifest(tmp_path, contract, holdout_path=contract.holdout_data_path, holdout_sha256="0" * 64)
+    substituted = resolve_dataset(contract, tmp_path, role="holdout")
+    assert substituted.eligible_market is False
+    assert "digest differs from manifest" in substituted.reason
 
 
 def test_synthetic_run_is_recorded_and_never_promoted(tmp_path: Path) -> None:

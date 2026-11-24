@@ -164,9 +164,7 @@ principal-delegation authorization trails.
   changed → refuse). Write the `contracts` table only through that API, never raw SQL.
 
 ### Implementation status
-- The runner wires the `rules_ts` and `cross_sectional_ml` family gates only. `carry_rv` and
-  `meta_overlay` are specified in the RFC/funnel but unwired; their dead gate stubs were removed.
-  Re-add a family's gate when wiring that family.
+- The runner wires all four family gates: `rules_ts`, `cross_sectional_ml`, `carry_rv`, and `meta_overlay`.
 
 ### Commands (verified by observed run this session)
 - `uv run --frozen pytest -q` — full suite (observed green).

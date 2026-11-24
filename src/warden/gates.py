@@ -8,7 +8,10 @@ from typing import Any
 
 import numpy as np
 import polars as pl
+from ml4t.diagnostic.config import DiagnosticConfig
+from ml4t.diagnostic.evaluation import FeatureDiagnostics
 from ml4t.diagnostic.metrics import compute_ic_hac_stats, cross_sectional_ic_series
+from ml4t.engineer.labeling import apply_meta_model, compute_bet_size, meta_labels
 
 from warden.contracts import EvaluationContract, HypothesisSpec, Stage1Report
 from warden.registry import PER_HYPOTHESIS_CAP, HypothesisBudgetExhaustedError
@@ -19,11 +22,15 @@ class GateFalsificationError(ValueError): pass
 
 # Single gate vocabulary: runner, cli audit and qualify compare against these, never literals.
 # PER_HYPOTHESIS_CAP is a governance fact owned by the registry (imported above), not redefined here.
-MIN_SR = {"cross_sectional_ml": 1.2, "rules_ts": 1.0}
+MIN_SR = {"cross_sectional_ml": 1.2, "rules_ts": 1.0, "carry_rv": 1.0, "meta_overlay": 1.0}
 SR2_FLOOR, SRD_FLOOR, DSR_FLOOR, IC_T_FLOOR = 0.50, 0.0, 0.90, 2.0
 AUDIT_DSR_FLOOR, TRIMMED_SHARPE_FLOOR = 0.80, 0.0
 NEIGHBOR_STABILITY_RATIO, NEIGHBOR_MAX_SR_FLOOR = 0.70, 0.0
 HOLDOUT_SR_FLOOR, HOLDOUT_RATIO_FLOOR, REVISE_SR_FLOOR = 0.80, 0.50, 1.0
+CARRY_ADF_ALPHA = 0.05
+META_TURNOVER_REDUCTION_FLOOR = 0.20
+META_RISK_REDUCTION_FLOOR = 0.10
+META_MAX_SHARPE_LOSS = 0.05
 
 
 def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:
@@ -247,6 +254,246 @@ def evaluate_stage1_rules_ts(
             "trade_edge": trade_edge,
         },
         f"PF={profit_factor:.2f} ({pf_basis}, barPF={bar_profit_factor:.2f}), Edge={cond_edge*1e4:.1f}bps, TiM={time_in_market*100:.1f}%, Holding={avg_holding:.1f}h",
+    )
+
+
+def evaluate_stage1_carry_rv(
+    net_carry_series: Sequence[float] | np.ndarray,
+    spread_series: Sequence[float] | np.ndarray,
+    *,
+    max_adf_p_value: float = CARRY_ADF_ALPHA,
+    min_obs: int = 20,
+) -> Stage1Report:
+    """Gate carry/RV mechanisms on positive net carry and spread stationarity (FeatureDiagnostics ADF)."""
+    net_arr = np.asarray(net_carry_series, dtype=float)
+    spread_arr = np.asarray(spread_series, dtype=float)
+    if net_arr.ndim != 1 or spread_arr.ndim != 1:
+        raise ValueError("net_carry_series and spread_series must be 1D vectors")
+    if len(net_arr) != len(spread_arr):
+        raise ValueError(
+            f"Carry and spread lengths must match ({len(net_arr)} != {len(spread_arr)})"
+        )
+    valid_mask = np.isfinite(net_arr) & np.isfinite(spread_arr)
+    net_arr = net_arr[valid_mask]
+    spread_arr = spread_arr[valid_mask]
+    n_obs = len(spread_arr)
+    if n_obs < min_obs or float(np.std(spread_arr)) < 1e-12:
+        return Stage1Report(
+            "carry_rv",
+            False,
+            {"n_obs": float(n_obs), "mean_net_carry": float(np.mean(net_arr)) if n_obs else 0.0},
+            f"Insufficient or degenerate carry/spread series (n_obs={n_obs})",
+        )
+
+    cfg = DiagnosticConfig()
+    cfg.stationarity.enabled = True
+    cfg.stationarity.significance_level = float(max_adf_p_value)
+    cfg.stationarity.adf_enabled = True
+    cfg.stationarity.kpss_enabled = True
+    cfg.acf.enabled = False
+    cfg.volatility.enabled = False
+    cfg.distribution.enabled = False
+    diag_res = FeatureDiagnostics(cfg).run_diagnostics(spread_arr, name="carry_spread")
+    st = diag_res.stationarity
+    adf_res = getattr(st, "adf_result", None) if st is not None else None
+    kpss_res = getattr(st, "kpss_result", None) if st is not None else None
+
+    adf_p = float(adf_res.p_value) if adf_res is not None and math.isfinite(adf_res.p_value) else 1.0
+    adf_stat = (
+        float(adf_res.test_statistic)
+        if adf_res is not None and math.isfinite(adf_res.test_statistic)
+        else 0.0
+    )
+    kpss_p = (
+        float(kpss_res.p_value)
+        if kpss_res is not None and math.isfinite(kpss_res.p_value)
+        else None
+    )
+    consensus = str(getattr(st, "consensus", "unknown"))
+
+    mean_net_carry = float(np.mean(net_arr))
+    total_net_carry = float(np.sum(net_arr))
+    spread_mean = float(np.mean(spread_arr))
+    spread_std = float(np.std(spread_arr, ddof=1))
+    abs_z = np.abs((spread_arr - spread_mean) / max(spread_std, 1e-12))
+    max_abs_excursion_z = float(np.max(abs_z))
+    p99_abs_excursion_z = float(np.percentile(abs_z, 99.0))
+    running_max = np.maximum.accumulate(spread_arr)
+    max_spread_drawdown = float(np.max(running_max - spread_arr))
+
+    passed = (mean_net_carry > 0.0) and math.isfinite(adf_p) and (adf_p < max_adf_p_value)
+    return Stage1Report(
+        "carry_rv",
+        passed,
+        {
+            "n_obs": float(n_obs),
+            "mean_net_carry": mean_net_carry,
+            "total_net_carry": total_net_carry,
+            "adf_p_value": adf_p,
+            "adf_statistic": adf_stat,
+            "kpss_p_value": kpss_p,
+            "stationarity_consensus": consensus,
+            "max_abs_excursion_z": max_abs_excursion_z,
+            "p99_abs_excursion_z": p99_abs_excursion_z,
+            "max_spread_drawdown": max_spread_drawdown,
+        },
+        (
+            f"MeanNetCarry={mean_net_carry*1e4:.2f}bps, ADF_p={adf_p:.4g} "
+            f"({consensus}), MaxExcursionZ={max_abs_excursion_z:.2f}"
+        ),
+    )
+
+
+def apply_causal_meta_overlay(
+    primary_signal: Sequence[float] | np.ndarray,
+    realized_returns: Sequence[float] | np.ndarray,
+    meta_probability: Sequence[float] | np.ndarray,
+    *,
+    method: str = "sigmoid",
+    scale: float = 5.0,
+    threshold: float = 0.5,
+) -> dict[str, np.ndarray]:
+    """Compute ml4t-engineer meta-labels, bet sizes, and sized overlay signals."""
+    sig = np.asarray(primary_signal, dtype=float)
+    ret = np.asarray(realized_returns, dtype=float)
+    prob = np.asarray(meta_probability, dtype=float)
+    if sig.ndim != 1 or ret.ndim != 1 or prob.ndim != 1 or not (len(sig) == len(ret) == len(prob)):
+        raise ValueError("primary_signal, realized_returns, and meta_probability must be aligned 1D arrays")
+    df = pl.DataFrame({"primary_signal": sig, "realized_return": ret, "meta_probability": prob})
+    df = meta_labels(df, signal_col="primary_signal", return_col="realized_return", threshold=0.0)
+    df = df.with_columns(
+        compute_bet_size("meta_probability", method=method, scale=scale, threshold=threshold).alias("bet_size")
+    )
+    df = apply_meta_model(
+        df,
+        primary_signal_col="primary_signal",
+        meta_probability_col="meta_probability",
+        bet_size_method=method,
+        scale=scale,
+        threshold=threshold,
+        output_col="sized_signal",
+    )
+    return {
+        "meta_label": df["meta_label"].fill_null(0).to_numpy().astype(float),
+        "bet_size": df["bet_size"].fill_null(0.0).to_numpy().astype(float),
+        "sized_signal": df["sized_signal"].fill_null(0.0).to_numpy().astype(float),
+    }
+
+
+def _cvar_99_and_max_dd(returns: np.ndarray) -> tuple[float, float]:
+    q01 = float(np.percentile(returns, 1.0))
+    tail = returns[returns <= q01]
+    cvar_99 = float(abs(np.mean(tail))) if len(tail) > 0 else float(abs(q01))
+    eq = np.cumprod(1.0 + returns)
+    peak = np.maximum.accumulate(eq)
+    max_dd = float(np.max((peak - eq) / np.maximum(peak, 1e-12))) * 100.0
+    return cvar_99, max_dd
+
+
+def _paired_risk_reduction_pvalue(parent: np.ndarray, child: np.ndarray, n_boot: int = 200) -> tuple[float, float]:
+    """Paired circular-block bootstrap p-values for CVaR_99 and MaxDD reduction."""
+    n = len(parent)
+    block = max(2, min(16, int(math.sqrt(n))))
+    n_blocks = math.ceil(n / block)
+    rng = np.random.default_rng(42)
+    p_wrap = np.concatenate([parent, parent[:block]])
+    c_wrap = np.concatenate([child, child[:block]])
+    cvar_worse = 0
+    dd_worse = 0
+    for _ in range(n_boot):
+        starts = rng.integers(0, n, size=n_blocks)
+        idx = np.concatenate([np.arange(s, s + block) for s in starts])[:n]
+        p_cvar, p_dd = _cvar_99_and_max_dd(p_wrap[idx])
+        c_cvar, c_dd = _cvar_99_and_max_dd(c_wrap[idx])
+        if c_cvar >= p_cvar:
+            cvar_worse += 1
+        if c_dd >= p_dd:
+            dd_worse += 1
+    return cvar_worse / n_boot, dd_worse / n_boot
+
+
+def evaluate_stage1_meta_overlay(
+    parent_net_returns: Sequence[float] | np.ndarray,
+    child_net_returns: Sequence[float] | np.ndarray,
+    parent_annualized_turnover: float,
+    child_annualized_turnover: float,
+    bars_per_year: int,
+    *,
+    min_turnover_reduction: float = META_TURNOVER_REDUCTION_FLOOR,
+    min_risk_reduction: float = META_RISK_REDUCTION_FLOOR,
+    max_sharpe_loss: float = META_MAX_SHARPE_LOSS,
+    parent_run_id: str = "",
+    parent_data_sha256: str = "",
+    child_data_sha256: str = "",
+) -> Stage1Report:
+    """Gate meta_overlay children against their registered parent return stream."""
+    p_arr = np.asarray(parent_net_returns, dtype=float)
+    c_arr = np.asarray(child_net_returns, dtype=float)
+    if p_arr.ndim != 1 or c_arr.ndim != 1 or not (np.isfinite(p_arr).all() and np.isfinite(c_arr).all()):
+        raise ValueError("Parent and child return streams must be finite 1D vectors")
+    if parent_data_sha256 and child_data_sha256 and parent_data_sha256 != child_data_sha256:
+        raise ValueError(
+            f"Parent and child datasets are not aligned ({parent_data_sha256[:12]} != {child_data_sha256[:12]})"
+        )
+    if len(p_arr) != len(c_arr):
+        raise ValueError(
+            f"Parent and child return streams are not temporally aligned ({len(p_arr)} != {len(c_arr)})"
+        )
+    if len(p_arr) < 10:
+        return Stage1Report(
+            "meta_overlay",
+            False,
+            {"n_obs": float(len(p_arr))},
+            f"Insufficient aligned validation bars ({len(p_arr)}) for meta_overlay evaluation",
+        )
+
+    parent_sharpe = annualised_sharpe(p_arr, bars_per_year)
+    child_sharpe = annualised_sharpe(c_arr, bars_per_year)
+    sharpe_delta = child_sharpe - parent_sharpe
+
+    p_turn = float(parent_annualized_turnover)
+    c_turn = float(child_annualized_turnover)
+    turnover_reduction = ((p_turn - c_turn) / p_turn) if p_turn > 1e-12 else 0.0
+
+    parent_cvar, parent_max_dd = _cvar_99_and_max_dd(p_arr)
+    child_cvar, child_max_dd = _cvar_99_and_max_dd(c_arr)
+    cvar_99_reduction = ((parent_cvar - child_cvar) / parent_cvar) if parent_cvar > 1e-12 else 0.0
+    max_dd_reduction = ((parent_max_dd - child_max_dd) / parent_max_dd) if parent_max_dd > 1e-12 else 0.0
+    cvar_p_val, dd_p_val = _paired_risk_reduction_pvalue(p_arr, c_arr)
+
+    sharpe_preserved = (parent_sharpe - child_sharpe) <= float(max_sharpe_loss)
+    turnover_ok = turnover_reduction >= float(min_turnover_reduction)
+    cvar_ok = (cvar_99_reduction >= float(min_risk_reduction)) and (cvar_p_val < 0.05)
+    dd_ok = (max_dd_reduction >= float(min_risk_reduction)) and (dd_p_val < 0.05)
+    risk_ok = cvar_ok or dd_ok
+    passed = bool(sharpe_preserved and (turnover_ok or risk_ok))
+
+    metrics: dict[str, Any] = {
+        "n_obs": float(len(p_arr)),
+        "parent_run_id": parent_run_id,
+        "parent_net_sharpe": parent_sharpe,
+        "child_net_sharpe": child_sharpe,
+        "sharpe_delta": sharpe_delta,
+        "parent_annualized_turnover": p_turn,
+        "child_annualized_turnover": c_turn,
+        "turnover_reduction": turnover_reduction,
+        "parent_cvar_99_pct": parent_cvar,
+        "child_cvar_99_pct": child_cvar,
+        "cvar_99_reduction": cvar_99_reduction,
+        "cvar_reduction_p_value": cvar_p_val,
+        "parent_max_drawdown_pct": parent_max_dd,
+        "child_max_drawdown_pct": child_max_dd,
+        "max_dd_reduction": max_dd_reduction,
+        "max_dd_reduction_p_value": dd_p_val,
+    }
+    return Stage1Report(
+        "meta_overlay",
+        passed,
+        metrics,
+        (
+            f"TurnRed={turnover_reduction*100:.1f}%, CVaRRed={cvar_99_reduction*100:.1f}% (p={cvar_p_val:.3f}), "
+            f"MaxDDRed={max_dd_reduction*100:.1f}% (p={dd_p_val:.3f}), SharpeDelta={sharpe_delta:+.3f}"
+        ),
     )
 
 

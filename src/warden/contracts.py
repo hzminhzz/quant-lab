@@ -234,6 +234,8 @@ class HypothesisSpec:
             valid_id(self.parent_hypothesis_id)
         if self.parent_hypothesis_id == self.hypothesis_id or self.strategy_family not in {"rules_ts", "cross_sectional_ml", "carry_rv", "meta_overlay"}:
             raise ContractValidationError("invalid parent or strategy_family")
+        if self.strategy_family == "meta_overlay" and not self.parent_hypothesis_id:
+            raise ContractValidationError("meta_overlay requires parent_hypothesis_id")
         for n in ("economic_mechanism", "counterparty_or_friction"):
             if not isinstance(getattr(self, n), str) or len(getattr(self, n).strip()) < 20:
                 raise ContractValidationError(f"{n} must explain at least 20 chars")

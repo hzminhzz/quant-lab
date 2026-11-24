@@ -743,7 +743,7 @@ class ResearchRegistry:
             attempt_rows = conn.execute(
                 "SELECT attempt_id,returns_json FROM selection_attempts "
                 "WHERE contract_id=? AND returns_observed=1 "
-                "AND (kind='param_grid' OR (kind='standalone_screen' AND strategy_family='rules_ts'))"
+                "AND (kind='param_grid' OR (kind='standalone_screen' AND strategy_family IN ('rules_ts', 'meta_overlay')))"
                 f"{s_clause} ORDER BY created_at,attempt_id",
                 (contract_id, *s_params),
             ).fetchall()
@@ -779,6 +779,48 @@ class ResearchRegistry:
         raw = self.validation_attempt_count(contract_id, simulation_epoch=epoch)
         return {"streams": streams, "excluded": excluded, "raw_attempt_count": raw,
                 "unvectorized_attempts": max(0, raw - len(streams)), "simulation_epoch": epoch}
+
+    def parent_validation_stream(
+        self,
+        parent_hypothesis_id: str | None,
+        contract_id: str,
+        simulation_epoch: str | None = None,
+    ) -> dict | None:
+        """Return the latest recorded Stage 2/3 validation stream for ``parent_hypothesis_id``."""
+        if not parent_hypothesis_id:
+            return None
+        epoch = _normalize_epoch(simulation_epoch) if simulation_epoch is not None else None
+        with self._connect() as conn:
+            clause, params = (
+                self._epoch_clause(conn, "trials", epoch) if epoch is not None else ("", ())
+            )
+            row = conn.execute(
+                "SELECT run_id, returns_json, net_sharpe, annualized_turnover, "
+                "max_drawdown_pct, cvar_99_pct, simulation_epoch, data_snapshot_sha256 "
+                "FROM trials WHERE hypothesis_id=? AND contract_id=? "
+                "AND stage_reached IN ('STAGE_2_BACKTEST', 'STAGE_3_STRESS') "
+                "AND verdict NOT IN ('FAILED', 'REJECTED_EARLY')"
+                f"{clause} ORDER BY created_at DESC, run_id DESC LIMIT 1",
+                (parent_hypothesis_id, contract_id, *params),
+            ).fetchone()
+        if not row or not row[1]:
+            return None
+        try:
+            arr = np.asarray(json.loads(row[1]), dtype=float)
+        except (TypeError, ValueError):
+            return None
+        if arr.ndim != 1 or len(arr) == 0 or not np.isfinite(arr).all():
+            return None
+        return {
+            "run_id": str(row[0]),
+            "net_returns": arr,
+            "net_sharpe": float(row[2] or 0.0),
+            "annualized_turnover": float(row[3] or 0.0),
+            "max_drawdown_pct": float(row[4] or 0.0),
+            "cvar_99_pct": float(row[5] or 0.0),
+            "simulation_epoch": str(row[6] or DEFAULT_SIMULATION_EPOCH),
+            "data_snapshot_sha256": str(row[7] or ""),
+        }
 
     def prior_search_floor(self, contract: EvaluationContract):
         """Historical floor, inherited by later contract versions of the same market/frequency."""

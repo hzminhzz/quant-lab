@@ -55,7 +55,9 @@ from warden.gates import (
     empirical_holding_volatility,
     evaluate_neighbor_stability,
     evaluate_stage0_feasibility,
+    evaluate_stage1_carry_rv,
     evaluate_stage1_cross_sectional_ml,
+    evaluate_stage1_meta_overlay,
     evaluate_stage1_rules_ts,
 )
 from warden.protocols import (
@@ -116,6 +118,63 @@ def _evaluate_cs_ml_stage1(
         label_horizon=contract.label_horizon_bars + contract.execution_delay_bars,
     )
     return report, ic_series
+
+
+def _extract_carry_rv_series(
+    panel_df: pl.DataFrame,
+    contract: EvaluationContract,
+    ts: list,
+    assets: list[str],
+    v_slice: slice,
+    params: dict[str, Any],
+    expected_holding_bars: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract OOS (net_carry, spread) series on ``v_slice`` without executing Engine."""
+    close_mat = aligned_matrix(panel_df, "close", assets)
+    fund_mat = (
+        aligned_matrix(panel_df, "funding_rate", assets)
+        if "funding_rate" in panel_df.columns
+        else np.zeros_like(close_mat)
+    )
+    f_mask = funding_settlement_mask(ts, contract)
+    v_start = int(v_slice.start or 0)
+    v_stop = int(v_slice.stop if v_slice.stop is not None else len(ts))
+    train_end = max(1, v_start)
+
+    cost_per_bar = (2.0 * contract.total_one_way_cost_decimal()) / max(1, int(expected_holding_bars))
+    if len(assets) == 2:
+        spread_full = np.log(np.maximum(close_mat[:, 0], 1e-12)) - np.log(
+            np.maximum(close_mat[:, 1], 1e-12)
+        )
+        direction = (params or {}).get("carry_direction")
+        if direction is not None:
+            w0, w1 = float(direction[0]), float(direction[1])
+        else:
+            # Causal carry direction estimated strictly on pre-validation training bars:
+            # short higher-funding asset, long lower-funding asset (funding > 0 => longs pay shorts).
+            mean_diff = float(np.mean(fund_mat[:train_end, 0] - fund_mat[:train_end, 1]))
+            w0, w1 = (-1.0, 1.0) if mean_diff >= 0.0 else (1.0, -1.0)
+        gross_carry = -(w0 * fund_mat[v_start:v_stop, 0] + w1 * fund_mat[v_start:v_stop, 1]) * f_mask[
+            v_start:v_stop
+        ]
+        net_carry = gross_carry - cost_per_bar
+        return net_carry, spread_full[v_start:v_stop]
+
+    if len(assets) == 1:
+        spread_full = fund_mat[:, 0]
+        mean_f = float(np.mean(fund_mat[:train_end, 0]))
+        sign = -1.0 if mean_f >= 0.0 else 1.0
+        gross_carry = -sign * fund_mat[v_start:v_stop, 0] * f_mask[v_start:v_stop]
+        return gross_carry - cost_per_bar, spread_full[v_start:v_stop]
+
+    # Multi-asset cross-sectional carry spread: high-funding half vs low-funding half
+    train_means = np.mean(fund_mat[:train_end], axis=0)
+    order = np.argsort(train_means)
+    half = max(1, len(assets) // 2)
+    low_idx, high_idx = order[:half], order[-half:]
+    spread_full = np.mean(fund_mat[:, high_idx], axis=1) - np.mean(fund_mat[:, low_idx], axis=1)
+    gross_carry = spread_full[v_start:v_stop] * f_mask[v_start:v_stop]
+    return gross_carry - cost_per_bar, spread_full[v_start:v_stop]
 
 
 def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, assets: list[str]) -> dict:
@@ -305,10 +364,30 @@ class ExperimentRunner:
         simulation_epoch = str(cfg.get("simulation_epoch") or ENGINE_SIMULATION_EPOCH)
         strat_module = normalise_module(str(cfg.get("strategy_module", "")))
         with self.registry._connect() as conn:
-            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, status FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
+            h = conn.execute(
+                "SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, "
+                "falsification_criteria, trials_used, status, strategy_family, parent_hypothesis_id "
+                "FROM hypotheses WHERE hypothesis_id = ?",
+                (hyp_id,),
+            ).fetchone()
             if not h:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
-            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], family, h[1], h[2], int(h[3]), h[4])
+            reg_family = h[7]
+            if family != reg_family:
+                raise ValueError(
+                    f"Experiment spec strategy_family '{family}' does not match registered hypothesis family '{reg_family}'."
+                )
+            hyp = HypothesisSpec(
+                hyp_id,
+                contract.contract_id,
+                h[0],
+                reg_family,
+                h[1],
+                h[2],
+                int(h[3]),
+                h[4],
+                parent_hypothesis_id=h[8],
+            )
             trials_used, hyp_status = h[5], h[6]
         strat_file = self.repo_root / strat_module
         strat_mod, protocol = load_and_enforce_strategy_protocol(
@@ -321,7 +400,126 @@ class ExperimentRunner:
         dataset, panel_df, ts, assets, v_slice, _ = self._prepare_and_check_stage0(
             contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch)
         screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
+        if family == "carry_rv":
+            net_carry, spread = _extract_carry_rv_series(
+                panel_df,
+                contract,
+                ts,
+                assets,
+                v_slice,
+                effective_params,
+                hyp.expected_holding_bars,
+            )
+            report = evaluate_stage1_carry_rv(net_carry, spread)
+            self.registry.record_selection_attempt(
+                hypothesis_id=hyp_id,
+                contract_id=contract.contract_id,
+                kind="standalone_screen",
+                stage="STAGE_1_SIGNAL",
+                outcome="PASS" if report.passed else "REJECT",
+                strategy_family=family,
+                strategy_module=strat_module,
+                parameters=params,
+                data_provenance=dataset.provenance,
+                returns=None,
+                diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                screen_key=screen_key,
+                simulation_epoch=simulation_epoch,
+            )
+            return report
+        if family == "meta_overlay":
+            parent_stream = self.registry.parent_validation_stream(
+                hyp.parent_hypothesis_id,
+                contract.contract_id,
+                simulation_epoch=simulation_epoch,
+            )
+            if parent_stream is None:
+                report = Stage1Report(
+                    "meta_overlay",
+                    False,
+                    {"parent_stream_found": 0.0},
+                    f"Missing recorded validation stream for parent '{hyp.parent_hypothesis_id}'",
+                )
+                self.registry.record_selection_attempt(
+                    hypothesis_id=hyp_id,
+                    contract_id=contract.contract_id,
+                    kind="standalone_screen",
+                    stage="STAGE_1_SIGNAL",
+                    outcome="REJECT",
+                    strategy_family=family,
+                    strategy_module=strat_module,
+                    parameters=params,
+                    data_provenance=dataset.provenance,
+                    returns=None,
+                    diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                    screen_key=screen_key,
+                    simulation_epoch=simulation_epoch,
+                )
+                return report
+            policy_dict = extract_execution_policy(cfg, params)
+            if protocol == "causal_rules":
+                strat_obj = resolve_protocol_target(strat_mod).configure_strategy(contract, params)
+                sim1 = run_engine_strategy(
+                    panel_df,
+                    strat_obj,
+                    ts,
+                    assets,
+                    contract,
+                    v_slice,
+                    cost_multiplier=1.0,
+                    **policy_dict,
+                )
+            else:
+                if protocol == "causal_model":
+                    out = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, params)
+                else:
+                    out = _run_strategy_isolated(strat_file, panel_df, contract, params)
+                if int(out.get("signal_delay_bars", 0)) > 0:
+                    raise DoubleLatencyError(
+                        f"'{cfg.get('strategy_name', Path(exp_yaml_path).stem)}' declares "
+                        f"signal_delay_bars={out['signal_delay_bars']} while Warden already applies "
+                        f"execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged."
+                    )
+                sim1 = run_engine_simulation(
+                    panel_df,
+                    out["positions"],
+                    ts,
+                    assets,
+                    contract,
+                    v_slice,
+                    cost_multiplier=1.0,
+                    **policy_dict,
+                )
+            child_ann_turn = float(np.mean(sim1.turnover) * contract.bars_per_year)
+            report = evaluate_stage1_meta_overlay(
+                parent_stream["net_returns"],
+                sim1.net_returns,
+                parent_stream["annualized_turnover"],
+                child_ann_turn,
+                contract.bars_per_year,
+                parent_run_id=parent_stream["run_id"],
+                parent_data_sha256=parent_stream.get("data_snapshot_sha256", ""),
+                child_data_sha256=dataset.sha256,
+            )
+            self.registry.record_selection_attempt(
+                hypothesis_id=hyp_id,
+                contract_id=contract.contract_id,
+                kind="standalone_screen",
+                stage="STAGE_1_SIGNAL",
+                outcome="PASS" if report.passed else "REJECT",
+                strategy_family=family,
+                strategy_module=strat_module,
+                parameters=params,
+                data_provenance=dataset.provenance,
+                returns=sim1.net_returns,
+                diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                screen_key=screen_key,
+                simulation_epoch=simulation_epoch,
+            )
+            return report
         if protocol == "causal_rules":
+            if family != "rules_ts":
+                raise ValueError(f"Unsupported strategy_family '{family}' for Stage 1 screen")
             policy_dict = extract_execution_policy(cfg, params)
             strat_obj = resolve_protocol_target(strat_mod).configure_strategy(contract, params)
             sim1 = run_engine_strategy(
@@ -355,6 +553,8 @@ class ExperimentRunner:
                 returns=ic_series, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
+        if family != "rules_ts":
+            raise ValueError(f"Unsupported strategy_family '{family}' for Stage 1 screen")
         ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
         sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
                                   funding_mask=fund_mask, quote_returns=ret_p)
@@ -383,14 +583,29 @@ class ExperimentRunner:
         policy_dict = extract_execution_policy(cfg, params)
 
         with self.registry._connect() as conn:
-            h = conn.execute("SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, falsification_criteria, trials_used, strategy_family, source_published_at, status FROM hypotheses WHERE hypothesis_id = ?", (hyp_id,)).fetchone()
+            h = conn.execute(
+                "SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, "
+                "falsification_criteria, trials_used, strategy_family, source_published_at, status, "
+                "parent_hypothesis_id FROM hypotheses WHERE hypothesis_id = ?",
+                (hyp_id,),
+            ).fetchone()
             if not h:
                 raise ValueError(f"Hypothesis '{hyp_id}' not found.")
             reg_family = h[6]
             if family != reg_family:
                 raise ValueError(f"Experiment spec strategy_family '{family}' does not match registered hypothesis family '{reg_family}'.")
-            hyp = HypothesisSpec(hyp_id, contract.contract_id, h[0], reg_family, h[1], h[2], int(h[3]), h[4],
-                                 source_published_at=h[7])
+            hyp = HypothesisSpec(
+                hyp_id,
+                contract.contract_id,
+                h[0],
+                reg_family,
+                h[1],
+                h[2],
+                int(h[3]),
+                h[4],
+                parent_hypothesis_id=h[9],
+                source_published_at=h[7],
+            )
             trials_used, hyp_status = h[5], h[8]
 
         strat_module = strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
@@ -423,6 +638,49 @@ class ExperimentRunner:
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
+            prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
+            s1_carry: Stage1Report | None = None
+            if family == "carry_rv":
+                net_carry, spread = _extract_carry_rv_series(
+                    panel_df,
+                    contract,
+                    ts,
+                    assets,
+                    v_slice,
+                    effective_params,
+                    hyp.expected_holding_bars,
+                )
+                s1_carry = evaluate_stage1_carry_rv(net_carry, spread)
+                if not s1_carry.passed:
+                    return self._record_early_rejection(
+                        run_id=run_id, hyp_id=hyp_id, contract_id=contract.contract_id,
+                        strat_name=strat_name, family=family, params=params, prior_keff=prior_keff,
+                        is_synthetic=is_synthetic, data_sha=data_sha, strat_module_str=strat_module_str,
+                        model_type=str(model_type), trial_num=trial_num, provenance_kw=provenance_kw,
+                        simulation_epoch=simulation_epoch, dataset=dataset,
+                        gate_key="stage1_carry_rv", notes=s1_carry.notes,
+                        gate_payload={"metrics": s1_carry.metrics, "notes": s1_carry.notes},
+                    )
+
+            parent_stream: dict[str, Any] | None = None
+            if family == "meta_overlay":
+                parent_stream = self.registry.parent_validation_stream(
+                    hyp.parent_hypothesis_id,
+                    contract.contract_id,
+                    simulation_epoch=simulation_epoch,
+                )
+                if parent_stream is None:
+                    missing_notes = f"Missing recorded validation stream for parent '{hyp.parent_hypothesis_id}'"
+                    return self._record_early_rejection(
+                        run_id=run_id, hyp_id=hyp_id, contract_id=contract.contract_id,
+                        strat_name=strat_name, family=family, params=params, prior_keff=prior_keff,
+                        is_synthetic=is_synthetic, data_sha=data_sha, strat_module_str=strat_module_str,
+                        model_type=str(model_type), trial_num=trial_num, provenance_kw=provenance_kw,
+                        simulation_epoch=simulation_epoch, dataset=dataset,
+                        gate_key="stage1_meta_overlay", notes=missing_notes,
+                        gate_payload={"metrics": {"parent_stream_found": 0.0}, "notes": missing_notes},
+                    )
+
             ret_p = execution_returns(panel_df, contract, assets)
 
             strat_file = self.repo_root / strat_module
@@ -450,23 +708,22 @@ class ExperimentRunner:
                         f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
                 raw_pos = out["positions"]
 
-            prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
-
             mean_ic, ic_hac_t = None, None
             if family == "cross_sectional_ml":
                 s1, ic_series = _evaluate_cs_ml_stage1(out, contract)
                 mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
                 if not s1.passed:
-                    n_attempts = self.registry.validation_attempt_count(
-                        contract.contract_id, simulation_epoch=simulation_epoch) + 1
-                    # Store the observed validation signal, never a placeholder zero return vector.
-                    diag = {"dataset": dataset, "neighbor_tested": False, "failed_gates": ["ic_hac"],
-                            "stage1_signal": {"metrics": s1.metrics, "notes": s1.notes,
-                                              "vector": np.asarray(ic_series, dtype=float).tolist()}}
-                    res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_1_SIGNAL", "REJECTED_EARLY", 0.0, 0.0, 0.0, 0.0, n_attempts, float(prior_keff), mean_ic, ic_hac_t, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, f"Rejected at Stage 1: {s1.notes}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
-                    res = dc_replace(res, **provenance_kw, diagnostics_json=canonical_json(diag))
-                    self.registry.record_trial(res, params, np.zeros(0), trial_number=trial_num, diagnostics=diag)
-                    return res
+                    return self._record_early_rejection(
+                        run_id=run_id, hyp_id=hyp_id, contract_id=contract.contract_id,
+                        strat_name=strat_name, family=family, params=params, prior_keff=prior_keff,
+                        is_synthetic=is_synthetic, data_sha=data_sha, strat_module_str=strat_module_str,
+                        model_type=str(model_type), trial_num=trial_num, provenance_kw=provenance_kw,
+                        simulation_epoch=simulation_epoch, dataset=dataset,
+                        gate_key="ic_hac", stage_diag_key="stage1_signal", notes=s1.notes,
+                        gate_payload={"metrics": s1.metrics, "notes": s1.notes,
+                                      "vector": np.asarray(ic_series, dtype=float).tolist()},
+                        mean_ic=mean_ic, ic_hac_t=ic_hac_t,
+                    )
 
             if protocol != "causal_rules":
                 sim1 = run_engine_simulation(
@@ -492,6 +749,34 @@ class ExperimentRunner:
                 if family == "rules_ts"
                 else None
             )
+            s1_meta: Stage1Report | None = None
+            if family == "meta_overlay":
+                assert parent_stream is not None
+                s1_meta = evaluate_stage1_meta_overlay(
+                    parent_stream["net_returns"],
+                    net_ret,
+                    parent_stream["annualized_turnover"],
+                    m["annualized_turnover"],
+                    contract.bars_per_year,
+                    parent_run_id=parent_stream["run_id"],
+                    parent_data_sha256=parent_stream.get("data_snapshot_sha256", ""),
+                    child_data_sha256=data_sha,
+                )
+                if not s1_meta.passed:
+                    return self._record_early_rejection(
+                        run_id=run_id, hyp_id=hyp_id, contract_id=contract.contract_id,
+                        strat_name=strat_name, family=family, params=params, prior_keff=prior_keff,
+                        is_synthetic=is_synthetic, data_sha=data_sha, strat_module_str=strat_module_str,
+                        model_type=str(model_type), trial_num=trial_num, provenance_kw=provenance_kw,
+                        simulation_epoch=simulation_epoch, dataset=dataset,
+                        gate_key="stage1_meta_overlay", notes=s1_meta.notes,
+                        gate_payload={
+                            "metrics": s1_meta.metrics,
+                            "notes": s1_meta.notes,
+                            "parent_run_id": parent_stream["run_id"],
+                        },
+                        metrics=m, returns_vec=net_ret,
+                    )
 
             if protocol == "causal_rules":
                 strat_target = resolve_protocol_target(strat_mod)
@@ -609,6 +894,14 @@ class ExperimentRunner:
                     "excluded_streams": hist["excluded"]}
             if s1_rules is not None:
                 diag["stage1_rules"] = {"metrics": s1_rules.metrics, "notes": s1_rules.notes}
+            if s1_carry is not None:
+                diag["stage1_carry_rv"] = {"metrics": s1_carry.metrics, "notes": s1_carry.notes}
+            if s1_meta is not None:
+                diag["stage1_meta_overlay"] = {
+                    "metrics": s1_meta.metrics,
+                    "notes": s1_meta.notes,
+                    "parent_run_id": parent_stream["run_id"] if parent_stream else "",
+                }
             diag["metrics"] = m
             diag["timing_skill"] = compute_shift_skill_pvalue(sim1.positions, ret_p["long"][v_slice],
                                                               contract.label_horizon_bars)
@@ -632,6 +925,10 @@ class ExperimentRunner:
                 failed_gates.append("trimmed_sharpe")
             if s1_rules is not None and not s1_rules.passed:
                 failed_gates.append("stage1_rules")
+            if s1_carry is not None and not s1_carry.passed:
+                failed_gates.append("stage1_carry_rv")
+            if s1_meta is not None and not s1_meta.passed:
+                failed_gates.append("stage1_meta_overlay")
             if family == "cross_sectional_ml" and (ic_hac_t is None or not (ic_hac_t >= IC_T_FLOOR)):
                 failed_gates.append("ic_hac")
             diag["failed_gates"] = failed_gates
@@ -654,6 +951,86 @@ class ExperimentRunner:
             except (ValueError, sqlite3.Error, OSError):
                 pass
             raise
+
+    def _record_early_rejection(
+        self,
+        *,
+        run_id: str,
+        hyp_id: str,
+        contract_id: str,
+        strat_name: str,
+        family: str,
+        params: dict[str, Any],
+        prior_keff: float,
+        is_synthetic: int,
+        data_sha: str,
+        strat_module_str: str,
+        model_type: str,
+        trial_num: int,
+        provenance_kw: dict[str, Any],
+        simulation_epoch: str,
+        dataset: Any,
+        gate_key: str,
+        notes: str,
+        gate_payload: dict[str, Any],
+        stage_diag_key: str | None = None,
+        mean_ic: float | None = None,
+        ic_hac_t: float | None = None,
+        metrics: dict[str, float] | None = None,
+        returns_vec: np.ndarray | None = None,
+    ) -> ExperimentResult:
+        n_attempts = (
+            self.registry.validation_attempt_count(contract_id, simulation_epoch=simulation_epoch) + 1
+        )
+        diag = {
+            "dataset": dataset,
+            "neighbor_tested": False,
+            "failed_gates": [gate_key],
+            stage_diag_key or gate_key: gate_payload,
+        }
+        m_vals = metrics or {}
+        res = ExperimentResult(
+            run_id,
+            hyp_id,
+            contract_id,
+            strat_name,
+            family,
+            hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12],
+            "STAGE_1_SIGNAL",
+            "REJECTED_EARLY",
+            float(m_vals.get("gross_sharpe", 0.0)),
+            float(m_vals.get("net_sharpe", 0.0)),
+            0.0,
+            0.0,
+            n_attempts,
+            float(prior_keff),
+            mean_ic,
+            ic_hac_t,
+            float(m_vals.get("hit_rate", 0.0)),
+            float(m_vals.get("profit_factor", 0.0)),
+            float(m_vals.get("max_drawdown_pct", 0.0)),
+            float(m_vals.get("annualized_turnover", 0.0)),
+            float(m_vals.get("breakeven_cost_bps", 0.0)),
+            0.0,
+            None,
+            f"Rejected at Stage 1: {notes}",
+            0.0,
+            float(m_vals.get("cvar_99_pct", 0.0)),
+            int(is_synthetic),
+            data_sha,
+            strat_module_str,
+            model_type,
+            "",
+        )
+        res = dc_replace(res, **provenance_kw, diagnostics_json=canonical_json(diag))
+        self.registry.record_trial(
+            res,
+            params,
+            np.zeros(0) if returns_vec is None else returns_vec,
+            trial_number=trial_num,
+            diagnostics=diag,
+        )
+        return res
 
     def _note_failure(self, contract, hyp_id, family, strat_module, params, dataset, stage, exc,
                       simulation_epoch: str = ENGINE_SIMULATION_EPOCH):

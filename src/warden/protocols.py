@@ -121,13 +121,23 @@ def enforce_active_strategy_protocol(
             "ACTIVE hypotheses must implement CausalModelStrategy or CausalRulesStrategy."
         )
     if strategy_family is not None:
-        if kind == "causal_model" and strategy_family != "cross_sectional_ml":
+        if kind == "causal_model" and strategy_family not in {
+            "cross_sectional_ml",
+            "carry_rv",
+            "meta_overlay",
+        }:
             raise LegacyStrategyProtocolError(
-                f"CausalModelStrategy requires strategy_family='cross_sectional_ml', got '{strategy_family}'."
+                f"CausalModelStrategy requires strategy_family='cross_sectional_ml' "
+                f"(or 'carry_rv'/'meta_overlay'), got '{strategy_family}'."
             )
-        if kind == "causal_rules" and strategy_family != "rules_ts":
+        if kind == "causal_rules" and strategy_family not in {
+            "rules_ts",
+            "carry_rv",
+            "meta_overlay",
+        }:
             raise LegacyStrategyProtocolError(
-                f"CausalRulesStrategy requires strategy_family='rules_ts', got '{strategy_family}'."
+                f"CausalRulesStrategy requires strategy_family='rules_ts' "
+                f"(or 'carry_rv'/'meta_overlay'), got '{strategy_family}'."
             )
     return kind
 

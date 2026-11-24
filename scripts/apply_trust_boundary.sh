@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 MODE="dry-run"
 TRUST_GROUP="${WARDEN_TRUST_GROUP:-warden-trust}"
 OPERATOR="${WARDEN_TRUST_OPERATOR:-root}"
-PROTECTED=("src/warden" "contracts" ".warden_manifest.sha256")
+PROTECTED=("src/warden" "src/warden_ops" "src/warden_evidence" "contracts" ".warden_manifest.sha256")
 
 usage() { sed -n '2,6p' "$0"; }
 
@@ -36,8 +36,9 @@ if [[ "$MODE" == "dry-run" ]]; then
     echo "DRY RUN: chown -R ${OPERATOR}:${TRUST_GROUP} ${path}"
     echo "DRY RUN: chmod -R go-w ${path}"
   done
-  echo "DRY RUN: chmod 0555 src/warden contracts"
+  echo "DRY RUN: chmod 0555 src/warden src/warden_ops src/warden_evidence contracts"
   echo "DRY RUN: chmod 0444 src/warden/*.py contracts/*.yaml contracts/datasets/*.json"
+  echo "DRY RUN: find src/warden src/warden_ops src/warden_evidence contracts -type f -exec chmod 0444 {} +"
   echo "DRY RUN: chmod 0444 .warden_manifest.sha256"
   echo "DRY RUN: (as ${OPERATOR}, holding WARDEN_HUMAN_SIGNING_KEY) uv run warden generate-manifest"
   echo "DRY RUN: uv run warden check-worktree && uv run warden status --json"
@@ -66,7 +67,8 @@ if [[ "$MODE" == "apply" ]]; then
     run chown -R "${OPERATOR}:${TRUST_GROUP}" "$path"
     run chmod -R go-w "$path"
   done
-  run chmod 0555 src/warden contracts
+  run chmod 0555 src/warden src/warden_ops src/warden_evidence contracts
+  run find src/warden src/warden_ops src/warden_evidence contracts -type f -exec chmod 0444 {} +
   run chmod 0444 .warden_manifest.sha256
   if [[ -z "${WARDEN_HUMAN_SIGNING_KEY:-}" ]]; then
     echo "REFUSED: WARDEN_HUMAN_SIGNING_KEY must be present for the operator signature." >&2

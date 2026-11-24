@@ -9,8 +9,17 @@ Source rule kept: prior 10-day return, five longs/five shorts, dollar neutral,
 The source post was published in 2026 after the 2024-25 validation window.
 A favorable 2025 score is only retrospective evidence, never independent OOS.
 No parameter sweep, target optimization, source code execution, or holdout use.
+
+Migration (issue #89, static strategy imports): `__import__("datetime").timedelta(...)` became a
+top-level `from datetime import timedelta`; the same class supplies the same 21-day rebalance
+step, so the signal, universe, sizing and fill timing are unchanged. Historical identity:
+original file sha256 `538d27cc4437a7c8d5c6be81830d0241c7c4e1d5bcaef666280ce032ce0dd6df`.
+No trial, budget, selection attempt or ledger row was reset; the append-only screen record
+stays as recorded. See `docs/migrations/issue-89-static-strategy-imports.md`.
 """
 from __future__ import annotations
+
+from datetime import timedelta
 
 import numpy as np
 import polars as pl
@@ -94,14 +103,15 @@ def generate_positions(
     for index, ts in enumerate(timestamps):
         # One decision per UTC day, only after 240 hours of completed history.
         # Warden applies its required one-bar execution lag to this target.
-        if ts.hour == 0 and index > LOOKBACK_HOURS:
-            if next_rebalance is None or ts >= next_rebalance:
-                scores = scores_by_time[index]
-                if np.isfinite(scores).all():
-                    order = np.argsort(scores, kind="stable")
-                    target[:] = 0.0
-                    target[order[:SHORT_NAMES]] = -LEG_GROSS / SHORT_NAMES
-                    target[order[-LONG_NAMES:]] = +LEG_GROSS / LONG_NAMES
-                    next_rebalance = ts + __import__("datetime").timedelta(hours=REBALANCE_HOURS)
+        if ts.hour == 0 and index > LOOKBACK_HOURS and (
+            next_rebalance is None or ts >= next_rebalance
+        ):
+            scores = scores_by_time[index]
+            if np.isfinite(scores).all():
+                order = np.argsort(scores, kind="stable")
+                target[:] = 0.0
+                target[order[:SHORT_NAMES]] = -LEG_GROSS / SHORT_NAMES
+                target[order[-LONG_NAMES:]] = +LEG_GROSS / LONG_NAMES
+                next_rebalance = ts + timedelta(hours=REBALANCE_HOURS)
         weights[index, :] = target
     return {"positions": weights}

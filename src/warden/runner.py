@@ -840,7 +840,9 @@ class ExperimentRunner:
                     panel_df, raw_pos, ts, assets, contract, v_slice, cost_multiplier=1.0, **policy_dict
                 )
             sr_1p5 = analytical_1p5x_sharpe(
-                sim1.backtest_result, contract.bars_per_year, start_idx=v_slice.start or 0
+                sim1.backtest_result,
+                contract.bars_per_year,
+                val_ts=ts[v_slice],
             )
             net_ret, gross_ret, turnover = sim1.net_returns, sim1.gross_returns, sim1.turnover
             m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)

@@ -42,6 +42,7 @@ from scripts.shadow_engine_parity import (
     replay_historical_run,
     run_analytical_oracles,
 )
+from warden.contracts import EvaluationContract
 
 EXPECTED_ORACLES = {
     "next_bar_open",
@@ -828,3 +829,255 @@ def test_profile_engine_scaling_isolated_subprocess() -> None:
     assert row["engine_wall_seconds"] > 0.0
     assert isinstance(row["under_300s_budget"], bool)
     assert row["under_300s_budget"] is True
+
+
+# ---------------------------------------------------------------------------
+# Validation-window stress: analytical 1.5x alignment and paired delay replay
+# ---------------------------------------------------------------------------
+
+_STRESS_SCHEDULE = {0: 0.12, 30: -0.10, 60: 0.11, 90: -0.09}
+
+
+class _ScheduledWeightStrategy(Strategy):
+    """Submit target weights at fixed hour offsets from an anchor bar."""
+
+    def __init__(
+        self, anchor: datetime, schedule: dict[int, float], every_hours: int = 30
+    ) -> None:
+        self._anchor = anchor
+        self._schedule = schedule
+        self._every_hours = every_hours
+
+    def on_data(self, timestamp, data, context, broker) -> None:
+        delta_hours = (timestamp - self._anchor).total_seconds() / 3600.0
+        if delta_hours < 0 or delta_hours % self._every_hours != 0:
+            return
+        weight = self._schedule.get(int(delta_hours))
+        if weight is not None:
+            broker.order_target_percent("BTC", weight)
+
+
+def _stress_panel(ts: list[datetime], *, seed: int, vol: float = 0.02) -> pl.DataFrame:
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    closes = 100.0 * np.cumprod(1.0 + rng.normal(0.0, vol, size=len(ts)))
+    return pl.DataFrame(
+        {
+            "timestamp": list(ts),
+            "asset": ["BTC"] * len(ts),
+            "open": closes.tolist(),
+            "high": (closes * 1.02).tolist(),
+            "low": (closes * 0.98).tolist(),
+            "close": (closes * 1.001).tolist(),
+            "volume": [100_000.0] * len(ts),
+            "funding_rate": [0.0] * len(ts),
+        }
+    ).with_columns(pl.col("timestamp").cast(pl.Datetime("us", "UTC")))
+
+
+def _stress_contract(
+    ts: list[datetime], val_start: datetime, *, contract_id: str = "T06_STRESS_ALIGN"
+) -> EvaluationContract:
+    return EvaluationContract(
+        contract_id=contract_id,
+        asset_class="crypto_perps",
+        frequency="1h",
+        bars_per_year=8760,
+        exploratory_data_path="data/exploratory/t06_stress.parquet",
+        holdout_data_path="data/holdout/t06_stress.parquet",
+        train_start=ts[0] - timedelta(hours=24),
+        val_start=val_start,
+        val_end=ts[-1] + timedelta(hours=1),
+        holdout_start=ts[-1] + timedelta(hours=1),
+        holdout_end=ts[-1] + timedelta(hours=5),
+        n_folds=4,
+        label_horizon_bars=1,
+        embargo_bars=1,
+        execution_delay_bars=1,
+        taker_fee_bps=2.0,
+        slippage_bps=3.0,
+    )
+
+
+def _stress_scores(
+    panel_df: pl.DataFrame,
+    ts_list: list[datetime],
+    *,
+    contract_id: str,
+    anchor: datetime,
+    schedule: dict[int, float],
+    every_hours: int,
+) -> tuple[float, float]:
+    """Return (analytical 1.5x Sharpe on val_ts, full 1.5x Engine Sharpe)."""
+    import math
+
+    import numpy as np
+
+    from warden.engine_sim import analytical_1p5x_sharpe, run_engine_strategy
+
+    contract = _stress_contract(ts_list, anchor, contract_id=contract_id)
+    v_slice = slice(ts_list.index(anchor), len(ts_list))
+
+    def _run(cost_multiplier: float):
+        return run_engine_strategy(
+            panel_df,
+            _ScheduledWeightStrategy(anchor, schedule, every_hours),
+            ts_list,
+            ["BTC"],
+            contract,
+            v_slice,
+            cost_multiplier=cost_multiplier,
+        )
+
+    sim1 = _run(1.0)
+    sim15 = _run(1.5)
+    analytic = analytical_1p5x_sharpe(
+        sim1.backtest_result, contract.bars_per_year, val_ts=ts_list[v_slice]
+    )
+    rets = np.asarray(sim15.net_returns, dtype=float)
+    engine = float(
+        np.mean(rets) / (np.std(rets, ddof=1) + 1e-12) * math.sqrt(contract.bars_per_year)
+    )
+    return analytic, engine
+
+
+def test_analytical_1p5x_sharpe_is_warmup_invariant_and_matches_engine() -> None:
+    """500 warmup bars must not dilute the validation stress sample."""
+    import numpy as np
+    import pytest
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    ts_full = [t0 + timedelta(hours=i) for i in range(620)]
+    anchor = ts_full[500]
+    panel_full = _stress_panel(ts_full, seed=13)
+    analytic_warm, engine_warm = _stress_scores(
+        panel_full,
+        ts_full,
+        contract_id="T06_STRESS_WARM500",
+        anchor=anchor,
+        schedule=_STRESS_SCHEDULE,
+        every_hours=30,
+    )
+
+    # The same validation bars with no warmup window at all.
+    ts_bare = ts_full[500:]
+    panel_bare = panel_full.filter(pl.col("timestamp") >= ts_bare[0]).sort("timestamp")
+    analytic_bare, engine_bare = _stress_scores(
+        panel_bare,
+        ts_bare,
+        contract_id="T06_STRESS_WARM0",
+        anchor=anchor,
+        schedule=_STRESS_SCHEDULE,
+        every_hours=30,
+    )
+
+    assert np.isfinite(analytic_warm) and np.isfinite(engine_warm)
+    assert analytic_warm != pytest.approx(0.0, abs=1e-6)
+    # 500 versus 0 warmup bars over identical validation bars.
+    assert analytic_warm == pytest.approx(analytic_bare, abs=1e-9)
+    assert engine_warm == pytest.approx(engine_bare, abs=1e-9)
+    # 1e-3 parity with the full 1.5x Engine re-simulation.
+    assert abs(analytic_warm - engine_warm) <= 1e-3
+    assert abs(analytic_bare - engine_bare) <= 1e-3
+
+
+def test_analytical_1p5x_sharpe_aligns_calendar_gaps_to_val_ts() -> None:
+    """Calendar gaps outside and inside the val window must not shift the sample."""
+    import numpy as np
+    import pytest
+
+    t0 = datetime(2025, 1, 1, tzinfo=UTC)
+    # Hours 20-91 missing before the window and 110-114 missing inside it.
+    keep = list(range(20)) + list(range(92, 110)) + list(range(115, 140))
+    ts_gap = [t0 + timedelta(hours=i) for i in keep]
+    anchor = ts_gap[20]
+    schedule = {0: 0.12, 20: -0.10, 35: 0.11, 40: -0.09}
+    panel_gap = _stress_panel(ts_gap, seed=24)
+    analytic, engine = _stress_scores(
+        panel_gap,
+        ts_gap,
+        contract_id="T06_STRESS_GAP",
+        anchor=anchor,
+        schedule=schedule,
+        every_hours=5,
+    )
+
+    assert np.isfinite(analytic) and np.isfinite(engine)
+    assert analytic != pytest.approx(0.0, abs=1e-6)
+    assert abs(analytic - engine) <= 1e-3
+
+
+def test_lifecycle_adapter_replays_delayed_aligned_triples() -> None:
+    """Delayed callbacks must carry the timestamp that belongs to their own bar."""
+    from warden.engine_sim import _LifecycleStrategyAdapter
+
+    class _Recorder(Strategy):
+        def __init__(self) -> None:
+            self.seen: list[tuple[datetime, float, int]] = []
+
+        def on_data(self, timestamp, data, context, broker) -> None:
+            self.seen.append((timestamp, float(data["BTC"]["close"]), int(context["tag"])))
+
+    class _Broker:
+        def submit_order(self, *args, **kwargs):
+            raise AssertionError("no orders are submitted in this test")
+
+    adapter = _LifecycleStrategyAdapter(
+        _Recorder(), submit_from_ts=None, extra_delay=1
+    )
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    stamps = [start + timedelta(hours=i) for i in range(4)]
+    pooled = {"BTC": {"close": 0.0}}
+    context = {"tag": 0}
+    for i, stamp in enumerate(stamps):
+        # The Engine pools and mutates these mappings between bars.
+        pooled["BTC"]["close"] = 100.0 + i
+        context["tag"] = i
+        adapter.on_data(stamp, pooled, context, _Broker())
+
+    assert adapter._inner.seen == [
+        (stamps[0], 100.0, 0),
+        (stamps[1], 101.0, 1),
+        (stamps[2], 102.0, 2),
+    ]
+
+
+def test_lifecycle_adapter_warmup_guard_follows_fill_bar_under_delay() -> None:
+    """A delayed callback must not let pre-window data place an order.
+
+    The guard keys on the Engine bar that places the order (hence the fill bar),
+    not on the replayed data bar; typing it to the data bar would add a second
+    bar of latency and break the +1 contract stress semantics.
+    """
+    from warden.engine_sim import _LifecycleStrategyAdapter
+
+    class _AlwaysSubmit(Strategy):
+        def __init__(self) -> None:
+            self.calls: list[datetime] = []
+
+        def on_data(self, timestamp, data, context, broker) -> None:
+            self.calls.append(timestamp)
+            broker.submit_order("BTC", 1.0)
+
+    class _Broker:
+        def __init__(self) -> None:
+            self.orders: list[int] = []
+
+        def submit_order(self, *args, **kwargs):
+            self.orders.append(len(self.orders))
+
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    stamps = [start + timedelta(hours=i) for i in range(4)]
+    inner = _AlwaysSubmit()
+    broker = _Broker()
+    adapter = _LifecycleStrategyAdapter(
+        inner, submit_from_ts=stamps[2], extra_delay=1
+    )
+    for i, stamp in enumerate(stamps):
+        adapter.on_data(stamp, {"BTC": {"close": 100.0 + i}}, {"tag": i}, broker)
+
+    # Replays are ts0@bar1, ts1@bar2, ts2@bar3; bar1 is still inside warmup.
+    assert inner.calls == [stamps[0], stamps[1], stamps[2]]
+    assert len(broker.orders) == 2
+

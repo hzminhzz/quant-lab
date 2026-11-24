@@ -10,5 +10,8 @@
   "provenance": "verified_market",
   "selection_group": "a0f838d2a1eca6e741617166b259d68c7a97b0f2e0b73532918e6a318aff12ef",
   "sha256": "03a9d948793542cba79f485d7a1fa39a3435252069bf9d131596303ec315ca55",
-  "source": "ml4t-data minute OHLCV store (ml4t-data/.data/store) via scripts/salvage_multi_asset.py"
+  "source": "ml4t-data minute OHLCV store (ml4t-data/.data/store) via scripts/salvage_multi_asset.py",
+  "holdout_path": "data/holdout/indices_1h.parquet",
+  "holdout_sha256": "551eb6513e2cf7ae1006767e076587c56a455c8bb714de15cbe21167826e5014",
+  "holdout_sealed_by": "root: install -o root -g trader -m 0640 (operator-delegated #87, 2026-11-24)"
 }

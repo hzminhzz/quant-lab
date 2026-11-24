@@ -7,5 +7,8 @@
   "pipeline": "scripts/salvage_multi_asset.py",
   "recorded_at": "2026-10-26T08:11:22+00:00",
   "recorded_by": "agent:issue-4-ticket-01",
-  "attestation": "Provenance is declared by the salvage pipeline that produced this file; the digest is verified independently against this manifest and the contract pin."
+  "attestation": "Provenance is declared by the salvage pipeline that produced this file; the digest is verified independently against this manifest and the contract pin.",
+  "holdout_path": "data/holdout/fx_majors_15m.parquet",
+  "holdout_sha256": "69234d2968f3b21086eca0575d505ff100fc0d1543fc240dc5a6deda9d9c3bf0",
+  "holdout_sealed_by": "root: install -o root -g trader -m 0640 (operator-delegated #87, 2026-11-24)"
 }

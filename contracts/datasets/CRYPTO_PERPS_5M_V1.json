@@ -7,5 +7,8 @@
   "pipeline": "scripts/salvage_multi_asset.py",
   "recorded_at": "2026-10-27T00:00:00+00:00",
   "recorded_by": "agent:crypto_perps_suite",
-  "attestation": "Provenance is declared by the salvage pipeline; digest verified independently against manifest and contract pin."
+  "attestation": "Provenance is declared by the salvage pipeline; digest verified independently against manifest and contract pin.",
+  "holdout_path": "data/holdout/crypto_perps_5m.parquet",
+  "holdout_sha256": "4dff98bfbef7581eb76b64ce0e4deaf9f3fa7f618ba1f7cd638570d7358d2e57",
+  "holdout_sealed_by": "root: install -o root -g trader -m 0640 (operator-delegated #87, 2026-11-24)"
 }

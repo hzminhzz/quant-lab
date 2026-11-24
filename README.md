@@ -4,6 +4,33 @@
 
 ---
 
+## New Coding Agent Quickstart
+
+1. **Read the authoritative docs in order:**
+   - [`AGENTS.md`](./AGENTS.md) — Operating contract, ownership boundaries, falsification funnel, and retired surfaces.
+   - [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) — Step-by-step thesis intake procedure and ledger rules.
+   - [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) — Stage gates, audit criteria, and registry vocabulary.
+2. **Inspect the workspace & environment before editing:**
+   ```bash
+   uv run --frozen warden check-worktree
+   uv run --frozen warden status --json
+   uv run --frozen python scripts/preflight_thesis.py --contract <CONTRACT_ID>
+   ```
+3. **Start from the current templates and causal baselines:**
+   - Templates: `.workspace/templates/hypothesis.md` and `.workspace/templates/experiment.yaml`
+   - `CausalModelStrategy` baselines: `strategies/baselines/causal_ridge_1h.py`, `strategies/baselines/causal_linear_portfolio_1h.py`, `strategies/baselines/causal_ipca_1h.py`
+   - `CausalRulesStrategy` template: `strategies/candidates/causal_rules_drawdown_template.py`
+4. **Run the falsification funnel (never bypass `warden`):**
+   ```bash
+   uv run --frozen warden register-hypothesis .workspace/hypotheses/<ID>.md --json
+   uv run --frozen warden verify experiments/active/<spec>.yaml --json
+   uv run --frozen warden screen experiments/active/<spec>.yaml --json
+   uv run --frozen warden backtest experiments/active/<spec>.yaml --json
+   uv run --frozen warden audit-check --run-id <RUN_ID> --json
+   ```
+
+---
+
 ## Repository Architecture & Layout
 
 | Path | Role |
@@ -13,7 +40,7 @@
 | `src/warden_ops/` | Manifest integrity & repo-wide / `strategies/` AST import boundary enforcement (`integrity.py`), checkpointing (`checkpoint.py`), and read-only projections (`readonly.py`). |
 | `contracts/` | Human-owned YAML evaluation contracts and pinned dataset provenance manifests (`contracts/datasets/*.json`). |
 | `strategies/baselines/` | Causal baseline templates: `causal_ridge_1h.py`, `causal_linear_portfolio_1h.py`, `causal_ipca_1h.py` (plus frozen legacy `cs_ridge_1h.py`). |
-| `strategies/candidates/` | Candidate strategy modules (including `causal_rules_drawdown_template.py`). |
+| `strategies/candidates/` | Candidate strategy modules (including `causal_rules_drawdown_template.py`; legacy `generate_positions()` modules are frozen for historical replay only). |
 | `registry/` | Authoritative SQLite ledger (`registry/registry.db`), immutable return streams (`registry/returns/`), and `ml4t.backtest.Engine` backtest artifacts (`registry/backtest_results/<simulation_epoch>/<contract>/<run_id>`). |
 | `scripts/` | Operational tooling: typed hourly queue coordinator (`hourly_queue_coordinator.py`, invoked by `run_hourly_pipeline.sh`), reviewed stdio MCP adapter (`mcp_warden/adapter.py`), environment probe (`inspect_env.py`), thesis preflight (`preflight_thesis.py`), and shadow engine parity harness (`shadow_engine_parity.py`). |
 
@@ -25,10 +52,10 @@
 | :--- | :--- |
 | [`AGENTS.md`](./AGENTS.md) | Operating contract, four-way ownership, falsification funnel, CLI contracts, and agent-maintained status. |
 | [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) | Thesis intake procedure, verification table, and ledger rules. |
+| [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | Detailed pipeline map, coded Stage 0–3 gates, six-check audit, and registry vocabulary. |
+| [`STAGE3_CAMPAIGN_PROMPT.md`](./STAGE3_CAMPAIGN_PROMPT.md) | Copy-paste brief for batching a strategy family through Stage 3. |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Dated summary of architectural changes and verification runs. |
-| [`agent_native_quant_research_rfc.md`](./agent_native_quant_research_rfc.md) | Architecture RFC (`RFC-2026-Q4-001`). |
-| [`AGENT_COMPATIBILITY.md`](./AGENT_COMPATIBILITY.md) | Multi-harness compatibility contract (`omp`, `opencode`, `claude`, `codex`, `herdr`). |
-| [`TICKETS.md`](./TICKETS.md) | Bounded implementation ticket specifications. |
+| [`docs/archive/README.md`](./docs/archive/README.md) | Historical RFC, bootstrap tickets, compatibility spec, handbook, and audit/approval trails. |
 
 ---
 
@@ -48,13 +75,7 @@ uv run --frozen warden --help
 uv run --frozen warden check-worktree
 uv run --frozen warden status --json
 
-# Run thesis workflow
-uv run --frozen warden verify experiments/active/<spec>.yaml --json
-uv run --frozen warden screen experiments/active/<spec>.yaml --json
-uv run --frozen warden backtest experiments/active/<spec>.yaml --json
-uv run --frozen warden audit-check --run-id <RUN_ID> --json
-
 # Run test suite (parallel via pytest-xdist: -n 4 --dist worksteal) and lint
 uv run --frozen pytest -q
-uv run --frozen ruff check <paths>
+uv run --frozen ruff check src/ tests/
 ```

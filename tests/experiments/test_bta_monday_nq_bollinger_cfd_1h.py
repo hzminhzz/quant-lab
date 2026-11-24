@@ -5,7 +5,7 @@ code or protected market data is accessed.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -22,7 +22,6 @@ generate_positions = _mod.generate_positions
 pipeline = _mod.pipeline
 
 CHICAGO = ZoneInfo("America/Chicago")
-UTC = timezone.utc
 
 
 def _contract(contract_id=CONTRACT_ID, delay=1):

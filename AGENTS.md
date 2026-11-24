@@ -43,7 +43,7 @@ When you spawn one, write: `You are a subagent. Don't run memo.`
 
 # Quant-Lab operating contract
 
-Architecture: `agent_native_quant_research_rfc.md`; portability: `AGENT_COMPATIBILITY.md`; ticket acceptance: `TICKETS.md`. Use `uv` and the locked environment. Optional adapters never enforce the scientific boundary on their own.
+Architecture: `docs/archive/agent_native_quant_research_rfc.md`; portability: `docs/archive/AGENT_COMPATIBILITY.md`; bootstrap tickets: `docs/archive/TICKETS.md`. Use `uv` and the locked environment. Optional adapters never enforce the scientific boundary on their own.
 
 ## Four-way ownership
 
@@ -136,7 +136,7 @@ When running under the OMP adapter (`scripts/setup_agent_adapter.sh --harness om
 
 This marker-delimited region is maintained by coding agents; the hand-written sections above stay
 byte-for-byte. It records conventions and gates that are not obvious from the code. `CHANGELOG.md`
-lists what landed; `UNTANGLE_DECISION_LOG.md` and `EVIDENCE_INTEGRITY.md` hold the full triage and the
+lists what landed; `docs/archive/UNTANGLE_DECISION_LOG.md` and `docs/archive/EVIDENCE_INTEGRITY.md` hold the full triage and the
 principal-delegation authorization trails.
 
 ### Strategy authoring

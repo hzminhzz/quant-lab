@@ -1,8 +1,0 @@
-BASELINE (HEAD 29ccb57, PYTHONPATH=worktree/src): 7 failed, 360 passed, 8 skipped in 183s
-FAILED tests/experiments/test_hyp_2026_001.py::test_hyp_2026_001_trials_recorded_in_registry
-FAILED tests/experiments/test_hyp_2026_001.py::test_hyp_2026_001_fourth_attempt_budget_exhausted
-FAILED tests/experiments/test_hyp_2026_002.py::test_hyp_2026_002_both_trials_recorded_with_ic_metrics
-FAILED tests/experiments/test_hyp_2026_002.py::test_early_rejection_does_not_contaminate_return_matrix
-FAILED tests/test_herdr_and_handoff.py::test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001
-FAILED tests/test_herdr_and_handoff.py::test_handoff_and_continue_drift_detection
-FAILED tests/test_policy_and_audit.py::test_status_json_envelope_shape

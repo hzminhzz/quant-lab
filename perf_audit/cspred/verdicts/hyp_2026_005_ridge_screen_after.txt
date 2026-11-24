@@ -1,2 +1,0 @@
-{"env": {"mode": "screen", "spec": "experiments/active/hyp_2026_005_ridge.yaml", "strat_src": "/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119", "loadavg": [3.1240234375, 7.4951171875, 7.78125], "live_strategies_md5_ok": true}}
-{"mode": "screen", "rep": 0, "spec": "experiments/active/hyp_2026_005_ridge.yaml", "strat_src": "/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119", "wall_s": 3.01, "verdict": "passed=False", "error": null, "extras": {"reasons": []}}

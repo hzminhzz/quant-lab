@@ -1,5 +1,5 @@
 """ES daily down-day rule must be closed-bar and prefix invariant."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,7 +22,7 @@ def frame():
         for sym in ("ES", "NQ"):
             price = 100 + i
             rows.append({
-                "timestamp": datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=i),
+                "timestamp": datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=i),
                 "asset": sym, "open": float(price),
                 "high": float(price + 2), "low": float(price - 2),
                 "close": float(price - 1 if i % 3 == 0 else price + 1),
@@ -34,7 +34,7 @@ def frame():
 def test_red_bar_signal_and_prefix_invariance():
     x = frame()
     full = mod.generate_positions(x, contract(), ["ES"])["positions"]
-    partial = x.filter(pl.col("timestamp") <= datetime(2026, 1, 20, tzinfo=timezone.utc))
+    partial = x.filter(pl.col("timestamp") <= datetime(2026, 1, 20, tzinfo=UTC))
     prefix = mod.generate_positions(partial, contract(), ["ES"])["positions"]
     assert np.array_equal(full[:len(prefix)], prefix)
     assert full.shape == (40, 2)

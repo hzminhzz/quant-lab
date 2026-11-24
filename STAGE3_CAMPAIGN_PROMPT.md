@@ -19,15 +19,14 @@ Do Stage 3 for the **{{FAMILY}}** strategy set, following `AGENT_RUNBOOK.md`.
 
 ## Preflight first, before registering anything
 
-1. `uv run warden check-worktree` — must exit 0, or every `backtest` refuses.
-2. `uv run python scripts/check_loc_budget.py | head -2` — headroom in `src/warden`.
-3. Which `{{CONTRACT_PREFIX}}_*` contracts have both a contract YAML and an
+1. `uv run warden check-worktree` — must exit 0 (checks `.warden_manifest.sha256` and AST import boundaries), or every `backtest` refuses.
+2. Which `{{CONTRACT_PREFIX}}_*` contracts have both a contract YAML and an
    `data/exploratory/{{...}}` panel. List the usable frequencies.
-4. `contract_search_state` — a clean family has **no row**. {{FAMILY_GATE_NOTE}}
-5. Panel schema per candidate frequency: asset count, date range, columns, and whether
+3. `contract_search_state` — a clean family has **no row**. {{FAMILY_GATE_NOTE}}
+4. Panel schema per candidate frequency: asset count, date range, columns, and whether
    `funding_rate` is all zero (which decides whether carry exists at all).
 
-Report these five before writing any spec.
+Report these four before writing any spec.
 
 ## Scope
 
@@ -49,8 +48,8 @@ Sharpe standard error it implies.
 ## Per hypothesis
 
 Register → one spec with a **≥2-point `param_grid`** (±15%, one factor at a time) → preflight →
-`backtest` → `verify-causality` → `audit-check`, in that order. A grid is not optional: without one
-`param_neighbor_stability` is the unmeasured default `1.000`, which reads as perfect stability.
+`backtest` → `verify-causality` → `audit-check`, in that order. A grid is strongly recommended:
+without one `evaluate_neighbor_stability` records `neighbor_tested=False` and `stability=None`.
 
 Then generate the ledger rather than transcribing numbers: copy
 `scripts/build_af30_step3_closure.py` to `scripts/build_{{FAMILY_SLUG}}_stage3_closure.py`, retarget
@@ -86,10 +85,11 @@ Stage 1 owes no Stage-3 trial.
 
 ## Traps, each paid for once already
 
-1. **1.5x cost stress is derivable**, not a third simulation: `net15 = net1 - 0.5*c*turnover`, exact
-   to 1e-18 in the harness.
+1. **1.5x cost stress is analytical, 2.0x is full Engine re-simulation**: `stress_1p5_cost_sharpe`
+   is computed analytically from the 1x `ml4t.backtest.Engine` result (`analytical_1p5x_sharpe`),
+   while `cost_2x` runs a full `cost_multiplier=2.0` Engine simulation.
 2. **A module digest must cover the import closure.** Hashing one file misses shared helpers;
-   `s02/s03/s04` all import `carver_common.py`.
+   declare `CODE_DEPENDENCIES` for runtime-loaded or subdir helpers so `code_closure` covers them.
 3. **Sequencing beats slot count.** Land every evaluator change before the re-runs, or the last slot
    buys half the evidence.
 4. **A holdout needs the file sealed *and* its digest pinned.** With no `holdout_sha256` in the

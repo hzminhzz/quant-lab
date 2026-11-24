@@ -1,5 +1,5 @@
 """Research-only NQ ADX bar-confirmed strategy causal, session and contract tests."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -19,7 +19,7 @@ def contract(cid=mod.CONTRACT_ID, delay=1):
 
 
 def bars(n=440, rising=True):
-    start = datetime(2026, 10, 25, tzinfo=timezone.utc)
+    start = datetime(2026, 10, 25, tzinfo=UTC)
     rows = []
     for i in range(n):
         ts = start + timedelta(minutes=30 * i)
@@ -34,7 +34,7 @@ def bars(n=440, rising=True):
 
 def test_full_prefix_identical_and_no_es_allocation():
     b = bars()
-    small = b.filter(pl.col("timestamp") < datetime(2026, 10, 29, tzinfo=timezone.utc))
+    small = b.filter(pl.col("timestamp") < datetime(2026, 10, 29, tzinfo=UTC))
     full = mod.generate_positions(b, contract(), ["NQ"])["positions"]
     prefix = mod.generate_positions(small, contract(), ["NQ"])["positions"]
     assert full.shape == (440, 2)
@@ -55,7 +55,7 @@ def test_closed_bar_must_break_previous_close():
 
 def test_indicator_prefix_invariant():
     b = bars()
-    cut = datetime(2026, 10, 29, tzinfo=timezone.utc)
+    cut = datetime(2026, 10, 29, tzinfo=UTC)
     prefix = b.filter(pl.col("timestamp") < cut)
     full = mod.pipeline.compute(b, contract())
     part = mod.pipeline.compute(prefix, contract())

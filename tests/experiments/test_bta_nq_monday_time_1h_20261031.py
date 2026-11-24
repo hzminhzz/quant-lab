@@ -1,5 +1,5 @@
 """NQ Monday time-only selection and Chicago DST causality tests."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -29,8 +29,8 @@ def frame(start,n=300):
 
 
 @pytest.mark.parametrize("start,expected_date", [
-    (datetime(2026,10,24,tzinfo=timezone.utc),"2026-10-26"),
-    (datetime(2026,10,31,tzinfo=timezone.utc),"2026-11-02"),
+    (datetime(2026,10,24,tzinfo=UTC),"2026-10-26"),
+    (datetime(2026,10,31,tzinfo=UTC),"2026-11-02"),
 ])
 def test_chicago_window_and_no_lookahead(start,expected_date):
     b=frame(start)
@@ -49,7 +49,7 @@ def test_chicago_window_and_no_lookahead(start,expected_date):
 
 
 def test_rejected_invocations():
-    b=frame(datetime(2026,10,24,tzinfo=timezone.utc))
+    b=frame(datetime(2026,10,24,tzinfo=UTC))
     with pytest.raises(ValueError):
         mod.generate_positions(b,contract(delay=0),["NQ"])
     with pytest.raises(ValueError):

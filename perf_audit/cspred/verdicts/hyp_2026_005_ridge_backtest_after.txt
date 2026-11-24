@@ -1,2 +1,0 @@
-{"env": {"mode": "backtest", "spec": "experiments/active/hyp_2026_005_ridge.yaml", "strat_src": "/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119", "loadavg": [3.0244140625, 7.330078125, 7.72412109375], "live_strategies_md5_ok": true}}
-{"mode": "backtest", "rep": 0, "spec": "experiments/active/hyp_2026_005_ridge.yaml", "strat_src": "/home/quant/.devspace/worktrees/quant-lab-cs-batch-20261119", "wall_s": 3.194, "verdict": "REJECTED_EARLY", "error": null, "extras": {"mean_ic": -0.05526818317230871, "n_trades": null}}

@@ -1,2 +1,0 @@
-{"env": {"mode": "backtest", "spec": "experiments/active/hyp_2026_005_ridge.yaml", "strat_src": "/home/quant/dev/quant-lab", "loadavg": [3.11376953125, 7.42041015625, 7.75537109375], "live_strategies_md5_ok": true}}
-{"mode": "backtest", "rep": 0, "spec": "experiments/active/hyp_2026_005_ridge.yaml", "strat_src": "/home/quant/dev/quant-lab", "wall_s": 3.416, "verdict": "REJECTED_EARLY", "error": null, "extras": {"mean_ic": -0.05526818317230871, "n_trades": null}}

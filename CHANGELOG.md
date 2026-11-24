@@ -47,6 +47,12 @@ principal — or by an agent under explicit in-session delegation, recorded in a
   (`gates.evaluate_neighbor_stability`), structured `failed_gates` on `REVISE`, non-ratchet DSR,
   `simulation_epoch` isolation, `source_published_at` cutoffs (`RETROSPECTIVE_REPLICATION_ONLY`), and
   shadow `ml4t-diagnostic` calibration.
+- **Repository cleanup & agent onboarding (`2026-11-24`, local `main`):** Removed obsolete
+  pre-implementation docs (`PULL_REQUEST.md`, `IMPLEMENTATION_PLAN.md`, `AGENT_EXECUTION.md`),
+  superseded `perf_audit/` scratchpad, and stray 0-byte root `registry.db`; archived historical design,
+  audit, and approval docs under `docs/archive/`; synced `README.md`, `AGENTS.md`, `AGENT_RUNBOOK.md`,
+  `docs/WORKFLOW.md`, `docs/BLOCKER-RECOVERY.md`, `STAGE3_CAMPAIGN_PROMPT.md`, and
+  `.workspace/templates/experiment.yaml`; resolved `ruff` lint errors in `tests/`.
 - Verify: `uv run --frozen warden check-worktree` (`rc=0`) and `uv run --frozen pytest -q` (full suite green on local `main`).
 
 ## 2026-11-19

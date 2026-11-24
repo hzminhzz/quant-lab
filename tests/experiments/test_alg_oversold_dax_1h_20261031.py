@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,16 +24,16 @@ CONTRACT = SimpleNamespace(
 
 
 def _sample(n=110):
-    start = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 2, tzinfo=UTC)
     rows = []
     for i in range(n):
         c = 100.0 + 0.6 * np.sin(i / 8) - 0.02 * i
         o = c + 0.13
         lo = c - (0.005 if i % 5 == 0 else 0.2)
         h = max(o, c) + 0.16
-        rows.append(dict(timestamp=start + timedelta(hours=i),
-                         asset="DAX", open=o, high=h, low=lo,
-                         close=c, volume=100.0))
+        rows.append({"timestamp": start + timedelta(hours=i),
+                         "asset": "DAX", "open": o, "high": h, "low": lo,
+                         "close": c, "volume": 100.0})
     return pl.DataFrame(rows)
 
 

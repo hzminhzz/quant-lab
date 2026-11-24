@@ -1,7 +1,7 @@
 """Calendar causality tests; no market returns or protected data are read."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,7 +26,7 @@ def contract(contract_id=CONTRACT_ID, delay=1, horizon=5):
     )
 
 
-def data(first=datetime(2024, 9, 21, tzinfo=timezone.utc),
+def data(first=datetime(2024, 9, 21, tzinfo=UTC),
          n=100, bad_oct_es=False):
     rows = []
     for offset in range(n):
@@ -52,7 +52,7 @@ def test_spy_nyse_calendar_monthend_and_third_trading_day_on_es_cfd():
     # Sorted assets ES=0, NQ=1; only ES should trade.
     assert np.count_nonzero(output[:, 1]) == 0
     idx = lambda date_str: stamps.index(datetime.fromisoformat(date_str).replace(
-        tzinfo=timezone.utc))
+        tzinfo=UTC))
     assert output[idx("2024-10-30"), 0] == 0
     assert output[idx("2024-10-31"), 0] == 1
     # Sunday November 3 is an ES CFD day, but NOT an NYSE trading session.
@@ -66,7 +66,7 @@ def test_spy_nyse_calendar_monthend_and_third_trading_day_on_es_cfd():
 def test_prefix_invariance_even_before_future_calendar_exit():
     bars = data()
     full = generate_positions(bars, contract(), ["ES"])["positions"]
-    cutoff = datetime(2024, 11, 3, tzinfo=timezone.utc)
+    cutoff = datetime(2024, 11, 3, tzinfo=UTC)
     prefix = bars.filter(pl.col("timestamp") <= cutoff)
     truncated = generate_positions(prefix, contract(), ["ES"])["positions"]
     assert np.array_equal(full[:len(truncated)], truncated)
@@ -85,7 +85,7 @@ def test_no_trade_when_source_es_bar_invalid():
     bars = data(bad_oct_es=True)
     stamps = sorted(bars["timestamp"].unique().to_list())
     output = generate_positions(bars, contract(), ["ES"])["positions"]
-    october_end = stamps.index(datetime(2024, 10, 31, tzinfo=timezone.utc))
+    october_end = stamps.index(datetime(2024, 10, 31, tzinfo=UTC))
     assert output[october_end, 0] == 0
 
 

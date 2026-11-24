@@ -134,5 +134,5 @@ def test_coverage_accounts_for_all_eighteen_af30_hypotheses(tmp_path):
     breakout = next(ln for ln in block.splitlines() if "`HYP-2026-094`" in ln)
     assert "breakout" in breakout and "HYP-2026-109" in breakout
     # an FX-measured hypothesis must point at its own run, not just the source screen
-    for fx_hyp, src in mod.STAGE1_SOURCE.items():
+    for fx_hyp in mod.STAGE1_SOURCE:
         assert f"`{fx_hyp}`" in block

@@ -119,6 +119,7 @@ def generate_manifest(repo_root: Path = Path(".")) -> str:
             repo / "scripts" / "campaign_projection.py",
             repo / "scripts" / "run_carver_daily_campaign.py",
             repo / "scripts" / "research_outcome_memory.py",
+            repo / "scripts" / "hourly_queue_coordinator.py",
             repo / "scripts" / "run_hourly_pipeline.sh",
             repo / "scripts" / "setup_agent_adapter.sh",
             repo / "scripts" / "lock_holdout_permissions.sh",

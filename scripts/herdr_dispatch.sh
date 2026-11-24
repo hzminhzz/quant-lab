@@ -35,7 +35,7 @@ fi
 if [[ "${HERDR_ENV:-0}" == "1" ]] && command -v herdr >/dev/null 2>&1; then
     echo "[herdr_dispatch] Dispatching to Herdr pane '$PANE': $COMMAND"
     herdr pane run "$PANE" "$COMMAND"
-    herdr pane wait-output "$PANE" --regex "WARDEN_RUN_COMPLETE|WARDEN_RUN_FAILED" --timeout "$TIMEOUT"
+    herdr pane wait-output "$PANE" --regex "WARDEN_RUN_COMPLETE|WARDEN_RUN_FAILED|WARDEN_BUSY|warden\\.mutation-lease" --timeout "$TIMEOUT"
     herdr pane read "$PANE" --lines 60
 else
     echo "[herdr_dispatch] HERDR_ENV not set or herdr CLI not found; running synchronously"

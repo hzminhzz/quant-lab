@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -48,6 +49,20 @@ def _tracked_clean(root: Path, relative: str) -> bool:
     return True
 
 
+def _resolve_safe_relative(root: Path, value: str, *, allow_flag_prefix: bool = False) -> tuple[Path, Path]:
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise RestrictedCommandError("invalid or protected path")
+    if not allow_flag_prefix and value.startswith("-"):
+        raise RestrictedCommandError("invalid, flag-like or protected path")
+    rel = Path(value)
+    if rel.is_absolute() or ".." in rel.parts or "holdout" in value.lower():
+        raise RestrictedCommandError("absolute/traversal or protected holdout path refused")
+    target = (root / rel).resolve()
+    if "holdout" in str(target).lower() or not target.is_relative_to(root.resolve()):
+        raise RestrictedCommandError("protected holdout or external path refused")
+    return rel, target
+
+
 def _trusted_spec(root: Path, relative: str) -> None:
     if not _tracked_clean(root, relative):
         raise RestrictedCommandError("evaluation spec is not tracked and unchanged in Git HEAD")
@@ -58,20 +73,13 @@ def _trusted_spec(root: Path, relative: str) -> None:
     module = obj.get("strategy_module") if isinstance(obj, dict) else None
     if not isinstance(module, str) or not module.startswith(("strategies/candidates/", "strategies/baselines/")):
         raise RestrictedCommandError("missing reviewed strategy-module identity")
-    path = Path(module)
-    if path.is_absolute() or ".." in path.parts or "holdout" in module.lower():
-        raise RestrictedCommandError("strategy module path is unsafe")
-    if not (root / module).resolve().is_relative_to(root.resolve()) or not _tracked_clean(root, module):
+    _resolve_safe_relative(root, module, allow_flag_prefix=True)
+    if not _tracked_clean(root, module):
         raise RestrictedCommandError("strategy module is not tracked and unchanged in Git HEAD")
 
 
 def _path_arg(root: Path, name: str, value: str) -> str:
-    if not isinstance(value, str) or not value or value.startswith("-") or "holdout" in value.lower():
-        raise RestrictedCommandError("invalid, flag-like or protected path")
-    rel = Path(value)
-    if rel.is_absolute() or ".." in rel.parts or "\x00" in value:
-        raise RestrictedCommandError("absolute/traversal paths refused")
-    target = (root / rel).resolve()
+    rel, target = _resolve_safe_relative(root, value)
     allowed = {
         "register-hypothesis": (".workspace/hypotheses/queue", ".workspace/hypotheses/registered"),
         "verify": ("experiments/active", "experiments/queue"),
@@ -88,20 +96,49 @@ def _path_arg(root: Path, name: str, value: str) -> str:
     return str(rel)
 
 
+def parse_json_document(raw: str) -> dict[str, Any] | None:
+    """Parse the last complete top-level JSON object from mixed stdout (ignoring sentinels)."""
+    if not raw:
+        return None
+    decoder = json.JSONDecoder()
+    matched: dict[str, Any] | None = None
+    idx = 0
+    length = len(raw)
+    while idx < length:
+        pos = raw.find("{", idx)
+        if pos == -1:
+            break
+        try:
+            obj, end = decoder.raw_decode(raw, pos)
+        except ValueError:
+            idx = pos + 1
+            continue
+        if isinstance(obj, dict):
+            matched = obj
+        idx = end
+    return matched
+
+
 def build_argv(command: str, positional: list[str] | None = None,
-               flags: dict[str, str | bool] | None = None, root: Path = ROOT) -> list[str]:
+               flags: dict[str, str | bool] | None = None, root: Path | None = None) -> list[str]:
     """Render only supported CLI argument shapes. No shell or SQL passthrough."""
+    effective_root = ROOT if root is None else root
     if command not in COMMANDS:
         raise RestrictedCommandError("command not allowlisted; no holdout, manifest or arbitrary shell")
     minimum, maximum, typed = COMMANDS[command]
-    args, flags = positional or [], flags or {}
+    args = [] if positional is None else positional
+    raw_flags = {} if flags is None else flags
     if not isinstance(args, list) or not minimum <= len(args) <= maximum:
         raise RestrictedCommandError("invalid positional argument count")
-    rendered = [_path_arg(root, command, p) for p in args]
+    if not isinstance(raw_flags, dict):
+        raise RestrictedCommandError("flags must be a JSON object")
+    rendered = [_path_arg(effective_root, command, p) for p in args]
     if command in {"verify", "screen", "backtest"}:
-        _trusted_spec(root, rendered[0])
+        _trusted_spec(effective_root, rendered[0])
     result = [sys.executable, "-m", "warden.cli", command, *rendered, "--json"]
-    for key, val in flags.items():
+    for key, val in raw_flags.items():
+        if not isinstance(key, str) or not key:
+            raise RestrictedCommandError("unsupported CLI flag or value")
         flag = key if key.startswith("--") else "--" + key
         if flag == "--json":
             if not isinstance(val, bool):
@@ -121,24 +158,18 @@ def build_argv(command: str, positional: list[str] | None = None,
 
 
 def execute(command: str, positional: list[str] | None = None, flags: dict | None = None,
-            root: Path = ROOT, timeout: int = 90) -> dict:
-    argv = build_argv(command, positional, flags, root)
+            root: Path | None = None, timeout: int | None = None) -> dict:
+    effective_root = ROOT if root is None else root
+    argv = build_argv(command, positional, flags, effective_root)
     env = {**os.environ, "WARDEN_NON_INTERACTIVE": "1"}
+    effective_timeout = (600 if command == "backtest" else 90) if timeout is None else timeout
     try:
-        proc = subprocess.run(argv, cwd=root, env=env, capture_output=True, text=True,
-                              check=False, timeout=min(max(timeout, 1), 1800))
+        proc = subprocess.run(argv, cwd=effective_root, env=env, capture_output=True, text=True,
+                              check=False, timeout=min(max(effective_timeout, 1), 1800))
     except subprocess.TimeoutExpired as exc:
         return {"ok": False, "status": "TIMEOUT_REVIEW", "reason": str(exc),
                 "no_auto_retry": True}
-    payload = None
-    for line in proc.stdout.splitlines():
-        try:
-            value = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(value, dict):
-            payload = value
-            break
+    payload = parse_json_document(proc.stdout)
     return {"ok": proc.returncode == 0, "exit_code": proc.returncode,
             "status": "BUSY" if proc.returncode == 75 else "COMPLETE" if proc.returncode == 0 else "FAILED",
             "result": payload, "stdout_tail": proc.stdout[-1500:],

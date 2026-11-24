@@ -66,6 +66,50 @@ def test_screen_finalization_is_atomic_and_failed_record_stays_reviewable(tmp_pa
         assert conn.execute("SELECT count(*) FROM screen_receipts").fetchone()[0] == 1
 
 
+def test_reconcile_screen_marks_interrupted_without_refund_or_replay(tmp_path: Path) -> None:
+    registry = _registry(tmp_path)
+    kwargs = ("HYP-SCREEN", "CRYPTO_PERPS_1H_V1", "strategies/flat.py", {"window": 12})
+    key = registry.reserve_screen(*kwargs, data_sha256="a" * 64)
+
+    reviewed = registry.reconcile_screen(*kwargs, confirm_interrupted=True)
+    assert reviewed["screen_key"] == key and reviewed["state"] == "INTERRUPTED_REVIEW"
+    assert reviewed["retry_allowed"] is False and reviewed["eligible"] is False
+    assert registry.screen_status(*kwargs)["state"] == "INTERRUPTED_REVIEW"
+    assert registry.spec_status(*kwargs)["state"] == "REQUIRES_RECONCILIATION"
+
+    # Review is idempotent and never rewrites the durable identity.
+    assert registry.reconcile_screen(*kwargs, confirm_interrupted=True)["state"] == "INTERRUPTED_REVIEW"
+
+    # No replay: the receipt stays consumed, so it can neither be re-reserved...
+    with pytest.raises(ScreenAlreadyAttemptedError):
+        registry.reserve_screen(*kwargs, data_sha256="b" * 64)
+    # ...nor finalized into a selection attempt (no refund of search debt).
+    with pytest.raises(ScreenAlreadyAttemptedError):
+        registry.record_selection_attempt(
+            hypothesis_id="HYP-SCREEN", contract_id="CRYPTO_PERPS_1H_V1",
+            kind="standalone_screen", stage="STAGE_1_SIGNAL", outcome="PASS",
+            strategy_module="strategies/flat.py", parameters={"window": 12}, screen_key=key)
+    with registry._connect() as conn:
+        assert conn.execute("SELECT count(*) FROM selection_attempts").fetchone()[0] == 0
+        rows = conn.execute("SELECT state FROM screen_receipts").fetchall()
+        assert [row[0] for row in rows] == ["INTERRUPTED_REVIEW"]
+
+
+def test_reconcile_screen_without_confirm_is_read_only_and_unknown_is_unseen(tmp_path: Path) -> None:
+    registry = _registry(tmp_path)
+    kwargs = ("HYP-SCREEN", "CRYPTO_PERPS_1H_V1", "strategies/flat.py", {"window": 12})
+
+    unseen = registry.reconcile_screen(*kwargs)
+    assert unseen["state"] == "UNSEEN" and unseen["retry_allowed"] is True
+    with registry._connect() as conn:
+        assert conn.execute("SELECT count(*) FROM screen_receipts").fetchone()[0] == 0
+
+    registry.reserve_screen(*kwargs)
+    peek = registry.reconcile_screen(*kwargs)
+    assert peek["state"] == "RESERVED" and peek["retry_allowed"] is False
+    assert registry.screen_status(*kwargs)["state"] == "RESERVED"
+
+
 def test_legacy_screen_receipt_backfilled_without_increasing_search_debt(tmp_path: Path) -> None:
     registry = _registry(tmp_path)
     kwargs = ("HYP-SCREEN", "CRYPTO_PERPS_1H_V1", "strategies/flat.py", {"window": 12})

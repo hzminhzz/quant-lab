@@ -112,3 +112,47 @@ def test_apply_script_defaults_to_dry_run_and_refuses_privileged_apply() -> None
                            check=False, env=ENV_BASE)
     assert apply.returncode == 3 and "REFUSED: --apply requires root" in apply.stderr
     assert (REPO / "src" / "warden" / "contracts.py").stat().st_mode == mode
+
+
+def _preflight_report() -> dict:
+    proc = subprocess.run([sys.executable, str(REPO / "scripts" / "preflight_trust_boundary.py"), "--json"],
+                          cwd=REPO, capture_output=True, text=True, check=False, env=ENV_BASE)
+    assert proc.stdout, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_preflight_enumerates_administrative_and_evidence_packages() -> None:
+    report = _preflight_report()
+    reported = {Path(f["path"]).resolve() for f in report["files"]}
+
+    expected: set[Path] = set()
+    for pattern in (
+        "src/warden/**/*.py",
+        "src/warden_ops/**/*.py",
+        "src/warden_evidence/**/*.py",
+        "contracts/*.yaml",
+        "contracts/*.yml",
+        "contracts/datasets/*.json",
+    ):
+        expected |= {p.resolve() for p in REPO.glob(pattern) if p.is_file()}
+
+    assert (REPO / "src" / "warden_ops" / "integrity.py").resolve() in expected
+    assert (REPO / "src" / "warden_ops" / "checkpoint.py").resolve() in expected
+    assert (REPO / "src" / "warden_ops" / "readonly.py").resolve() in expected
+    assert (REPO / "src" / "warden_evidence" / "market_validation.py").resolve() in expected
+    assert (REPO / "src" / "warden_evidence" / "feature_cache.py").resolve() in expected
+    assert expected <= reported, sorted(str(p) for p in expected - reported)
+
+    # The preflight's protected view and the integrity manifest must not drift apart.
+    assert "PROTECTED_SET_MISMATCH" not in {f["id"] for f in report["findings"]}
+
+
+def test_apply_script_protects_administrative_and_evidence_dirs() -> None:
+    proc = subprocess.run(["bash", str(REPO / "scripts" / "apply_trust_boundary.sh")], cwd=REPO,
+                          capture_output=True, text=True, check=False, env=ENV_BASE)
+    assert proc.returncode == 0, proc.stderr
+    for rel in ("src/warden", "src/warden_ops", "src/warden_evidence", "contracts", ".warden_manifest.sha256"):
+        assert f"DRY RUN: chown -R root:warden-trust {rel}" in proc.stdout
+        assert f"DRY RUN: chmod -R go-w {rel}" in proc.stdout
+    assert "DRY RUN: chmod 0555 src/warden src/warden_ops src/warden_evidence contracts" in proc.stdout
+    assert "DRY RUN: find src/warden src/warden_ops src/warden_evidence contracts -type f" in proc.stdout

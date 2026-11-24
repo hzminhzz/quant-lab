@@ -18,7 +18,15 @@ import os
 from pathlib import Path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
-PROTECTED_GLOBS = ("src/warden/*.py", "contracts/*.yaml", "contracts/datasets/*.json")
+PROTECTED_GLOBS = (
+    "src/warden/**/*.py",
+    "src/warden_ops/**/*.py",
+    "src/warden_evidence/**/*.py",
+    "contracts/*.yaml",
+    "contracts/*.yml",
+    "contracts/datasets/*.json",
+)
+PROTECTED_DIR_PREFIXES = ("src/warden/", "src/warden_ops/", "src/warden_evidence/", "contracts/")
 TRUST_FILES = (MANIFEST_FILE, "pyproject.toml", "uv.lock")
 
 
@@ -42,6 +50,27 @@ def manifest_approval_state(repo: Path) -> dict:
     return state
 
 
+def _manifest_protected_rels(repo: Path) -> set[str] | None:
+    """Protected-directory entries recorded in the integrity manifest (None if unreadable)."""
+    manifest = repo / MANIFEST_FILE
+    if not manifest.is_file():
+        return None
+    try:
+        lines = manifest.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    rels: set[str] = set()
+    for line in lines:
+        if not line.strip():
+            continue
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        if parts[1].startswith(PROTECTED_DIR_PREFIXES):
+            rels.add(parts[1])
+    return rels
+
+
 def describe(path: Path) -> dict:
     st = path.stat()
     return {"path": str(path), "uid": st.st_uid, "gid": st.st_gid, "mode": oct(st.st_mode & 0o777),
@@ -63,6 +92,18 @@ def main(argv: list[str] | None = None) -> int:
     holdout = repo / "data" / "holdout"
 
     findings: list[dict] = []
+    protected_rels = {
+        p.relative_to(repo).as_posix() for p in protected
+        if p.relative_to(repo).as_posix().startswith(PROTECTED_DIR_PREFIXES)
+    }
+    manifest_rels = _manifest_protected_rels(repo)
+    if manifest_rels is not None:
+        uncovered = sorted(manifest_rels - protected_rels)
+        unlisted = sorted(protected_rels - manifest_rels)
+        if uncovered or unlisted:
+            findings.append({"id": "PROTECTED_SET_MISMATCH", "severity": "high",
+                             "detail": f"protected-set drift: not assessed here {uncovered[:10]}; "
+                                       f"not in the integrity manifest {unlisted[:10]}"})
     agent_owned = [f["path"] for f in files if f["agent_owned"]]
     if agent_owned:
         findings.append({"id": "AGENT_OWNS_TRUSTED_INPUTS", "severity": "high",

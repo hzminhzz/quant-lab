@@ -62,6 +62,17 @@ def test_canonical_directory_skeleton_exists() -> None:
     assert not missing, f"Missing canonical directories: {missing}"
 
 
+def test_ml4t_live_is_not_a_project_dependency() -> None:
+    """The live runtime stays out of the exploratory environment and its lockfile."""
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "ml4t-live" not in pyproject
+    assert "ml4t_live" not in pyproject
+
+    lock = (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
+    assert 'name = "ml4t-live"' not in lock
+    assert "ml4t_live-" not in lock
+
+
 def test_env_manifest_validity_and_imports() -> None:
     """Verify .workspace/env_manifest.json is valid and has 0 import errors."""
     manifest_path = REPO_ROOT / ".workspace" / "env_manifest.json"

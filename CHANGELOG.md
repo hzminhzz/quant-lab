@@ -6,6 +6,12 @@ principal — or by an agent under explicit in-session delegation, recorded in a
 
 ## 2026-11-24
 
+### Ticket 01 host holdout containment, dataset manifest pinning & principal-delegated manifest re-sign (#87; `be5cfe1`, local `main`)
+- Under explicit in-session principal operator authorization (`"I authorize you to act as my operator for #87, including running sudo and carrying out the privileged host containment... Use the host's existing approved privilege and signing mechanisms"`, `"/implement Approve you fix all on my hehalf, can remove what unecessary, contineue toil ticket 1 pass"`, `"I want you to make sure it won't happen again"`, `"Fix all"`):
+  - Sealed all 18 staging-only Parquets into `data/holdout/` (`root:trader`, `0640`; 29 total sealed files, POSIX ACLs stripped), deleted `data/holdout_staging/`, archived 286 post-`2025-07-01` + 2 uncontracted broad crypto files out of `data/exploratory/` to `/var/backups/quant-lab-exploratory-archive-20261124/` (`root:trader`, `0750`/`0640`), provisioned dedicated unprivileged `agent` (`uid=1002`), locked post-cutoff `ml4t-data` partitions/files to `quant:trader`, and installed `/usr/local/sbin/enforce_ml4t_holdout_fence.py` (`5.2s` idempotent runtime, `20 * * * *` root cron with `flock -n`, `timeout 60s`, `nice -n 19`, `ionice -c3`).
+  - Pinned `holdout_path`, `holdout_sha256`, `holdout_sealed_by`, and `holdout_pinned_by` (`hashlib.sha256` without reading price/return statistics) across 24 `contracts/datasets/*.json` manifests alongside 9 previously pinned manifests. (`CME_ES_15M_SYNCSTER_V1`, `CME_NQ_15M_SYNCSTER_V1`, and `FX_MAJORS_1D_V2` intentionally have no built holdout Parquet per `scripts/prepare_syncster_cme.py` and `scripts/build_fx_majors_1d_v2.py`.)
+  - Executed `uv run --frozen warden generate-manifest --human-approve-manifest` (`WARDEN_NON_INTERACTIVE` and `WARDEN_HUMAN_SIGNING_KEY` unset on host, matching `origin/main` `mode=interactive`, `approver=human-operator`), producing `manifest_sha256=b1899904b0f8c9d637b3b47e7e1c11df28419d92408a83f932c7193500efb31d`; `uv run --frozen warden check-worktree` (`rc=0`).
+
 ### CLI lazy-loading & parallel pytest speedup (`0351039`, `11ade10`; local `main`)
 - Lazy-loaded ML4T modules in `src/warden/cli.py`, `contracts.py`, `gates.py`, `registry.py`, and
   `src/warden_ops/checkpoint.py` to avoid heavyweight import overhead on fast CLI invocations.

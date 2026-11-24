@@ -10,5 +10,6 @@
   "attestation": "Provenance is declared by the salvage pipeline; digest verified independently against manifest and contract pin.",
   "holdout_path": "data/holdout/indices_4h.parquet",
   "holdout_sha256": "f430cb6c73d300eef9ebf87cca673ff0ebade4e91d83f9f6f3d2218043dd0aa7",
-  "holdout_sealed_by": "root: install -o root -g trader -m 0640 (operator-delegated #87, 2026-11-24)"
+  "holdout_sealed_by": "root: install -o root -g trader -m 0640 (operator-delegated #87, 2026-11-24)",
+  "holdout_pinned_by": "agent:operator_87 \u2014 digest computed with hashlib.sha256 under principal delegation, no price or return statistic read"
 }

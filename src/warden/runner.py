@@ -18,7 +18,6 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-import yaml
 
 from warden.codeid import code_closure
 from warden.contracts import (
@@ -69,6 +68,7 @@ from warden.protocols import (
 )
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
+from warden.schemas import load_experiment_spec
 
 
 class LinearBaselineRequiredError(ValueError):
@@ -448,12 +448,18 @@ class ExperimentRunner:
         return dataset, panel_df, ts, assets, v_slice, code_sha
 
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
-        cfg = yaml.safe_load(Path(exp_yaml_path).read_text(encoding="utf-8"))
-        contract = self.resolve_contract(cfg["contract_id"])
-        hyp_id, family = cfg["hypothesis_id"], cfg.get("strategy_family", "rules_ts")
-        params = cfg.get("parameters", {})
-        simulation_epoch = str(cfg.get("simulation_epoch") or ENGINE_SIMULATION_EPOCH)
-        strat_module = normalise_module(str(cfg.get("strategy_module", "")))
+        # Frozen typed spec first: an unknown or policy-injecting key raises
+        # before any contract, dataset, registry or receipt side effect.
+        spec = load_experiment_spec(exp_yaml_path)
+        if not spec.hypothesis_id:
+            raise ValueError("Experiment spec must declare hypothesis_id for screening")
+        contract = self.resolve_contract(spec.contract_id)
+        hyp_id, family = spec.hypothesis_id, spec.strategy_family
+        params = spec.parameters
+        # Live runs are always stamped with the active engine epoch.  Historical
+        # epochs are an explicit replay boundary, never an agent YAML field.
+        simulation_epoch = ENGINE_SIMULATION_EPOCH
+        strat_module = normalise_module(spec.strategy_module)
         with self.registry._connect() as conn:
             h = conn.execute(
                 "SELECT title, economic_mechanism, counterparty_or_friction, expected_holding_bars, "
@@ -547,7 +553,7 @@ class ExperimentRunner:
                     simulation_epoch=simulation_epoch,
                 )
                 return report
-            policy_dict = extract_execution_policy(cfg, params)
+            policy_dict = extract_execution_policy()
             if protocol == "causal_rules":
                 strat_obj = resolve_protocol_target(strat_mod).configure_strategy(contract, params)
                 sim1 = run_engine_strategy(
@@ -567,7 +573,7 @@ class ExperimentRunner:
                     out = _run_strategy_isolated(strat_file, panel_df, contract, params)
                 if int(out.get("signal_delay_bars", 0)) > 0:
                     raise DoubleLatencyError(
-                        f"'{cfg.get('strategy_name', Path(exp_yaml_path).stem)}' declares "
+                        f"'{spec.strategy_name or Path(exp_yaml_path).stem}' declares "
                         f"signal_delay_bars={out['signal_delay_bars']} while Warden already applies "
                         f"execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged."
                     )
@@ -611,7 +617,7 @@ class ExperimentRunner:
         if protocol == "causal_rules":
             if family != "rules_ts":
                 raise ValueError(f"Unsupported strategy_family '{family}' for Stage 1 screen")
-            policy_dict = extract_execution_policy(cfg, params)
+            policy_dict = extract_execution_policy()
             strat_obj = resolve_protocol_target(strat_mod).configure_strategy(contract, params)
             sim1 = run_engine_strategy(
                 panel_df, strat_obj, ts, assets, contract, v_slice, cost_multiplier=1.0, **policy_dict
@@ -666,12 +672,19 @@ class ExperimentRunner:
         return report
 
     def run_spec(self, exp_yaml_path: Path, override_run_id: str | None = None) -> ExperimentResult:
-        cfg = yaml.safe_load(Path(exp_yaml_path).read_text(encoding="utf-8"))
-        contract = self.resolve_contract(cfg["contract_id"])
-        hyp_id, family = cfg["hypothesis_id"], cfg.get("strategy_family", "rules_ts")
-        strat_name, model_type, params = cfg.get("strategy_name", Path(exp_yaml_path).stem), cfg.get("model_type", "rules"), cfg.get("parameters", {})
-        simulation_epoch = str(cfg.get("simulation_epoch") or ENGINE_SIMULATION_EPOCH)
-        policy_dict = extract_execution_policy(cfg, params)
+        # Frozen typed spec first: an unknown or policy-injecting key raises
+        # before any contract, dataset, registry or trial side effect.
+        spec = load_experiment_spec(exp_yaml_path)
+        if not spec.hypothesis_id:
+            raise ValueError("Experiment spec must declare hypothesis_id for backtesting")
+        contract = self.resolve_contract(spec.contract_id)
+        hyp_id, family = spec.hypothesis_id, spec.strategy_family
+        strat_name = spec.strategy_name or Path(exp_yaml_path).stem
+        model_type, params = spec.model_type, spec.parameters
+        # Live runs are always stamped with the active engine epoch.  Historical
+        # epochs are an explicit replay boundary, never an agent YAML field.
+        simulation_epoch = ENGINE_SIMULATION_EPOCH
+        policy_dict = extract_execution_policy()
 
         with self.registry._connect() as conn:
             h = conn.execute(
@@ -699,7 +712,7 @@ class ExperimentRunner:
             )
             trials_used, hyp_status = h[5], h[8]
 
-        strat_module = strat_module_str = normalise_module(str(cfg.get("strategy_module", "")))
+        strat_module = strat_module_str = normalise_module(spec.strategy_module)
         strat_mod, protocol = load_and_enforce_strategy_protocol(
             self.repo_root / strat_module,
             hypothesis_status=str(hyp_status),
@@ -707,7 +720,7 @@ class ExperimentRunner:
             allow_legacy_replay=self.allow_legacy_replay,
         )
 
-        model_tier, model_class = _classify_model_tier(str(model_type), cfg, strat_mod)
+        model_tier, model_class = _classify_model_tier(str(model_type), spec.model_dump(), strat_mod)
         if family == "cross_sectional_ml" and model_tier != "linear":
             with self.registry._connect() as conn:
                 rows = conn.execute(
@@ -740,7 +753,7 @@ class ExperimentRunner:
 
         dataset, panel_df, ts, assets, v_slice, code_sha = self._prepare_and_check_stage0(
             contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch)
-        run_id = override_run_id or cfg.get("run_id") or default_run_id(hyp_id, trials_used + 1)
+        run_id = override_run_id or spec.run_id or default_run_id(hyp_id, trials_used + 1)
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
         provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha,
@@ -920,7 +933,7 @@ class ExperimentRunner:
             sr2 = annualised_sharpe(sim2.net_returns, contract.bars_per_year)
             srd = annualised_sharpe(sim_d.net_returns, contract.bars_per_year)
 
-            ngrid, n_sr = cfg.get("param_grid") or [], []
+            ngrid, n_sr = list(spec.param_grid), []
             grid_returns_list: list[np.ndarray] = [net_ret]
             for grid_params in ngrid:
                 if protocol == "causal_rules":

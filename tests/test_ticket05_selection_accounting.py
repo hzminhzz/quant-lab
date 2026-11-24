@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from pydantic import ValidationError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -186,29 +187,47 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) ->
 
 def test_simulation_epoch_isolation_and_same_epoch_alignment(tiny_repo) -> None:
     fixture = tiny_repo(n_bars=40)
-    fixture.spec.write_text(fixture.spec.read_text() + f"simulation_epoch: {DEFAULT_SIMULATION_EPOCH}\n")
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
-    r_legacy = runner.run_spec(fixture.spec)
-    assert r_legacy.simulation_epoch == DEFAULT_SIMULATION_EPOCH
+    r_live = runner.run_spec(fixture.spec)
+    assert r_live.simulation_epoch == ENGINE_SIMULATION_EPOCH
 
     with fixture.registry._connect() as conn:
-        legacy_len = len(
-            json.loads(conn.execute("SELECT returns_json FROM trials WHERE run_id=?", (r_legacy.run_id,)).fetchone()[0])
+        live_len = len(
+            json.loads(conn.execute("SELECT returns_json FROM trials WHERE run_id=?", (r_live.run_id,)).fetchone()[0])
         )
 
     # Same epoch with mismatched bar count must still raise SelectionHistoryError
     with pytest.raises(SelectionHistoryError, match="refusing to pad"):
-        fixture.registry.selection_history(fixture.contract.contract_id, legacy_len + 5, simulation_epoch=DEFAULT_SIMULATION_EPOCH)
+        fixture.registry.selection_history(
+            fixture.contract.contract_id, live_len + 5, simulation_epoch=ENGINE_SIMULATION_EPOCH
+        )
 
-    # New simulation_epoch isolates streams while inheriting prior_search_floor
-    hist_engine = fixture.registry.selection_history(
-        fixture.contract.contract_id, legacy_len + 5, simulation_epoch="engine_v1"
+    # A historical epoch is an explicit registry replay boundary: isolated
+    # streams while inheriting prior_search_floor.  It is never selected from
+    # agent YAML.
+    hist_legacy = fixture.registry.selection_history(
+        fixture.contract.contract_id, live_len + 5, simulation_epoch=DEFAULT_SIMULATION_EPOCH
     )
-    assert hist_engine["streams"] == []
-    assert hist_engine["raw_attempt_count"] == 0
+    assert hist_legacy["streams"] == []
+    assert hist_legacy["raw_attempt_count"] == 0
     floor, noise, _ = fixture.registry.prior_search_floor(fixture.contract)
-    assert floor >= r_legacy.effective_trials_keff
-    assert noise >= r_legacy.expected_max_sharpe_noise
+    assert floor >= r_live.effective_trials_keff
+    assert noise >= r_live.expected_max_sharpe_noise
+
+    with fixture.registry._connect() as conn:
+        before = {
+            table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("trials", "selection_attempts", "screen_receipts")
+        }
+    fixture.spec.write_text(fixture.spec.read_text() + f"simulation_epoch: {DEFAULT_SIMULATION_EPOCH}\n")
+    with pytest.raises(ValidationError, match="simulation_epoch"):
+        runner.run_spec(fixture.spec)
+    with fixture.registry._connect() as conn:
+        after = {
+            table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("trials", "selection_attempts", "screen_receipts")
+        }
+    assert after == before
 
 
 def test_snapshot_falsifiers_flat_keff_and_epoch_transition(tmp_path: Path) -> None:

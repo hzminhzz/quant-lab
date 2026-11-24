@@ -263,6 +263,31 @@ def _apply_future_shock(bars_df: pl.DataFrame, cutoff_ts: Any) -> pl.DataFrame:
     return bars_df.with_columns(cols)
 
 
+def _assert_preds_close(
+    left: pl.DataFrame, right: pl.DataFrame, message: str
+) -> None:
+    if left.height != right.height or not np.allclose(
+        left["prediction_value"].to_numpy(),
+        right["prediction_value"].to_numpy(),
+        rtol=1e-9,
+        atol=1e-9,
+        equal_nan=True,
+    ):
+        raise LookaheadLeakageError(message)
+    if (
+        "target_weight" in left.columns
+        and "target_weight" in right.columns
+        and not np.allclose(
+            left["target_weight"].to_numpy(),
+            right["target_weight"].to_numpy(),
+            rtol=1e-9,
+            atol=1e-9,
+            equal_nan=True,
+        )
+    ):
+        raise LookaheadLeakageError(f"{message} (target_weight)")
+
+
 def verify_model_prefix_invariance(
     mod: Any,
     bars_df: pl.DataFrame,
@@ -314,12 +339,11 @@ def verify_model_prefix_invariance(
                 f"Model prediction row count changed at cutoff {t0} under future perturbation"
             )
         if f_pref.height > 0:
-            v_f = f_pref["prediction_value"].to_numpy()
-            v_p = p_pref["prediction_value"].to_numpy()
-            if not np.allclose(v_f, v_p, rtol=1e-9, atol=1e-9, equal_nan=True):
-                raise LookaheadLeakageError(
-                    f"Lookahead leakage in model predictions before cutoff {t0}"
-                )
+            _assert_preds_close(
+                f_pref,
+                p_pref,
+                f"Lookahead leakage in model predictions before cutoff {t0}",
+            )
 
     # Also test estimator invariance when future validation rows are truncated within a fold.
     _, model_df, _, feature_cols, valid_train_mask = prepare_causal_model_dataset(
@@ -335,16 +359,11 @@ def verify_model_prefix_invariance(
         t_mid = fold_ts[len(fold_ts) // 2]
         p_full = estimator.fit_predict_fold(train_df, val_feat, feature_cols, "forward_label", seed=42).filter(pl.col("timestamp") <= t_mid).sort("timestamp", "asset")
         p_trunc = estimator.fit_predict_fold(train_df, val_feat.filter(pl.col("timestamp") <= t_mid), feature_cols, "forward_label", seed=42).sort("timestamp", "asset")
-        if p_full.height != p_trunc.height or not np.allclose(
-            p_full["prediction_value"].to_numpy(),
-            p_trunc["prediction_value"].to_numpy(),
-            rtol=1e-9,
-            atol=1e-9,
-            equal_nan=True,
-        ):
-            raise LookaheadLeakageError(
-                f"Model fit_predict_fold predictions at <= {t_mid} depend on future validation rows"
-            )
+        _assert_preds_close(
+            p_full,
+            p_trunc,
+            f"Model fit_predict_fold predictions at <= {t_mid} depend on future validation rows",
+        )
         break
 
 

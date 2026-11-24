@@ -357,6 +357,64 @@ def resolve_feature_columns(feat_df: pl.DataFrame, pipeline: Any) -> list[str]:
     return cols
 
 
+def _build_panel_presence_and_matrix(
+    oos_preds_df: pl.DataFrame,
+    panel_df: pl.DataFrame,
+    ts: Sequence[Any],
+    assets: Sequence[str],
+    value_col: str,
+) -> tuple[list[np.ndarray], np.ndarray]:
+    n_bars, n_assets = len(ts), len(assets)
+    ts_map = {t: i for i, t in enumerate(ts)}
+    asset_map = {a: j for j, a in enumerate(assets)}
+
+    present_by_t: list[np.ndarray] = [np.zeros(n_assets, dtype=bool) for _ in range(n_bars)]
+    for row_ts, row_asset in panel_df.select("timestamp", "asset").iter_rows():
+        ti = ts_map.get(row_ts)
+        aj = asset_map.get(row_asset)
+        if ti is not None and aj is not None:
+            present_by_t[ti][aj] = True
+
+    val_mat = np.full((n_bars, n_assets), np.nan, dtype=float)
+    for row_ts, row_asset, val in oos_preds_df.select("timestamp", "asset", value_col).iter_rows():
+        ti = ts_map.get(row_ts)
+        aj = asset_map.get(row_asset)
+        if ti is not None and aj is not None and val is not None:
+            fval = float(val)
+            if np.isfinite(fval):
+                val_mat[ti, aj] = fval
+    return present_by_t, val_mat
+
+
+def _apply_rebalance_schedule(
+    oos_preds_df: pl.DataFrame,
+    panel_df: pl.DataFrame,
+    ts: Sequence[Any],
+    assets: Sequence[str],
+    *,
+    val_start_idx: int,
+    val_end_idx: int,
+    rebalance_every: int,
+    value_col: str,
+    row_weight_fn: Any,
+) -> np.ndarray:
+    n_bars, n_assets = len(ts), len(assets)
+    positions = np.zeros((n_bars, n_assets), dtype=float)
+    present_by_t, val_mat = _build_panel_presence_and_matrix(
+        oos_preds_df, panel_df, ts, assets, value_col
+    )
+    reb = max(1, int(rebalance_every))
+    for t in range(val_start_idx, val_end_idx):
+        active_mask = present_by_t[t]
+        prev = positions[t - 1] if t > 0 else np.zeros(n_assets, dtype=float)
+        if (t - val_start_idx) % reb != 0:
+            positions[t] = np.where(active_mask, prev, 0.0)
+            continue
+        new_weights = row_weight_fn(val_mat[t], active_mask, n_assets)
+        positions[t] = new_weights if new_weights is not None else np.where(active_mask, prev, 0.0)
+    return positions
+
+
 def _predictions_to_positions(
     oos_preds_df: pl.DataFrame,
     panel_df: pl.DataFrame,
@@ -368,49 +426,65 @@ def _predictions_to_positions(
     rebalance_every: int,
     top_k: int,
 ) -> np.ndarray:
-    n_bars, n_assets = len(ts), len(assets)
-    positions = np.zeros((n_bars, n_assets), dtype=float)
-    ts_map = {t: i for i, t in enumerate(ts)}
-    asset_map = {a: j for j, a in enumerate(assets)}
-
-    present_by_t: list[np.ndarray] = [np.zeros(n_assets, dtype=bool) for _ in range(n_bars)]
-    for row_ts, row_asset in panel_df.select("timestamp", "asset").iter_rows():
-        ti = ts_map.get(row_ts)
-        aj = asset_map.get(row_asset)
-        if ti is not None and aj is not None:
-            present_by_t[ti][aj] = True
-
-    preds_mat = np.full((n_bars, n_assets), np.nan, dtype=float)
-    for row_ts, row_asset, pred_val in oos_preds_df.select(
-        "timestamp", "asset", "prediction_value"
-    ).iter_rows():
-        ti = ts_map.get(row_ts)
-        aj = asset_map.get(row_asset)
-        if ti is not None and aj is not None and pred_val is not None:
-            fval = float(pred_val)
-            if np.isfinite(fval):
-                preds_mat[ti, aj] = fval
-
-    reb = max(1, int(rebalance_every))
     k_req = max(1, int(top_k))
-    for t in range(val_start_idx, val_end_idx):
-        active_mask = present_by_t[t]
-        prev = positions[t - 1] if t > 0 else np.zeros(n_assets, dtype=float)
-        if (t - val_start_idx) % reb != 0:
-            positions[t] = np.where(active_mask, prev, 0.0)
-            continue
-        scores = preds_mat[t]
+
+    def _top_k_weights(scores: np.ndarray, active_mask: np.ndarray, n_assets: int) -> np.ndarray | None:
         valid_idx = np.flatnonzero(active_mask & np.isfinite(scores))
         if len(valid_idx) < 2:
-            positions[t] = np.where(active_mask, prev, 0.0)
-            continue
+            return None
         k = min(k_req, len(valid_idx) // 2)
         order = valid_idx[np.argsort(scores[valid_idx])]
         w = np.zeros(n_assets, dtype=float)
         w[order[-k:]] = 0.5 / float(k)
         w[order[:k]] = -0.5 / float(k)
-        positions[t] = w
-    return positions
+        return w
+
+    return _apply_rebalance_schedule(
+        oos_preds_df,
+        panel_df,
+        ts,
+        assets,
+        val_start_idx=val_start_idx,
+        val_end_idx=val_end_idx,
+        rebalance_every=rebalance_every,
+        value_col="prediction_value",
+        row_weight_fn=_top_k_weights,
+    )
+
+
+def _target_weights_to_positions(
+    oos_preds_df: pl.DataFrame,
+    panel_df: pl.DataFrame,
+    ts: Sequence[Any],
+    assets: Sequence[str],
+    *,
+    val_start_idx: int,
+    val_end_idx: int,
+    rebalance_every: int,
+) -> np.ndarray:
+    """Map direct estimator target_weight columns to bounded, active-masked position weights."""
+
+    def _bounded_weights(w_raw: np.ndarray, active_mask: np.ndarray, _n_assets: int) -> np.ndarray | None:
+        valid = active_mask & np.isfinite(w_raw)
+        if not valid.any():
+            return None
+        w = np.where(valid, w_raw, 0.0)
+        gross = float(np.sum(np.abs(w)))
+        if gross > 1.0 + 1e-9:
+            w = w / gross
+        return w
+
+    return _apply_rebalance_schedule(
+        oos_preds_df,
+        panel_df,
+        ts,
+        assets,
+        val_start_idx=val_start_idx,
+        val_end_idx=val_end_idx,
+        rebalance_every=rebalance_every,
+        value_col="target_weight",
+        row_weight_fn=_bounded_weights,
+    )
 
 
 def prepare_causal_model_dataset(
@@ -527,6 +601,7 @@ def run_causal_model_strategy(
     estimator = target.build_estimator(dict(params or {}))
     label_col = "forward_label"
     oos_chunks: list[pl.DataFrame] = []
+    has_target_weights = True
     for train_df, val_features_df in iter_causal_model_folds(
         model_df, feature_cols, valid_train_mask, ts, contract, val_start_idx, val_end_idx
     ):
@@ -541,10 +616,16 @@ def run_causal_model_strategy(
             seed=seed,
             panel_timestamps=ts,
         )
-        oos_chunks.append(preds.select("timestamp", "asset", "prediction_value"))
+        if "target_weight" in preds.columns:
+            oos_chunks.append(preds.select("timestamp", "asset", "prediction_value", "target_weight"))
+        else:
+            has_target_weights = False
+            oos_chunks.append(preds.select("timestamp", "asset", "prediction_value"))
 
     if not oos_chunks:
         raise ValueError("CausalModelStrategy produced zero walk-forward validation folds.")
+    if not has_target_weights:
+        oos_chunks = [c.select("timestamp", "asset", "prediction_value") for c in oos_chunks]
     oos_preds_df = pl.concat(oos_chunks).sort("timestamp", "asset")
 
     # Compute IC strictly via ml4t.diagnostic.metrics.cross_sectional_ic_series
@@ -553,7 +634,7 @@ def run_causal_model_strategy(
     ).select("timestamp", "asset", "forward_return")
     min_obs = min(5, max(2, len(assets)))
     ic_series = compute_cross_sectional_ic_for_screen(
-        oos_preds_df.rename({"prediction_value": "prediction"}),
+        oos_preds_df.select("timestamp", "asset", "prediction_value").rename({"prediction_value": "prediction"}),
         valid_fwd,
         pred_col="prediction",
         ret_col="forward_return",
@@ -564,16 +645,27 @@ def run_causal_model_strategy(
 
     rebalance_every = int((params or {}).get("rebalance_every", contract.label_horizon_bars))
     top_k = int((params or {}).get("top_k", 3))
-    positions = _predictions_to_positions(
-        oos_preds_df,
-        norm_panel,
-        ts,
-        assets,
-        val_start_idx=val_start_idx,
-        val_end_idx=val_end_idx,
-        rebalance_every=rebalance_every,
-        top_k=top_k,
-    )
+    if has_target_weights:
+        positions = _target_weights_to_positions(
+            oos_preds_df,
+            norm_panel,
+            ts,
+            assets,
+            val_start_idx=val_start_idx,
+            val_end_idx=val_end_idx,
+            rebalance_every=rebalance_every,
+        )
+    else:
+        positions = _predictions_to_positions(
+            oos_preds_df,
+            norm_panel,
+            ts,
+            assets,
+            val_start_idx=val_start_idx,
+            val_end_idx=val_end_idx,
+            rebalance_every=rebalance_every,
+            top_k=top_k,
+        )
     return {
         "positions": positions,
         "ic_series": ic_series,

@@ -1071,6 +1071,18 @@ wheels = [
 ]
 
 [[package]]
+name = "ml4t-models"
+version = "0.1.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/23/4b/c388dcdf0bd92ae689fcdb1e9f394f51082d23edd94d3e6aa0c28d977031/ml4t_models-0.1.5.tar.gz", hash = "sha256:e16b3b529b1516f2d4d9ce27fdc8fe56a77cab72d4c305c51c59fb3f9e80e311", size = 13005125, upload-time = "2026-10-22T17:01:00.514Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/86/67/9bd4589d453edb394b2b4e1275ace3099b10ad4a02523b20dd14391e5bea/ml4t_models-0.1.5-py3-none-any.whl", hash = "sha256:ff6ad7ac09d3e7cbeba53e1f38d844da5628bab10a2bb188d78236fcd2ae93c9", size = 104736, upload-time = "2026-10-22T17:00:58.842Z" },
+]
+
+[[package]]
 name = "ml4t-specs"
 version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1894,6 +1906,7 @@ dependencies = [
     { name = "ml4t-diagnostic" },
     { name = "ml4t-engineer" },
     { name = "ml4t-live" },
+    { name = "ml4t-models" },
     { name = "ml4t-specs" },
     { name = "numpy" },
     { name = "polars" },
@@ -1919,6 +1932,7 @@ requires-dist = [
     { name = "ml4t-diagnostic" },
     { name = "ml4t-engineer" },
     { name = "ml4t-live" },
+    { name = "ml4t-models" },
     { name = "ml4t-specs" },
     { name = "numpy" },
     { name = "polars" },

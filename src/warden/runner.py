@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bisect
 import hashlib
+import json
 import math
 import pickle
 import sqlite3
@@ -76,6 +77,96 @@ class LinearBaselineRequiredError(ValueError):
 
 class DoubleLatencyError(ValueError):
     """A strategy pre-lags its own signals on top of Warden's mandatory execution delay."""
+
+
+LINEAR_MODEL_TYPES = frozenset(
+    {
+        "ridge",
+        "linear",
+        "elasticnet",
+        "ols",
+        "lasso",
+        "linear_portfolio",
+        "linearfeatureportfoliomodel",
+        "ipca",
+        "ipcamodel",
+    }
+)
+DEEP_ML4T_MODEL_TYPES = frozenset(
+    {
+        "deep",
+        "cae",
+        "caemodel",
+        "sae",
+        "saemodel",
+        "sdf",
+        "stochastic_discount_factor",
+        "stochasticdiscountfactormodel",
+        "deep_portfolio",
+        "deepportfoliomodel",
+        "lstm_portfolio",
+        "lstmportfoliomodel",
+    }
+)
+
+
+def _classify_model_tier(model_type: str, cfg: dict[str, Any], strat_mod: Any) -> tuple[str, str]:
+    """Classify a strategy config/module into ('linear'|'deep'|'nonlinear', model_class)."""
+    target = resolve_protocol_target(strat_mod)
+    params = cfg.get("parameters") or {}
+    raw_class = (
+        cfg.get("model_class")
+        or params.get("model_class")
+        or getattr(target, "MODEL_CLASS", None)
+        or getattr(strat_mod, "MODEL_CLASS", None)
+        or model_type
+    )
+    model_class = str(raw_class or model_type or "")
+    raw_tier = (
+        cfg.get("model_tier")
+        or getattr(target, "MODEL_TIER", None)
+        or getattr(strat_mod, "MODEL_TIER", None)
+        or ""
+    )
+    tokens = {
+        str(model_type or "").strip().lower(),
+        model_class.strip().lower(),
+        str(raw_tier).strip().lower(),
+    }
+    tokens.discard("")
+    if "deep" in tokens or (tokens & DEEP_ML4T_MODEL_TYPES):
+        return "deep", model_class
+    if "linear" in tokens or (tokens & LINEAR_MODEL_TYPES):
+        return "linear", model_class
+    return "nonlinear", model_class
+
+
+def _trial_is_linear_baseline(
+    row_model_type: str | None,
+    row_strategy_name: str | None,
+    row_strategy_module: str | None,
+    row_diagnostics_json: str | None,
+) -> bool:
+    """Identify logged linear baselines from structured model metadata, model_type, or legacy names."""
+    mt = (row_model_type or "").strip().lower()
+    if mt in LINEAR_MODEL_TYPES:
+        return True
+    if row_diagnostics_json:
+        try:
+            diag = json.loads(row_diagnostics_json)
+        except (TypeError, ValueError):
+            diag = None
+        if isinstance(diag, dict):
+            meta = diag.get("model_metadata")
+            if isinstance(meta, dict):
+                tier = str(meta.get("model_tier") or "").strip().lower()
+                mclass = str(meta.get("model_class") or "").strip().lower()
+                mtype = str(meta.get("model_type") or "").strip().lower()
+                if tier == "linear" or mclass in LINEAR_MODEL_TYPES or mtype in LINEAR_MODEL_TYPES:
+                    return True
+    if "ridge" in (row_strategy_name or "").lower():
+        return True
+    return "baseline" in (row_strategy_module or "").lower()
 
 
 def aligned_matrix(panel_df: pl.DataFrame, value_col: str, sorted_assets: list[str]) -> np.ndarray:
@@ -616,15 +707,34 @@ class ExperimentRunner:
             allow_legacy_replay=self.allow_legacy_replay,
         )
 
-        is_linear = model_type.lower() in {"ridge", "linear", "elasticnet", "ols", "lasso"}
-        if family == "cross_sectional_ml" and not is_linear:
+        model_tier, model_class = _classify_model_tier(str(model_type), cfg, strat_mod)
+        if family == "cross_sectional_ml" and model_tier != "linear":
             with self.registry._connect() as conn:
-                r = conn.execute(
-                    "SELECT COUNT(*) FROM trials WHERE hypothesis_id = ? AND (strategy_name LIKE '%Ridge%' OR strategy_module LIKE '%baseline%') AND verdict != 'REJECTED_EARLY'",
-                    (hyp_id,)
-                ).fetchone()
-                if not r or r[0] == 0:
-                    raise LinearBaselineRequiredError(f"Linear baseline required for '{hyp_id}' before non-linear model '{model_type}'.")
+                rows = conn.execute(
+                    "SELECT model_type, strategy_name, strategy_module, breakeven_cost_bps, diagnostics_json "
+                    "FROM trials WHERE hypothesis_id = ? AND verdict NOT IN ('REJECTED_EARLY', 'FAILED')",
+                    (hyp_id,),
+                ).fetchall()
+            linear_rows = [
+                (breakeven_bps,)
+                for row_mt, row_name, row_mod, breakeven_bps, row_diag in rows
+                if _trial_is_linear_baseline(row_mt, row_name, row_mod, row_diag)
+            ]
+            if not linear_rows:
+                raise LinearBaselineRequiredError(
+                    f"Linear baseline required for '{hyp_id}' before {model_tier} model '{model_type}'."
+                )
+            if model_tier == "deep":
+                cost_bps = contract.total_one_way_cost_decimal() * 1e4
+                cleared = any(
+                    breakeven_bps is not None and float(breakeven_bps) > cost_bps
+                    for (breakeven_bps,) in linear_rows
+                )
+                if not cleared:
+                    raise LinearBaselineRequiredError(
+                        f"Linear baseline required for '{hyp_id}' to clear cost-breakeven hurdle "
+                        f"(> {cost_bps:.2f} bps) before deep model '{model_type}'."
+                    )
 
         effective_params = resolve_effective_params(strat_mod, protocol, params)
 
@@ -881,6 +991,11 @@ class ExperimentRunner:
             diag = {"dataset": dataset, "family_key": family_key,
                     "retrospective_replication_only": retrospective,
                     "source_published_at": hyp.source_published_at,
+                    "model_metadata": {
+                        "model_type": str(model_type),
+                        "model_class": model_class,
+                        "model_tier": model_tier,
+                    },
                     "execution_policy": policy_dict,
                     "engine_artifacts": engine_artifacts,
                     "session_col_used": sim1.session_col_used,

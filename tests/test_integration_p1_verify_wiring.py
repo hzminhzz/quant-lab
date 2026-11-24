@@ -26,7 +26,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from warden import cli
-from warden.contracts import utc
+from warden.contracts import load_contract, utc
 from warden.runner import ExperimentRunner
 
 
@@ -92,3 +92,40 @@ def test_cmd_verify_refuses_empty_validation_window(tiny_repo, monkeypatch, caps
     assert "no bars" in err
     assert _counts(fixture) == before
     assert not (fixture.repo / "cache").exists()
+
+
+def test_cmd_verify_contains_out_of_repo_strategy_module(tmp_path, monkeypatch, capsys) -> None:
+    """A strategy module outside the repo must fail closed, not raise from ``code_closure``.
+
+    The module implements the causal-rules protocol, so it clears protocol validation and
+    the next step is the single closure digest.  ``code_closure`` cannot express a module
+    that sits outside ``repo_root`` and raises ``ValueError``; that input failure has to be
+    reported as exit 1 with a ``Verify failed:`` message rather than escaping the handled
+    region as a traceback.  ``check_worktree`` is stubbed for the same reason as the tests
+    above (this branch is pre-sign), so the assertion is about error containment only.
+    """
+    monkeypatch.setattr(cli, "check_worktree", lambda *args, **kwargs: True)
+    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    module = tmp_path / "outside_repo_strategy.py"
+    module.write_text(
+        "def required_symbols(params):\n"
+        "    return None\n"
+        "\n"
+        "\n"
+        "def configure_strategy(panel, contract, params):\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    spec = tmp_path / "spec.yaml"
+    spec.write_text(
+        f"contract_id: {contract.contract_id}\nstrategy_module: {module.resolve()}\n",
+        encoding="utf-8",
+    )
+    runner = ExperimentRunner(repo_root=Path("."))
+
+    ret = cli.cmd_verify(SimpleNamespace(spec_yaml=str(spec), json=False), runner)
+
+    err = capsys.readouterr().err
+    assert ret == 1
+    assert err.startswith("Verify failed: ")
+    assert "outside_repo_strategy.py" in err

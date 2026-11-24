@@ -202,8 +202,6 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     params = spec.parameters
     strat_module = normalise_module(spec.strategy_module)
     mod = load_module_from_path(runner.repo_root / strat_module)
-    # One closure digest binds every cache/evidence row in this verify to the code that ran.
-    closure_sha = code_closure(runner.repo_root, strat_module)[0]
     hyp_status = "ACTIVE"
     hyp_id = spec.hypothesis_id
     if hyp_id and runner.registry.db_path.is_file():
@@ -222,6 +220,12 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
             strategy_family=family,
             allow_legacy_replay=runner.allow_legacy_replay,
         )
+        # One closure digest binds every cache/evidence row in this verify to the code that ran.
+        # Kept inside the handled region and after protocol validation: an out-of-repo
+        # ``strategy_module`` makes ``code_closure`` raise ValueError, which must fail closed
+        # as exit 1 rather than escape as a traceback.  It is still computed before any
+        # strategy proof or feature-cache write, so #92's identity binding is unchanged.
+        closure_sha = code_closure(runner.repo_root, strat_module)[0]
         dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
         panel = pl.read_parquet(runner.repo_root / dataset.path)
         if "symbol" in panel.columns and "asset" not in panel.columns:

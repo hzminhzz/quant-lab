@@ -19,3 +19,5 @@ For current onboarding, workflows, and invariants, read:
 | [`EVIDENCE_INTEGRITY.md`](./EVIDENCE_INTEGRITY.md) | Nov 2026 evidence-integrity & `code_closure` authorization trail |
 | [`UNTANGLE_APPROVAL.md`](./UNTANGLE_APPROVAL.md) | Nov 2026 whole-pass untangle principal approval |
 | [`UNTANGLE_DECISION_LOG.md`](./UNTANGLE_DECISION_LOG.md) | Nov 2026 whole-pass untangle triage log |
+| [`THESIS-RECOVERY-AUDIT-20261101.md`](./THESIS-RECOVERY-AUDIT-20261101.md) | Nov 2026 point-in-time thesis recovery audit |
+| [`STATE-MACHINE-HARDENING-BASELINE-20261107.md`](./STATE-MACHINE-HARDENING-BASELINE-20261107.md) | Nov 2026 point-in-time state-machine hardening baseline |

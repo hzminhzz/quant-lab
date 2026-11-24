@@ -53,6 +53,14 @@ principal — or by an agent under explicit in-session delegation, recorded in a
   audit, and approval docs under `docs/archive/`; synced `README.md`, `AGENTS.md`, `AGENT_RUNBOOK.md`,
   `docs/WORKFLOW.md`, `docs/BLOCKER-RECOVERY.md`, `STAGE3_CAMPAIGN_PROMPT.md`, and
   `.workspace/templates/experiment.yaml`; resolved `ruff` lint errors in `tests/`.
+- **Post-review reconciliation & principal-approved manifest re-sign (`2026-11-24`, local `main`):**
+  Under explicit in-session principal delegation (`"Fix them, I approve you on my hehalf to fix the
+  agents.md"` / `"I want to fix"` covering `AGENTS.md` L46 & L70–110 in `377d69d` and `f2cdbfa`),
+  re-signed `.warden_manifest.sha256` + `.warden_manifest.sha256.meta.json` via
+  `warden generate-manifest --human-approve-manifest`, corrected `TRIMMED_SHARPE_FLOOR = 0.0`,
+  `carry_rv` (`adf_p < 0.05`), and `RUNNABLE_HYPOTHESIS_STATUSES` in `docs/WORKFLOW.md`, and moved
+  unreferenced dated audit docs (`THESIS-RECOVERY-AUDIT-20261101.md`,
+  `STATE-MACHINE-HARDENING-BASELINE-20261107.md`) to `docs/archive/`.
 - Verify: `uv run --frozen warden check-worktree` (`rc=0`) and `uv run --frozen pytest -q` (full suite green on local `main`).
 
 ## 2026-11-19

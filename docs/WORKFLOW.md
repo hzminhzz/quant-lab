@@ -151,9 +151,9 @@ All four strategy families are wired across Stage 1 and Stage 3:
 
 | Family | Stage-1 Gate & Pass Condition |
 |---|---|
-| `rules_ts` | `evaluate_stage1_rules_ts`: `trade_edge > 1.5 × one_way_cost` **and** trade-level `profit_factor >= 1.15` **and** `time_in_market >= 0.05` **and** block-bootstrap `p < 0.05` **and** `trimmed_sharpe > -0.001` |
+| `rules_ts` | `evaluate_stage1_rules_ts`: `trade_edge > 1.5 × one_way_cost` **and** trade-level `profit_factor >= 1.15` **and** `time_in_market >= 0.05` **and** block-bootstrap `p < 0.05` **and** `trimmed_sharpe > 0.0` (`TRIMMED_SHARPE_FLOOR = 0.0`) |
 | `cross_sectional_ml` | `evaluate_stage1_cross_sectional_ml`: `mean_ic >= 0.015` **and** Newey-West HAC `t >= 2.0` (`>= 10` IC observations) |
-| `carry_rv` | `evaluate_stage1_carry_rv`: positive net carry (`> 0.0`) **and** stationary spread (KPSS/ADF stationarity gate via `ml4t-diagnostic`) |
+| `carry_rv` | `evaluate_stage1_carry_rv`: positive net carry (`mean_net_carry > 0.0`) **and** ADF stationarity (`adf_p < 0.05`) via `ml4t-diagnostic` (`kpss_p_value` is logged diagnostically) |
 | `meta_overlay` | `evaluate_stage1_meta_overlay`: evaluated via `apply_causal_meta_overlay` against the registered parent return stream (`tail_risk` / drawdown / turnover improvement vs. parent) |
 
 ### Stage 2 — causal simulation (`src/warden/engine_sim.py`)
@@ -166,7 +166,7 @@ Stage 2, Stage 3, and `qualify` simulate via `ml4t.backtest.Engine` under `simul
 - `sr2` (`cost_2x`): full `ml4t.backtest.Engine` simulation with `cost_multiplier=2.0` (`> 0.50`)
 - `srd` (`latency_plus1`): full `ml4t.backtest.Engine` simulation with `delay_offset=1` (`> 0.0`)
 - `stability` (`neighbor_stability`): `gates.evaluate_neighbor_stability` — returns `neighbor_tested=False`, `stability=None` when `param_grid` is empty; sign-safe stability ratio when `param_grid` is supplied
-- `trimmed_sharpe`: `gates.compute_trimmed_sharpe` (`> -0.001`)
+- `trimmed_sharpe`: `gates.compute_trimmed_sharpe` (`> 0.0`, `TRIMMED_SHARPE_FLOOR = 0.0`)
 - `dsr`: non-ratchet effective-rank DSR (`>= 0.90`) isolated by `simulation_epoch`
 - Baseline guardrails: nonlinear ML requires a logged linear baseline (`CausalModelStrategy` Ridge / `ml4t-models` linear / IPCA); `model_tier == "deep"` requires the linear baseline to clear the contract cost-breakeven hurdle.
 
@@ -177,7 +177,7 @@ When `verdict == "REVISE"`, `diagnostics_json["failed_gates"]` lists every faili
 | # | Check | Coded condition |
 |---|---|---|
 | 1 | target/rebalance alignment | `stage_reached ∈ {STAGE_2_BACKTEST, STAGE_3_STRESS}` and `label_horizon_bars >= 1` |
-| 2 | outlier sensitivity | `trimmed_sharpe > TRIMMED_SHARPE_FLOOR`, `net_sharpe > 0`, and `verdict == CANDIDATE_FOR_QUALIFICATION` |
+| 2 | outlier sensitivity | `trimmed_sharpe > TRIMMED_SHARPE_FLOOR (0.0)`, `net_sharpe > 0`, and `verdict == CANDIDATE_FOR_QUALIFICATION` |
 | 3 | point-in-time causality | run-bound causal proof verified (`causal_proof_for_run`) and `execution_delay_bars >= 1` |
 | 4 | fold-local fitting | (`n_folds >= 2` and `embargo_bars >= 1`) or `strategy_family == "rules_ts"` |
 | 5 | cost + latency survival | `stress_2x_cost_sharpe > SR2_FLOOR (0.50)` and `delay_plus1_sharpe > SRD_FLOOR (0.0)` |
@@ -193,7 +193,7 @@ Requires `verdict == CANDIDATE_FOR_QUALIFICATION`, positive validation Net Sharp
 
 - `trials.stage_reached`: `STAGE_1_SIGNAL`, `STAGE_3_STRESS` (covers Stage 2 + Stage 3 in one record), `FAILED`. (`STAGE_0`, `DATA` appear in `selection_attempts`.)
 - `trials.verdict`: `CANDIDATE_FOR_QUALIFICATION`, `REVISE` (see `diagnostics_json["failed_gates"]`), `REJECTED_EARLY`, `FAILED`, `NON_PROMOTABLE`, `RETROSPECTIVE_REPLICATION_ONLY`.
-- `hypotheses.status`: `ACTIVE`, `REJECTED`, `REJECTED_ON_HOLDOUT`, `PROMOTED` (only `ACTIVE` accepts new trials).
+- `hypotheses.status`: `ACTIVE`, `RETROSPECTIVE_REPLICATION_ONLY`, `REJECTED`, `REJECTED_ON_HOLDOUT`, `PROMOTED` (`ACTIVE` and `RETROSPECTIVE_REPLICATION_ONLY` are in `RUNNABLE_HYPOTHESIS_STATUSES` and accept new trials).
 - `audit_evidence.verdict`: `APPROVED`, `REJECTED`, `REVOKED_INELIGIBLE`.
 
 ---

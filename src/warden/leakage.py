@@ -67,33 +67,52 @@ def compute_open_forward_label(open_mat: np.ndarray, delay: int, horizon: int) -
         forward_label[t] = fwd - np.mean(fwd)
     return forward_label
 
-def verify_prefix_invariance(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract, cut_idx: int | None = None) -> None:
-    """Sampled leakage detection at 3 cut points (default 1/4, 1/2, 3/4), tolerance 1e-10.
+def _default_cut_indices(timestamps: Sequence[Any], contract: EvaluationContract) -> list[int]:
+    """Contract-anchored cut points: mid-train and three points across validation.
 
-    This is adversarial sampling, not a formal proof: a feature that only differs
-    after the last cut point is not detected. Deterministic fixtures cover boundary,
-    global-normalisation, future-ratio and null-mask classes; new classes need new tests.
+    Anchoring on ``val_start``/``val_end`` rather than panel quartiles keeps the
+    sample inside the window that actually contains predictions: on a long panel
+    whose ``val_start`` sits past 75% of the timeline, quartile cuts would all be
+    training rows and a validation-only leak would pass.
+    """
+    n = len(timestamps)
+    v_start = bisect_left(timestamps, contract.val_start)
+    v_stop = bisect_left(timestamps, contract.val_end)
+    if v_stop <= v_start:
+        # The contract window is absent from this panel: fall back to its second half.
+        v_start, v_stop = n // 2, n
+    train_start = bisect_left(timestamps, contract.train_start)
+    train_start = min(max(train_start, 0), v_start)
+    mid_train = train_start + (v_start - train_start) // 2
+    span = v_stop - v_start
+    cuts = {mid_train, v_start, v_start + span // 3, v_start + (2 * span) // 3}
+    return sorted({c for c in cuts if 1 <= c < n})
+
+
+def verify_prefix_invariance(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract, cut_idx: int | None = None) -> None:
+    """Sampled leakage detection at contract-anchored cut points, tolerance 1e-10.
+
+    Default cuts are mid-train, ``val_start`` and one-third/two-thirds of the way
+    through validation. This is adversarial sampling, not a formal proof: a feature
+    that only differs after the last cut point is not detected. Deterministic
+    fixtures cover boundary, global-normalisation, future-ratio and null-mask
+    classes; new classes need new tests.
     """
     timestamps = sorted(bars_df["timestamp"].unique().to_list())
     if len(timestamps) < 20:
         raise ValueError("Insufficient distinct timestamps")
-    cut_indices = [cut_idx] if cut_idx is not None else [len(timestamps) // 4, len(timestamps) // 2, 3 * len(timestamps) // 4]
+    cut_indices = [cut_idx] if cut_idx is not None else _default_cut_indices(timestamps, contract)
 
     for c_idx in cut_indices:
         t0 = timestamps[c_idx]
         feat_trunc = pipeline.compute(bars_df.filter(pl.col("timestamp") <= t0), contract).sort("timestamp", "asset")
-
-        # Per-timestamp varying shock destroys future return-ratio invariance
-        epoch_mod = (pl.col("timestamp").dt.epoch("s") % 97) * 0.005 + 0.10
-        shocks = {"close": 1.5, "open": 1.5, "high": 1.6, "low": 1.4, "volume": 3.0}
-        cols = [pl.when(pl.col("timestamp") > t0).then(pl.col(c) * (m + epoch_mod)).otherwise(pl.col(c)).alias(c) for c, m in shocks.items()]
-        cols.append(pl.when(pl.col("timestamp") > t0).then(pl.col("funding_rate") + 0.0100 + epoch_mod * 0.01).otherwise(pl.col("funding_rate")).alias("funding_rate"))
-
-        feat_pert = pipeline.compute(bars_df.with_columns(cols), contract).sort("timestamp", "asset").filter(pl.col("timestamp") <= t0)
+        # Every non-key numeric column (OHLCV/quotes/volume/optional funding) is
+        # shocked with a per-timestamp varying factor, so future ratios stay visible.
+        feat_pert = pipeline.compute(_apply_future_shock(bars_df, t0), contract).sort("timestamp", "asset").filter(pl.col("timestamp") <= t0)
         feat_full_pref = pipeline.compute(bars_df, contract).sort("timestamp", "asset").filter(pl.col("timestamp") <= t0)
 
         col_union = set(feat_trunc.columns) | set(feat_pert.columns) | set(feat_full_pref.columns)
-        for col in [c for c in sorted(col_union) if c not in {"timestamp", "asset"}]:
+        for col in [c for c in sorted(col_union) if c not in _KEY_COLUMNS]:
             if col not in feat_trunc.columns or col not in feat_pert.columns or col not in feat_full_pref.columns:
                 raise LookaheadLeakageError(f"Missing column '{col}' across prefix-invariance comparison frames")
             t_s, p_s, f_s = feat_trunc[col], feat_pert[col], feat_full_pref[col]
@@ -102,9 +121,15 @@ def verify_prefix_invariance(pipeline: FeaturePipelineProtocol, bars_df: pl.Data
                 ts = feat_trunc.filter(null_diff)["timestamp"].min()
                 raise LookaheadLeakageError(f"Lookahead leakage in null mask of column '{col}' at timestamp {ts}")
             v_t, v_p, v_f = t_s.drop_nulls().to_numpy(), p_s.drop_nulls().to_numpy(), f_s.drop_nulls().to_numpy()
-            if len(v_t) != len(v_p) or len(v_t) != len(v_f) or not np.allclose(v_t, v_p, rtol=1e-10, atol=1e-10) or not np.allclose(v_t, v_f, rtol=1e-10, atol=1e-10):
-                diff = np.abs(v_t - v_p)
-                ts = feat_trunc.filter(~pl.col(col).is_null())["timestamp"][int(np.argmax(diff))]
+            if len(v_t) != len(v_p) or len(v_t) != len(v_f):
+                raise LookaheadLeakageError(
+                    f"Lookahead leakage changed row count of column '{col}' "
+                    f"({len(v_t)} vs {len(v_p)} vs {len(v_f)})"
+                )
+            close_tp = np.isclose(v_t, v_p, rtol=1e-10, atol=1e-10, equal_nan=True)
+            close_tf = np.isclose(v_t, v_f, rtol=1e-10, atol=1e-10, equal_nan=True)
+            if not (close_tp.all() and close_tf.all()):
+                ts = feat_trunc.filter(~pl.col(col).is_null())["timestamp"][int(np.argmax(~close_tp))]
                 raise LookaheadLeakageError(f"Lookahead leakage in values of column '{col}' at timestamp {ts}")
 
 def verify_asset_independence(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract, target_asset: str | None = None) -> None:
@@ -242,25 +267,40 @@ def verify_fold_isolation(
     return preds
 
 
+_KEY_COLUMNS = frozenset({"timestamp", "asset", "symbol"})
+_FLOAT_SHOCK_BASE = 1.5
+
+
 def _apply_future_shock(bars_df: pl.DataFrame, cutoff_ts: Any) -> pl.DataFrame:
-    epoch_mod = (pl.col("timestamp").dt.epoch("s") % 97) * 0.005 + 0.10
-    shocks = {"close": 1.5, "open": 1.5, "high": 1.6, "low": 1.4, "volume": 3.0}
-    cols = [
-        pl.when(pl.col("timestamp") > cutoff_ts)
-        .then(pl.col(c) * (m + epoch_mod))
-        .otherwise(pl.col(c))
-        .alias(c)
-        for c, m in shocks.items()
-        if c in bars_df.columns
-    ]
-    if "funding_rate" in bars_df.columns:
-        cols.append(
-            pl.when(pl.col("timestamp") > cutoff_ts)
-            .then(pl.col("funding_rate") + 0.0100 + epoch_mod * 0.01)
-            .otherwise(pl.col("funding_rate"))
-            .alias("funding_rate")
-        )
-    return bars_df.with_columns(cols)
+    """Perturb every non-key numeric column after ``cutoff_ts``.
+
+    Covers OHLCV, quote columns (``bid``/``ask``/``quote_volume``) and any optional
+    numeric column such as ``funding_rate``. Columns absent from the panel are
+    skipped, so a panel without ``funding_rate`` verifies cleanly. Every float
+    column shares one per-timestamp multiplier (integer columns share one additive
+    delta) so bar-level invariants such as ``high >= low`` and ``bid <= ask`` hold;
+    the multiplier varies by timestamp so future-delayed reads still change.
+    """
+    epoch = pl.col("timestamp").dt.epoch("s")
+    future = pl.col("timestamp") > cutoff_ts
+    float_factor = _FLOAT_SHOCK_BASE + (epoch % 97) * 0.005 + 0.10
+    integer_delta = 1 + (epoch % 97)
+    columns: list[pl.Expr] = []
+    for name, dtype in bars_df.schema.items():
+        if name in _KEY_COLUMNS or not dtype.is_numeric():
+            continue
+        if dtype.is_integer():
+            columns.append(
+                pl.when(future).then(pl.col(name) + integer_delta).otherwise(pl.col(name)).alias(name)
+            )
+        else:
+            columns.append(
+                pl.when(future)
+                .then(pl.col(name) * float_factor)
+                .otherwise(pl.col(name))
+                .alias(name)
+            )
+    return bars_df.with_columns(columns)
 
 
 def _assert_preds_close(
@@ -346,13 +386,14 @@ def verify_model_prefix_invariance(
             )
 
     # Also test estimator invariance when future validation rows are truncated within a fold.
+    # Every fold is exercised: a leak planted only in a later fold must not hide behind fold 0.
     _, model_df, _, feature_cols, valid_train_mask = prepare_causal_model_dataset(
         mod, norm_df, contract, ts
     )
     estimator = target.build_estimator(dict(params or {}))
-    for train_df, val_feat in iter_causal_model_folds(
+    for fold_index, (train_df, val_feat) in enumerate(iter_causal_model_folds(
         model_df, feature_cols, valid_train_mask, ts, contract, v_start, v_stop
-    ):
+    )):
         fold_ts = sorted(val_feat["timestamp"].unique().to_list())
         if len(fold_ts) < 4:
             continue
@@ -362,9 +403,8 @@ def verify_model_prefix_invariance(
         _assert_preds_close(
             p_full,
             p_trunc,
-            f"Model fit_predict_fold predictions at <= {t_mid} depend on future validation rows",
+            f"Model fit_predict_fold predictions at <= {t_mid} depend on future validation rows (fold {fold_index})",
         )
-        break
 
 
 def _fills_signature(fills: Sequence[Any], cutoff_ts: Any) -> list[tuple[Any, str, str, float]]:

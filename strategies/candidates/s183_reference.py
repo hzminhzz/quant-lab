@@ -4,8 +4,9 @@ Registered as HYP-2026-127. `s183_composite.py` is the earlier reconstruction (H
 and stays frozen: two screen attempts are bound to it.
 
 Source of truth, not re-derived: every sleeve and both portfolio gates call the functions in
-`data/external/trends-research/Live/2_Engine/trading_book.py` (loaded by path), and the sizing
-loop mirrors `Live/3_Portfolio/portfolio.py:simulate`. Constants are theirs.
+`strategies/candidates/trends_trading_book.py` — a vendored, byte-identical static subset of
+`data/external/trends-research/Live/2_Engine/trading_book.py` — and the sizing loop mirrors
+`Live/3_Portfolio/portfolio.py:simulate`. Constants are theirs.
 
 Order of operations, exactly as `trading_book` assembles it:
 
@@ -34,20 +35,31 @@ Declared deviations:
     identical algebra when FX = 1, which holds because each instrument is single-currency.
   * No Panama adjustment (our panel is already one continuous series), no roll cost, and
     integer contract truncation becomes fractional weights.
+
+Migration (issue #89, static strategy imports): this module used to load the upstream book at
+import time with `importlib.util.spec_from_file_location`. It now imports the vendored subset
+statically and declares it in `CODE_DEPENDENCIES`, so `code_closure` covers every line that runs.
+Nothing about the signal, the sizing or the declared deviations changed. Historical identity:
+original file sha256 `ef0dd455567df35908ba918d959e44daeb8db097b49dd10930081db535a63f0d`,
+original closure digest `e8997c9e96ce0c9bdca32cf81a430a55afefffbc1b4f1e51ef9bc144eac81582`
+(the value recorded on RUN-RU-001/002). Editing the source necessarily changes that digest, so
+those two trials stay historical and are no longer qualification-bound; no trial, budget, ledger
+row or qualification state was reset. See `docs/migrations/issue-89-static-strategy-imports.md`.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import math
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import polars as pl
+import trends_trading_book as tb
 from scipy.signal import lfilter
 
-TB_PATH = Path("data/external/trends-research/Live/2_Engine/trading_book.py")
+# The vendored upstream book is imported statically (the loader puts this directory on sys.path);
+# declare it so the strategy's code closure hashes it too.
+CODE_DEPENDENCIES = ("strategies/candidates/trends_trading_book.py",)
 TRADING_DAYS_YEAR = 256  # theirs
 TAU = 0.20  # theirs: nominal vol target, before the gates
 IDM_CAP, IDM_SPAN, IDM_MIN, IDM_VAR_FLOOR = 4.0, 512, 256, 0.01
@@ -57,24 +69,20 @@ BUFFER = 0.10
 
 
 def _tb() -> Any:
-    spec = importlib.util.spec_from_file_location("trends_trading_book", TB_PATH)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load {TB_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    """The vendored upstream book. Kept as a function so the investigation scripts still import it."""
+    return tb
 
 
-def _per_instrument(close: pl.Series, tb: Any) -> dict[str, pl.Series]:
+def _per_instrument(close: pl.Series, book: Any) -> dict[str, pl.Series]:
     ret = (close - close.shift(1)) / close.shift(1)
-    smooth = tb.vov_smooth(tb.vov_inner(ret))
-    vol_abs = tb.daily_vol_abs(close)
+    smooth = book.vov_smooth(book.vov_inner(ret))
+    vol_abs = book.daily_vol_abs(close)
     return {
-        "TS_trend": tb.ewmac(close)["TS_trend"],
-        "r256": tb.xs_return(close, close),
-        "Skew": tb.skew(ret),
-        "VoV": tb.vov_signal(smooth, tb.vov_mean_ann(smooth), close),
-        "gvol": tb.s_g_vol(close, vol_abs),
+        "TS_trend": book.ewmac(close)["TS_trend"],
+        "r256": book.xs_return(close, close),
+        "Skew": book.skew(ret),
+        "VoV": book.vov_signal(smooth, book.vov_mean_ann(smooth), close),
+        "gvol": book.s_g_vol(close, vol_abs),
         "vol_abs": vol_abs,
         "ret": ret,
         "close": close,
@@ -90,10 +98,10 @@ def _aligned(frame: pl.DataFrame, grid: pl.Series, col: str) -> np.ndarray:
     )
 
 
-def _pooled_fdm(means: np.ndarray, tb: Any) -> np.ndarray:
+def _pooled_fdm(means: np.ndarray, book: Any) -> np.ndarray:
     """Their formula, generalised to the N sleeves that actually exist (carry is absent)."""
     n = means.shape[1]
-    corr = tb.ewm_corr_4(means, tb.FDM_CORR_SPAN, tb.FDM_MIN_PERIODS)
+    corr = book.ewm_corr_4(means, book.FDM_CORR_SPAN, book.FDM_MIN_PERIODS)
     w = np.full(n, 1.0 / n)
     var_blend = np.einsum("i,tij,j->t", w, np.clip(corr, -1.0, 1.0), w)
     ok = ~np.isnan(corr).any(axis=(1, 2)) & (var_blend > FDM_VAR_FLOOR)
@@ -105,7 +113,7 @@ def _pooled_fdm(means: np.ndarray, tb: Any) -> np.ndarray:
 def build_signal_frame(panel_df: pl.DataFrame, contract: Any) -> pl.DataFrame:
     """Panel -> per-row sleeves, composite and SIGNAL. Every window is per instrument."""
     _ = contract
-    tb = _tb()
+    book = _tb()
     df = panel_df if "symbol" in panel_df.columns else panel_df.rename({"asset": "symbol"})
     df = df.sort("symbol", "timestamp")
 
@@ -113,13 +121,13 @@ def build_signal_frame(panel_df: pl.DataFrame, contract: Any) -> pl.DataFrame:
     for (sym,), g in df.group_by(["symbol"], maintain_order=True):
         g = g.sort("timestamp")
         frames[sym] = pl.DataFrame(
-            {"timestamp": g["timestamp"], "symbol": sym} | _per_instrument(g["close"], tb)
+            {"timestamp": g["timestamp"], "symbol": sym} | _per_instrument(g["close"], book)
         )
 
     grid = pl.Series(
         "timestamp", sorted(set().union(*(set(f["timestamp"]) for f in frames.values())))
     )
-    z, _, _, _ = tb.cross_sectional_z(
+    z, _, _, _ = book.cross_sectional_z(
         {sym: pl.Series(_aligned(f, grid, "r256")) for sym, f in frames.items()}, grid
     )
 
@@ -128,12 +136,12 @@ def build_signal_frame(panel_df: pl.DataFrame, contract: Any) -> pl.DataFrame:
         f = f.join(
             pl.DataFrame({"timestamp": grid, "XS_trend": z[sym]}), on="timestamp", how="left"
         )
-        ts_sign = tb.normalise_signal(f["TS_trend"], cap=None)
-        xs_sign = tb.normalise_signal(f["XS_trend"], cap=None)
+        ts_sign = book.normalise_signal(f["TS_trend"], cap=None)
+        xs_sign = book.normalise_signal(f["XS_trend"], cap=None)
         signed[sym] = f.with_columns(
-            Trend_sign=tb.trend_sign(ts_sign, xs_sign),
-            Skew_sign=tb.normalise_signal(f["Skew"]),
-            VoV_sign=tb.normalise_signal(f["VoV"]),
+            Trend_sign=book.trend_sign(ts_sign, xs_sign),
+            Skew_sign=book.normalise_signal(f["Skew"]),
+            VoV_sign=book.normalise_signal(f["VoV"]),
         )
 
     sleeve_cols = ("Trend_sign", "Skew_sign", "VoV_sign")
@@ -145,7 +153,7 @@ def build_signal_frame(panel_df: pl.DataFrame, contract: Any) -> pl.DataFrame:
             for c in sleeve_cols
         ]
     )
-    fdm_f = pl.DataFrame({"timestamp": grid, "fdm": _pooled_fdm(means, tb)})
+    fdm_f = pl.DataFrame({"timestamp": grid, "fdm": _pooled_fdm(means, book)})
 
     out = []
     for f in signed.values():
@@ -156,7 +164,7 @@ def build_signal_frame(panel_df: pl.DataFrame, contract: Any) -> pl.DataFrame:
             + 0.25 * pl.col("VoV_sign")
         )
         f = f.with_columns(fdm_norm=pl.col("Sign_raw") * pl.col("fdm"))
-        f = f.with_columns(FDM_MASTER=tb.normalise_signal(f["fdm_norm"]))
+        f = f.with_columns(FDM_MASTER=book.normalise_signal(f["fdm_norm"]))
         out.append(
             f.with_columns(
                 SIGNAL=pl.col("FDM_MASTER")

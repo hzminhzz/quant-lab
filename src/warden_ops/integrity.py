@@ -49,20 +49,6 @@ _BANNED_STRATEGY_ROOTS = frozenset(
 )
 _BANNED_STRATEGY_MODULES = ("http.client", "ml4t.backtest.engine", "ml4t.backtest.Engine")
 _BANNED_STRATEGY_CALLS = frozenset({"__import__", "eval", "exec"})
-# Registered strategy modules that predate the dynamic-primitive ban. Pinned by exact
-# (path, sha256): editing a pinned file removes its exemption, and a copy of the same
-# bytes at another path is never exempt. Both are frozen baseline code recorded in
-# registry evidence, so they must not be edited to satisfy a scan.
-_LEGACY_DYNAMIC_PRIMITIVE_EXEMPT: dict[str, str] = {
-    "strategies/candidates/s183_reference.py": (
-        "ef0dd455567df35908ba918d959e44daeb8db097b49dd10930081db535a63f0d"
-    ),
-    "strategies/candidates/social_stoic_xsmom_10d21d.py": (
-        "538d27cc4437a7c8d5c6be81830d0241c7c4e1d5bcaef666280ce032ce0dd6df"
-    ),
-}
-_LEGACY_EXEMPT_STRATEGY_ROOTS = frozenset({"importlib"})
-_STRATEGY_ROOTS_ACTIVE = _BANNED_STRATEGY_ROOTS - _LEGACY_EXEMPT_STRATEGY_ROOTS
 _BANNED_FROM_CHILDREN: dict[str, dict[str, tuple[str, frozenset[str]]]] = {
     "repo-wide": {"ml4t": ("ml4t.live", frozenset({"live", "*"}))},
     "strategy": {
@@ -87,14 +73,6 @@ def _call_target_name(func: ast.expr) -> str | None:
     ):
         return func.attr
     return None
-
-
-def _is_legacy_dynamic_primitive_module(rel: str, path: Path) -> bool:
-    """True only for an unmodified, path-pinned pre-ban strategy module."""
-    pinned = _LEGACY_DYNAMIC_PRIMITIVE_EXEMPT.get(rel)
-    if pinned is None:
-        return False
-    return hmac.compare_digest(compute_file_sha256(path), pinned)
 
 
 def _iter_repo_py_files(repo: Path) -> list[Path]:
@@ -128,13 +106,11 @@ def check_ast_boundaries(repo_root: Path = Path(".")) -> list[str]:
             continue
 
         is_strategy = rel_path.parts[0] == "strategies"
-        legacy_dynamic = is_strategy and _is_legacy_dynamic_primitive_module(rel, path)
-        strategy_roots = _STRATEGY_ROOTS_ACTIVE if legacy_dynamic else _BANNED_STRATEGY_ROOTS
         scopes: list[tuple[str, tuple[str, ...], frozenset[str]]] = [
             ("repo-wide", _BANNED_REPO_MODULES, frozenset()),
         ]
         if is_strategy:
-            scopes.append(("strategy", _BANNED_STRATEGY_MODULES, strategy_roots))
+            scopes.append(("strategy", _BANNED_STRATEGY_MODULES, _BANNED_STRATEGY_ROOTS))
 
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -160,7 +136,7 @@ def check_ast_boundaries(repo_root: Path = Path(".")) -> list[str]:
                             f"{rel}:{node.lineno}: banned {scope} import '{rule[0]}' "
                             f"(from {mod} import {', '.join(imported)})"
                         )
-            elif isinstance(node, ast.Call) and is_strategy and not legacy_dynamic:
+            elif isinstance(node, ast.Call) and is_strategy:
                 called = _call_target_name(node.func)
                 if called in _BANNED_STRATEGY_CALLS:
                     violations.append(f"{rel}:{node.lineno}: banned strategy call '{called}()'")

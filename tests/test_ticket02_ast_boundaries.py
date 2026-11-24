@@ -637,28 +637,49 @@ def test_valid_causal_strategy_imports_remain_green(tmp_path: Path) -> None:
     assert _run_cli_check_worktree(repo).returncode == 0
 
 
-def test_legacy_dynamic_primitive_exemptions_are_exact_and_path_pinned(tmp_path: Path) -> None:
-    from warden_ops.integrity import (
-        _LEGACY_DYNAMIC_PRIMITIVE_EXEMPT,
-        check_ast_boundaries,
-        compute_file_sha256,
-    )
+def test_strategy_scan_carries_no_exemption_machinery() -> None:
+    """#89 is satisfied only with zero per-file waivers, so the scanner must not ship any."""
+    from warden_ops import integrity
 
-    expected = {
-        "strategies/candidates/s183_reference.py",
-        "strategies/candidates/social_stoic_xsmom_10d21d.py",
+    names = set(dir(integrity))
+    assert {n for n in names if "EXEMPT" in n.upper() or "WAIVER" in n.upper()} == set()
+    assert "_STRATEGY_ROOTS_ACTIVE" not in names
+    # The shipped strategy root set is the full ban: nothing is subtracted at scan time.
+    assert {"importlib", "duckdb"} <= integrity._BANNED_STRATEGY_ROOTS
+    assert integrity._BANNED_STRATEGY_CALLS == frozenset({"__import__", "eval", "exec"})
+
+
+def test_pre_migration_strategy_bytes_now_fail_closed(tmp_path: Path) -> None:
+    """The two historical dynamic-primitive lines must violate even at their old paths."""
+    from warden_ops.integrity import check_ast_boundaries, check_worktree
+
+    historical = {
+        # What s183_reference.py did before the #89 migration.
+        "strategies/candidates/s183_reference.py": (
+            "import importlib.util\n"
+            "from pathlib import Path\n"
+            "\n"
+            "TB_PATH = Path('data/external/trends-research/Live/2_Engine/trading_book.py')\n"
+            "\n"
+            "\n"
+            "def _tb():\n"
+            "    spec = importlib.util.spec_from_file_location('trends_trading_book', TB_PATH)\n"
+            "    module = importlib.util.module_from_spec(spec)\n"
+            "    spec.loader.exec_module(module)\n"
+            "    return module\n"
+        ),
+        # What social_stoic_xsmom_10d21d.py did before the #89 migration.
+        "strategies/candidates/social_stoic_xsmom_10d21d.py": (
+            "from __future__ import annotations\n"
+            "\n"
+            "\n"
+            "def generate_positions(ts, hours):\n"
+            "    return ts + __import__('datetime').timedelta(hours=hours)\n"
+        ),
     }
-    assert set(_LEGACY_DYNAMIC_PRIMITIVE_EXEMPT) == expected
-    for rel, pinned in _LEGACY_DYNAMIC_PRIMITIVE_EXEMPT.items():
-        path = REPO_ROOT / rel
-        assert path.is_file(), f"pinned baseline {rel} is missing"
-        assert compute_file_sha256(path) == pinned, (
-            f"{rel} changed; a pinned baseline edit must be re-reviewed instead of re-exempted"
-        )
-    assert check_ast_boundaries(REPO_ROOT) == []
-
-    # The same bytes at another path are never exempt: the exemption is (path, sha256)-pinned.
-    legacy = (REPO_ROOT / "strategies/candidates/s183_reference.py").read_text(encoding="utf-8")
-    repo = _make_ast_mini_repo(tmp_path, "strategies/candidates/copied_reference.py", legacy)
-    violations = check_ast_boundaries(repo)
-    assert violations and any("copied_reference.py" in v and "importlib" in v for v in violations)
+    for rel, source in historical.items():
+        repo = _make_ast_mini_repo(tmp_path / Path(rel).stem, rel, source)
+        violations = check_ast_boundaries(repo)
+        assert violations, f"{rel}: pre-migration bytes must not pass the strict scan"
+        assert any(rel in v for v in violations)
+        assert check_worktree(repo) is False

@@ -132,7 +132,7 @@ When running under the OMP adapter (`scripts/setup_agent_adapter.sh --harness om
 - In non-OMP harnesses (or when the adapter is unlinked), manual skill reading (`skill://<name>` or `.agents/skills/ml4t-*/SKILL.md`) remains the standard interface.
 
 <!-- omh:agent-instructions:begin -->
-## Agent-maintained contract (untangle + evidence-integrity, 2026-11-19)
+## Agent-maintained contract (Tickets 01–11 + perf, 2026-11-24)
 
 This marker-delimited region is maintained by coding agents; the hand-written sections above stay
 byte-for-byte. It records conventions and gates that are not obvious from the code. `CHANGELOG.md`
@@ -143,18 +143,21 @@ principal-delegation authorization trails.
 - New `ACTIVE` hypotheses must implement one of the two inverted causal protocols in `src/warden/protocols.py`
   (`generate_positions` is frozen for read-only historical replay only and fails closed on `ACTIVE` hypotheses):
   - `CausalModelStrategy` (`pipeline` + `build_estimator(params) -> WalkForwardModelProtocol`), where Warden owns
-    `WalkForwardCV`, `MLDatasetBuilder` fold scaling, label stripping, and `cross_sectional_ic_series`.
-    Reference template: `strategies/baselines/causal_ridge_1h.py`.
+    `WalkForwardCV`, `MLDatasetBuilder` fold scaling, label stripping, `cross_sectional_ic_series`, and
+    `ml4t.backtest.Engine` simulation. Reference templates: `strategies/baselines/causal_ridge_1h.py`,
+    `strategies/baselines/causal_linear_portfolio_1h.py`, `strategies/baselines/causal_ipca_1h.py`.
   - `CausalRulesStrategy` (`required_symbols(params)` + `configure_strategy(contract, params) -> Strategy`),
-    where Warden owns `ml4t.backtest.Engine` execution and native risk overlays (`MaxDrawdownLimit`, `StopLoss`).
+    where Warden owns `ml4t.backtest.Engine` execution and native risk overlays.
     Reference template: `strategies/candidates/causal_rules_drawdown_template.py`.
+- Deep-model guardrail: running a `model_tier == "deep"` strategy requires a logged linear baseline on the same
+  hypothesis that clears the contract cost-breakeven hurdle.
 - Sibling helpers import by bare name; `warden.strategy_loader` puts the module's directory on
   `sys.path` once. Add no per-module `sys.path` bootstrap (the old carver convention is retired).
 - A strategy that loads code at runtime (`load_module_from_path`) or imports from a subdir declares
   `CODE_DEPENDENCIES` — a module-level tuple/list of repo-relative paths, or a name bound to one — so
   the code closure covers it. `tests/test_evidence_integrity.py` enforces this fail-closed.
 
-### Evidence binding (fail closed)
+### Evidence binding & execution (fail closed)
 - `warden.codeid.code_closure` is the single authority on a strategy's code identity: all imports plus
   `CODE_DEPENDENCIES`. The trial records it as `strategy_code_sha256`.
 - `warden qualify` binds to that recorded digest: it refuses a missing/absent trial module, an absent
@@ -162,21 +165,36 @@ principal-delegation authorization trails.
   re-run to re-bind before it can qualify.
 - Contracts are immutable: register through `ResearchRegistry.register_contract` (identical → no-op,
   changed → refuse). Write the `contracts` table only through that API, never raw SQL.
+- Stage 2, Stage 3, and `qualify` simulate via `ml4t.backtest.Engine` (`src/warden/engine_sim.py`) under
+  `simulation_epoch` isolation (`registry/backtest_results/<simulation_epoch>/<contract>/<run_id>`). `REVISE`
+  trials persist explicit failing gate keys in `diagnostics_json["failed_gates"]`.
 
-### Implementation status
-- The runner wires all four family gates: `rules_ts`, `cross_sectional_ml`, `carry_rv`, and `meta_overlay`.
+### Implementation status & retired tools
+- The runner wires all four family gates across Stage 1 and Stage 3: `rules_ts`, `cross_sectional_ml`,
+  `carry_rv`, and `meta_overlay`.
+- Retired tools and removed surfaces:
+  - The legacy LOC-budget script and LOC cap are retired; `warden check-worktree` enforces repo-wide
+    (`ml4t.live`) and `strategies/` (`sqlite3`, `subprocess`, HTTP/socket, `ml4t.backtest.Engine`) AST import
+    boundaries via `warden_ops.integrity.check_ast_boundaries`.
+  - `scripts/mcp_warden/server.py` and `src/warden/causality.py` are removed; only the reviewed stdio adapter
+    `scripts/mcp_warden/adapter.py` remains.
+  - Bash `grep`/`cut` queue parsing in `scripts/run_hourly_pipeline.sh` is retired; `run_hourly_pipeline.sh` is
+    a thin wrapper delegating to `scripts/hourly_queue_coordinator.py`.
 
 ### Commands (verified by observed run this session)
-- `uv run --frozen pytest -q` — full suite (observed green).
-- `uv run --frozen warden check-worktree` — integrity + AST boundary gate (observed rc=0).
-- `uv run --frozen ruff check <paths>` — lint (observed clean on touched files).
+- `uv run --frozen pytest -q` — full suite, parallel via `pytest-xdist` (`-n 4 --dist worksteal` in
+  `pyproject.toml`; per-worker `POLARS_MAX_THREADS=2` / `OMP_NUM_THREADS=1` / `OPENBLAS_NUM_THREADS=1` in
+  `tests/conftest.py`).
+- `uv run --frozen warden check-worktree` — integrity manifest checksum + AST boundary gate (observed `rc=0`).
+- `uv run --frozen ruff check <paths>` — lint.
 
 ### Generated files
-- `.warden_manifest.sha256` — source: the protected files (`src/warden/`, `contracts/`, `AGENTS.md`,
-  the trust-boundary scripts). Regenerate: `uv run warden generate-manifest --human-approve-manifest`
-  (HUMAN-ONLY; an agent runs it only under explicit in-session principal delegation and records an
-  approval trail). Gate: `uv run warden check-worktree`. `.warden_manifest.sha256.meta.json` carries
-  the signature (mode / approver / approved_at / manifest_sha256).
+- `.warden_manifest.sha256` — source: the protected files (`src/warden/`, `src/warden_ops/`,
+  `src/warden_evidence/`, `contracts/`, `AGENTS.md`, `pyproject.toml`, `uv.lock`, and protected `scripts/`
+  including `scripts/hourly_queue_coordinator.py` and `scripts/mcp_warden/adapter.py`). Regenerate:
+  `uv run warden generate-manifest --human-approve-manifest` (HUMAN-ONLY; an agent runs it only under explicit
+  in-session principal delegation and records an approval trail). Gate: `uv run warden check-worktree`.
+  `.warden_manifest.sha256.meta.json` carries the signature (mode / approver / approved_at / manifest_sha256).
 
 ### Pitfalls (each cost time)
 - Regenerate the worktree manifest BEFORE the final pytest run after editing protected files: the

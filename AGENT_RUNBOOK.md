@@ -41,8 +41,10 @@ Paste the verbatim command output into the handoff. A summarized number is not e
    `compute_selection_report`; hand arithmetic in annualised units overstates or understates it.
 4. **Absence needs a search, not an impression.** Write "not found by <query over which fields>";
    never "there is none".
-5. **`verdict=REVISE` does not name the failing gate.** Attribute it from the recorded columns, and
-   say which conjuncts you could not attribute.
+5. **`verdict=REVISE` records `failed_gates` in `diagnostics_json`.** Inspect
+   `diagnostics_json["failed_gates"]` (e.g., `net_sharpe`, `dsr`, `cost_2x`, `latency_plus1`,
+   `neighbor_stability`, `trimmed_sharpe`, `stage1_rules`, `stage1_carry_rv`, `stage1_meta_overlay`,
+   `ic_hac`) directly instead of guessing from recorded columns.
 6. **A clean contract floor is not a reason to choose a contract.** Frequency, horizon and
    contract are the principal's decisions; choosing them to dodge a DSR floor is gate selection.
 7. **Tests must not write the live ledger.** `run_spec` appends a `failed_reservation` selection
@@ -51,7 +53,7 @@ Paste the verbatim command output into the handoff. A summarized number is not e
    registry copy instead. This was real: `test_hyp_2026_001.py` wrote into `registry.db` on every
    suite run; it now uses a copy, and `selection_attempts` is unchanged by the run.
 8. **`ExperimentRunner()` and `ResearchRegistry()` are not read-only.** Their constructors create
-   schema and insert quarantine/migration rows (`registry.py:149-198`). For a status read use
+   schema and insert quarantine/migration rows (`src/warden/registry.py`). For a status read use
    `scripts/preflight_thesis.py` (SQLite `mode=ro`); a temporary copy is for tests only, and a copy
    taken without `registry.db-wal` is stale because the WAL holds recent commits.
 9. **A strategy's code identity is its full closure, and qualification binds to it.** `code_closure`
@@ -66,15 +68,15 @@ Paste the verbatim command output into the handoff. A summarized number is not e
 
 | Required by protocol | Reality in code |
 |---|---|
-| 1.5× cost stress | not run; only `cost_multiplier=2.0` (`runner.py:359-362`) |
-| ±15% parameter neighbours | only the `param_grid` entries you supply; empty grid records `stability=1.0` |
-| Stage 0 economics | runs at `runner.py:227,292`, not at registration, on a hard-coded `0.0085·√holding_bars` proxy |
-| prefix-invariance as proof | adversarial sampling at 3 cut points (`leakage.py:85-108`), documented as not a proof |
+| 1.5× cost stress | computed analytically from the `ml4t.backtest.Engine` result (`analytical_1p5x_sharpe`, stored as `stress_1p5_cost_sharpe`); `2.0×` cost stress (`cost_multiplier=2.0`) is a full Engine re-simulation and hard gate (`cost_2x`) |
+| ±15% parameter neighbours | only the `param_grid` entries you supply; empty grid records `neighbor_tested=False` and `stability=None` (`gates.evaluate_neighbor_stability`) |
+| Stage 0 economics | runs in `_prepare_and_check_stage0` (`src/warden/runner.py`) at screen/backtest time, not at registration, using empirical holding-period volatility from the panel (`gates.empirical_holding_volatility`) |
+| prefix-invariance as proof | adversarial sampling at 3 cut points (`src/warden/leakage.py::verify_prefix_invariance`, 1/4, 1/2, 3/4), documented as not a proof |
 
 ## Never
 
-`sudo` · edit `contracts/` · edit `src/warden/` (budget is nearly exhausted — check
-`scripts/check_loc_budget.py`) · lower or
+`sudo` · edit `contracts/` · edit `src/warden/` (protected by `.warden_manifest.sha256` and AST import
+boundary checks in `warden check-worktree`; `scripts/check_loc_budget.py` is retired) · lower or
 reinterpret a gate · pre-lag a signal (`signal_delay_bars>0` raises `DoubleLatencyError`) · read
 `data/holdout/` — and never `open()`, `read()` or `stat()` it to "test permissions"; a permission
 check may only look at the parent directory's mode bits · run `qualify` without an explicit human
@@ -99,5 +101,7 @@ directory. Do not test that, and do not cite it as evidence that the data is or 
 
 `experiments/active/<spec>.yaml` · `strategies/candidates/<module>.py` ·
 `.workspace/hypotheses/<ID>.md` · `registry/registry.db` (trials, attempts) ·
-`registry/returns/<contract>/<run>.parquet` · `cache/features/` · `.workspace/memory/LESSONS.md` ·
-audits in `.workspace/hypotheses/AUDIT_<RUN_ID>.md` · templates in `.workspace/templates/`.
+`registry/returns/<contract>/<run>.parquet` · `registry/backtest_results/<simulation_epoch>/<contract>/<run_id>` ·
+`cache/features/` · `.workspace/memory/LESSONS.md` ·
+audits in `.workspace/hypotheses/AUDIT_<RUN_ID>.md` · templates in `.workspace/templates/` ·
+queue orchestration in `scripts/hourly_queue_coordinator.py` (invoked by `scripts/run_hourly_pipeline.sh`).

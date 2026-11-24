@@ -4,6 +4,51 @@ Notable changes to quant-lab. Commit refs are pushed to origin/main unless noted
 protected files change, the governance manifest (`.warden_manifest.sha256`) is re-signed by the human
 principal — or by an agent under explicit in-session delegation, recorded in an approval trail.
 
+## 2026-11-24
+
+### CLI lazy-loading & parallel pytest speedup (`0351039`, `11ade10`; local `main`)
+- Lazy-loaded ML4T modules in `src/warden/cli.py`, `contracts.py`, `gates.py`, `registry.py`, and
+  `src/warden_ops/checkpoint.py` to avoid heavyweight import overhead on fast CLI invocations.
+- Enabled parallel test execution via `pytest-xdist` (`pyproject.toml` `addopts = "-n 4 --dist worksteal"`)
+  and capped per-worker thread pools in `tests/conftest.py` (`POLARS_MAX_THREADS=2`,
+  `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`) to eliminate CPU thread oversubscription.
+
+### Architectural overhaul — Tickets 01–11 (parent #71, issues #72–#82; `d0569f6..ec463ce`; local `main`)
+- **Causal inversion & templates (`3d6c7a1`, #79):** Froze legacy `generate_positions()` for read-only
+  historical replay only; enforced `CausalModelStrategy` and `CausalRulesStrategy` on `ACTIVE`
+  hypotheses in `src/warden/protocols.py`; shipped `strategies/baselines/causal_ridge_1h.py` and
+  `strategies/candidates/causal_rules_drawdown_template.py`.
+- **Execution engine cutover (`f5bb928`, #77; `2699659`, #78):** Added `ml4t.backtest.Engine` parity
+  harness and runtime profiler (`scripts/shadow_engine_parity.py`), then cut over Stage 2, Stage 3,
+  and `qualify` to `ml4t.backtest.Engine` (`src/warden/engine_sim.py`). Replaced Stage-1 bar-level
+  profit factor, added analytical `1.5x` cost stress (`stress_1p5_cost_sharpe`) alongside `2.0x`
+  Engine re-simulation (`cost_2x`), and exported backtest artifacts under
+  `registry/backtest_results/<simulation_epoch>/<contract>/<run_id>`.
+- **All four strategy families wired (`d2f9a44`, #80):** Implemented Stage-1 and Stage-3 gates for
+  `carry_rv` (`evaluate_stage1_carry_rv`) and `meta_overlay` (`apply_causal_meta_overlay`,
+  `evaluate_stage1_meta_overlay`), completing `rules_ts`, `cross_sectional_ml`, `carry_rv`, and
+  `meta_overlay`.
+- **`ml4t-models` baselines & deep-model guardrails (`f8d6f2d`, #81):** Added
+  `strategies/baselines/causal_linear_portfolio_1h.py` and `strategies/baselines/causal_ipca_1h.py`,
+  and enforced linear-baseline cost-breakeven hurdles before executing `model_tier == "deep"` models.
+- **Typed queue coordinator & MCP stdio alignment (`ec463ce`, #82):** Replaced bash `grep`/`cut` queue
+  parsing in `scripts/run_hourly_pipeline.sh` with `scripts/hourly_queue_coordinator.py` and aligned
+  the reviewed stdio MCP adapter (`scripts/mcp_warden/adapter.py`).
+- **AST boundaries & dead-surface pruning (`1f41d0d`, #73):** Retired `scripts/check_loc_budget.py`
+  (LOC cap) in favor of repo-wide (`ml4t.live`) and `strategies/` (`sqlite3`, `subprocess`,
+  HTTP/socket, `ml4t.backtest.Engine`) AST import boundary checks in `warden check-worktree`
+  (`warden_ops.integrity.check_ast_boundaries`); centralized gates and removed
+  `scripts/mcp_warden/server.py` and `src/warden/causality.py`.
+- **Integrity, data admission & statistical hardening (`8d98417`, #72; `ed89957`, #74; `20670f3`, #75; `828cece`; `9640674`, #76):**
+  Bound `code_closure`, pre-reservation `target_symbols` guard, empirical Stage-0 holding volatility
+  (`gates.empirical_holding_volatility`), and `scripts/inspect_env.py` updates; enforced `FeedSpec`,
+  `OHLCVValidator`, `SessionAssigner`, and atomic salvage (`src/warden_evidence/market_validation.py`);
+  enforced `trimmed_sharpe`, frequency-aware fold purging, sign-safe neighbor stability
+  (`gates.evaluate_neighbor_stability`), structured `failed_gates` on `REVISE`, non-ratchet DSR,
+  `simulation_epoch` isolation, `source_published_at` cutoffs (`RETROSPECTIVE_REPLICATION_ONLY`), and
+  shadow `ml4t-diagnostic` calibration.
+- Verify: `uv run --frozen warden check-worktree` (`rc=0`) and `uv run --frozen pytest -q` (full suite green on local `main`).
+
 ## 2026-11-19
 
 ### Origin reconciliation merge (`7b67a04`, consistency `215205b`; PUSHED to origin/main)

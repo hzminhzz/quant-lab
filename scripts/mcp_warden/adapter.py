@@ -25,7 +25,7 @@ COMMANDS = {
     "spec-status": (1, 1, {}),
     "register-hypothesis": (1, 1, {}), "verify": (1, 1, {}),
     "screen": (1, 1, {}), "backtest": (1, 1, {}),
-    "advance": (0, 1, {"--hypothesis": "text"}),
+    "advance": (0, 1, {"--hypothesis": "hyp_path"}),
     "audit-check": (0, 0, {"--run-id": "run_id"}),
     "verify-causality": (0, 0, {"--run-id": "run_id"}),
     "attempt-status": (0, 0, {"--run-id": "run_id"}),
@@ -153,6 +153,8 @@ def build_argv(command: str, positional: list[str] | None = None,
             raise RestrictedCommandError("unsupported CLI flag or value")
         if kind == "run_id" and not RUN_ID.fullmatch(val):
             raise RestrictedCommandError("invalid run-id")
+        if kind == "hyp_path":
+            val = _path_arg(effective_root, "register-hypothesis", val)
         if kind == "text" and (len(val) > 2000 or "\x00" in val):
             raise RestrictedCommandError("invalid note or ticket")
         result.extend([flag, val])
@@ -166,7 +168,7 @@ def execute(command: str, positional: list[str] | None = None, flags: dict | Non
     effective_root = ROOT if root is None else root
     argv = build_argv(command, positional, flags, effective_root)
     env = {**os.environ, "WARDEN_NON_INTERACTIVE": "1"}
-    effective_timeout = (600 if command == "backtest" else 90) if timeout is None else timeout
+    effective_timeout = (600 if command in {"backtest", "advance"} else 90) if timeout is None else timeout
     try:
         proc = subprocess.run(argv, cwd=effective_root, env=env, capture_output=True, text=True,
                               check=False, timeout=min(max(effective_timeout, 1), 1800))

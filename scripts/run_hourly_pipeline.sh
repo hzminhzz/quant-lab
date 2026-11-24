@@ -4,7 +4,6 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${QUANT_LAB_REPO_DIR:-/home/quant/dev/quant-lab}"
 
 export WARDEN_NON_INTERACTIVE=1

@@ -44,6 +44,17 @@ def test_typed_allowed_command_argv_matches_native_parser(fixture_root: Path, mo
     assert build_argv("advance", ["experiments/active/test.yaml"], root=fixture_root)[-3:] == [
         "advance", "experiments/active/test.yaml", "--json",
     ]
+    assert build_argv(
+        "advance",
+        ["experiments/active/test.yaml"],
+        {"--hypothesis": ".workspace/hypotheses/hyp.yaml"},
+        root=fixture_root,
+    )[-5:] == [
+        "advance", "experiments/active/test.yaml", "--json", "--hypothesis", ".workspace/hypotheses/hyp.yaml",
+    ]
+    for bad_hyp in ("../../etc/passwd", "data/holdout/secret.md", "/tmp/evil.md"):
+        with pytest.raises(RestrictedCommandError):
+            build_argv("advance", ["experiments/active/test.yaml"], {"--hypothesis": bad_hyp}, root=fixture_root)
     assert build_argv("register-hypothesis", [".workspace/hypotheses/hyp.yaml"],
                       root=fixture_root)[-3:] == [
         "register-hypothesis", ".workspace/hypotheses/hyp.yaml", "--json",

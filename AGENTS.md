@@ -100,7 +100,7 @@ uv run warden handoff --notes "Evidence and next decision"
 uv run warden continue
 ```
 
-All 15 CLI subcommands are implemented and lazy-loaded. Experiment commands fail closed on integrity/governance errors. Backtests end with `WARDEN_RUN_COMPLETE` or `WARDEN_RUN_FAILED`; JSON results precede the sentinel. `qualify --run-id ID --unseal-holdout --human-confirm-unseal` executes only under explicit principal approval (Four-way ownership) and is refused under `WARDEN_NON_INTERACTIVE=1`. Never replay arbitrary shell from transition documents; continuation verifies read-only expectations.
+All 16 CLI subcommands are implemented and lazy-loaded. Experiment commands fail closed on integrity/governance errors. Backtests end with `WARDEN_RUN_COMPLETE` or `WARDEN_RUN_FAILED`; JSON results precede the sentinel. `qualify --run-id ID --unseal-holdout --human-confirm-unseal` executes only under explicit principal approval (Four-way ownership) and is refused under `WARDEN_NON_INTERACTIVE=1`. Never replay arbitrary shell from transition documents; continuation verifies read-only expectations.
 
 ## Research Evidence Ledger (approved 2026-11-07)
 

@@ -318,9 +318,111 @@ def test_advance_pending_skips_legacy_and_blocked_without_moving_files(
     )
 
     rc = cli.cmd_advance(
-        Namespace(pending=True, dir="experiments/active", skip_outcome_memory=True, json=True),
+        Namespace(pending=True, dir="experiments/active", json=True),
         runner,
     )
     assert rc == 0
     assert spec_path.is_file()
     assert (fx.repo / "experiments" / "active" / "hyp_legacy.yaml").is_file()
+
+
+def test_advance_audits_third_trial_unaudited_candidate(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+    fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-3RD")
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+
+    import hashlib
+    from dataclasses import replace
+
+    import numpy as np
+
+    from tests.test_attempt_lifecycle import _result
+    from warden.contracts import canonical_json
+
+    hyp = HypothesisSpec(
+        "HYP-ADV-3RD",
+        fx.contract.contract_id,
+        "Third trial candidate",
+        "rules_ts",
+        "Persistent drift across crypto assets after short-term volatility compression",
+        "Paid by late trend followers after cost-adjusted breakout confirmation",
+        4,
+        "Reject if Stage 1 or Stage 3 fails",
+    )
+    fx.registry.register_hypothesis(hyp)
+    res = replace(
+        _result(),
+        run_id="RUN-ADV-3RD",
+        hypothesis_id="HYP-ADV-3RD",
+        contract_id=fx.contract.contract_id,
+        strategy_module=module_rel,
+        config_hash=hashlib.sha256(canonical_json({}).encode()).hexdigest()[:12],
+        verdict="CANDIDATE_FOR_QUALIFICATION",
+        stage_reached="STAGE_3_STRESS",
+    )
+    fx.registry.record_trial(res, {}, np.array([0.01, 0.02, 0.015]))
+    with fx.registry._connect() as conn:
+        conn.execute("UPDATE hypotheses SET trials_used = 3 WHERE hypothesis_id = ?", ("HYP-ADV-3RD",))
+
+    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    assert out["action"] == "AUDITED"
+    assert out["audit_verdict"] is not None
+
+
+def test_advance_audit_error_without_evidence_requires_review(
+    tiny_repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-AERR")
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+
+    import hashlib
+    from dataclasses import replace
+
+    import numpy as np
+
+    from tests.test_attempt_lifecycle import _result
+    from warden.contracts import canonical_json
+
+    hyp = HypothesisSpec(
+        "HYP-ADV-AERR",
+        fx.contract.contract_id,
+        "Audit failure case",
+        "rules_ts",
+        "Persistent drift across crypto assets after short-term volatility compression",
+        "Paid by late trend followers after cost-adjusted breakout confirmation",
+        4,
+        "Reject if Stage 1 or Stage 3 fails",
+    )
+    fx.registry.register_hypothesis(hyp)
+    res = replace(
+        _result(),
+        run_id="RUN-ADV-AERR",
+        hypothesis_id="HYP-ADV-AERR",
+        contract_id=fx.contract.contract_id,
+        strategy_module=module_rel,
+        config_hash=hashlib.sha256(canonical_json({}).encode()).hexdigest()[:12],
+        verdict="CANDIDATE_FOR_QUALIFICATION",
+        stage_reached="STAGE_3_STRESS",
+    )
+    fx.registry.record_trial(res, {}, np.array([0.01, 0.02, 0.015]))
+    monkeypatch.setattr(cli, "cmd_audit_check", lambda *a, **k: 1)
+
+    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    assert out["action"] == "REVIEW_REQUIRED"
+    assert out["audit_verdict"] is None
+
+
+def test_advance_rejects_mismatched_hypothesis_file(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+    fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-SPEC")
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+    wrong_hyp = _write_hypothesis_md(fx.repo, "HYP-ADV-OTHER", fx.contract.contract_id)
+
+    out = cli._advance_one_spec(
+        spec_path,
+        runner,
+        hypothesis_path=wrong_hyp.relative_to(fx.repo).as_posix(),
+        check_outcome_memory=False,
+    )
+    assert out["action"] == "REVIEW_REQUIRED"
+    assert "does not match spec" in out["reason"]
+    with fx.registry._connect() as conn:
+        assert conn.execute("SELECT 1 FROM hypotheses WHERE hypothesis_id=?", ("HYP-ADV-OTHER",)).fetchone() is None

@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
+# Avoid 8x8 thread oversubscription when running under pytest-xdist workers.
+os.environ.setdefault("POLARS_MAX_THREADS", "2")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta

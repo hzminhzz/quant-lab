@@ -45,7 +45,7 @@ packages = ["src/warden"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-n auto --dist worksteal"
+addopts = "-n 4 --dist worksteal"
 
 [tool.ruff]
 line-length = 100

@@ -20,6 +20,7 @@ import pytest
 
 import scripts.run_spec_session as S
 from warden.cli import cmd_backtest, cmd_screen, cmd_verify, generate_manifest
+from warden.lease import mutation_lease
 from warden.policy import Decision as decision
 
 
@@ -156,6 +157,20 @@ def test_missing_spec_refuses(stub_repo: Path) -> None:
     with contextlib.redirect_stderr(io.StringIO()):
         code = S.main(["nope.yaml", "--json"])
     assert code == 2
+
+
+def test_busy_registry_returns_75_and_quiet_structured_json(
+    stub_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_stubs(monkeypatch)
+    with mutation_lease(stub_repo / "registry" / "registry.db"):
+        code, envelope, _ = run_session(["spec.yaml", "--json"])
+
+    assert code == 75 and envelope["exit"] == 75
+    assert envelope["ok"] is False and envelope["busy"] is True
+    assert envelope["status"] == "BUSY" and envelope["stages"] == []
+    # No stage ran, so no audit entry was fabricated.
+    assert audit_entries(stub_repo) == []
 
 
 def test_human_mode_streams_stage_output_then_a_summary_line(stub_repo: Path, monkeypatch) -> None:

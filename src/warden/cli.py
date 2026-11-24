@@ -27,7 +27,7 @@ ExperimentRunner: Any = None
 MANIFEST_FILE = ".warden_manifest.sha256"
 WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and AST boundaries intact."
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
-MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt"})
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
 
 
 def envelope(ok: bool, value, source: str, policy: str = "allow") -> dict:
@@ -91,6 +91,38 @@ def cmd_spec_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     print(json.dumps(envelope(True, value, "warden.spec-status")) if args.json else
           f"{value['state']}: {value['reason']}")
     return 0
+
+
+def cmd_reconcile_screen(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
+    """CLI-only review transition for an interrupted Stage 1 reservation.
+
+    The spec may be reviewed by a human afterwards; this command never refunds
+    budget, deletes the receipt or replays the screen. The MCP adapter does not
+    expose it.
+    """
+    import yaml
+    try:
+        cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        value = {"screen_key": "", "state": "INVALID_SPEC", "reason": f"Invalid spec YAML: {exc}"}
+        print(json.dumps(envelope(False, value, "warden.reconcile-screen", "deny")) if args.json else
+              f"Screen reconciliation refused: {value['reason']}")
+        return 1
+    if not isinstance(cfg, dict) or not cfg.get("hypothesis_id") or not cfg.get("contract_id"):
+        value = {"screen_key": "", "state": "INVALID_SPEC",
+                 "reason": "Spec missing hypothesis_id or contract_id"}
+        print(json.dumps(envelope(False, value, "warden.reconcile-screen", "deny")) if args.json else
+              f"Screen reconciliation refused: {value['reason']}")
+        return 1
+    value = runner.registry.reconcile_screen(
+        str(cfg["hypothesis_id"]), str(cfg["contract_id"]),
+        str(cfg.get("strategy_module", "") or ""), cfg.get("parameters") or {},
+        confirm_interrupted=True,
+    )
+    ok = value["state"] == "INTERRUPTED_REVIEW"
+    print(json.dumps(envelope(ok, value, "warden.reconcile-screen", "allow" if ok else "deny"))
+          if args.json else f"Screen {value['screen_key']}: {value['state']} ({value['reason']})")
+    return 0 if ok else 1
 
 
 def cmd_attempt_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
@@ -550,17 +582,30 @@ def _advance_one_spec(
 
         if check_outcome_memory:
             index_path = repo / "docs" / "research-outcomes" / "branch-result-index-v1.json"
-            if index_path.is_file():
+            if not index_path.is_file():
+                return _result(
+                    "REVIEW_REQUIRED",
+                    status,
+                    "Research outcome memory index is missing: "
+                    "docs/research-outcomes/branch-result-index-v1.json; review before screening",
+                )
+            try:
                 from scripts.research_outcome_memory import check_spec as check_outcome_spec
 
                 mem = check_outcome_spec(spec_path, runner.registry.db_path, index_path)
-                if not mem.get("eligible"):
-                    return _result(
-                        "BLOCKED_OUTCOME_MEMORY",
-                        status,
-                        str(mem.get("reason", "Blocked by research_outcome_memory")),
-                        outcome_memory=mem,
-                    )
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                return _result(
+                    "REVIEW_REQUIRED",
+                    status,
+                    f"Research outcome memory index is unreadable or malformed: {type(exc).__name__}: {exc}",
+                )
+            if not mem.get("eligible"):
+                return _result(
+                    "BLOCKED_OUTCOME_MEMORY",
+                    status,
+                    str(mem.get("reason", "Blocked by research_outcome_memory")),
+                    outcome_memory=mem,
+                )
 
         v_rc, v_detail = _invoke_quiet(cmd_verify, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
         if v_rc != 0:
@@ -745,6 +790,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("spec-status").add_argument("spec_yaml")
     for name in ("attempt-status", "reconcile-attempt", "verify-causality"):
         s.add_parser(name).add_argument("--run-id", required=True)
+    s.add_parser("reconcile-screen").add_argument("spec_yaml")
     h = s.add_parser("handoff")
     h.add_argument("--notes", default="Session transition checkpoint")
     h.add_argument("--ticket", default=None)
@@ -853,6 +899,7 @@ def main(argv: list[str] | None = None) -> int:
                 runner = _get_runner(readonly=False)
             cmds = {"status": cmd_status, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "advance": cmd_advance, "audit-check": cmd_audit_check, "continue": cmd_continue, "qualify": cmd_qualify,
                     "attempt-status": cmd_attempt_status, "reconcile-attempt": cmd_attempt_status, "verify-causality": cmd_verify_causality,
+                    "reconcile-screen": cmd_reconcile_screen,
                     "spec-status": cmd_spec_status}
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0

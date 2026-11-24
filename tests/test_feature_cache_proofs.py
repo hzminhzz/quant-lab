@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import shutil
+import sys
+
 import polars as pl
 import pytest
 
 from warden.leakage import compute_and_cache_features
-from warden_evidence.feature_cache import UnverifiedFeatureCacheError
+from warden.strategy_loader import load_module_from_path
+from warden_evidence.feature_cache import UnverifiedFeatureCacheError, feature_identity
 
 
 class DelayedFeatures:
@@ -87,3 +91,48 @@ def test_crash_after_data_publication_recovers_with_one_proof(tiny_repo, tmp_pat
     assert len(list(cache.glob("*.proof.json"))) == 1
     with fixture.registry._connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM feature_sets").fetchone()[0] == 1
+
+
+def test_helper_only_edit_changes_identity_and_forces_recomputation(tiny_repo, tmp_path) -> None:
+    """Acceptance #4: editing an imported helper invalidates identity and the cache."""
+    fixture = tiny_repo()
+    strategies = fixture.repo / "strategies"
+    helper = strategies / "shared_scale.py"
+    pipeline_file = strategies / "helper_pipe.py"
+    helper.write_text("SCALE = 1.0\n", encoding="utf-8")
+    pipeline_file.write_text(
+        "import polars as pl\n"
+        "from shared_scale import SCALE\n\n"
+        "class HelperPipeline:\n"
+        "    def compute(self, frame, contract):\n"
+        "        return frame.sort('asset', 'timestamp').with_columns(\n"
+        "            scaled_close=pl.col('close') * pl.lit(SCALE)\n"
+        "        )\n",
+        encoding="utf-8",
+    )
+    pipeline_bytes = pipeline_file.read_bytes()
+
+    first_module = load_module_from_path(pipeline_file)
+    first_pipe = first_module.HelperPipeline()
+    identity_before, config_before = feature_identity(first_pipe, fixture.panel, fixture.contract)
+    assert config_before["code_closure"]
+    cache = tmp_path / "cache"
+    first = compute_and_cache_features(first_pipe, fixture.panel, fixture.contract, cache, fixture.registry)
+
+    helper.write_text("SCALE = 2.0\n", encoding="utf-8")
+    assert pipeline_file.read_bytes() == pipeline_bytes  # only the helper changed
+    sys.modules.pop("shared_scale", None)  # drop the stale helper module so the edit is observable
+    shutil.rmtree(strategies / "__pycache__", ignore_errors=True)  # and its bytecode cache
+    second_module = load_module_from_path(pipeline_file)
+    second_pipe = second_module.HelperPipeline()
+    identity_after, config_after = feature_identity(second_pipe, fixture.panel, fixture.contract)
+    assert config_after["code_closure"] != config_before["code_closure"]
+    assert identity_after != identity_before
+
+    second = compute_and_cache_features(second_pipe, fixture.panel, fixture.contract, cache, fixture.registry)
+    assert len(list(cache.glob("*.parquet"))) == 2
+    assert len(list(cache.glob("*.proof.json"))) == 2
+    assert first["scaled_close"].to_list() != second["scaled_close"].to_list()
+    assert second["scaled_close"].to_list() == (fixture.panel["close"] * 2.0).to_list()
+    with fixture.registry._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM feature_sets").fetchone()[0] == 2

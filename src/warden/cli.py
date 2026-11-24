@@ -162,6 +162,8 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     params = cfg.get("parameters", {}) or {}
     strat_module = normalise_module(cfg["strategy_module"])
     mod = load_module_from_path(runner.repo_root / strat_module)
+    # One closure digest binds every cache/evidence row in this verify to the code that ran.
+    closure_sha = code_closure(runner.repo_root, strat_module)[0]
     hyp_status = "ACTIVE"
     hyp_id = cfg.get("hypothesis_id")
     if hyp_id and runner.registry.db_path.is_file():
@@ -193,11 +195,10 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
         elif protocol == "causal_rules":
             verify_rules_strategy_prefix_invariance(mod, panel, contract, params, policy_cfg=cfg)
             verify_rules_strategy_asset_independence(mod, panel, contract, params, policy_cfg=cfg)
-            mod_sha, _ = code_closure(runner.repo_root, strat_module)
             pipeline = RulesProofPipeline(
                 repo_root=str(runner.repo_root.resolve()),
                 strategy_module=strat_module,
-                code_sha256=mod_sha,
+                code_sha256=closure_sha,
                 params=dict(params),
                 policy_cfg=cfg,
             )
@@ -207,8 +208,10 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
                 raise ValueError("Strategy module does not expose a pipeline or compute() method.")
             verify_prefix_invariance(pipeline, panel, contract)
 
-        compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry)
-        proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir)
+        compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry,
+                                   code_closure_digest=closure_sha)
+        proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir,
+                                          code_closure_digest=closure_sha)
         if not proof["verified"]:
             raise ValueError("Causal cache artifact could not be independently reconciled")
     except (
@@ -227,7 +230,7 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
         strategy_module=strat_module,
         config_hash=hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12],
         data_sha256=dataset.sha256,
-        module_sha256=code_closure(runner.repo_root, strat_module)[0],
+        module_sha256=closure_sha,
         feature_identity=proof["feature_identity"], artifact_sha256=proof["artifact_sha256"],
         proof_sha256=hashlib.sha256((cache_dir / f"{proof['feature_identity']}.proof.json").read_bytes()).hexdigest())
     res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),

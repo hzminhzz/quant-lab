@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from warden.codeid import code_closure
 from warden.contracts import canonical_json
 
 if TYPE_CHECKING:
@@ -71,8 +72,47 @@ def _register_proof(registry: ResearchRegistry, identity: str, cid: str, path: P
         raise UnverifiedFeatureCacheError("existing contradictory SQLite causal proof cannot be overwritten")
 
 
+def _repo_root_for(path: Path) -> Path:
+    for parent in (path.parent, *path.parents):
+        if (parent / "pyproject.toml").is_file():
+            return parent
+    return path.parent
+
+
+def _pipeline_code_closure(pipeline: FeaturePipelineProtocol, explicit: str | None) -> str:
+    """Digest the pipeline's full executable closure (module + imported helpers).
+
+    An explicit digest from the verifier is authoritative. Otherwise a pipeline that
+    already carries one (``RulesProofPipeline.code_sha256``) wins, and the last
+    resort is the closure of the file defining the pipeline class. Editing an
+    imported helper therefore changes the identity even when the class file is
+    untouched.
+    """
+    if explicit:
+        return str(explicit)
+    carried = getattr(pipeline, "code_sha256", None)
+    if isinstance(carried, str) and carried:
+        return carried
+    try:
+        source_file = inspect.getsourcefile(pipeline.__class__)
+    except (TypeError, OSError):
+        source_file = None
+    if not source_file:
+        return ""
+    entry = Path(source_file).resolve()
+    if not entry.is_file():
+        return ""
+    root = _repo_root_for(entry)
+    try:
+        digest, _ = code_closure(root, str(entry.relative_to(root)))
+    except (OSError, ValueError):
+        return hashlib.sha256(entry.read_bytes()).hexdigest()
+    return digest
+
+
 def feature_identity(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame,
-                     contract: EvaluationContract) -> tuple[str, dict]:
+                     contract: EvaluationContract,
+                     code_closure_digest: str | None = None) -> tuple[str, dict]:
     """Exactly one identity formula for cache writes, audit and run-bound verification."""
     try:
         source = inspect.getsource(pipeline.__class__)
@@ -80,6 +120,7 @@ def feature_identity(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame,
         source = pipeline.__class__.__qualname__
     params = json.dumps(vars(pipeline), sort_keys=True, default=str)
     config = {"contract": contract.spec_hash(), "source": hashlib.sha256(source.encode()).hexdigest(),
+              "code_closure": _pipeline_code_closure(pipeline, code_closure_digest),
               "params": params, "polars": pl.__version__, "engine": _ml4t_engineer_version(),
               "input": _hash_panel(bars_df)}
     return hashlib.sha256(canonical_json(config).encode()).hexdigest()[:20], config
@@ -87,9 +128,10 @@ def feature_identity(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame,
 
 def verified_feature_evidence(pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame,
                               contract: EvaluationContract, registry: ResearchRegistry,
-                              cache_dir: Path) -> dict:
+                              cache_dir: Path,
+                              code_closure_digest: str | None = None) -> dict:
     """Read-only proof projection. Contract-only legacy feature rows are not sufficient."""
-    identity, config = feature_identity(pipeline, bars_df, contract)
+    identity, config = feature_identity(pipeline, bars_df, contract, code_closure_digest)
     path = Path(cache_dir) / f"{identity}.parquet"
     proof = _read_proof(Path(cache_dir) / f"{identity}.proof.json")
     valid = (isinstance(proof, dict) and proof.get("config") == config and
@@ -106,13 +148,14 @@ def verified_feature_evidence(pipeline: FeaturePipelineProtocol, bars_df: pl.Dat
 def compute_and_cache_features(
     pipeline: FeaturePipelineProtocol, bars_df: pl.DataFrame, contract: EvaluationContract,
     cache_dir: Path = Path("cache/features"), registry: ResearchRegistry | None = None,
+    code_closure_digest: str | None = None,
 ) -> pl.DataFrame:
     """Reuse only identity-bound proof; absent/mismatched proof triggers revalidation."""
     from warden.leakage import verify_prefix_invariance
 
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    identity, config = feature_identity(pipeline, bars_df, contract)
+    identity, config = feature_identity(pipeline, bars_df, contract, code_closure_digest)
     path = cache_dir / f"{identity}.parquet"
     proof_path = cache_dir / f"{identity}.proof.json"
     proof = _read_proof(proof_path)

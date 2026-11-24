@@ -8,6 +8,7 @@ three-cut check. Panels are built inline; nothing is written to disk.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -25,10 +26,10 @@ CONTRACT = EvaluationContract(
     exploratory_data_path="data/exploratory/adv.parquet",
     holdout_data_path="data/holdout/adv.parquet",
     train_start=utc("2025-01-01T00:00:00Z"),
-    val_start=utc("2025-01-01T01:00:00Z"),
-    val_end=utc("2025-01-02T00:00:00Z"),
-    holdout_start=utc("2025-01-02T00:00:00Z"),
-    holdout_end=utc("2025-01-03T00:00:00Z"),
+    val_start=utc("2025-01-01T20:00:00Z"),
+    val_end=utc("2025-01-04T00:00:00Z"),
+    holdout_start=utc("2025-01-04T00:00:00Z"),
+    holdout_end=utc("2025-01-05T00:00:00Z"),
     n_folds=2,
     label_horizon_bars=2,
     embargo_bars=1,
@@ -38,16 +39,43 @@ CONTRACT = EvaluationContract(
 )
 
 
-def _panel(n_bars: int, seed: int) -> pl.DataFrame:
+def _panel(n_bars: int, seed: int, *, quote_columns: bool = False, funding: bool = True) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
     frames = []
     for asset, base in (("AAA", 100.0), ("BBB", 50.0)):
         close = base * np.cumprod(1.0 + rng.normal(0.0005, 0.002, n_bars))
         open_ = np.concatenate(([base], close[:-1]))
+        fields = {
+            "timestamp": [datetime(2025, 1, 1, tzinfo=UTC) + timedelta(hours=i)
+                          for i in range(n_bars)],
+            "asset": [asset] * n_bars,
+            "open": open_,
+            "high": np.maximum(open_, close) * 1.001,
+            "low": np.minimum(open_, close) * 0.999,
+            "close": close,
+            "volume": rng.uniform(10.0, 20.0, n_bars),
+        }
+        if funding:
+            fields["funding_rate"] = rng.normal(0.0001, 0.00001, n_bars)
+        if quote_columns:
+            fields["bid"] = close * 0.9995
+            fields["ask"] = close * 1.0005
+            fields["quote_volume"] = rng.uniform(100.0, 200.0, n_bars)
+        frames.append(pl.DataFrame(fields))
+    return pl.concat(frames).sort("timestamp", "asset")
+
+
+def _long_daily_panel(n_bars: int, seed: int) -> pl.DataFrame:
+    """A multi-year daily panel; ``CONTRACT``'s window is scaled inside the caller."""
+    rng = np.random.default_rng(seed)
+    frames = []
+    for asset, base in (("AAA", 100.0), ("BBB", 50.0)):
+        close = base * np.cumprod(1.0 + rng.normal(0.0005, 0.01, n_bars))
+        open_ = np.concatenate(([base], close[:-1]))
         frames.append(
             pl.DataFrame(
                 {
-                    "timestamp": [datetime(2025, 1, 1, tzinfo=UTC) + timedelta(hours=i)
+                    "timestamp": [datetime(2015, 1, 1, tzinfo=UTC) + timedelta(days=i)
                                   for i in range(n_bars)],
                     "asset": [asset] * n_bars,
                     "open": open_,
@@ -55,7 +83,6 @@ def _panel(n_bars: int, seed: int) -> pl.DataFrame:
                     "low": np.minimum(open_, close) * 0.999,
                     "close": close,
                     "volume": rng.uniform(10.0, 20.0, n_bars),
-                    "funding_rate": rng.normal(0.0001, 0.00001, n_bars),
                 }
             )
         )
@@ -66,9 +93,20 @@ def _frame(bars_df: pl.DataFrame | pl.LazyFrame) -> pl.DataFrame:
     return bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
 
 
-def _cut_timestamps(panel: pl.DataFrame) -> list[datetime]:
+def _default_cut_timestamps(panel: pl.DataFrame, contract: EvaluationContract = CONTRACT) -> list[datetime]:
+    """Independent expectation for the contract-anchored default cuts."""
+    from bisect import bisect_left
+
     ts = sorted(panel["timestamp"].unique().to_list())
-    return [ts[len(ts) // 4], ts[len(ts) // 2], ts[3 * len(ts) // 4]]
+    v_start = bisect_left(ts, contract.val_start)
+    v_stop = bisect_left(ts, contract.val_end)
+    if v_stop <= v_start:
+        v_start, v_stop = len(ts) // 2, len(ts)
+    train_start = min(max(bisect_left(ts, contract.train_start), 0), v_start)
+    span = v_stop - v_start
+    cuts = {train_start + (v_start - train_start) // 2, v_start,
+            v_start + span // 3, v_start + (2 * span) // 3}
+    return [ts[c] for c in sorted(cuts) if 1 <= c < len(ts)]
 
 
 class RecordingCutPipeline:
@@ -197,22 +235,22 @@ class LeakAfterLastCutPipeline:
 
 
 def test_default_cut_points_and_tolerance_defaults() -> None:
-    """Defaults are three cuts at len//4, len//2, 3*len//4 with rtol=atol=1e-10."""
+    """Defaults are mid-train, val_start and 1/3+2/3 of validation, tolerance 1e-10."""
     panel = _panel(60, seed=3)
     n = panel["timestamp"].n_unique()
+    expected_cuts = _default_cut_timestamps(panel)
+    assert len(expected_cuts) == 4
 
     recorder = RecordingCutPipeline()
     verify_prefix_invariance(recorder, panel, CONTRACT)
     # Only prefix lengths are the sampled cut points; full-panel calls are 2 per cut.
     assert sorted(x for x in recorder.prefix_lengths if x != n) == [
-        n // 4 + 1,
-        n // 2 + 1,
-        3 * n // 4 + 1,
+        sorted(panel["timestamp"].unique().to_list()).index(cut) + 1 for cut in expected_cuts
     ]
-    assert recorder.prefix_lengths.count(n) == 6
+    assert recorder.prefix_lengths.count(n) == 2 * len(expected_cuts)
 
     # Effective tolerance is atol + rtol*|value| = 1e-10 + 1e-10*100 ~= 1.01e-8 at 100.
-    cut_ts = _cut_timestamps(panel)[1]
+    cut_ts = expected_cuts[1]  # val_start
     verify_prefix_invariance(EpsilonBoundaryPipeline(1e-9, cut_ts), panel, CONTRACT)
     with pytest.raises(LookaheadLeakageError, match="values of column 'eps_feat'"):
         verify_prefix_invariance(EpsilonBoundaryPipeline(1e-6, cut_ts), panel, CONTRACT)
@@ -221,7 +259,7 @@ def test_default_cut_points_and_tolerance_defaults() -> None:
 def test_leakage_at_exact_cut_timestamp_boundary_raises() -> None:
     """A feature that reads one future bar only at the cut timestamp must raise."""
     panel = _panel(60, seed=5)
-    cut_ts = _cut_timestamps(panel)[1]
+    cut_ts = _default_cut_timestamps(panel)[1]
 
     with pytest.raises(LookaheadLeakageError, match="null mask of column 'boundary_peek'"):
         verify_prefix_invariance(BoundaryFutureBarPipeline(cut_ts), panel, CONTRACT)
@@ -260,10 +298,10 @@ def test_valid_causal_features_pass_on_two_panel_sizes() -> None:
 
 
 def test_prefix_invariance_is_sampled_not_a_formal_proof() -> None:
-    """Three cut points are a sample: leakage confined to the final quarter is invisible."""
+    """A finite cut set is a sample: leakage confined to the final quarter is invisible."""
     panel = _panel(60, seed=23)
     timestamps = sorted(panel["timestamp"].unique().to_list())
-    last_cut = timestamps[3 * len(timestamps) // 4]
+    last_cut = _default_cut_timestamps(panel)[-1]
     pipeline = LeakAfterLastCutPipeline(last_cut)
 
     # Honest limitation: the default three cuts compare only rows at/before each cut,
@@ -282,3 +320,110 @@ def test_prefix_invariance_is_sampled_not_a_formal_proof() -> None:
     # More sampling does catch it: a cut placed inside the hidden span exposes the peek.
     with pytest.raises(LookaheadLeakageError, match="late_peek"):
         verify_prefix_invariance(pipeline, panel, CONTRACT, cut_idx=len(timestamps) - 2)
+
+
+class ValidationOnlyLookahead:
+    """Causal before ``val_start``; peeks one future bar at/after it."""
+
+    def __init__(self, val_start: datetime) -> None:
+        self.val_start = val_start
+
+    def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
+        df = _frame(bars_df)
+        return df.with_columns(
+            validation_only=pl.when(pl.col("timestamp") >= pl.lit(self.val_start))
+            .then(pl.col("close").shift(-1).over("asset"))
+            .otherwise(pl.col("close").shift(1).over("asset"))
+        )
+
+
+def test_validation_only_lookahead_is_caught_when_val_start_past_75_percent() -> None:
+    """Acceptance #1: a long panel with val_start at 76% must still sample validation."""
+    panel = _long_daily_panel(3652, seed=41)  # ten years of daily bars
+    timestamps = sorted(panel["timestamp"].unique().to_list())
+    val_start_idx = int(len(timestamps) * 0.76)
+    val_start = timestamps[val_start_idx]
+    long_contract = replace(
+        CONTRACT,
+        contract_id="LEAK_LONG_V1",
+        frequency="1d",
+        bars_per_year=365,
+        train_start=timestamps[0],
+        val_start=val_start,
+        val_end=timestamps[-1],
+        holdout_start=timestamps[-1],
+        holdout_end=timestamps[-1] + timedelta(days=1),
+    )
+
+    # Quartile cuts - the retired default - all sit inside the training span.
+    quartiles = [timestamps[len(timestamps) // 4], timestamps[len(timestamps) // 2],
+                 timestamps[3 * len(timestamps) // 4]]
+    assert all(cut < val_start for cut in quartiles)
+    cuts = _default_cut_timestamps(panel, long_contract)
+    assert any(cut >= val_start for cut in cuts)
+
+    with pytest.raises(LookaheadLeakageError, match="validation_only"):
+        verify_prefix_invariance(ValidationOnlyLookahead(val_start), panel, long_contract)
+
+
+class FutureColumnLeak:
+    """Null-free future ratio so only values, never the null mask, can expose it."""
+
+    def __init__(self, column: str) -> None:
+        self.column = column
+
+    def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
+        df = _frame(bars_df)
+        future = pl.col(self.column).shift(-1).over("asset").fill_null(pl.col(self.column))
+        return df.with_columns(**{f"leak_{self.column}": future / pl.col(self.column)})
+
+
+@pytest.mark.parametrize("column", ["bid", "ask", "quote_volume"])
+def test_future_quote_column_lookahead_raises(column: str) -> None:
+    """Acceptance #2: peeking at future bid/ask/quote_volume must raise."""
+    panel = _panel(60, seed=31, quote_columns=True)
+    with pytest.raises(LookaheadLeakageError, match=f"leak_{column}"):
+        verify_prefix_invariance(FutureColumnLeak(column), panel, CONTRACT)
+
+
+def test_future_shock_covers_every_non_key_numeric_column_and_skips_absent_funding() -> None:
+    """Acceptance #2: shock hits OHLCV/bid/ask/quote_volume; a missing funding_rate is fine."""
+    from warden.leakage import _apply_future_shock
+
+    panel = _panel(30, seed=37, quote_columns=True).with_columns(label=pl.lit("keep"))
+    cutoff = sorted(panel["timestamp"].unique().to_list())[15]
+    shocked = _apply_future_shock(panel, cutoff)
+
+    future = panel["timestamp"] > cutoff
+    for column, dtype in panel.schema.items():
+        if column in {"timestamp", "asset", "symbol"} or not dtype.is_numeric():
+            assert shocked[column].equals(panel[column]), f"key/non-numeric column {column} was shocked"
+            continue
+        changed = (shocked[column] != panel[column]) & future
+        assert changed.any(), f"numeric column '{column}' was not shocked after the cutoff"
+        assert (shocked[column] == panel[column]).filter(~future).all(), column
+
+    without_funding = _panel(30, seed=37, quote_columns=True, funding=False)
+    _apply_future_shock(without_funding, cutoff)  # must not raise ColumnNotFoundError
+
+
+class LeadingNanCausalPipeline:
+    """Causal rolling feature with deterministic leading NaNs per asset."""
+
+    def compute(self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract) -> pl.DataFrame:
+        df = _frame(bars_df)
+        with_leading_nans = (
+            pl.col("close").rolling_mean(window_size=5).over("asset").fill_null(float("nan"))
+        )
+        return df.with_columns(
+            roll_mean_5=with_leading_nans,
+            cs_demean=pl.col("close") - pl.col("close").mean().over("timestamp"),
+        )
+
+
+def test_deterministic_leading_nans_do_not_false_positive() -> None:
+    """Acceptance #3: identical leading NaNs compare equal (equal_nan), not as leakage."""
+    panel = _panel(60, seed=43)
+    verify_prefix_invariance(LeadingNanCausalPipeline(), panel, CONTRACT)
+    feats = LeadingNanCausalPipeline().compute(panel, CONTRACT)
+    assert feats["roll_mean_5"].is_nan().sum() > 0

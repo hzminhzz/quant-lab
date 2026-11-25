@@ -1,0 +1,12 @@
+{
+  "config_json": "{\"leverage\": 1.2}",
+  "contract_id": "C1",
+  "gross_sharpe": 0.6,
+  "hypothesis_id": "HYP-MINI-001",
+  "net_sharpe": 0.4,
+  "run_id": "RUN-MINI-001",
+  "strategy_family": "rules_ts",
+  "strategy_module": "strategies/candidates/mini.py",
+  "stress_2x_cost_sharpe": 0.2,
+  "verdict": "REVISE"
+}

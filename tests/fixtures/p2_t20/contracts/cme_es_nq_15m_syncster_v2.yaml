@@ -1,0 +1,35 @@
+# T20 #106 replacement contract fixture — SHA-pinned Syncster CME ES/NQ 15m.
+#
+# Replaces INDICES_1H_V1 (DEPRECATED_UNEXECUTABLE: clipped, level-shifted LSE minute store)
+# and inherits its selection problem.
+contract_id: CME_ES_NQ_15M_SYNCSTER_V2
+asset_class: indices
+frequency: 15m
+bars_per_year: 9800
+exploratory_data_path: data/exploratory/syncster_cme_indices_es_nq_15m_ohlcv_r1.parquet
+holdout_data_path: data/holdout/syncster_cme_indices_es_nq_15m_ohlcv_r1.parquet
+train_start: '2024-01-01T00:00:00Z'
+val_start: '2025-01-01T00:00:00Z'
+val_end: '2025-02-01T00:00:00Z'
+holdout_start: '2025-02-01T00:00:00Z'
+holdout_end: '2025-03-01T00:00:00Z'
+n_folds: 4
+label_horizon_bars: 4
+embargo_bars: 2
+execution_delay_bars: 1
+execution_mode: NEXT_BAR
+taker_fee_bps: 2.5
+slippage_bps: 1.0
+funding_bps_per_8h: 0.0
+min_expected_move_to_cost_ratio: 2.5
+data_snapshot_sha256: ''
+data_provenance: unknown
+spec_version: 2
+evidence_tier: synthetic
+selection_group_id: LEGACY_INDICES_1H
+inherits_selection_from: INDICES_1H_V1
+allow_leverage: false
+max_gross_leverage: 1.0
+holdout_refit_mode: purged_expanding
+dataset_id: ''
+dataset_manifest_sha256: ''

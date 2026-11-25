@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
@@ -48,6 +47,7 @@ from typing import Any
 import yaml
 
 from warden.gates import SR2_FLOOR, SRD_FLOOR
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 DEFAULT_PREREG = Path(".workspace/af30_campaign/revisions/HYP-2026-099.md")
 DEFAULT_DB = Path("registry/registry.db")
@@ -157,7 +157,7 @@ def axis_fails(axis: str, row: dict[str, Any], grid_sharpes: list[float]) -> tup
     raise ValueError(f"unknown axis '{axis}'")
 
 
-def grid_sharpes_for(con: sqlite3.Connection, hypothesis_id: str,
+def grid_sharpes_for(ledger, hypothesis_id: str,
                      trial_created_at: float, prior_created_at: float) -> list[float]:
     """Net Sharpes of the param_grid points recorded *during* that trial.
 
@@ -165,13 +165,11 @@ def grid_sharpes_for(con: sqlite3.Connection, hypothesis_id: str,
     trial owns the grid rows created in `(previous trial's created_at, this trial's created_at]`.
     Grid rows carry `run_id=''`, so this window is the only honest attribution available.
     """
-    rows = con.execute(
-        "SELECT diagnostics_json FROM selection_attempts WHERE hypothesis_id=? AND kind='param_grid' "
-        "AND created_at > ? AND created_at <= ? ORDER BY created_at",
-        (hypothesis_id, prior_created_at, trial_created_at)).fetchall()
+    rows = ledger.read_param_grid_diagnostics(hypothesis_id,
+                                              after=prior_created_at, until=trial_created_at)
     out: list[float] = []
-    for r in rows:
-        diag = json.loads(r["diagnostics_json"] or "{}")
+    for raw in rows:
+        diag = json.loads(raw or "{}")
         if "net_sharpe" in diag:
             out.append(float(diag["net_sharpe"]))
     return out
@@ -258,44 +256,35 @@ def _check_spec(data: dict[str, Any], spec: dict[str, Any], db_path: Path | None
     db_path = Path(db_path or DEFAULT_DB)
     if not db_path.is_file():
         return [f"registry not found: {db_path}"]
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
-    try:
-        hyp = con.execute("SELECT trials_used, status FROM hypotheses WHERE hypothesis_id=?",
-                          (spec["hypothesis_id"],)).fetchone()
-        if hyp is None:
-            return [f"hypothesis {spec['hypothesis_id']} is not registered"]
-        trial_number = int(hyp["trials_used"]) + 1
-        if int(hyp["trials_used"]) >= 3:
-            return [f"{spec['hypothesis_id']} has no trial budget left ({hyp['trials_used']}/3)"]
-        if trial_number == 1:
-            # A baseline trial is not a revision and needs no failing axis, but it must still
-            # be the baseline: the sealed revisions must never be spent as it, and the run_id
-            # must follow the campaign convention so a typo cannot mint an arbitrary trial.
-            if spec["run_id"] in sealed:
-                return [f"'{spec['run_id']}' is a sealed revision and cannot run as the baseline trial"]
-            for rev in data["revisions"]:
-                if _canonical(spec["parameters"]) == _canonical(rev["parameters"]):
-                    return [(f"baseline parameters match sealed revision '{rev['run_id']}'; a revision "
-                             "configuration cannot be spent as the baseline trial")]
-            problems = _run_id_problems(spec["run_id"], data["hypothesis_id"], trial_number)
-            return problems
-        row = con.execute(
-            "SELECT * FROM trials WHERE hypothesis_id=? AND trial_number_in_hyp=?",
-            (spec["hypothesis_id"], trial_number - 1)).fetchone()
-        if row is None:
-            return [f"no preceding trial row for {spec['hypothesis_id']} before trial {trial_number}"]
-        if row["stage_reached"] != "STAGE_3_STRESS" or row["verdict"] != "REVISE":
-            return [(f"preceding trial {row['run_id']} is stage={row['stage_reached']} "
-                     f"verdict={row['verdict']}; only an observed Stage-3 REVISE can justify a revision "
-                     "(a FAILED row's zeroed metrics would otherwise satisfy the axis rules)")]
-        prior = con.execute(
-            "SELECT created_at FROM trials WHERE hypothesis_id=? AND trial_number_in_hyp=?",
-            (spec["hypothesis_id"], trial_number - 2)).fetchone()
-        grid = grid_sharpes_for(con, spec["hypothesis_id"], float(row["created_at"]),
-                                float(prior["created_at"]) if prior else float("-inf"))
-    finally:
-        con.close()
+    ledger = ReadOnlyResearchRegistry(db_path)
+    hyp = ledger.read_hypothesis(spec["hypothesis_id"])
+    if hyp is None:
+        return [f"hypothesis {spec['hypothesis_id']} is not registered"]
+    trial_number = int(hyp["trials_used"]) + 1
+    if int(hyp["trials_used"]) >= 3:
+        return [f"{spec['hypothesis_id']} has no trial budget left ({hyp['trials_used']}/3)"]
+    if trial_number == 1:
+        # A baseline trial is not a revision and needs no failing axis, but it must still
+        # be the baseline: the sealed revisions must never be spent as it, and the run_id
+        # must follow the campaign convention so a typo cannot mint an arbitrary trial.
+        if spec["run_id"] in sealed:
+            return [f"'{spec['run_id']}' is a sealed revision and cannot run as the baseline trial"]
+        for rev in data["revisions"]:
+            if _canonical(spec["parameters"]) == _canonical(rev["parameters"]):
+                return [(f"baseline parameters match sealed revision '{rev['run_id']}'; a revision "
+                         "configuration cannot be spent as the baseline trial")]
+        problems = _run_id_problems(spec["run_id"], data["hypothesis_id"], trial_number)
+        return problems
+    row = ledger.read_trial_by_number(spec["hypothesis_id"], trial_number - 1)
+    if row is None:
+        return [f"no preceding trial row for {spec['hypothesis_id']} before trial {trial_number}"]
+    if row["stage_reached"] != "STAGE_3_STRESS" or row["verdict"] != "REVISE":
+        return [(f"preceding trial {row['run_id']} is stage={row['stage_reached']} "
+                 f"verdict={row['verdict']}; only an observed Stage-3 REVISE can justify a revision "
+                 "(a FAILED row's zeroed metrics would otherwise satisfy the axis rules)")]
+    prior = ledger.read_trial_by_number(spec["hypothesis_id"], trial_number - 2)
+    grid = grid_sharpes_for(ledger, spec["hypothesis_id"], float(row["created_at"]),
+                            float(prior["created_at"]) if prior else float("-inf"))
 
     problems = _run_id_problems(spec["run_id"], data["hypothesis_id"], trial_number)
     if problems:

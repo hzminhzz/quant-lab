@@ -29,6 +29,16 @@ CARRY_ADF_ALPHA = 0.05
 META_TURNOVER_REDUCTION_FLOOR = 0.20
 META_RISK_REDUCTION_FLOOR = 0.10
 META_MAX_SHARPE_LOSS = 0.05
+# Audit Check 1 materiality: the tape's measured decision (rebalance) cadence must sit
+# within this factor of the contract's label horizon, and the measured holding period must
+# sit within the same factor of the horizon it was declared against.  A buy-and-hold or carry
+# position may legitimately run longer than the label that trained its entry, so holding is
+# only judged on *completed* holding epochs: a position still open at the last validation bar
+# is right-censored, carries no evidence of its intended lifetime, and is reported as such
+# instead of being counted as a divergence.  A decision cadence this far off the label still
+# means the label was fitted to another horizon.
+CADENCE_MATERIAL_DIVERGENCE_RATIO = 4.0
+CADENCE_POSITION_TOLERANCE = 1e-12
 
 
 def compute_hac_tstat(ic_series: np.ndarray, max_lags: int = 5) -> float:
@@ -348,6 +358,346 @@ def evaluate_stage1_carry_rv(
             f"({consensus}), MaxExcursionZ={max_abs_excursion_z:.2f}"
         ),
     )
+
+
+def measure_trading_cadence(
+    positions: Sequence[Sequence[float]] | np.ndarray,
+    *,
+    tolerance: float = CADENCE_POSITION_TOLERANCE,
+) -> dict[str, float]:
+    """Measure rebalance and holding cadence from an *executed* position tape.
+
+    The tape is Warden's own simulation output (``EvaluationTape.positions`` on the
+    validation slice), so the numbers describe what the Engine actually held.  A
+    strategy cannot assert them: it only influences them through the trades it made.
+
+    - ``rebalance_cadence_bars``: validation bars per bar on which any weight changed.
+    - ``holding_cadence_bars``: mean per-asset bars per contiguous same-sign exposure
+      epoch (bars held / epochs entered).  Reported for every trial.
+    - ``holding_completed_cadence_bars``: the same mean restricted to epochs with an
+      observed exit to flat or a sign flip, including on the final validation bar.
+      Flat bars do not count toward a hold. An epoch still open on the final bar is
+      right-censored and does not contribute to this mean.
+    - ``holding_completed_epochs`` / ``holding_censored_epochs``: the counts behind it,
+      so a reader can tell "held longer than declared" from "never exited".
+    """
+    mat = np.asarray(positions, dtype=float)
+    if mat.ndim != 2:
+        raise ValueError("positions must be a 2D (bars x assets) tape")
+    n_bars = int(mat.shape[0])
+    if n_bars == 0:
+        return {
+            "n_bars": 0.0,
+            "rebalance_events": 0.0,
+            "rebalance_cadence_bars": 0.0,
+            "holding_cadence_bars": 0.0,
+            "holding_completed_cadence_bars": 0.0,
+            "holding_completed_epochs": 0.0,
+            "holding_censored_epochs": 0.0,
+            "assets_held": 0.0,
+        }
+    previous = np.vstack([np.zeros((1, mat.shape[1]), dtype=float), mat[:-1]])
+    changed = np.abs(mat - previous) > tolerance
+    rebalance_events = int(np.count_nonzero(changed.any(axis=1)))
+    holding_lengths: list[float] = []
+    completed_lengths: list[float] = []
+    completed_assets = 0
+    completed_epochs = 0
+    censored_epochs = 0
+    for column in range(mat.shape[1]):
+        series = mat[:, column]
+        held = np.abs(series) > tolerance
+        held_bars = int(np.count_nonzero(held))
+        if held_bars == 0:
+            continue
+        sign = np.sign(series)
+        # An epoch opens on a held bar whose predecessor was flat, and again whenever the
+        # held sign flips; every other held bar continues the current epoch.
+        opens = np.zeros(n_bars, dtype=bool)
+        opens[0] = bool(held[0])
+        sign_flips = sign[1:] != sign[:-1]
+        opens[1:] = held[1:] & (~held[:-1] | sign_flips)
+        starts = np.flatnonzero(opens)
+        epochs = int(max(1, len(starts)))
+        holding_lengths.append(held_bars / float(epochs))
+        # A flat bar or sign flip closes the previous epoch at this exclusive end.
+        # Only an epoch still exposed on the final bar lacks an observed close.
+        ends = np.flatnonzero(held[:-1] & (~held[1:] | sign_flips)) + 1
+        censored_epochs += int(held[-1])
+        completed_epochs += len(ends)
+        if len(ends):
+            completed_assets += 1
+            completed_lengths.append(float(np.mean(ends - starts[:len(ends)])))
+    return {
+        "n_bars": float(n_bars),
+        "rebalance_events": float(rebalance_events),
+        "rebalance_cadence_bars": float(n_bars / max(1, rebalance_events)),
+        "holding_cadence_bars": float(np.mean(holding_lengths)) if holding_lengths else 0.0,
+        "holding_completed_cadence_bars": (
+            float(np.mean(completed_lengths)) if completed_lengths else 0.0
+        ),
+        "holding_completed_epochs": float(completed_epochs),
+        "holding_censored_epochs": float(censored_epochs),
+        "holding_completed_assets": float(completed_assets),
+        "assets_held": float(len(holding_lengths)),
+    }
+
+
+def evaluate_cadence_alignment(
+    evidence: dict[str, Any] | None,
+    *,
+    label_horizon_bars: int,
+    expected_holding_bars: int | None = None,
+    execution_protocol: str | None = None,
+    divergence_ratio: float = CADENCE_MATERIAL_DIVERGENCE_RATIO,
+) -> dict[str, Any]:
+    """Audit Check 1: does the *measured* trading cadence agree with a declared horizon?
+
+    Two measured quantities are judged, and either one failing is a material divergence:
+
+    * the decision (rebalance) cadence against the contract's ``label_horizon_bars`` --
+      a decision clock this far from the label means the label was fitted to another
+      horizon;
+    * the holding cadence against the horizon the hypothesis declared up front
+      (``expected_holding_bars`` when present, else the label horizon) -- a hold with no
+      declared horizon behind it is an unreviewed lifetime claim.  Only *completed*
+      holding epochs are judged: a position still open at the tape's last bar is
+      right-censored, carries no evidence of its intended lifetime, and is reported as
+      ``right_censored`` instead of counted as a divergence.
+
+    ``evidence`` is the run-time record written by the runner: a measurement of the
+    executed tape plus any alignment the spec declared up front.  A material divergence
+    passes only against a *valid* declared alignment: the declaration must carry a reason
+    and, for the dimension that diverges, a numeric cadence that agrees with what the tape
+    actually did within the same band.  A blank reason, a bare narrative, or a number that
+    contradicts the measurement is not a declaration.  Absent evidence is reported as
+    ``absent``: it cannot prove a mismatch, so a trial that never recorded an execution
+    protocol keeps the historical behaviour, while a trial that does record one and still
+    has no cadence record is refused.
+    """
+    horizon = int(label_horizon_bars or 0)
+    result: dict[str, Any] = {
+        "passed": False,
+        "label_horizon_bars": float(horizon),
+        "evidence": "absent",
+        "material_divergence": None,
+        "decision_divergence": None,
+        "holding_divergence": None,
+        "holding_cadence_basis": "unavailable",
+        "declared_alignment": None,
+    }
+    if horizon < 1:
+        result["reason"] = "contract label_horizon_bars must be >= 1"
+        return result
+    if not isinstance(evidence, dict) or not evidence:
+        if execution_protocol:
+            result["reason"] = (
+                f"no cadence evidence recorded although the trial records "
+                f"execution_protocol={execution_protocol}; trading cadence cannot be audited"
+            )
+            return result
+        result["passed"] = True
+        result["reason"] = "no cadence evidence recorded for this trial"
+        return result
+
+    rebalance = float(evidence.get("rebalance_cadence_bars") or 0.0)
+    holding = float(evidence.get("holding_cadence_bars") or 0.0)
+    completed_holding = float(evidence.get("holding_completed_cadence_bars") or 0.0)
+    if "holding_completed_epochs" in evidence:
+        completed_epochs = int(evidence.get("holding_completed_epochs") or 0)
+    else:
+        # A record written without censoring information cannot distinguish "never exited"
+        # from "held too long": fall back to the all-epoch mean, which can only over-report a
+        # divergence, never hide one.
+        completed_epochs = -1
+    declared_holding_horizon = evidence.get("expected_holding_bars")
+    if expected_holding_bars is None and isinstance(declared_holding_horizon, (int, float)):
+        expected_holding_bars = int(declared_holding_horizon)
+    holding_horizon = int(expected_holding_bars or horizon)
+    result.update(
+        evidence="recorded",
+        observed_rebalance_cadence_bars=rebalance,
+        observed_holding_cadence_bars=holding,
+        observed_holding_completed_cadence_bars=completed_holding,
+        holding_completed_epochs=float(max(0, completed_epochs)),
+        holding_horizon_bars=float(holding_horizon),
+    )
+    if rebalance <= 0.0 or holding <= 0.0:
+        result["reason"] = "recorded cadence is degenerate (no rebalance or no holding)"
+        return result
+
+    upper = float(horizon) * float(divergence_ratio)
+    lower = float(horizon) / float(divergence_ratio)
+    decision_diverges = (rebalance > upper) or (rebalance < lower)
+    result["decision_divergence"] = bool(decision_diverges)
+    if completed_epochs > 0:
+        result["holding_cadence_basis"] = "completed_epochs"
+    elif completed_epochs == 0:
+        # Every epoch is still open at the last bar: the tape cannot measure a lifetime.
+        result["holding_cadence_basis"] = "right_censored"
+    else:
+        result["holding_cadence_basis"] = "all_epochs"
+        completed_holding = holding
+        result["observed_holding_completed_cadence_bars"] = completed_holding
+    if result["holding_cadence_basis"] == "right_censored":
+        result["holding_divergence"] = None
+    else:
+        holding_upper = float(holding_horizon) * float(divergence_ratio)
+        holding_lower = float(holding_horizon) / float(divergence_ratio)
+        holding_diverges = (completed_holding > holding_upper) or (
+            completed_holding < holding_lower
+        )
+        result["holding_divergence"] = bool(holding_diverges)
+    result["holding_beyond_label_horizon"] = bool(holding > upper)
+
+    declared = evidence.get("declared_alignment")
+    declared_reason = ""
+    declared_cadence: float | None = None
+    declared_holding: float | None = None
+    if isinstance(declared, dict):
+        declared_reason = str(declared.get("reason") or "").strip()
+        raw_cadence = declared.get("declared_cadence_bars")
+        raw_holding = declared.get("declared_holding_bars")
+        if isinstance(raw_cadence, (int, float)) and not isinstance(raw_cadence, bool):
+            declared_cadence = float(raw_cadence)
+        if isinstance(raw_holding, (int, float)) and not isinstance(raw_holding, bool):
+            declared_holding = float(raw_holding)
+        result["declared_alignment"] = {
+            "reason": declared_reason,
+            "declared_cadence_bars": declared_cadence,
+            "declared_holding_bars": declared_holding,
+        }
+    has_reason = bool(declared_reason)
+
+    def _agrees(declared_value: float, measured: float) -> bool:
+        # A declaration waives a divergence only for the value it declares, and only when
+        # that value is consistent with the measurement inside the same materiality band.
+        declared_upper = declared_value * float(divergence_ratio)
+        declared_lower = declared_value / float(divergence_ratio)
+        return declared_lower <= measured <= declared_upper
+
+    decision_waived = (
+        has_reason
+        and declared_cadence is not None
+        and _agrees(declared_cadence, rebalance)
+    )
+    holding_waived = (
+        has_reason
+        and declared_holding is not None
+        and _agrees(declared_holding, completed_holding)
+    )
+    result["declared_alignment_valid"] = {
+        "decision": bool(decision_waived) if decision_diverges else None,
+        "holding": bool(holding_waived) if result["holding_divergence"] else None,
+    }
+    result["material_divergence"] = bool(decision_diverges or result["holding_divergence"])
+
+    if not decision_diverges and not result["holding_divergence"]:
+        result["passed"] = True
+        if result["holding_cadence_basis"] == "right_censored":
+            result["reason"] = (
+                f"observed decision cadence {rebalance:.2f} bars agrees with label horizon "
+                f"{horizon}; holding is right-censored (no completed epoch), so it is "
+                f"reported and not judged"
+            )
+        else:
+            result["reason"] = (
+                f"observed decision cadence {rebalance:.2f} bars agrees with label horizon "
+                f"{horizon} and observed holding {completed_holding:.2f} bars agrees with "
+                f"declared holding horizon {holding_horizon}"
+            )
+        return result
+
+    problems: list[str] = []
+    blocking: list[str] = []
+    if decision_diverges:
+        problems.append(
+            f"observed decision cadence {rebalance:.2f} bars diverges from label horizon "
+            f"{horizon} (band {lower:.2f}-{upper:.2f})"
+        )
+        if not decision_waived:
+            blocking.append("decision")
+    if result["holding_divergence"]:
+        problems.append(
+            f"observed holding cadence {completed_holding:.2f} bars diverges from declared "
+            f"holding horizon {holding_horizon} (band "
+            f"{holding_horizon / float(divergence_ratio):.2f}-"
+            f"{holding_horizon * float(divergence_ratio):.2f})"
+        )
+        if not holding_waived:
+            blocking.append("holding")
+    result["blocking_dimensions"] = blocking
+    if not blocking:
+        result["passed"] = True
+        result["reason"] = "materially divergent cadence carries a declared alignment"
+        return result
+    suffix = (
+        "without declared alignment"
+        if not has_reason and declared_cadence is None and declared_holding is None
+        else "without declared alignment: a declaration needs a reason and a cadence that "
+        "agrees with the measured tape"
+    )
+    result["reason"] = "; ".join(problems) + " " + suffix
+    return result
+
+
+def evaluate_fold_isolation_evidence(
+    *,
+    family: str | None,
+    protocol: str | None,
+    evidence: dict[str, Any] | None,
+    contract: EvaluationContract,
+) -> dict[str, Any]:
+    """Audit Check 4: require verified fold-isolated ML execution, not contract integers.
+
+    A trial whose protocol is ``causal_model`` (or whose family is
+    ``cross_sectional_ml``) must carry the run-time fold record produced by
+    ``run_causal_model_strategy``: folds actually executed, per-fold purge/embargo gap
+    measured on the panel clock, and labels physically stripped from the validation
+    frame.  Non-ML trials keep the historical static check.
+    """
+    label_horizon = int(contract.label_horizon_bars)
+    delay = int(contract.execution_delay_bars)
+    embargo = int(contract.embargo_bars)
+    required_gap = label_horizon + delay + embargo
+    ml_trial = protocol == "causal_model" or family == "cross_sectional_ml"
+    result: dict[str, Any] = {
+        "passed": False,
+        "basis": "fold_isolation_evidence" if ml_trial else "contract_integers",
+        "ml_trial": bool(ml_trial),
+        "required_gap_bars": float(required_gap),
+    }
+    if not ml_trial:
+        result["passed"] = (contract.n_folds >= 2 and embargo >= 1) or family == "rules_ts"
+        return result
+    if not isinstance(evidence, dict) or not evidence:
+        result["reason"] = "no fold-isolation execution evidence recorded for this ML trial"
+        return result
+    folds = int(evidence.get("folds") or 0)
+    raw_gap = evidence.get("min_gap_bars")
+    min_gap = float(raw_gap) if isinstance(raw_gap, (int, float)) and not isinstance(raw_gap, bool) else -1.0
+    labels_stripped = evidence.get("labels_stripped") is True
+    evidence_protocol = evidence.get("protocol")
+    result.update(
+        folds=float(folds),
+        min_gap_bars=min_gap,
+        labels_stripped=labels_stripped,
+        evidence_protocol=evidence_protocol,
+    )
+    checks = {
+        "protocol_is_causal_model": evidence_protocol == "causal_model",
+        "folds_executed": folds >= int(contract.n_folds),
+        "purge_embargo_applied": min_gap >= float(required_gap),
+        "validation_labels_stripped": labels_stripped,
+        "evaluator_verified": evidence.get("verified") is True,
+    }
+    result["checks"] = checks
+    result["passed"] = all(checks.values())
+    if not result["passed"]:
+        result["reason"] = "fold-isolation evidence failed: " + ", ".join(
+            name for name, ok in checks.items() if not ok
+        )
+    return result
 
 
 def apply_causal_meta_overlay(

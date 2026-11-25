@@ -27,11 +27,18 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from warden_ops.readonly import ReadOnlyResearchRegistry
+
 DEFAULT_DB = Path("registry/registry.db")
 
 
 def snapshot(src: Path, dst: Path) -> Path:
-    """Write a transactionally consistent copy of `src` to `dst` via the backup API."""
+    """Write a transactionally consistent copy of `src` to `dst` via the backup API.
+
+    This is the one place in this script that opens SQLite directly: the backup API
+    needs a source connection, and a read-only ``mode=ro`` handle is exactly what the
+    copy must come from. Every other read below goes through the readonly registry view.
+    """
     dst.parent.mkdir(parents=True, exist_ok=True)
     for suffix in ("", "-wal", "-shm"):
         Path(str(dst) + suffix).unlink(missing_ok=True)
@@ -48,17 +55,9 @@ def snapshot(src: Path, dst: Path) -> Path:
 
 
 def prior_stream_lengths(db_path: Path, contract_id: str, exclude_run_id: str = "") -> list[int]:
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    try:
-        rows = con.execute(
-            "SELECT returns_json FROM trials WHERE contract_id=? AND run_id!=? "
-            "AND returns_json NOT IN ('', '[]')", (contract_id, exclude_run_id)).fetchall()
-        rows += con.execute(
-            "SELECT returns_json FROM selection_attempts WHERE contract_id=? AND kind='param_grid' "
-            "AND returns_json NOT IN ('', '[]')", (contract_id,)).fetchall()
-    finally:
-        con.close()
-    return sorted({len(json.loads(r[0])) for r in rows})
+    ledger = ReadOnlyResearchRegistry(db_path)
+    vectors = ledger.read_recorded_return_vectors(contract_id, exclude_run_id)
+    return sorted({len(json.loads(vector)) for vector in vectors})
 
 
 def check_alignment(candidate_bars: int, prior_lengths: list[int]) -> list[str]:
@@ -84,12 +83,9 @@ def preflight(spec_path: Path, db_path: Path = DEFAULT_DB, workdir: Path | None 
         snap = snapshot(db_path, workdir / "registry.db")
         runner = ExperimentRunner(registry=ResearchRegistry(snap), repo_root=Path("."))
         result = runner.run_spec(spec_path)
-        con = sqlite3.connect(f"file:{snap}?mode=ro", uri=True)
-        try:
-            path = con.execute("SELECT returns_parquet_path FROM trials WHERE run_id=?",
-                               (result.run_id,)).fetchone()[0]
-        finally:
-            con.close()
+        path = ReadOnlyResearchRegistry(snap).read_trial_returns_path(result.run_id)
+        if path is None:
+            raise ValueError(f"trial {result.run_id} recorded no returns_parquet_path in the snapshot")
         import polars as pl
         bars = len(pl.read_parquet(Path(path))["net_return"]) if Path(path).is_file() else 0
         problems = check_alignment(bars, prior_stream_lengths(snap, result.contract_id, result.run_id))

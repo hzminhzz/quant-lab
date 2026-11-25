@@ -11,7 +11,7 @@ from typing import Any, Protocol
 import numpy as np
 import polars as pl
 
-from warden.contracts import FREQUENCY_BAR_DURATION, EvaluationContract
+from warden.contracts import FREQUENCY_BAR_DURATION, EvaluationContract, canonical_json
 
 
 class LookaheadLeakageError(ValueError): pass
@@ -97,7 +97,22 @@ def verify_prefix_invariance(pipeline: FeaturePipelineProtocol, bars_df: pl.Data
     that only differs after the last cut point is not detected. Deterministic
     fixtures cover boundary, global-normalisation, future-ratio and null-mask
     classes; new classes need new tests.
+
+    A pipeline whose *feature* is a strategy execution can carry a
+    ``prefix_proof`` (see ``warden.evaluation.PrefixInvarianceProof``) issued by
+    the kernel proof for the exact panel/contract/params/code closure.  That proof
+    compares the same values at two cut points and their ``val_start`` checkpoints,
+    on panels it executed itself, so it satisfies this gate without re-running the
+    strategy for every sampled cut point.  Only a proof the evaluator issued and
+    enrolled is accepted (``warden.evaluation.trusted_prefix_proof``): a
+    ``prefix_proof`` attribute supplied by a strategy module — including a
+    look-alike object with a permissive ``covers`` — is ignored and the full
+    sampled check runs exactly as before.
     """
+    from warden.evaluation import trusted_prefix_proof
+
+    if trusted_prefix_proof(pipeline, bars_df, contract) is not None:
+        return
     timestamps = sorted(bars_df["timestamp"].unique().to_list())
     if len(timestamps) < 20:
         raise ValueError("Insufficient distinct timestamps")
@@ -422,25 +437,45 @@ def verify_rules_strategy_prefix_invariance(
     params: dict[str, Any] | None = None,
     *,
     policy_cfg: dict[str, Any] | None = None,
-) -> None:
-    """Prove prefix invariance on CausalRulesStrategy's actual Engine orders/positions."""
+    kernel: Any | None = None,
+    code_sha256: str | None = None,
+) -> Any:
+    """Prove prefix invariance on a CausalRulesStrategy's Engine fills *and* tape.
+
+    One ``EvaluationKernel`` session executes the full panel once; each cut point
+    then executes exactly two derived panels (truncated, future-shocked).  The
+    position tape those runs produce is the same object the feature cache stores,
+    so the fill-level proof and the feature-level proof share every execution
+    instead of re-running the strategy for each.  Checkpoints include
+    ``val_start`` and the cut itself, both compared for truncation and for a
+    shocked future.
+
+    Returns a :class:`warden.evaluation.PrefixInvarianceProof` bound to this exact
+    panel, contract, parameter block, execution policy and strategy code closure.
+    The proof is enrolled in the evaluator's issuance ledger, which is the only
+    way ``verify_prefix_invariance`` will ever reuse it.
+
+    ``policy_cfg`` is accepted for call-site compatibility only: the execution
+    policy is contract-owned (``extract_execution_policy`` ignores an experiment
+    config or parameter block), so the kernel derives the one canonical policy.
+    """
     import bisect
     import tempfile
     from dataclasses import replace as dc_replace
     from pathlib import Path
 
-    from warden.engine_sim import extract_execution_policy, run_engine_strategy
-    from warden.protocols import resolve_protocol_target
+    from warden.evaluation import (
+        EvaluationKernel,
+        PrefixInvarianceProof,
+        checkpoint_label,
+        evidence_digest,
+        normalise_panel,
+        panel_digest,
+        policy_payload,
+        register_prefix_proof,
+    )
 
-    target = resolve_protocol_target(mod)
-    norm_df = (
-        bars_df.rename({"symbol": "asset"})
-        if "symbol" in bars_df.columns and "asset" not in bars_df.columns
-        else bars_df
-    ).sort("timestamp", "asset")
-    if hasattr(mod, "pipeline") and callable(getattr(mod.pipeline, "compute", None)):
-        verify_prefix_invariance(mod.pipeline, norm_df, contract)
-
+    norm_df = normalise_panel(bars_df)
     ts = sorted(norm_df["timestamp"].unique().to_list())
     assets = sorted(norm_df["asset"].unique().to_list())
     if len(ts) < 20:
@@ -452,68 +487,110 @@ def verify_rules_strategy_prefix_invariance(
         v_start = max(4, len(ts) // 4)
         v_stop = len(ts)
 
-    policy = extract_execution_policy(policy_cfg or {}, dict(params or {}))
-    full_sim = run_engine_strategy(
-        norm_df,
-        target.configure_strategy(contract, dict(params or {})),
-        ts,
-        assets,
-        contract,
-        slice(v_start, v_stop),
-        **policy,
+    kernel = kernel if kernel is not None else EvaluationKernel()
+    policy = kernel.policy_for(contract)
+    execution_params = dict(params or {})
+    full_tape = kernel.run_rules(
+        mod, norm_df, ts, assets, contract, slice(0, len(ts)), execution_params, policy=policy
     )
 
     span = v_stop - v_start
     cut_indices = sorted({v_start + max(4, span // 3), v_start + max(5, (2 * span) // 3)})
+    checkpoints: list[str] = []
+    evidence: list[tuple[str, str]] = []
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_root = Path(tmp_dir)
         for idx, c_idx in enumerate(cut_indices):
             if c_idx >= v_stop:
                 continue
             t0 = ts[c_idx]
-            n_prefix = c_idx + 1 - v_start
+            n_prefix = c_idx + 1
             trunc_df = norm_df.filter(pl.col("timestamp") <= t0)
             trunc_pq = tmp_root / f"trunc_{idx}.parquet"
             trunc_df.write_parquet(trunc_pq)
             trunc_contract = dc_replace(contract, exploratory_data_path=str(trunc_pq))
-            ts_trunc = ts[: c_idx + 1]
-            trunc_sim = run_engine_strategy(
+            trunc_tape = kernel.run_rules(
+                mod,
                 trunc_df,
-                target.configure_strategy(trunc_contract, dict(params or {})),
-                ts_trunc,
+                ts[:n_prefix],
                 assets,
                 trunc_contract,
-                slice(v_start, c_idx + 1),
-                **policy,
+                slice(0, n_prefix),
+                execution_params,
+                policy=policy,
             )
 
             pert_df = _apply_future_shock(norm_df, t0)
             pert_pq = tmp_root / f"pert_{idx}.parquet"
             pert_df.write_parquet(pert_pq)
             pert_contract = dc_replace(contract, exploratory_data_path=str(pert_pq))
-            pert_sim = run_engine_strategy(
+            pert_tape = kernel.run_rules(
+                mod,
                 pert_df,
-                target.configure_strategy(pert_contract, dict(params or {})),
                 ts,
                 assets,
                 pert_contract,
-                slice(v_start, v_stop),
-                **policy,
+                slice(0, len(ts)),
+                execution_params,
+                policy=policy,
             )
 
-            full_sigs = _fills_signature(full_sim.backtest_result.fills, t0)
-            trunc_sigs = _fills_signature(trunc_sim.backtest_result.fills, t0)
-            pert_sigs = _fills_signature(pert_sim.backtest_result.fills, t0)
+            full_sigs = _fills_signature(full_tape.backtest_result.fills, t0)
+            trunc_sigs = _fills_signature(trunc_tape.backtest_result.fills, t0)
+            pert_sigs = _fills_signature(pert_tape.backtest_result.fills, t0)
             if full_sigs != trunc_sigs or full_sigs != pert_sigs:
                 raise LookaheadLeakageError(
                     f"Lookahead leakage detected in CausalRulesStrategy fills at cutoff {t0}"
                 )
-            if not np.allclose(full_sim.positions[:n_prefix], trunc_sim.positions, rtol=1e-8, atol=1e-8) or not np.allclose(
-                full_sim.positions[:n_prefix], pert_sim.positions[:n_prefix], rtol=1e-8, atol=1e-8
+            if not np.allclose(
+                full_tape.positions[:n_prefix], trunc_tape.positions, rtol=1e-8, atol=1e-8
+            ) or not np.allclose(
+                full_tape.positions[:n_prefix], pert_tape.positions[:n_prefix], rtol=1e-8, atol=1e-8
             ):
                 raise LookaheadLeakageError(
                     f"Lookahead leakage detected in CausalRulesStrategy positions at cutoff {t0}"
                 )
+
+            # Both checkpoints are free: they re-use the two runs above.
+            for stamp_idx in sorted({min(v_start, c_idx), c_idx}):
+                stamp = ts[stamp_idx]
+                upto = stamp_idx + 1
+                if not np.allclose(
+                    full_tape.positions[:upto],
+                    pert_tape.positions[:upto],
+                    rtol=1e-8,
+                    atol=1e-8,
+                ):
+                    raise LookaheadLeakageError(
+                        "Lookahead leakage detected in CausalRulesStrategy tape "
+                        f"before checkpoint {stamp}"
+                    )
+                label = checkpoint_label(stamp)
+                if label in checkpoints:
+                    continue
+                checkpoints.append(label)
+                evidence.append(
+                    (
+                        label,
+                        evidence_digest(
+                            full_tape.positions[:upto],
+                            trunc_tape.positions[: min(upto, n_prefix)],
+                            pert_tape.positions[:upto],
+                        ),
+                    )
+                )
+
+    return register_prefix_proof(PrefixInvarianceProof(
+        protocol="causal_rules",
+        panel_sha256=panel_digest(norm_df),
+        contract_spec_hash=contract.spec_hash(),
+        params_json=canonical_json(execution_params),
+        policy_json=policy_payload(policy),
+        checkpoints=tuple(checkpoints),
+        evidence=tuple(evidence),
+        engine_runs=int(getattr(kernel, "engine_runs", 0)),
+        strategy_sha256=str(code_sha256 or ""),
+    ))
 
 
 def verify_rules_strategy_asset_independence(
@@ -524,22 +601,21 @@ def verify_rules_strategy_asset_independence(
     target_asset: str | None = None,
     *,
     policy_cfg: dict[str, Any] | None = None,
+    kernel: Any | None = None,
 ) -> None:
     """Verify per-asset rules strategies do not leak signals/orders across assets."""
     import bisect
 
-    from warden.engine_sim import extract_execution_policy, run_engine_strategy
+    from warden.evaluation import EvaluationKernel, normalise_panel
     from warden.protocols import resolve_protocol_target
 
     target = resolve_protocol_target(mod)
     if getattr(mod, "cross_sectional", False) or getattr(mod, "portfolio_coupled", False) or getattr(target, "cross_sectional", False) or getattr(target, "portfolio_coupled", False):
         return
 
-    norm_df = (
-        bars_df.rename({"symbol": "asset"})
-        if "symbol" in bars_df.columns and "asset" not in bars_df.columns
-        else bars_df
-    ).sort("timestamp", "asset")
+    kernel = kernel if kernel is not None else EvaluationKernel()
+
+    norm_df = normalise_panel(bars_df)
     if hasattr(mod, "per_asset_pipeline") and callable(getattr(mod.per_asset_pipeline, "compute", None)):
         verify_asset_independence(mod.per_asset_pipeline, norm_df, contract, target_asset=target_asset)
 
@@ -554,15 +630,11 @@ def verify_rules_strategy_asset_independence(
         v_start = max(4, len(ts) // 4)
         v_stop = len(ts)
 
-    policy = extract_execution_policy(policy_cfg or {}, dict(params or {}))
-    base_sim = run_engine_strategy(
-        norm_df,
-        target.configure_strategy(contract, dict(params or {})),
-        ts,
-        assets,
-        contract,
-        slice(v_start, v_stop),
-        **policy,
+    policy = kernel.policy_for(contract)
+    execution_params = dict(params or {})
+    # Same panel/contract/params as the prefix proof: this is a memo hit, not a run.
+    base_tape = kernel.run_rules(
+        mod, norm_df, ts, assets, contract, slice(0, len(ts)), execution_params, policy=policy
     )
     shocked_df = norm_df.with_columns(
         [
@@ -571,20 +643,19 @@ def verify_rules_strategy_asset_independence(
             if c in norm_df.columns
         ]
     )
-    shock_sim = run_engine_strategy(
-        shocked_df,
-        target.configure_strategy(contract, dict(params or {})),
-        ts,
-        assets,
-        contract,
-        slice(v_start, v_stop),
-        **policy,
+    shock_tape = kernel.run_rules(
+        mod, shocked_df, ts, assets, contract, slice(0, len(ts)), execution_params, policy=policy
     )
 
     for j, asset in enumerate(assets):
         if asset == shock_asset:
             continue
-        if not np.allclose(base_sim.positions[:, j], shock_sim.positions[:, j], rtol=1e-4, atol=1e-4):
+        if not np.allclose(
+            base_tape.positions[v_start:v_stop, j],
+            shock_tape.positions[v_start:v_stop, j],
+            rtol=1e-4,
+            atol=1e-4,
+        ):
             raise CrossAssetLeakageError(
                 f"Cross-asset leakage detected in '{asset}' when shocking '{shock_asset}'"
             )

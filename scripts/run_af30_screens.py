@@ -3,11 +3,12 @@
 
 import ast
 import json
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
 import yaml
+
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 CAMPAIGN = [
     (71, "01", "buy_hold_single", "ts_s01_buy_hold_single_1h.py", "Buy & Hold Single", "trend"),
@@ -99,11 +100,7 @@ def main():
         hyp_path.write_text(yaml.safe_dump(hyp_doc, sort_keys=False), encoding="utf-8")
 
         db_path = repo_root / "registry" / "registry.db"
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.cursor()
-            already_registered = cur.execute(
-                "SELECT 1 FROM hypotheses WHERE hypothesis_id=?", (hyp_id,)
-            ).fetchone()
+        already_registered = ReadOnlyResearchRegistry(db_path).read_hypothesis(hyp_id) is not None
 
         if not already_registered:
             print(f"Registering {hyp_id}...")
@@ -150,16 +147,12 @@ def main():
             print(f"Verify parsing failed for {screen_yaml_path.name}: {e}\nstdout: {res_ver.stdout}")
             sys.exit(1)
 
-        with sqlite3.connect(db_path) as conn:
-            cur = conn.cursor()
-            existing_screen = cur.execute(
-                "SELECT outcome, diagnostics_json FROM selection_attempts WHERE hypothesis_id=? AND kind='standalone_screen'",
-                (hyp_id,),
-            ).fetchone()
+        existing_screen = ReadOnlyResearchRegistry(db_path).read_standalone_screen(hyp_id)
 
         if existing_screen:
             print(f"Screen already recorded for {hyp_id}")
-            outcome, diag_json = existing_screen
+            outcome = existing_screen["outcome"]
+            diag_json = existing_screen["diagnostics_json"]
             diag = json.loads(diag_json) if diag_json else {}
             passed = (outcome == "PASS")
             verdict = outcome

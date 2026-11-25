@@ -1,0 +1,67 @@
+# Reviewed dataset spec: point-in-time crypto perpetual panel (#104).
+#
+# The declaration is the roots + partition period + symbol catalog; the lake listing is the
+# enumeration.  Every symbol listed before exploratory_end_exclusive must appear in
+# universe.symbols, delisted ones included (retain_delisted: true), and no partition that
+# begins at or after the cutoff is ever opened.
+schema_version: 1
+dataset_id: synth_crypto_perp_pit_1h_funding_r1
+asset_class: crypto_perps
+evidence_tier: synthetic
+venue: synth_binance_um
+frequency: 1h
+price_basis: ohlcv_funding
+volume_semantics: real_contracts
+time_window:
+  start_inclusive: "2025-01-01T00:00:00Z"
+  exploratory_end_exclusive: "2025-01-09T00:00:00Z"
+  holdout_start_inclusive: "2025-01-09T00:00:00Z"
+  holdout_end_exclusive: "2025-01-12T00:00:00Z"
+time_contract:
+  timezone: UTC
+  bar_timestamp_semantics: open_left_closed_left
+  session_calendar: 24/7
+  daily_roll_anchor: null
+source:
+  kind: lake_raw
+  adapter: binance_um_perp
+  inputs:
+    catalog:
+      path: raw/catalog.csv
+      format: csv
+      role: symbol_catalog
+  crypto:
+    symbol_catalog: catalog
+    klines_root: raw/klines
+    funding_root: raw/funding
+    partition_period: month
+    timestamp_column: timestamp
+    entity_column: symbol
+    ignored_columns: []
+universe:
+  selection_mode: explicit_symbols
+  symbols:
+    - AAAUSDT
+    - BBBUSDT
+  retain_delisted: true
+resampling:
+  enabled: false
+  require_min_sub_bars: null
+quality_gate:
+  max_abs_bar_return: 0.3
+  mad_outlier_threshold: 12.0
+  allow_zero_volume: false
+  explicit_anomaly_filters: []
+  min_coverage_ratio: 0.4
+parquet_write:
+  compression: zstd
+  compression_level: 3
+  statistics: true
+  row_group_size: 100000
+  sort_keys:
+    - timestamp
+    - asset
+funding:
+  settlement_interval: 8h
+  snap_tolerance_seconds: 15
+  missing_policy: fail

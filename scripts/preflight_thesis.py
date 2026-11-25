@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Read-only thesis preflight: current state card and the next legal command.
 
-Writes nothing, ever. SQLite is opened with ``mode=ro`` and only these three tables are read;
-``ResearchRegistry`` is deliberately not imported, because its constructor creates schema and
-inserts quarantine/migration rows (``registry.py:149-198``). Contracts are loaded from
-``contracts/<id>.yaml`` and datasets resolved through ``provenance.resolve_dataset`` — both pure
-filesystem reads. See AGENT_RUNBOOK.md.
+Writes nothing, ever. The ledger is read through ``warden_ops.readonly``, whose
+``ResearchRegistry(..., readonly=True)`` view opens SQLite with ``mode=ro`` and
+``PRAGMA query_only=ON`` and runs no migrations, schema creation or
+quarantine/migration inserts (``preflight`` used to avoid the registry class for
+that reason; the readonly view is now the supported way to get both). Contracts are
+loaded from ``contracts/<id>.yaml`` and datasets resolved through
+``provenance.resolve_dataset`` — both pure filesystem reads. See AGENT_RUNBOOK.md.
 """
 
 import argparse
@@ -16,7 +18,6 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import quote
 
 import polars as pl
 
@@ -24,6 +25,7 @@ from warden.cli import MANIFEST_FILE, check_worktree
 from warden.contracts import EvaluationContract, load_contract, validate_panel_feed_spec
 from warden.provenance import resolve_dataset
 from warden.runner import require_execution_columns
+from warden_ops.readonly import open_readonly
 
 ROOT = Path(".")
 DEFAULT_REGISTRY = ROOT / "registry" / "registry.db"
@@ -35,33 +37,13 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], capture_output=True, text=True, check=False).stdout.strip()
 
 
-def connect_ro(db: Path) -> sqlite3.Connection | None:
-    """Open an existing database read-only. Never creates a file, schema, or row."""
-    if not db.is_file():
-        return None
-    return sqlite3.connect(f"file:{quote(str(db.resolve()), safe='/')}?mode=ro", uri=True)
-
-
-def _count(conn: sqlite3.Connection, sql: str, params: tuple = ()) -> int | None:
+def prior_search_floor_ro(ledger, contract: EvaluationContract) -> tuple[float | None, float | None]:
+    """The stored multiple-testing floor; unknown on a registry without the tables."""
     try:
-        return int(conn.execute(sql, params).fetchone()[0])
-    except sqlite3.Error:
-        return None  # fresh or older registry: table/column absent, report unknown
-
-
-def prior_search_floor_ro(conn: sqlite3.Connection, contract: EvaluationContract) -> tuple[float | None, float | None]:
-    """Read-only copy of ResearchRegistry.prior_search_floor (registry.py:437-448)."""
-    try:
-        state = conn.execute(
-            "SELECT MAX(s.max_keff_gate), MAX(s.max_noise) FROM contract_search_state s "
-            "JOIN contracts c ON c.contract_id = s.contract_id "
-            "WHERE s.contract_id=? OR (c.asset_class=? AND c.frequency=?)",
-            (contract.contract_id, contract.asset_class, contract.frequency)).fetchone()
-        trial_max = conn.execute("SELECT MAX(effective_trials_keff) FROM trials WHERE contract_id=?",
-                                 (contract.contract_id,)).fetchone()[0]
+        keff, noise, _family = ledger.prior_search_floor(contract)
     except sqlite3.Error:
         return None, None
-    return max(float(state[0] or 1.0), float(trial_max or 1.0)), float(state[1] or 0.0)
+    return keff, noise
 
 
 def validation_gap_covered(val_end: datetime, last: datetime | None, frequency: str) -> tuple[bool, float]:
@@ -140,20 +122,16 @@ def contract_card(cid: str, registry: Path) -> dict:
     except Exception as exc:  # noqa: BLE001
         card["dataset_error"] = f"{type(exc).__name__}: {exc}"
 
-    conn = connect_ro(registry)
-    if conn is None:
+    ledger = open_readonly(registry)
+    if ledger is None:
         card["registry"] = "absent"
         return card
-    try:
-        keff, noise = prior_search_floor_ro(conn, contract)
-        card.update(prior_search_floor_keff=None if keff is None else round(keff, 2),
-                    prior_max_noise=None if noise is None else round(noise, 2),
-                    selection_attempts=_count(conn, "SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?",
-                                              (contract.contract_id,)),
-                    hypotheses=_count(conn, "SELECT COUNT(*) FROM hypotheses WHERE contract_id=?",
-                                      (contract.contract_id,)))
-    finally:
-        conn.close()
+    keff, noise = prior_search_floor_ro(ledger, contract)
+    counts = ledger.read_contract_evidence_counts(contract.contract_id)
+    card.update(prior_search_floor_keff=None if keff is None else round(keff, 2),
+                prior_max_noise=None if noise is None else round(noise, 2),
+                selection_attempts=counts["selection_attempts"],
+                hypotheses=counts["hypotheses"])
     # Declared path only: the holdout is never opened, read or stat'ed here, and no permission
     # inference is reported (an execute-only ACL on the directory makes such hints misleading).
     card["holdout_path_declared"] = contract.holdout_data_path
@@ -162,24 +140,21 @@ def contract_card(cid: str, registry: Path) -> dict:
 
 def hypothesis_card(hid: str, registry: Path) -> dict:
     card: dict = {"hypothesis_id": hid, "registered": False}
-    conn = connect_ro(registry)
-    if conn is None:
+    ledger = open_readonly(registry)
+    if ledger is None:
         card["registry"] = "absent"
         return card
     try:
-        row = conn.execute(
-            "SELECT contract_id, strategy_family, trials_used, status, expected_holding_bars, title "
-            "FROM hypotheses WHERE hypothesis_id=?", (hid,)).fetchone()
+        row = ledger.read_hypothesis(hid)
     except sqlite3.Error:
         card["registry"] = "schema lacks hypotheses table (older registry)"
         return card
-    finally:
-        conn.close()
     if not row:
         return card
-    card.update(registered=True, contract_id=row[0], strategy_family=row[1], trials_used=row[2],
-                trials_remaining=max(0, 3 - int(row[2] or 0)), status=row[3],
-                expected_holding_bars=row[4], title=row[5])
+    card.update(registered=True, contract_id=row["contract_id"], strategy_family=row["strategy_family"],
+                trials_used=row["trials_used"],
+                trials_remaining=max(0, 3 - int(row["trials_used"] or 0)), status=row["status"],
+                expected_holding_bars=row["expected_holding_bars"], title=row["title"])
     return card
 
 

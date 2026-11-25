@@ -7,23 +7,22 @@ import time
 from pathlib import Path
 from typing import Any
 
-import polars as pl
 import yaml
 
 from warden.codeid import code_closure
-from warden.engine_sim import extract_execution_policy, run_engine_simulation, run_engine_strategy
+from warden.contracts import PROMOTED, PROXY_HOLDOUT_PASS, REJECTED_ON_HOLDOUT
+from warden.engine_sim import extract_execution_policy
+from warden.evaluation import EvaluationKernel
 from warden.gates import HOLDOUT_RATIO_FLOOR, HOLDOUT_SR_FLOOR
+from warden.market_data import ROLE_HOLDOUT, MarketDataGateway
 from warden.protocols import (
     detect_strategy_protocol,
     resolve_effective_params,
-    resolve_protocol_target,
-    run_causal_model_strategy,
 )
-from warden.provenance import resolve_dataset
+from warden.provenance import resolve_contract_governance, resolve_dataset
 from warden.runner import (
     ExperimentRunner,
     calculate_metrics_from_returns,
-    filter_target_symbols,
 )
 from warden.strategy_loader import load_module_from_path
 
@@ -76,6 +75,13 @@ def qualify_candidate(
             raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row[1]}'.")
 
     contract = runner.resolve_contract(cid)
+    # Evidence tier is contract-owned.  A synthetic tier can never be qualified on
+    # a production holdout, so it is refused before any claim or read begins.
+    governance = resolve_contract_governance(contract, runner.repo_root)
+    if governance.evidence_tier == "synthetic":
+        raise ValueError(
+            f"Contract '{cid}' declares evidence_tier 'synthetic'; synthetic evidence is never qualified "
+            "on a production holdout.")
     # Qualification may not silently execute an unrelated strategy when the
     # original source was moved or never recorded.
     module = trial.get("strategy_module") or ""
@@ -118,6 +124,7 @@ def qualify_candidate(
     except PermissionError as exc:
         raise HoldoutAlreadyUnsealedError(str(exc)) from exc
     reg.mark_holdout_read_started(lineage_id, run_id)
+    holdout_res = None
     if not holdout_override:
         holdout_res = resolve_dataset(contract, runner.repo_root, role="holdout")
         if not holdout_res.eligible_market:
@@ -128,54 +135,82 @@ def qualify_candidate(
     cfg_dict = cfg_data if isinstance(cfg_data, dict) else {}
     params = cfg_dict.get("parameters", cfg_dict)
 
-    policy_kw = extract_execution_policy(cfg_dict, params, trial.get("diagnostics_json"))
+    policy_kw = extract_execution_policy(cfg_dict, params, trial.get("diagnostics_json"), contract=contract)
 
     mod = load_module_from_path(strat_path)
     protocol = detect_strategy_protocol(mod)
     effective_params = resolve_effective_params(mod, protocol, params)
 
-    raw_panel = pl.read_parquet(h_path)
-    if "symbol" in raw_panel.columns and "asset" not in raw_panel.columns:
-        raw_panel = raw_panel.rename({"symbol": "asset"})
-    raw_panel = filter_target_symbols(raw_panel, effective_params, str(h_path)).sort("timestamp", "asset")
-    window_df = raw_panel.filter(
-        (pl.col("timestamp") >= contract.holdout_start) & (pl.col("timestamp") <= contract.holdout_end)
-    )
-    if window_df.height < 20 and not holdout_override:
-        raise ValueError("No sufficient observations within the declared production holdout; no fallback window")
-    panel_df = window_df if window_df.height >= 20 else raw_panel
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    n_bars = len(ts)
+    # #97: the holdout refit schedule is contract-declared, not caller-chosen.  A model
+    # strategy qualifies under `purged_expanding` (fold 0 trained strictly before
+    # `holdout_start - (label_horizon + execution_delay + embargo)`, expanding across the
+    # window) or `frozen_pre_holdout` (a single pre-holdout fit, never refit on a holdout
+    # bar).  Rules strategies choose their own orders, so the prefix only warms them; no
+    # refit mode applies and none is silently substituted for one.
+    refit_mode = governance.holdout_refit_mode if protocol == "causal_model" else None
 
-    if protocol == "causal_rules":
-        strat_obj = resolve_protocol_target(mod).configure_strategy(contract, params)
-        sim = run_engine_strategy(
-            panel_df, strat_obj, ts, assets, contract, slice(0, n_bars), **policy_kw
-        )
-    elif protocol == "causal_model":
+    # #95: one reader for the holdout too.  The claim and durable read-start record above
+    # stay exactly where they were — the gateway is only handed the already-verified
+    # resolution, so no holdout byte (or digest) is touched before the one-shot claim.
+    # A production holdout is prefixed with its digest-verified exploratory warmup; the
+    # fixture override reads exactly one file and no market gate.
+    market = MarketDataGateway(runner.repo_root).load(
+        contract,
+        ROLE_HOLDOUT,
+        effective_params.get("target_symbols"),
+        resolution=holdout_res,
+        holdout_override_path=holdout_override_path,
+    )
+    panel_df, ts, assets = market.panel, list(market.ts), list(market.assets)
+    n_bars = len(ts)
+    # eval_slice covers 100% of the holdout bars.  The warmup prefix is training-only.
+    eval_slice = market.eval_slice
+    execution_slice = eval_slice
+    if protocol == "causal_model" and market.warmup_rows == 0:
+        # Fixture override without a prefix: same in-window split qualify always used.
+        # Production never reaches this branch (the gateway requires the prefix).
         min_train = max(
             int(contract.label_horizon_bars) + int(contract.execution_delay_bars) + int(contract.embargo_bars) + 4,
             n_bars // 4,
         )
-        holdout_slice = slice(min_train, n_bars)
-        out = run_causal_model_strategy(mod, panel_df, contract, ts, assets, holdout_slice, params)
-        sim = run_engine_simulation(
-            panel_df, out["positions"], ts, assets, contract, holdout_slice, **policy_kw
-        )
-    else:
-        out = mod.generate_positions(panel_df, contract, **params)
-        sim = run_engine_simulation(
-            panel_df, out["positions"], ts, assets, contract, slice(0, n_bars), **policy_kw
-        )
+        execution_slice = slice(min_train, n_bars)
+
+    tape = EvaluationKernel().run(
+        mod,
+        panel_df,
+        ts,
+        assets,
+        contract,
+        execution_slice,
+        params,
+        protocol=protocol,
+        policy=policy_kw,
+        # Qualification replays an already-recorded trial; for a legacy trial that is
+        # the read-only historical replay the freeze permits.  The ACTIVE-hypothesis
+        # refusal happened when the trial was created, not here.
+        allow_legacy_replay=True,
+        legacy_isolated=False,
+        refit_mode=refit_mode,
+    )
     m = calculate_metrics_from_returns(
-        sim.gross_returns, sim.net_returns, sim.turnover, contract.bars_per_year
+        tape.gross_returns, tape.net_returns, tape.turnover, market.bars_per_year
     )
 
     h_net_sr = m["net_sharpe"]
     ratio = float(h_net_sr / max(float(trial.get("net_sharpe", 0.0)), 1e-6))
-    promoted = (h_net_sr > HOLDOUT_SR_FLOOR) and (ratio >= HOLDOUT_RATIO_FLOOR)
-    verdict = "PROMOTED" if promoted else "REJECTED_ON_HOLDOUT"
+    # The numeric holdout conjunct is unchanged; the evidence tier decides only
+    # whether clearing it may be called market promotion.
+    numeric_pass = (h_net_sr > HOLDOUT_SR_FLOOR) and (ratio >= HOLDOUT_RATIO_FLOOR)
+    promotion_capped = governance.is_promotion_capped
+    promoted = bool(numeric_pass and not promotion_capped)
+    if not numeric_pass:
+        verdict = REJECTED_ON_HOLDOUT
+    elif promotion_capped:
+        verdict = PROXY_HOLDOUT_PASS
+    else:
+        verdict = PROMOTED
+    if promotion_capped and verdict == PROMOTED:
+        raise RuntimeError("evidence-tier cap violated: a capped tier may never be recorded as promoted")
     qual_id = f"QUAL-{run_id}"
 
     with reg._connect() as conn:
@@ -188,6 +223,15 @@ def qualify_candidate(
     return {"qual_id": qual_id, "run_id": run_id, "lineage_id": lineage_id, "holdout_net_sharpe": h_net_sr,
             "val_to_holdout_ratio": ratio, "promoted": promoted, "verdict": verdict,
             "holdout_override": holdout_override, "data_provenance": eligibility["data_provenance"],
-            "terminal_equity": sim.terminal_equity,
-            "engine_fills_count": len(sim.backtest_result.fills),
-            "engine_trades_count": len(sim.backtest_result.trades)}
+            "evidence_tier": governance.evidence_tier,
+            "promotion_capped": promotion_capped,
+            "promotion_cap_reason": governance.promotion_cap_reason(),
+            "contract_spec_version": governance.spec_version,
+            "terminal_equity": tape.terminal_equity,
+            "engine_fills_count": len(tape.backtest_result.fills),
+            "engine_trades_count": len(tape.backtest_result.trades),
+            # #97 observed schedule evidence: what the holdout actually executed.
+            "holdout_refit_mode": refit_mode,
+            "holdout_warmup_rows": int(market.warmup_rows),
+            "holdout_eval_bars": int(market.eval_bars),
+            "holdout_model_refit": tape.model_refit}

@@ -31,12 +31,11 @@ from warden.registry import ResearchRegistry, SelectionHistoryError, compute_sel
 from warden.runner import ExperimentRunner
 from warden_ops.integrity import generate_manifest
 
-LIVE_REGISTRY = REPO_ROOT / "registry" / "registry.db"
 
-
-def _snapshot_live_registry(tmp_path: Path, name: str = "snap.db") -> Path:
-    dst_path = tmp_path / name
-    src = sqlite3.connect(f"file:{LIVE_REGISTRY.resolve()}?mode=ro", uri=True)
+def _snapshot_sqlite(src_path: Path, dst_path: Path) -> Path:
+    """Copy ``src_path`` to ``dst_path`` through SQLite's backup API (source read-only)."""
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+    src = sqlite3.connect(f"file:{src_path.resolve()}?mode=ro", uri=True)
     try:
         dst = sqlite3.connect(dst_path)
         try:
@@ -46,6 +45,101 @@ def _snapshot_live_registry(tmp_path: Path, name: str = "snap.db") -> Path:
     finally:
         src.close()
     return dst_path
+
+
+def _seed_result(run_id: str, hyp_id: str, contract, family: str) -> ExperimentResult:
+    """One recorded trial row, enough for the shadow calibration to evaluate it."""
+    return ExperimentResult(
+        run_id=run_id,
+        hypothesis_id=hyp_id,
+        contract_id=contract.contract_id,
+        strategy_name="Seeded",
+        strategy_family=family,
+        config_hash=f"cfg-{run_id}",
+        stage_reached="STAGE_3_STRESS",
+        verdict="REVISE",
+        gross_sharpe=1.1,
+        net_sharpe=0.9,
+        deflated_sharpe_prob=0.9,
+        expected_max_sharpe_noise=0.2,
+        total_trials_n=3,
+        effective_trials_keff=11.0,
+        mean_ic=0.03 if family == "cross_sectional_ml" else None,
+        ic_hac_tstat=2.4 if family == "cross_sectional_ml" else None,
+        hit_rate=0.52,
+        profit_factor=1.1,
+        max_drawdown_pct=4.0,
+        annualized_turnover=12.0,
+        breakeven_cost_bps=10.0,
+        stress_2x_cost_sharpe=0.4,
+        param_neighbor_stability=None,
+        notes="seeded shadow-calibration evidence",
+        data_snapshot_sha256=contract.data_snapshot_sha256,
+        strategy_module="strategies/candidates/ts_breakout_20_1h.py",
+        model_type="rules" if family == "rules_ts" else "ml",
+        data_provenance="verified_market",
+    )
+
+
+def _seed_ledger(root: Path) -> Path:
+    """Build, inside ``tmp_path``, the ledger evidence the snapshot tests replay.
+
+    ``root/registry/registry.db`` is synthetic, never the checkout's ledger.  These tests used
+    to copy whatever ``registry/registry.db`` happened to exist: on a clean tree the file is
+    absent (both tests skipped), and once a sibling test created an empty one they failed on
+    history that was never there.  The seed states the evidence explicitly -- a stored search
+    floor above the 1.0 default, and non-degenerate return/IC streams -- so every assertion
+    below is exercised on any checkout, in any test order.
+    """
+    reg = ResearchRegistry(root / "registry" / "registry.db")
+    indices = load_contract(REPO_ROOT / "contracts" / "indices_1d_v1.yaml")
+    reg.register_contract(indices)
+    # The epoch falsifier asserts an inherited floor, so one must actually be recorded.
+    reg.update_search_floor(indices.contract_id, 11.0, 0.4213)
+
+    crypto = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    reg.register_contract(crypto)
+    rng = np.random.default_rng(4242)
+    for i in range(2):
+        hyp_id = f"HYP-SEED-RULES-{i}"
+        reg.register_hypothesis(
+            HypothesisSpec(
+                hyp_id,
+                crypto.contract_id,
+                f"Seeded DSR stream {i}",
+                "rules_ts",
+                "Mechanism explanation of twenty chars",
+                "Friction explanation of twenty chars",
+                8,
+                "Reject net Sharpe below one",
+            )
+        )
+        reg.record_trial(
+            _seed_result(f"RUN-SEED-RULES-{i}", hyp_id, crypto, "rules_ts"),
+            {},
+            rng.normal(0.0004, 0.01, 120),
+        )
+
+    ml_hyp = "HYP-SEED-ML"
+    reg.register_hypothesis(
+        HypothesisSpec(
+            ml_hyp,
+            crypto.contract_id,
+            "Seeded IC stream",
+            "cross_sectional_ml",
+            "Mechanism explanation of twenty chars",
+            "Friction explanation of twenty chars",
+            8,
+            "Reject net Sharpe below one",
+        )
+    )
+    reg.record_trial(
+        _seed_result("RUN-SEED-ML", ml_hyp, crypto, "cross_sectional_ml"),
+        {},
+        rng.normal(0.0006, 0.012, 120),
+        diagnostics={"stage1_signal": {"vector": [float(v) for v in rng.normal(0.03, 0.02, 30)]}},
+    )
+    return reg.db_path
 
 
 def test_hypothesis_source_published_at_normalization_and_retrospective_cutoff() -> None:
@@ -196,8 +290,10 @@ def test_simulation_epoch_isolation_and_same_epoch_alignment(tiny_repo) -> None:
             json.loads(conn.execute("SELECT returns_json FROM trials WHERE run_id=?", (r_live.run_id,)).fetchone()[0])
         )
 
-    # Same epoch with mismatched bar count must still raise SelectionHistoryError
-    with pytest.raises(SelectionHistoryError, match="refusing to pad"):
+    # Same epoch with mismatched bar count must still raise SelectionHistoryError.  The
+    # runner records a clock now, so a clockless read is refused explicitly instead of
+    # falling into the positional "refusing to pad" branch; either way it never compares.
+    with pytest.raises(SelectionHistoryError, match="refusing to pad|no timestamps"):
         fixture.registry.selection_history(
             fixture.contract.contract_id, live_len + 5, simulation_epoch=ENGINE_SIMULATION_EPOCH
         )
@@ -231,11 +327,10 @@ def test_simulation_epoch_isolation_and_same_epoch_alignment(tiny_repo) -> None:
 
 
 def test_snapshot_falsifiers_flat_keff_and_epoch_transition(tmp_path: Path) -> None:
-    if not LIVE_REGISTRY.is_file():
-        pytest.skip("live registry.db unavailable")
+    seed_db = _seed_ledger(tmp_path / "seed")
 
-    # Falsifier 1: 3 consecutive trials with 20 prior screens on a snapshot copy of registry.db
-    snap1 = _snapshot_live_registry(tmp_path, "snap_non_ratchet.db")
+    # Falsifier 1: 3 consecutive trials with 20 prior screens on a seeded ledger snapshot
+    snap1 = _snapshot_sqlite(seed_db, tmp_path / "snap_non_ratchet.db")
     reg1 = ResearchRegistry(snap1)
     contract = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
     cid = "FALSIFY_FLAT_V1"
@@ -284,8 +379,8 @@ def test_snapshot_falsifiers_flat_keff_and_epoch_transition(tmp_path: Path) -> N
     # Must stay flat at 11.0 (1.0 + 0.50 * 20), never ratcheting +10.0 per trial
     assert keffs == pytest.approx([11.0, 11.0, 11.0])
 
-    # Falsifier 2: insert a new simulation_epoch trial with different bar count on snapshot of registry.db
-    snap2 = _snapshot_live_registry(tmp_path, "snap_epoch.db")
+    # Falsifier 2: insert a new simulation_epoch trial with different bar count on a seeded snapshot
+    snap2 = _snapshot_sqlite(seed_db, tmp_path / "snap_epoch.db")
     reg2 = ResearchRegistry(snap2)
     existing_contract = load_contract(REPO_ROOT / "contracts" / "indices_1d_v1.yaml")
     prior_floor, prior_noise, fam = reg2.prior_search_floor(existing_contract)
@@ -470,26 +565,25 @@ def test_rehearse_migration_preserves_legacy_rows_and_is_idempotent(tmp_path: Pa
     assert "simulation_epoch" in res_legacy["added_columns"].get("selection_attempts", [])
     assert "source_published_at" in res_legacy["added_columns"].get("hypotheses", [])
 
-    if LIVE_REGISTRY.is_file():
-        src_dir = tmp_path / "src"
-        src_dir.mkdir(parents=True, exist_ok=True)
-        snap = _snapshot_live_registry(src_dir, "src_snap.db")
-        dest = tmp_path / "dest" / "migrated.db"
-        res = rehearse(snap, dest)
-        assert res["legacy_unchanged"] is True
-        assert res["idempotent"] is True
+    seed_db = _seed_ledger(tmp_path / "seed_rehearse")
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    snap = _snapshot_sqlite(seed_db, src_dir / "src_snap.db")
+    dest = tmp_path / "dest" / "migrated.db"
+    res = rehearse(snap, dest)
+    assert res["legacy_unchanged"] is True
+    assert res["idempotent"] is True
 
 
 def test_shadow_diagnostic_calibration_is_read_only_and_emits_deltas(tmp_path: Path) -> None:
-    if not LIVE_REGISTRY.is_file():
-        pytest.skip("live registry.db unavailable")
     import hashlib
 
     from scripts.shadow_diagnostic_calibration import run_shadow_calibration
 
-    snap = _snapshot_live_registry(tmp_path, "cal_snap.db")
+    seed_db = _seed_ledger(tmp_path / "seed")
+    snap = _snapshot_sqlite(seed_db, tmp_path / "registry" / "cal_snap.db")
     before_sha = hashlib.sha256(snap.read_bytes()).hexdigest()
-    report = run_shadow_calibration(snap, REPO_ROOT / "registry" / "returns", pbo_blocks=6, ras_simulations=200)
+    report = run_shadow_calibration(snap, seed_db.parent / "returns", pbo_blocks=6, ras_simulations=200)
     after_sha = hashlib.sha256(snap.read_bytes()).hexdigest()
 
     assert before_sha == after_sha

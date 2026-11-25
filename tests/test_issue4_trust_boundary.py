@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -141,10 +142,43 @@ def test_preflight_enumerates_administrative_and_evidence_packages() -> None:
     assert (REPO / "src" / "warden_ops" / "readonly.py").resolve() in expected
     assert (REPO / "src" / "warden_evidence" / "market_validation.py").resolve() in expected
     assert (REPO / "src" / "warden_evidence" / "feature_cache.py").resolve() in expected
+    # #106: a protected file outside the globbed directories must still be assessed here.
+    assert (REPO / "contracts" / "lifecycle" / "contract_lifecycle.json").resolve() in reported
     assert expected <= reported, sorted(str(p) for p in expected - reported)
 
     # The preflight's protected view and the integrity manifest must not drift apart.
     assert "PROTECTED_SET_MISMATCH" not in {f["id"] for f in report["findings"]}
+
+
+def _preflight_module():
+    path = REPO / "scripts" / "preflight_trust_boundary.py"
+    spec = importlib.util.spec_from_file_location("preflight_trust_boundary_under_test", path)
+    assert spec is not None and spec.loader is not None, path
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_preflight_protected_view_matches_the_authoritative_inventory() -> None:
+    """The standalone preflight and ``warden_ops.integrity`` must assess the same paths.
+
+    ``protected_manifest_entries`` is the single source of truth for the manifest, but the
+    preflight deliberately imports no package code (it must run before the tree is trusted),
+    so its globs are a second copy.  This pins the two copies together for every path the
+    drift check compares, so a trusted input under a protected directory can no longer be
+    added to only one side -- the failure mode that made a valid manifest unsatisfiable.
+    """
+    from warden_ops.integrity import protected_manifest_entries
+
+    preflight = _preflight_module()
+    assessed = {p.relative_to(REPO).as_posix() for p in preflight.protected_paths(REPO)}
+    assessed = {rel for rel in assessed if rel.startswith(preflight.PROTECTED_DIR_PREFIXES)}
+    inventory = {rel for rel in protected_manifest_entries(REPO)
+                 if rel.startswith(preflight.PROTECTED_DIR_PREFIXES)}
+    assert assessed == inventory, (
+        f"assessed but not protected: {sorted(assessed - inventory)}; "
+        f"protected but not assessed: {sorted(inventory - assessed)}")
+    assert "contracts/lifecycle/contract_lifecycle.json" in assessed
 
 
 def test_apply_script_protects_administrative_and_evidence_dirs() -> None:

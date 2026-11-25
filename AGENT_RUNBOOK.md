@@ -71,7 +71,7 @@ Paste the verbatim command output into the handoff. A summarized number is not e
 | Required by protocol | Reality in code |
 |---|---|
 | 1.5× cost stress | computed analytically from the `ml4t.backtest.Engine` result (`analytical_1p5x_sharpe`, stored as `stress_1p5_cost_sharpe`); `2.0×` cost stress (`cost_multiplier=2.0`) is a full Engine re-simulation and hard gate (`cost_2x`) |
-| ±15% parameter neighbours | only the `param_grid` entries you supply; empty grid records `neighbor_tested=False` and `stability=None` (`gates.evaluate_neighbor_stability`) |
+| ±15% parameter neighbours | only the `param_grid` entries you supply; a strategy whose `params_model` declares numeric fields (or that supplies numeric values without a model) needs **≥2 distinct** entries that each change a number from the effective baseline, else Stage 3 records `neighbor_stability` and `REVISE`; an empty grid records `neighbor_tested=False`, and a zero-numeric-field model is the only `neighbor_exemption="parameter_free"` pass |
 | Stage 0 economics | runs in `_prepare_and_check_stage0` (`src/warden/runner.py`) at screen/backtest time, not at registration, using empirical holding-period volatility from the panel (`gates.empirical_holding_volatility`) |
 | prefix-invariance as proof | adversarial sampling at 3 cut points (`src/warden/leakage.py::verify_prefix_invariance`, 1/4, 1/2, 3/4), documented as not a proof |
 

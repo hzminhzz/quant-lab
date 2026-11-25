@@ -1,0 +1,56 @@
+# T20 #106 replacement dataset spec — Syncster CME ES/NQ 15m, union of two pinned parents.
+#
+# Fixture only (`evidence_tier: synthetic`).  Each parent is a *built* dataset pinned by
+# digest; the digest is verified before a byte is parsed, so a re-exported parent is a pin
+# mismatch rather than a silent substitution.  The `sha256` values below are placeholders
+# the rehearsal rewrites with the fixture parents' real digests — a production build pins
+# the human-reviewed export.
+schema_version: 1
+dataset_id: syncster_cme_indices_es_nq_15m_ohlcv_r1
+asset_class: indices
+evidence_tier: synthetic
+venue: syncster_cme
+frequency: 15m
+price_basis: ohlcv
+volume_semantics: real_contracts
+time_window:
+  start_inclusive: "2024-01-01T00:00:00Z"
+  exploratory_end_exclusive: "2025-02-01T00:00:00Z"
+  holdout_start_inclusive: "2025-02-01T00:00:00Z"
+  holdout_end_exclusive: "2025-03-01T00:00:00Z"
+time_contract:
+  timezone: UTC
+  bar_timestamp_semantics: open_left_closed_left
+  session_calendar: CME_Equity
+  daily_roll_anchor: null
+source:
+  kind: composite_union
+  adapter: composite_union
+  inputs:
+    es:
+      path: parents/cme_es_15m.parquet
+      format: parquet
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    nq:
+      path: parents/cme_nq_15m.parquet
+      format: parquet
+      sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+universe:
+  selection_mode: explicit_symbols
+  symbols: [ES, NQ]
+  retain_delisted: true
+resampling:
+  enabled: false
+  require_min_sub_bars: null
+quality_gate:
+  max_abs_bar_return: 0.2
+  mad_outlier_threshold: 10.0
+  allow_zero_volume: false
+  explicit_anomaly_filters: []
+  min_coverage_ratio: 0.9
+parquet_write:
+  compression: zstd
+  compression_level: 3
+  statistics: true
+  row_group_size: 100000
+  sort_keys: [timestamp, asset]

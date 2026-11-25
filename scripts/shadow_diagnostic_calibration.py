@@ -6,7 +6,6 @@ import argparse
 import itertools
 import json
 import math
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +23,7 @@ from scipy import stats as scipy_stats
 
 from warden.gates import IC_T_FLOOR, compute_hac_tstat, per_bar_sharpe
 from warden.registry import compute_selection_report
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 
 def _valid_return_vector(values: Any) -> np.ndarray | None:
@@ -33,7 +33,7 @@ def _valid_return_vector(values: Any) -> np.ndarray | None:
     return None
 
 
-def _load_trial_returns(row: sqlite3.Row, repo_root: Path, returns_dir: Path) -> np.ndarray | None:
+def _load_trial_returns(row: dict[str, Any], repo_root: Path, returns_dir: Path) -> np.ndarray | None:
     parquet_raw = row["returns_parquet_path"] or ""
     candidates: list[Path] = []
     if parquet_raw:
@@ -59,8 +59,8 @@ def _matrix_per_bar_sharpes(matrix: np.ndarray) -> np.ndarray:
 
 def _calibrate_dsr_pbo_ras(
     contracts: dict[str, dict[str, Any]],
-    trial_rows: list[sqlite3.Row],
-    selection_attempt_rows: list[sqlite3.Row],
+    trial_rows: list[dict[str, Any]],
+    selection_attempt_rows: list[dict[str, Any]],
     repo_root: Path,
     returns_dir: Path,
     *,
@@ -68,7 +68,7 @@ def _calibrate_dsr_pbo_ras(
     ras_simulations: int,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
     # Group non-degenerate trial return streams by (contract_id, length) and index aligned selection_attempts.
-    grouped: dict[tuple[str, int], list[tuple[sqlite3.Row, np.ndarray]]] = {}
+    grouped: dict[tuple[str, int], list[tuple[dict[str, Any], np.ndarray]]] = {}
     unvectorized_by_contract: dict[str, int] = {}
     vectorized_attempts_by_key: dict[tuple[str, int], list[np.ndarray]] = {}
 
@@ -223,8 +223,8 @@ def _calibrate_dsr_pbo_ras(
 
 def _calibrate_ic_hac(
     contracts: dict[str, dict[str, Any]],
-    trial_rows: list[sqlite3.Row],
-    selection_attempt_rows: list[sqlite3.Row],
+    trial_rows: list[dict[str, Any]],
+    selection_attempt_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     ic_sources: list[tuple[str, str, str, np.ndarray]] = []
     for row in trial_rows:
@@ -283,29 +283,10 @@ def run_shadow_calibration(
     returns_resolved = Path(returns_dir).resolve()
     repo_root = db_resolved.parent.parent
 
-    conn = sqlite3.connect(f"file:{db_resolved}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA query_only=ON")
-        contracts = {
-            r["contract_id"]: dict(r)
-            for r in conn.execute(
-                "SELECT contract_id, asset_class, frequency, bars_per_year, label_horizon_bars FROM contracts"
-            ).fetchall()
-        }
-        trial_rows = conn.execute(
-            "SELECT run_id, hypothesis_id, contract_id, strategy_family, stage_reached, verdict, "
-            "deflated_sharpe_prob, expected_max_sharpe_noise, total_trials_n, effective_trials_keff, "
-            "ic_hac_tstat, returns_parquet_path, returns_json, diagnostics_json, created_at "
-            "FROM trials ORDER BY contract_id, created_at, run_id"
-        ).fetchall()
-        attempt_rows = conn.execute(
-            "SELECT attempt_id, hypothesis_id, contract_id, strategy_family, kind, outcome, "
-            "returns_observed, returns_json, diagnostics_json "
-            "FROM selection_attempts ORDER BY created_at, attempt_id"
-        ).fetchall()
-    finally:
-        conn.close()
+    ledger = ReadOnlyResearchRegistry(db_resolved)
+    contracts = {row["contract_id"]: row for row in ledger.read_contracts()}
+    trial_rows = ledger.read_trials()
+    attempt_rows = ledger.read_attempts()
 
     dsr_comparisons, pbo_diagnostics, ras_diagnostics = _calibrate_dsr_pbo_ras(
         contracts,

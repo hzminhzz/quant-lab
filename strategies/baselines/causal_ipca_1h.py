@@ -17,8 +17,10 @@ from ml4t.models import (
     cross_section_batch_from_long_frame,
     predictions_frame_from_asset_forecast,
 )
+from pydantic import Field
 
 from warden.leakage import WalkForwardModelProtocol
+from warden.params_model import ParamsModel
 
 MODEL_CLASS = "IPCAModel"
 MODEL_TIER = "linear"
@@ -128,12 +130,32 @@ class CausalIPCAEstimator:
 pipeline = CausalRidgePipeline()
 
 
+class IPCABaselineParams(ParamsModel):
+    """Typed declaration of the IPCA baseline's numeric parameters."""
+
+    n_factors: int = Field(default=2, ge=1)
+    max_iter: int = Field(default=200, ge=1)
+    tol: float = Field(default=1e-5, gt=0.0)
+    factor_ridge: float = Field(default=1e-3, ge=0.0)
+    gamma_ridge: float = Field(default=1e-3, ge=0.0)
+
+
+#: Warden's typed-parameter hook; see ``warden.params_model``.
+params_model = IPCABaselineParams
+
+
+def validate_params(params: dict[str, Any]) -> IPCABaselineParams:
+    declared = {k: v for k, v in params.items() if k in IPCABaselineParams.model_fields}
+    return IPCABaselineParams.model_validate(declared)
+
+
 def build_estimator(params: dict[str, Any]) -> WalkForwardModelProtocol:
     """Build the IPCA conditional latent-factor fold estimator."""
+    tuned = validate_params(params)
     return CausalIPCAEstimator(
-        n_factors=int(params.get("n_factors", 2)),
-        max_iter=int(params.get("max_iter", 200)),
-        tol=float(params.get("tol", 1e-5)),
-        factor_ridge=float(params.get("factor_ridge", 1e-3)),
-        gamma_ridge=float(params.get("gamma_ridge", 1e-3)),
+        n_factors=tuned.n_factors,
+        max_iter=tuned.max_iter,
+        tol=tuned.tol,
+        factor_ridge=tuned.factor_ridge,
+        gamma_ridge=tuned.gamma_ridge,
     )

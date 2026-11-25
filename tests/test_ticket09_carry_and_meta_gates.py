@@ -18,6 +18,52 @@ from warden.gates import apply_causal_meta_overlay, evaluate_stage1_meta_overlay
 from warden.registry import HypothesisBudgetExhaustedError, ResearchRegistry
 
 
+def _forbid_engine_execution(
+    monkeypatch: pytest.MonkeyPatch, *, message: str, raise_on_call: bool = True
+) -> dict[str, int]:
+    """Guard the real execution seams, wherever the refactor moved them.
+
+    ``warden.runner`` no longer owns engine helpers: after the evaluation-kernel
+    refactor every in-process execution funnels through
+    :meth:`warden.evaluation.EvaluationKernel.run` and finally through
+    ``ml4t.backtest.Engine.run``.  Patching the class methods (not a module
+    attribute that can be renamed or re-exported) keeps the assertion meaningful:
+    a stale symbol would make the hook vacuous, which is exactly how the previous
+    ``runner.run_engine_strategy`` / ``runner.run_engine_simulation`` hooks broke.
+    The kernel seam is included so a memoised tape cannot satisfy the guard with
+    zero Engine runs.
+
+    Returns a counter; with ``raise_on_call`` the first execution raises.
+    """
+    import ml4t.backtest as bt
+
+    from warden.evaluation import EvaluationKernel
+
+    calls = {"n": 0}
+    original_engine_run = bt.Engine.run
+    original_kernel_run = EvaluationKernel.run
+
+    def _counted_engine_run(self, *args, **kwargs):
+        calls["n"] += 1
+        if raise_on_call:
+            raise AssertionError(message)
+        return original_engine_run(self, *args, **kwargs)
+
+    def _counted_kernel_run(self, *args, **kwargs):
+        calls["n"] += 1
+        if raise_on_call:
+            raise AssertionError(message)
+        return original_kernel_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(bt.Engine, "run", _counted_engine_run)
+    monkeypatch.setattr(EvaluationKernel, "run", _counted_kernel_run)
+    # A stale symbol cannot leave the guard installed-but-inert: assert the patch
+    # is on the very objects the production path resolves.
+    assert bt.Engine.run is _counted_engine_run
+    assert EvaluationKernel.run is _counted_kernel_run
+    return calls
+
+
 def _hash_bytes(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -246,6 +292,59 @@ def configure_strategy(contract: EvaluationContract, params: dict[str, Any]) -> 
         weight=float(params.get("weight", 0.40)),
         z_entry=float(params.get("z_entry", 0.5)),
     )
+
+
+# The strategy's own cost assumption: it rebalances the pair and expects to hold the hedge
+# for the horizon the hypothesis declares (``expected_holding_bars``), so its round-trip cost
+# is amortised over that many bars.
+HOLDING_BARS = 24
+
+
+def causal_carry_outputs(*, panel_df, contract, val_slice, timestamps, assets, params):
+    """The pair's own causal spread and the net carry its book actually collects.
+
+    This is the mechanism the strategy trades (short AAA / long BBB on the funding tilt),
+    not a generic panel stand-in: the spread is the log ratio of the two legs it holds, and
+    the net carry is the funding its direction receives minus its own cost per bar.
+    """
+    import numpy as np
+    import polars as pl
+
+    _ = assets
+    wide = (
+        panel_df.filter(pl.col("asset").is_in(["AAA", "BBB"]))
+        .pivot(index="timestamp", on="asset", values="close")
+        .sort("timestamp")
+    )
+    wide = wide.join(
+        panel_df.filter(pl.col("asset") == "AAA").select("timestamp", "funding_rate"),
+        on="timestamp",
+        how="left",
+    ).rename({"funding_rate": "fund_a"})
+    wide = wide.join(
+        panel_df.filter(pl.col("asset") == "BBB").select("timestamp", "funding_rate"),
+        on="timestamp",
+        how="left",
+    ).rename({"funding_rate": "fund_b"})
+    a = wide["AAA"].to_numpy().astype(float)
+    b = wide["BBB"].to_numpy().astype(float)
+    f_a = np.nan_to_num(wide["fund_a"].to_numpy().astype(float))
+    f_b = np.nan_to_num(wide["fund_b"].to_numpy().astype(float))
+    spread = np.log(np.maximum(a, 1e-12)) - np.log(np.maximum(b, 1e-12))
+
+    start = int(val_slice.start or 0)
+    stop = int(val_slice.stop if val_slice.stop is not None else len(spread))
+    direction = params.get("carry_direction")
+    if direction is not None:
+        w0, w1 = float(direction[0]), float(direction[1])
+    else:
+        # Same pre-validation-only direction estimate the strategy's funding tilt expresses.
+        train_end = max(1, start)
+        mean_diff = float(np.mean(f_a[:train_end] - f_b[:train_end]))
+        w0, w1 = (-1.0, 1.0) if mean_diff >= 0.0 else (1.0, -1.0)
+    cost_per_bar = (2.0 * contract.total_one_way_cost_decimal()) / float(HOLDING_BARS)
+    net_carry = -(w0 * f_a + w1 * f_b) - cost_per_bar
+    return {"spread": spread[start:stop], "net_carry": net_carry[start:stop]}
 '''
     (repo / rel_path).write_text(code, encoding="utf-8")
     return rel_path
@@ -315,17 +414,10 @@ def test_carry_rv_rejects_nonstationary_random_walk_at_stage1_without_engine(
     )
     capsys.readouterr()
 
-    import warden.runner as runner_mod
-
-    engine_calls = 0
-
-    def _fail_if_engine_called(*args, **kwargs):
-        nonlocal engine_calls
-        engine_calls += 1
-        raise AssertionError("ml4t.backtest.Engine must not run when carry_rv fails Stage 1")
-
-    monkeypatch.setattr(runner_mod, "run_engine_strategy", _fail_if_engine_called)
-    monkeypatch.setattr(runner_mod, "run_engine_simulation", _fail_if_engine_called)
+    engine_calls = _forbid_engine_execution(
+        monkeypatch,
+        message="ml4t.backtest.Engine must not run when carry_rv fails Stage 1",
+    )
 
     rc_screen = cli_main(["screen", str(spec_yaml), "--json"])
     out_screen = json.loads(capsys.readouterr().out)
@@ -333,7 +425,10 @@ def test_carry_rv_rejects_nonstationary_random_walk_at_stage1_without_engine(
     assert out_screen["strategy_family"] == "carry_rv"
     assert out_screen["passed"] is False
     assert out_screen["metrics"]["adf_p_value"] >= 0.05
-    assert engine_calls == 0
+    # The gate scores the strategy's own published series, not the panel proxy (#99).
+    assert out_screen["metrics"]["carry_series_source"] == "strategy_causal_outputs"
+    assert out_screen["metrics"]["carry_mechanism_policy"] == "active_own_outputs_required"
+    assert engine_calls["n"] == 0
 
     rc_bt = cli_main(["backtest", str(spec_yaml), "--json"])
     bt_lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
@@ -342,7 +437,7 @@ def test_carry_rv_rejects_nonstationary_random_walk_at_stage1_without_engine(
     bt_payload = json.loads(bt_lines[0])
     assert bt_payload["stage_reached"] == "STAGE_1_SIGNAL"
     assert bt_payload["verdict"] == "REJECTED_EARLY"
-    assert engine_calls == 0
+    assert engine_calls["n"] == 0
 
 
 def test_carry_rv_rejects_negative_net_carry_at_stage1_without_engine(
@@ -364,17 +459,9 @@ def test_carry_rv_rejects_negative_net_carry_at_stage1_without_engine(
     )
     capsys.readouterr()
 
-    import warden.runner as runner_mod
-
-    engine_calls = 0
-
-    def _fail_if_engine_called(*args, **kwargs):
-        nonlocal engine_calls
-        engine_calls += 1
-        raise AssertionError("Engine must not run on negative net carry")
-
-    monkeypatch.setattr(runner_mod, "run_engine_strategy", _fail_if_engine_called)
-    monkeypatch.setattr(runner_mod, "run_engine_simulation", _fail_if_engine_called)
+    engine_calls = _forbid_engine_execution(
+        monkeypatch, message="Engine must not run on negative net carry"
+    )
 
     rc_screen = cli_main(["screen", str(spec_yaml), "--json"])
     out_screen = json.loads(capsys.readouterr().out)
@@ -382,7 +469,8 @@ def test_carry_rv_rejects_negative_net_carry_at_stage1_without_engine(
     assert out_screen["strategy_family"] == "carry_rv"
     assert out_screen["passed"] is False
     assert out_screen["metrics"]["mean_net_carry"] <= 0.0
-    assert engine_calls == 0
+    assert out_screen["metrics"]["carry_series_source"] == "strategy_causal_outputs"
+    assert engine_calls["n"] == 0
 
 
 def test_carry_rv_stationary_positive_carry_passes_stage1_through_stage3(
@@ -403,9 +491,19 @@ def test_carry_rv_stationary_positive_carry_passes_stage1_through_stage3(
     )
     capsys.readouterr()
 
+    # Positive control for the guard used by the two "must not run the Engine" tests:
+    # the same seams do observe real executions when the gate passes, so a zero count
+    # there is meaningful and not a vacuous hook.
+    engine_calls = _forbid_engine_execution(
+        monkeypatch,
+        message="this carry_rv run is expected to reach the Engine",
+        raise_on_call=False,
+    )
+
     assert cli_main(["verify", str(spec_yaml), "--json"]) == 0
     verify_out = json.loads(capsys.readouterr().out)
     assert verify_out["status"] == "PASS"
+    assert engine_calls["n"] >= 1
 
     assert cli_main(["screen", str(spec_yaml), "--json"]) == 0
     screen_out = json.loads(capsys.readouterr().out)
@@ -413,6 +511,8 @@ def test_carry_rv_stationary_positive_carry_passes_stage1_through_stage3(
     assert screen_out["passed"] is True
     assert screen_out["metrics"]["adf_p_value"] < 0.05
     assert screen_out["metrics"]["mean_net_carry"] > 0.0
+    assert screen_out["metrics"]["carry_series_source"] == "strategy_causal_outputs"
+    assert screen_out["metrics"]["carry_mechanism_policy"] == "active_own_outputs_required"
     assert "max_abs_excursion_z" in screen_out["metrics"]
     assert "p99_abs_excursion_z" in screen_out["metrics"]
     assert "max_spread_drawdown" in screen_out["metrics"]

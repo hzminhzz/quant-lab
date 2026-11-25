@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -15,6 +17,13 @@ from warden.registry import (
     compute_selection_report,
 )
 from warden.runner import ExperimentRunner
+from warden_evidence.return_artifacts import read_return_stream
+
+
+def _from_ns(value: int) -> datetime:
+    """UTC datetime for an epoch-nanosecond stamp read back from a return artifact."""
+    return datetime.fromtimestamp(value / 1_000_000_000, UTC)
+
 
 REPO = __import__("pathlib").Path(".")
 CONTRACT = load_contract(REPO / "contracts" / "crypto_perps_1h_v1.yaml")
@@ -97,14 +106,28 @@ def test_unvectorised_attempts_count_without_fake_streams(tiny_repo) -> None:
                                               diagnostics={"error": "missing dataset"},
                                               simulation_epoch=res.simulation_epoch)
     with fixture.registry._connect() as conn:
-        observed_len = len(json.loads(conn.execute(
-            "SELECT returns_json FROM trials WHERE run_id=?", (res.run_id,)).fetchone()[0]))
+        observed_len, artifact = conn.execute(
+            "SELECT returns_json, returns_parquet_path FROM trials WHERE run_id=?", (res.run_id,)
+        ).fetchone()
+        observed_len = len(json.loads(observed_len))
+    # #100: the runner now publishes the trial's own UTC clock, so a reader that wants the
+    # *aligned* history passes that clock (a clockless candidate against a clocked history is
+    # refused rather than positioned by guesswork).
+    artifact_stream = read_return_stream(
+        Path(artifact), fixture.registry.db_path.parent / "returns")
+    assert artifact_stream.timestamps_ns is not None
+    clock = [_from_ns(int(stamp)) for stamp in artifact_stream.timestamps_ns]
     history = fixture.registry.selection_history(
-        fixture.contract.contract_id, observed_len, simulation_epoch=res.simulation_epoch
+        fixture.contract.contract_id, observed_len, simulation_epoch=res.simulation_epoch,
+        timestamps=clock, candidate_returns=np.zeros(observed_len),
     )
     assert len(history["streams"]) == 1 and history["raw_attempt_count"] == 2
     assert history["unvectorized_attempts"] == 1
-    with pytest.raises(SelectionHistoryError, match="refusing to pad"):
+    assert history["alignment"]["frequency"] == "bar"
+    # A history read with the wrong shape is still refused: without a clock the refusal is
+    # the explicit one (a positional guess would invent a clock), with one it is "refusing
+    # to pad".  Either way the comparison never happens.
+    with pytest.raises(SelectionHistoryError, match="refusing to pad|no timestamps"):
         fixture.registry.selection_history(
             fixture.contract.contract_id, observed_len + 1, simulation_epoch=res.simulation_epoch
         )

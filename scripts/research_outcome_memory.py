@@ -26,6 +26,8 @@ from pathlib import Path
 
 import yaml
 
+from warden_ops.readonly import ReadOnlyResearchRegistry
+
 INDEX = Path("docs/research-outcomes/branch-result-index-v1.json")
 REGISTRY = Path("registry/registry.db")
 NEGATIVE = {"STAGE1_REJECT", "STAGE3_REVISE", "PREFLIGHT_FAIL"}
@@ -80,35 +82,27 @@ def load_index(path: Path = INDEX) -> dict:
     return data
 
 
-def connect_registry(path: Path = REGISTRY) -> sqlite3.Connection:
+def connect_registry(path: Path = REGISTRY) -> ReadOnlyResearchRegistry:
     if not path.is_file():
         raise FileNotFoundError(f"Warden registry not present; cannot assume no prior trials: {path}")
-    connection = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
-    return connection
+    return ReadOnlyResearchRegistry(path)
 
 
 def inventory(registry: Path = REGISTRY, index: Path = INDEX) -> dict:
     sidecar = load_index(index)
-    with connect_registry(registry) as db:
-        hypotheses = [dict(x) for x in db.execute(
-            "SELECT hypothesis_id,contract_id,title,status,strategy_module "
-            "FROM hypotheses ORDER BY hypothesis_id"
-        )]
-        trials: dict[str, list[dict]] = defaultdict(list)
-        attempts: dict[str, list[dict]] = defaultdict(list)
-        for row in db.execute(
-            "SELECT hypothesis_id,stage_reached,verdict,run_id FROM trials"
-        ):
-            trials[row["hypothesis_id"]].append(dict(row))
-        for row in db.execute(
-            "SELECT hypothesis_id,stage,outcome,attempt_id FROM selection_attempts"
-        ):
-            attempts[row["hypothesis_id"]].append(dict(row))
-        counts = {
-            table: db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("hypotheses", "trials", "selection_attempts")
-        }
+    ledger = connect_registry(registry)
+    hypotheses = ledger.read_hypothesis_inventory()
+    trials: dict[str, list[dict]] = defaultdict(list)
+    attempts: dict[str, list[dict]] = defaultdict(list)
+    for row in ledger.read_trials():
+        trials[row["hypothesis_id"]].append(
+            {"hypothesis_id": row["hypothesis_id"], "stage_reached": row["stage_reached"],
+             "verdict": row["verdict"], "run_id": row["run_id"]})
+    for row in ledger.read_attempts():
+        attempts[row["hypothesis_id"]].append(
+            {"hypothesis_id": row["hypothesis_id"], "stage": row["stage"],
+             "outcome": row["outcome"], "attempt_id": row["attempt_id"]})
+    counts = ledger.read_evidence_counts()
     no_trial = [h for h in hypotheses if not trials[h["hypothesis_id"]]]
     no_stage3 = [h for h in hypotheses if not any(
         t["stage_reached"] == "STAGE_3_STRESS"
@@ -187,37 +181,32 @@ def check_spec(spec: Path, registry: Path = REGISTRY, index: Path = INDEX) -> di
         raise ValueError("strategy_module must be a string")
     # Canonical SQLite wins when it already records this identity. Sidecar
     # evidence may refuse an *unseen* rerun, never replace a native verdict.
-    with connect_registry(registry) as db:
-        registered = db.execute("SELECT contract_id,status FROM hypotheses WHERE hypothesis_id=?", (hid,)).fetchone()
-        if registered and registered["contract_id"] != cid:
-            return _blocked("Registered hypothesis is frozen under a different contract",
-                            evidence=[registered["contract_id"]], status="CONTRACT_ID_MISMATCH")
-        params = config.get("parameters", {})
-        frozen = json.dumps(params, sort_keys=True, default=str, allow_nan=False)
-        candidate_hash = hashlib.sha256(frozen.encode()).hexdigest()[:12]
-        trial_cols = {x[1] for x in db.execute("PRAGMA table_info(trials)")}
-        enriched = "config_hash" in trial_cols
-        native_trials = db.execute(
-            ("SELECT run_id,verdict,config_hash FROM trials WHERE hypothesis_id=?" if enriched else
-             "SELECT run_id,verdict FROM trials WHERE hypothesis_id=?"), (hid,)).fetchall()
-        matching_trials = [t for t in native_trials if not enriched or not t["config_hash"] or
-                           t["config_hash"] == candidate_hash]
-        if matching_trials:
-            return _blocked("Matching canonical trial already recorded; a distinct parameter revision is allowed only within Warden's budget",
-                            evidence=[f"{x['run_id']}:{x['verdict']}" for x in matching_trials],
-                            status="HISTORICAL_TRIAL_ALREADY_RECORDED")
-        screen_cols = {x[1] for x in db.execute("PRAGMA table_info(selection_attempts)")}
-        full_screen = {"strategy_module", "parameters_json"}.issubset(screen_cols)
-        native_screens = db.execute(
-            ("SELECT attempt_id,stage,outcome,strategy_module,parameters_json FROM selection_attempts WHERE hypothesis_id=?" if full_screen else
-             "SELECT attempt_id,stage,outcome FROM selection_attempts WHERE hypothesis_id=?"), (hid,)).fetchall()
-        matching_screens = [x for x in native_screens if not full_screen or
-                            (x["strategy_module"] == module and
-                             (x["parameters_json"] or "{}") == frozen)]
-        if matching_screens:
-            return _blocked("Same parameter configuration already screened; no automatic replay",
-                            evidence=[f"{x['attempt_id']}:{x['stage']}:{x['outcome']}" for x in matching_screens],
-                            status="HISTORICAL_SELECTION_ATTEMPT_RECORDED")
+    ledger = connect_registry(registry)
+    registered = ledger.read_hypothesis(hid)
+    if registered and registered["contract_id"] != cid:
+        return _blocked("Registered hypothesis is frozen under a different contract",
+                        evidence=[registered["contract_id"]], status="CONTRACT_ID_MISMATCH")
+    params = config.get("parameters", {})
+    frozen = json.dumps(params, sort_keys=True, default=str, allow_nan=False)
+    candidate_hash = hashlib.sha256(frozen.encode()).hexdigest()[:12]
+    recorded_trials = ledger.read_recorded_trials(hid)
+    enriched = recorded_trials["records_config_hash"]
+    native_trials = recorded_trials["rows"]
+    matching_trials = [t for t in native_trials if not enriched or not t.get("config_hash") or
+                       t.get("config_hash") == candidate_hash]
+    if matching_trials:
+        return _blocked("Matching canonical trial already recorded; a distinct parameter revision is allowed only within Warden's budget",
+                        evidence=[f"{x['run_id']}:{x['verdict']}" for x in matching_trials],
+                        status="HISTORICAL_TRIAL_ALREADY_RECORDED")
+    recorded_screens = ledger.read_recorded_screens(hid)
+    full_screen = recorded_screens["records_module"] and recorded_screens["records_parameters"]
+    matching_screens = [x for x in recorded_screens["rows"] if not full_screen or
+                        (x.get("strategy_module") == module and
+                         (x.get("parameters_json") or "{}") == frozen)]
+    if matching_screens:
+        return _blocked("Same parameter configuration already screened; no automatic replay",
+                        evidence=[f"{x['attempt_id']}:{x['stage']}:{x['outcome']}" for x in matching_screens],
+                        status="HISTORICAL_SELECTION_ATTEMPT_RECORDED")
     sidecar = load_index(index)
     entry = [r for r in sidecar["outcomes"] if r["hypothesis_id"] == hid]
     identical = [r for r in entry if r["contract_id"] == cid]
@@ -257,38 +246,31 @@ def check_spec(spec: Path, registry: Path = REGISTRY, index: Path = INDEX) -> di
             blocker["detail"], evidence=[blocker["recovery_status"]],
             status="ORIGINAL_BLOCKER_UNRESOLVED",
         )
-    with connect_registry(registry) as db:
-        row = db.execute(
-            "SELECT status,contract_id,strategy_module,parent_hypothesis_id "
-            "FROM hypotheses WHERE hypothesis_id=?", (hid,)
-        ).fetchone()
-        if row and row["contract_id"] != cid:
+    ledger = connect_registry(registry)
+    row = ledger.read_hypothesis(hid)
+    if row and row["contract_id"] != cid:
+        return _blocked(
+            "Registered hypothesis is frozen under a different contract",
+            evidence=[row["contract_id"]],
+            status="CONTRACT_ID_MISMATCH",
+        )
+    if row and row["status"] != "ACTIVE":
+        return _blocked(
+            f"Registered workflow status {row['status']} requires manual review",
+            evidence=[hid], status="HISTORICAL_DISPOSITION_LOCKED",
+        )
+    # Same module with another recorded identity can be a budget-reset
+    # alias. Do not block independent new modules just because their
+    # economic explanation is similar.
+    if module:
+        reused = ledger.read_module_owner(module, exclude_hypothesis_id=hid)
+        if reused:
             return _blocked(
-                "Registered hypothesis is frozen under a different contract",
-                evidence=[row["contract_id"]],
-                status="CONTRACT_ID_MISMATCH",
+                "Strategy module already belongs to another registered hypothesis; "
+                "check lineage and budget before adding an alias",
+                evidence=[reused],
+                status="MODULE_ALIAS_REVIEW_REQUIRED",
             )
-        if row and row["status"] != "ACTIVE":
-            return _blocked(
-                f"Registered workflow status {row['status']} requires manual review",
-                evidence=[hid], status="HISTORICAL_DISPOSITION_LOCKED",
-            )
-        # Same module with another recorded identity can be a budget-reset
-        # alias. Do not block independent new modules just because their
-        # economic explanation is similar.
-        if module:
-            reused = db.execute(
-                "SELECT hypothesis_id FROM hypotheses WHERE strategy_module=? "
-                "AND hypothesis_id!=? LIMIT 1",
-                (module, hid),
-            ).fetchone()
-            if reused:
-                return _blocked(
-                    "Strategy module already belongs to another registered hypothesis; "
-                    "check lineage and budget before adding an alias",
-                    evidence=[reused["hypothesis_id"]],
-                    status="MODULE_ALIAS_REVIEW_REQUIRED",
-                )
     return {
         "eligible": True,
         "status": "NOT_PREVIOUSLY_ATTEMPTED_ON_THIS_ID",

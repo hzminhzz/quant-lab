@@ -167,6 +167,7 @@ def _register_hyp_and_spec(
     model_type: str,
     strat_module: str,
     parameters: dict | None = None,
+    param_grid: list[dict] | None = None,
     run_id: str | None = None,
     expected_holding_bars: int = 8,
 ) -> Path:
@@ -193,6 +194,7 @@ def _register_hyp_and_spec(
         "model_type": model_type,
         "strategy_module": strat_module,
         "parameters": parameters or {},
+        "param_grid": list(param_grid or []),
     }
     if run_id is not None:
         spec_payload["run_id"] = run_id
@@ -585,6 +587,9 @@ def configure_strategy(contract, params: dict) -> Strategy:
         model_type="rules",
         strat_module=strat_rel,
         parameters={"symbols": ["AAA", "BBB"], "max_dd": 0.15, "stop_pct": 0.05},
+        # T12: numeric parameters need two distinct perturbed configurations
+        # before Stage 3 may publish a candidate.
+        param_grid=[{"max_dd": 0.12}, {"max_dd": 0.18}],
         run_id="RUN-T08-RULES",
     )
 
@@ -789,12 +794,14 @@ def _make_persistent_trend_panel(
     assets: tuple[str, ...] = ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH"),
     seed: int = 101,
     t0: datetime = datetime(2025, 1, 1, tzinfo=UTC),
+    start_prices: dict[str, float] | None = None,
 ) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
     rows: list[dict] = []
     half = len(assets) // 2
     for idx, asset in enumerate(assets):
-        price = 100.0 + idx * 5.0
+        level = start_prices.get(asset) if start_prices else None
+        price = 100.0 + idx * 5.0 if level is None else float(level)
         drift = 0.0028 if idx < half else -0.0022
         for t in range(n_bars):
             ts = t0 + timedelta(hours=t)
@@ -823,13 +830,28 @@ def _make_persistent_trend_panel(
     )
 
 
-def test_reference_templates_pass_full_funnel_end_to_end(
+def test_reference_ridge_is_refused_and_drawdown_rules_complete_funnel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     panel = _make_persistent_trend_panel(n_bars=180, seed=101, t0=datetime(2025, 1, 1, tzinfo=UTC))
+    # #97 loads a production holdout as one read-only exploratory warmup prefix plus the
+    # holdout window, i.e. the same feed continued.  A fixture whose holdout restarts at
+    # 100 while the prefix ends near 165 hands the strategy a fabricated -40% bar at the
+    # boundary (full book flip, 372 fills instead of 92), so the holdout price levels are
+    # seeded from the exploratory panel's last closes.  Drift law, seed, bar counts,
+    # window and every gate floor are unchanged; only the impossible level jump is gone.
+    last_closes = (
+        panel.filter(pl.col("timestamp") == panel["timestamp"].max())
+        .sort("asset")
+        .select("asset", "close")
+        .to_dicts()
+    )
     holdout_panel = _make_persistent_trend_panel(
-        n_bars=120, seed=202, t0=datetime(2025, 1, 1, tzinfo=UTC) + timedelta(hours=185)
+        n_bars=120,
+        seed=202,
+        t0=datetime(2025, 1, 1, tzinfo=UTC) + timedelta(hours=185),
+        start_prices={row["asset"]: float(row["close"]) for row in last_closes},
     )
     repo, contract, _ = _setup_repo(
         tmp_path,
@@ -859,20 +881,23 @@ def test_reference_templates_pass_full_funnel_end_to_end(
         model_type="ridge",
         strat_module=ridge_rel,
         parameters={"ridge_alpha": 10.0, "rebalance_every": 4, "top_k": 3},
+        # T12: the reference baseline declares RidgeParams, so the funnel supplies
+        # two distinct numeric neighbors instead of leaning on an empty grid.
+        param_grid=[{"ridge_alpha": 8.5}, {"ridge_alpha": 11.5}],
         run_id="RUN-T08-REF-RIDGE",
         expected_holding_bars=4,
     )
     assert cli_main(["verify", str(ridge_spec), "--json"]) == 0
     assert cli_main(["screen", str(ridge_spec), "--json"]) == 0
     assert cli_main(["backtest", str(ridge_spec), "--json"]) == 0
-    assert cli_main(["audit-check", "--run-id", "RUN-T08-REF-RIDGE", "--json"]) == 0
     capsys.readouterr()
-    assert cli_main([
-        "qualify", "--run-id", "RUN-T08-REF-RIDGE",
-        "--unseal-holdout", "--human-confirm-unseal", "YES_UNSEAL_HOLDOUT", "--json",
-    ]) == 0
-    ridge_qual = json.loads(capsys.readouterr().out)
-    assert ridge_qual["verdict"] == "PROMOTED"
+    assert cli_main(["audit-check", "--run-id", "RUN-T08-REF-RIDGE", "--json"]) == 1
+    ridge_audit = json.loads(capsys.readouterr().out)
+    assert ridge_audit["verdict"] == "REJECTED"
+    cadence = ridge_audit["checks"]["1_target_rebalance_alignment"]
+    assert cadence["passed"] is False
+    assert cadence["blocking_dimensions"] == ["holding"]
+    assert ridge_audit["checks"]["4_fold_local_fitting"]["passed"] is True
 
     # 2. CausalRulesStrategy drawdown template end-to-end
     rules_spec = _register_hyp_and_spec(
@@ -883,6 +908,8 @@ def test_reference_templates_pass_full_funnel_end_to_end(
         model_type="rules",
         strat_module=rules_rel,
         parameters={"fast_span": 6, "slow_span": 18, "max_drawdown": 0.10, "stop_loss_pct": 0.05},
+        # T12: ± neighbor spans on the reference rules template.
+        param_grid=[{"fast_span": 5, "slow_span": 16}, {"fast_span": 7, "slow_span": 20}],
         run_id="RUN-T08-REF-RULES",
         expected_holding_bars=8,
     )
@@ -897,6 +924,84 @@ def test_reference_templates_pass_full_funnel_end_to_end(
     ]) == 0
     rules_qual = json.loads(capsys.readouterr().out)
     assert rules_qual["verdict"] == "PROMOTED"
+
+
+def test_preregistered_four_bar_synthetic_control_completes_funnel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Synthetic positive control, not a trading claim. The cadence, seeds, windows,
+    # and pass criteria are fixed independently of the negative ridge witness:
+    # a 4-bar long/short exposure followed by 4 flat bars; distinct panels with
+    # the same drift law. Require measured completed holds and the full CLI funnel.
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    repo, contract, _ = _setup_repo(
+        tmp_path,
+        name="fixed_cadence_control",
+        panel=_make_persistent_trend_panel(n_bars=192, seed=311, t0=start),
+        holdout_panel=_make_persistent_trend_panel(
+            n_bars=192, seed=733, t0=start + timedelta(hours=192)
+        ),
+        label_horizon_bars=4,
+    )
+    strategy_path = "strategies/candidates/fixed_cadence_control.py"
+    (repo / strategy_path).write_text(
+        '''from ml4t.backtest import Strategy
+from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
+from pydantic import BaseModel, ConfigDict
+
+
+class ParamsModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+def required_symbols(params):
+    return ["AAA", "EEE"]
+
+
+class FixedCadenceControl(Strategy):
+    def __init__(self):
+        self.executor = TargetWeightExecutor(RebalanceConfig(
+            allow_short=True, allow_fractional=True, max_single_weight=0.5, max_gross_leverage=1.0,
+        ))
+
+    def on_data(self, timestamp, data, context, broker):
+        phase = timestamp.hour % 8
+        if phase in (0, 4):
+            weight = 0.4 if phase == 0 else 0.0
+            targets = {a: w for a, w in (("AAA", weight), ("EEE", -weight)) if a in data}
+            self.executor.execute(targets, data, broker, timestamp=timestamp)
+
+
+def configure_strategy(contract, params):
+    return FixedCadenceControl()
+''',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("WARDEN_NON_INTERACTIVE", raising=False)
+    run_id = "RUN-T08-FIXED-CADENCE"
+    spec = _register_hyp_and_spec(
+        repo, contract, hyp_id="HYP-T08-FIXED-CADENCE", family="rules_ts",
+        model_type="rules", strat_module=strategy_path, run_id=run_id, expected_holding_bars=4,
+    )
+    for subcommand in ("verify", "screen", "backtest"):
+        assert cli_main([subcommand, str(spec), "--json"]) == 0, subcommand
+    capsys.readouterr()
+    assert cli_main(["audit-check", "--run-id", run_id, "--json"]) == 0
+    audit = json.loads(capsys.readouterr().out)
+    assert audit["verdict"] == "APPROVED"
+    assert all(check["passed"] for check in audit["checks"].values())
+    cadence = audit["checks"]["1_target_rebalance_alignment"]
+    qualification_rc = cli_main([
+        "qualify", "--run-id", run_id,
+        "--unseal-holdout", "--human-confirm-unseal", "YES_UNSEAL_HOLDOUT", "--json",
+    ])
+    result = json.loads(capsys.readouterr().out)
+    assert qualification_rc == 0, result
+    assert result["holdout_override"] is False
+    assert result["verdict"] == "PROMOTED"  # promotion only in the disposable fixture registry
+    assert cadence["holding_completed_epochs"] > 0
+    assert cadence["observed_holding_completed_cadence_bars"] == pytest.approx(4.0)
 
 
 def test_protocol_family_mismatch_fails_closed_with_zero_trials(

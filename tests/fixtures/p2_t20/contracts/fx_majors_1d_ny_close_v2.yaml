@@ -1,0 +1,36 @@
+# T20 #106 replacement contract fixture — Dukascopy daily FX on the 17:00 New York clock.
+#
+# Replaces FX_MAJORS_1D_V1 (DEPRECATED_UNEXECUTABLE: level-shifted LSE minute resample) and
+# inherits its selection problem.  The daily session anchor is declared here as metadata for
+# reviewers; the dataset spec carries the same anchor for the builder (specs/).
+contract_id: FX_MAJORS_1D_NY_CLOSE_V2
+asset_class: fx
+frequency: 1d
+bars_per_year: 260
+exploratory_data_path: data/exploratory/dukascopy_fx_majors_1d_ohlcv_r1.parquet
+holdout_data_path: data/holdout/dukascopy_fx_majors_1d_ohlcv_r1.parquet
+train_start: '2024-01-01T00:00:00Z'
+val_start: '2025-01-01T00:00:00Z'
+val_end: '2025-02-01T00:00:00Z'
+holdout_start: '2025-02-01T00:00:00Z'
+holdout_end: '2025-03-01T00:00:00Z'
+n_folds: 3
+label_horizon_bars: 2
+embargo_bars: 1
+execution_delay_bars: 1
+execution_mode: NEXT_BAR
+taker_fee_bps: 1.0
+slippage_bps: 0.5
+funding_bps_per_8h: 0.0
+min_expected_move_to_cost_ratio: 2.5
+data_snapshot_sha256: ''
+data_provenance: unknown
+spec_version: 2
+evidence_tier: synthetic
+selection_group_id: LEGACY_FX_MAJORS_1D
+inherits_selection_from: FX_MAJORS_1D_V1
+allow_leverage: false
+max_gross_leverage: 1.0
+holdout_refit_mode: frozen_pre_holdout
+dataset_id: ''
+dataset_manifest_sha256: ''

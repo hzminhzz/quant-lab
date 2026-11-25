@@ -1,0 +1,67 @@
+{
+  "dsr_comparisons": [
+    {
+      "contract_id": "C1",
+      "delta_ml4t_vs_legacy": -0.0022454128994952582,
+      "delta_ml4t_vs_recorded": -0.06444888800394916,
+      "legacy_dsr_prob": 0.3477965248955461,
+      "ml4t_dsr_from_stats_prob": 0.3455511119960508,
+      "ml4t_dsr_matrix_prob": 0.38354349153802336,
+      "n_bars": 40,
+      "recorded_dsr_prob": 0.41,
+      "recorded_verdict": "REVISE",
+      "run_id": "RUN-C1-001"
+    },
+    {
+      "contract_id": "C1",
+      "delta_ml4t_vs_legacy": 9.592516621947933e-05,
+      "delta_ml4t_vs_recorded": 0.5796837647029571,
+      "legacy_dsr_prob": 0.9995878395367377,
+      "ml4t_dsr_from_stats_prob": 0.9996837647029572,
+      "ml4t_dsr_matrix_prob": 0.9945706200817186,
+      "n_bars": 40,
+      "recorded_dsr_prob": 0.42,
+      "recorded_verdict": "REVISE",
+      "run_id": "RUN-C1-002"
+    }
+  ],
+  "ic_hac_comparisons": [],
+  "pbo_diagnostics": [
+    {
+      "contract_id": "C1",
+      "degradation_mean": -9.25185853854297e-18,
+      "n_bars": 40,
+      "n_combinations": 6,
+      "n_strategies": 2,
+      "pbo": 0.0,
+      "pbo_blocks": 4,
+      "pbo_pct": 0.0
+    }
+  ],
+  "ras_diagnostics": [
+    {
+      "contract_id": "C1",
+      "data_snooping_penalty": 0.09348819228371699,
+      "max_adjusted_per_bar_sr": -1.3096574879814202,
+      "max_observed_per_bar_sr": 0.5403215414247081,
+      "n_bars": 40,
+      "n_significant": 0,
+      "n_strategies": 2,
+      "rademacher_complexity": 0.046744096141858496
+    }
+  ],
+  "summary": {
+    "hac_auto_gate_flips": 0,
+    "hac_lag5_gate_flips": 0,
+    "max_abs_dsr_delta": 0.0022454128994952582,
+    "max_abs_dsr_delta_vs_recorded": 0.5796837647029571,
+    "max_abs_hac_lag5_delta": 0.0,
+    "mean_abs_dsr_delta": 0.0011706690328573688,
+    "mean_abs_dsr_delta_vs_recorded": 0.3220663263534531,
+    "n_ic_series_evaluated": 0,
+    "n_pbo_groups": 1,
+    "n_ras_groups": 1,
+    "n_trials_evaluated": 2
+  },
+  "verdicts_mutated": false
+}

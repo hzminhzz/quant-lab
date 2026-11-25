@@ -1,0 +1,77 @@
+# Synthetic daily FX session-roll dataset for the T19 tests (issue #105).
+#
+# Two declared source roots: `source` covers the exploratory window only and `seal_source`
+# covers the holdout window only.  The exploratory fence refuses any bar at or past
+# `exploratory_end_exclusive`, so the two windows are declared separately instead of being
+# sliced outside the gate.  Paths are source-root relative; nothing here points at real data.
+schema_version: 1
+dataset_id: synth_fx_majors_1d_ohlcv_r1
+asset_class: fx
+evidence_tier: synthetic
+venue: synth_dukascopy
+frequency: 1d
+price_basis: ohlcv
+# Dukascopy reports ticks, not lots: the daily volume is the observed sub-bar count.
+volume_semantics: tick_count_proxy
+time_window:
+  # 2025-03-02 17:00 New York (EST) .. 2025-03-09 17:00 New York (EDT): the week whose
+  # weekend crosses the US spring-forward switch.
+  start_inclusive: "2025-03-02T22:00:00Z"
+  exploratory_end_exclusive: "2025-03-09T21:00:00Z"
+  holdout_start_inclusive: "2025-03-09T21:00:00Z"
+  holdout_end_exclusive: "2025-03-16T21:00:00Z"
+time_contract:
+  timezone: UTC
+  bar_timestamp_semantics: open_left_closed_left
+  session_calendar: FX_24_5
+  # Venue close: the daily bar runs 17:00 -> 17:00 New York, so a Sunday-evening reopen
+  # joins the session that opens Sunday 17:00 instead of forming a two-hour Sunday bar.
+  daily_roll_anchor: "17:00 America/New_York"
+source:
+  kind: lake_raw
+  adapter: dukascopy_local
+  inputs:
+    eurusd:
+      path: raw/eurusd_hist.csv
+      format: csv
+      source_timezone: UTC
+    usdjpy:
+      path: raw/usdjpy_hist.csv
+      format: csv
+      source_timezone: UTC
+seal_source:
+  # Raw vendor exports for the sealed window.  They are ordinary vendor files, not the
+  # protected holdout directory: a source path naming the holdout root is refused by the
+  # builder's containment rule even here.
+  kind: lake_raw
+  adapter: dukascopy_local
+  inputs:
+    eurusd:
+      path: raw/eurusd_recent.csv
+      format: csv
+      source_timezone: UTC
+    usdjpy:
+      path: raw/usdjpy_recent.csv
+      format: csv
+      source_timezone: UTC
+universe:
+  selection_mode: explicit_symbols
+  symbols: [EURUSD, USDJPY]
+  retain_delisted: true
+resampling:
+  # Five sessions a week exist; hours are aggregated onto the session clock.
+  enabled: true
+  require_min_sub_bars: 600
+quality_gate:
+  max_abs_bar_return: 0.02
+  mad_outlier_threshold: 10.0
+  # A session that never trades would be a feed hole, not an allowed zero.
+  allow_zero_volume: false
+  explicit_anomaly_filters: []
+  min_coverage_ratio: 1.0
+parquet_write:
+  compression: zstd
+  compression_level: 3
+  statistics: true
+  row_group_size: 100000
+  sort_keys: [timestamp, asset]

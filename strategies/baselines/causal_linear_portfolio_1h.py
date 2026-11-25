@@ -13,11 +13,34 @@ from ml4t.models import (
     LinearPortfolioConfig,
     PortfolioSequenceBatch,
 )
+from pydantic import Field
 
 from warden.leakage import WalkForwardModelProtocol
+from warden.params_model import ParamsModel
 
 MODEL_CLASS = "LinearFeaturePortfolioModel"
 MODEL_TIER = "linear"
+
+
+class LinearPortfolioBaselineParams(ParamsModel):
+    """Typed declaration of the linear-portfolio baseline's numeric parameters."""
+
+    ridge_alpha: float = Field(default=10.0, gt=0.0)
+    turnover_penalty: float = Field(default=2.0, ge=0.0)
+    gross_exposure: float = Field(default=1.0, gt=0.0)
+    net_exposure: float = Field(default=0.0, ge=-1.0, le=1.0)
+    max_abs_weight: float | None = Field(default=None, gt=0.0)
+
+
+#: Warden's typed-parameter hook; see ``warden.params_model``.
+params_model = LinearPortfolioBaselineParams
+
+
+def validate_params(params: dict[str, Any]) -> LinearPortfolioBaselineParams:
+    declared = {
+        k: v for k, v in params.items() if k in LinearPortfolioBaselineParams.model_fields
+    }
+    return LinearPortfolioBaselineParams.model_validate(declared)
 
 
 def _build_portfolio_sequence_batch(
@@ -159,11 +182,11 @@ pipeline = CausalRidgePipeline()
 
 def build_estimator(params: dict[str, Any]) -> WalkForwardModelProtocol:
     """Build the turnover-penalized LinearFeaturePortfolioModel fold estimator."""
-    max_abs = params.get("max_abs_weight")
+    tuned = validate_params(params)
     return CausalLinearPortfolioEstimator(
-        ridge_alpha=float(params.get("ridge_alpha", 10.0)),
-        turnover_penalty=float(params.get("turnover_penalty", 2.0)),
-        gross_exposure=float(params.get("gross_exposure", 1.0)),
-        net_exposure=float(params.get("net_exposure", 0.0)),
-        max_abs_weight=None if max_abs is None else float(max_abs),
+        ridge_alpha=tuned.ridge_alpha,
+        turnover_penalty=tuned.turnover_penalty,
+        gross_exposure=tuned.gross_exposure,
+        net_exposure=tuned.net_exposure,
+        max_abs_weight=tuned.max_abs_weight,
     )

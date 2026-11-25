@@ -16,7 +16,7 @@ import yaml
 
 from warden.cli import main as cli_main
 from warden.codeid import code_closure
-from warden.contracts import EvaluationContract, HypothesisSpec
+from warden.contracts import EvaluationContract, ExperimentResult, HypothesisSpec
 from warden.diagnostics import compute_trade_metrics
 from warden.gates import GateFalsificationError, empirical_holding_volatility
 from warden.qualify import qualify_candidate
@@ -271,36 +271,157 @@ def test_full_funnel_code_closure_binding_and_drift_fail_closed(
         qualify_candidate("RUN-T01-C", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout_override)
 
 
+def _seed_indices_typo_ledger(tmp_path: Path) -> tuple[Path, Path]:
+    """Seeded INDICES_1H_V2 repo + ledger for the HYP-2026-068 typo replay, inside ``tmp_path``.
+
+    The replay used to borrow ``registry/registry.db`` and
+    ``data/exploratory/indices_1h.parquet`` from the checkout.  With no ledger the whole guard
+    block below was skipped, and once a sibling test created an empty one the replay crashed on
+    a missing hypothesis row (``TypeError: 'NoneType' object is not subscriptable``).  This
+    fixture states the same shape explicitly: a registered contract, a hypothesis that already
+    consumed a trial, a recorded prior trial, and a synthetic panel -- so the pre-reservation
+    guard is asserted on every checkout, in any test order.
+    """
+    repo = tmp_path / "indices_typo_repo"
+    panel_path = repo / "data" / "exploratory" / "indices_1h.parquet"
+    _write_panel(
+        panel_path,
+        assets=("SPX", "NDX"),
+        n_bars=120,
+        freq_minutes=60,
+        drift=0.001,
+        vol=0.002,
+        seed=41,
+    )
+    sha = _hash_file(panel_path)
+    start = datetime(2025, 1, 1, tzinfo=UTC)
+    contract = EvaluationContract(
+        contract_id="INDICES_1H_V2",
+        asset_class="indices",
+        frequency="1h",
+        bars_per_year=5850,
+        exploratory_data_path="data/exploratory/indices_1h.parquet",
+        holdout_data_path="data/holdout/indices_1h.parquet",
+        train_start=start,
+        val_start=start + timedelta(hours=10),
+        val_end=start + timedelta(hours=120),
+        holdout_start=start + timedelta(hours=120),
+        holdout_end=start + timedelta(hours=240),
+        n_folds=2,
+        label_horizon_bars=8,
+        embargo_bars=2,
+        execution_delay_bars=1,
+        taker_fee_bps=0.5,
+        slippage_bps=0.5,
+        funding_bps_per_8h=0.0,
+        min_expected_move_to_cost_ratio=2.5,
+        data_snapshot_sha256=sha,
+        data_provenance="verified_market",
+    )
+    (repo / "contracts" / "datasets").mkdir(parents=True, exist_ok=True)
+    (repo / "contracts" / "indices_1h_v2.yaml").write_text(
+        yaml.safe_dump(contract.__dict__), encoding="utf-8"
+    )
+    (repo / "contracts" / "datasets" / "INDICES_1H_V2.json").write_text(
+        json.dumps({
+            "contract_id": contract.contract_id,
+            "path": contract.exploratory_data_path,
+            "sha256": sha,
+            "provenance": "verified_market",
+            "source": "synthetic_ticket01_fixture",
+        }),
+        encoding="utf-8",
+    )
+    # The replay's own strategy module, copied byte-for-byte with the sibling it imports.
+    for rel in ("candidates/ts_breakout_20_1h.py", "candidates/ts_common.py"):
+        src = REPO_ROOT / "strategies" / rel
+        dst = repo / "strategies" / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(src.read_bytes())
+
+    reg = ResearchRegistry(repo / "registry" / "registry.db")
+    reg.register_contract(contract)
+    reg.register_hypothesis(
+        HypothesisSpec(
+            "HYP-2026-068",
+            contract.contract_id,
+            "Donchian breakout typo replay",
+            "rules_ts",
+            "Mechanism explanation of twenty chars",
+            "Friction explanation of twenty chars",
+            8,
+            "Reject net Sharpe below one",
+        )
+    )
+    reg.record_trial(
+        ExperimentResult(
+            run_id="RUN-HYP068-PRIOR",
+            hypothesis_id="HYP-2026-068",
+            contract_id=contract.contract_id,
+            strategy_name="BreakoutPrior",
+            strategy_family="rules_ts",
+            config_hash="cfg-prior",
+            stage_reached="STAGE_1_SIGNAL",
+            verdict="REVISE",
+            gross_sharpe=1.0,
+            net_sharpe=0.6,
+            deflated_sharpe_prob=0.7,
+            expected_max_sharpe_noise=0.2,
+            total_trials_n=1,
+            effective_trials_keff=1.0,
+            mean_ic=None,
+            ic_hac_tstat=None,
+            hit_rate=0.5,
+            profit_factor=1.1,
+            max_drawdown_pct=5.0,
+            annualized_turnover=10.0,
+            breakeven_cost_bps=5.0,
+            stress_2x_cost_sharpe=0.2,
+            param_neighbor_stability=None,
+            notes="seeded pre-reservation guard prior",
+            data_snapshot_sha256=sha,
+            data_provenance="verified_market",
+        ),
+        {},
+        np.linspace(0.002, -0.001, 40),
+    )
+    return repo, reg.db_path
+
+
 def test_target_symbols_pre_reservation_guard_and_calendar_filtering(tmp_path: Path) -> None:
-    # 1. Replay RUN-HYP068-TYPO-PROBE on isolated SQLite .backup() of live registry (if present)
-    live_db = REPO_ROOT / "registry" / "registry.db"
-    if live_db.is_file() and (REPO_ROOT / "data" / "exploratory" / "indices_1h.parquet").is_file():
-        snap_db = tmp_path / "snap.db"
-        _backup_sqlite(live_db, snap_db)
-        with sqlite3.connect(snap_db) as conn:
-            before_used = conn.execute(
-                "SELECT trials_used FROM hypotheses WHERE hypothesis_id='HYP-2026-068'"
-            ).fetchone()[0]
-            before_count = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
-        typo_spec = tmp_path / "typo_snap.yaml"
-        typo_spec.write_text(yaml.safe_dump({
-            "contract_id": "INDICES_1H_V2",
-            "hypothesis_id": "HYP-2026-068",
-            "run_id": "RUN-HYP068-TYPO-REPLAY",
-            "strategy_name": "TypoProbeReplay",
-            "strategy_family": "rules_ts",
-            "model_type": "rules",
-            "strategy_module": "strategies/candidates/ts_breakout_20_1h.py",
-            "parameters": {"target_symbols": ["NOT_REAL"]},
-        }), encoding="utf-8")
-        snap_runner = ExperimentRunner(registry=ResearchRegistry(snap_db), repo_root=REPO_ROOT, allow_legacy_replay=True)
-        with pytest.raises(ValueError, match="unknown symbols"):
-            snap_runner.run_spec(typo_spec)
-        with sqlite3.connect(snap_db) as conn:
-            assert conn.execute(
-                "SELECT trials_used FROM hypotheses WHERE hypothesis_id='HYP-2026-068'"
-            ).fetchone()[0] == before_used
-            assert conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0] == before_count
+    # 1. Replay RUN-HYP068-TYPO-PROBE on an isolated SQLite .backup() of a seeded ledger
+    typo_repo, seed_db = _seed_indices_typo_ledger(tmp_path)
+    snap_db = tmp_path / "snap.db"
+    _backup_sqlite(seed_db, snap_db)
+    with sqlite3.connect(snap_db) as conn:
+        before_used = conn.execute(
+            "SELECT trials_used FROM hypotheses WHERE hypothesis_id='HYP-2026-068'"
+        ).fetchone()[0]
+        before_count = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
+    # The seed is non-empty on purpose: "unchanged" must mean unchanged, not never-written.
+    assert before_used > 0
+    assert before_count > 0
+    typo_spec = tmp_path / "typo_snap.yaml"
+    typo_spec.write_text(yaml.safe_dump({
+        "contract_id": "INDICES_1H_V2",
+        "hypothesis_id": "HYP-2026-068",
+        "run_id": "RUN-HYP068-TYPO-REPLAY",
+        "strategy_name": "TypoProbeReplay",
+        "strategy_family": "rules_ts",
+        "model_type": "rules",
+        "strategy_module": "strategies/candidates/ts_breakout_20_1h.py",
+        "parameters": {"target_symbols": ["NOT_REAL"]},
+    }), encoding="utf-8")
+    snap_runner = ExperimentRunner(
+        registry=ResearchRegistry(snap_db), repo_root=typo_repo, allow_legacy_replay=True
+    )
+    with pytest.raises(ValueError, match="unknown symbols"):
+        snap_runner.run_spec(typo_spec)
+    with sqlite3.connect(snap_db) as conn:
+        assert conn.execute(
+            "SELECT trials_used FROM hypotheses WHERE hypothesis_id='HYP-2026-068'"
+        ).fetchone()[0] == before_used
+        assert conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0] == before_count
 
     # 2. Fresh hypothesis typo probe + non-overlapping union-calendar multi-asset filtering
     repo = tmp_path / "multi_repo"
@@ -391,10 +512,17 @@ def configure_strategy(contract, params):
     res = runner.run_spec(spec_good)
     assert res.stage_reached == "STAGE_3_STRESS"
     with reg._connect() as conn:
-        returns_len = len(json.loads(
-            conn.execute("SELECT returns_json FROM trials WHERE run_id='RUN-STAG-OK'").fetchone()[0]
-        ))
-    assert returns_len == 70  # val_start is +10h -> 70 AAA bars, not 140 union bars
+        returns_json, returns_path = conn.execute(
+            "SELECT returns_json, returns_parquet_path FROM trials WHERE run_id='RUN-STAG-OK'"
+        ).fetchone()
+    # The strategy above still sees only AAA. T14 publishes its selection returns
+    # on the full contract clock, booking zero at the intervening BBB-only stamps.
+    returns = pl.read_parquet(returns_path)
+    expected_clock = [c.val_start + timedelta(minutes=30 * i) for i in range(140)]
+    assert returns["timestamp"].to_list() == expected_clock
+    assert returns["net_return"].to_list() == json.loads(returns_json)
+    assert returns["net_return"].to_list()[1::2] == [0.0] * 70
+    assert any(returns["net_return"].to_list()[::2])
 
     # compute_trade_metrics restricts equal-weight benchmark to active columns when pos.shape == asset_returns.shape
     rng = np.random.default_rng(31)

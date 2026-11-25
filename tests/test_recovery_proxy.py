@@ -9,7 +9,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.contracts import load_contract
+from warden.contracts import ContractValidationError, load_contract
 from warden.runner import (
     ExecutionDataError,
     ExperimentRunner,
@@ -102,7 +102,14 @@ def test_full_stage1_refuses_quotes_on_ohlcv_without_converting_contract(tiny_re
     """A separate quote-based experiment remains blocked when source quotes are absent."""
     fixture = tiny_repo(contract_overrides={"asset_class": "fx", "execution_mode": "QUOTE_SIDE"})
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
-    with pytest.raises(ExecutionDataError, match="requires \\['bid', 'ask'\\]"):
+    # #95 moved this refusal one layer earlier: the single market-data gateway validates the
+    # loaded panel against the contract's FeedSpec before the engine's execution-basis check
+    # can run, so the same missing quote columns now surface as ContractValidationError rather
+    # than ExecutionDataError. Both are fail-closed ValueError refusals of a close-price
+    # fallback; the direct helper test above still pins ExecutionDataError for
+    # require_execution_columns, and the assertions below still require that no trial or
+    # reservation was recorded and that the contract was not silently converted.
+    with pytest.raises((ExecutionDataError, ContractValidationError), match=r"requires\s+.*bid"):
         runner.run_stage1_screen(fixture.spec)
     assert runner.resolve_contract(fixture.contract.contract_id).execution_mode == "QUOTE_SIDE"
     with fixture.registry._connect() as conn:

@@ -1,0 +1,70 @@
+# T20 #106 replacement dataset spec — PIT Binance USD-M broad-universe 1h.
+#
+# Fixture only (`evidence_tier: synthetic`).  It is the reviewed *shape* the host step runs
+# against the real lake; the paths below are source-root relative and name no production
+# file.  The universe and the funding contract are the two facts the legacy V1 panel never
+# pinned: `retain_delisted: true` keeps delisted symbols to their last tradable bar, and the
+# 8h forward settlement contract refuses a window with no settlement instead of silently
+# carrying zero.
+schema_version: 1
+dataset_id: binance_um_crypto_perps_broad_1h_ohlcv_funding_r1
+asset_class: crypto_perps
+evidence_tier: synthetic
+venue: binance_um
+frequency: 1h
+price_basis: ohlcv_funding
+volume_semantics: real_contracts
+time_window:
+  start_inclusive: "2024-01-01T00:00:00Z"
+  exploratory_end_exclusive: "2025-02-01T00:00:00Z"
+  holdout_start_inclusive: "2025-02-01T00:00:00Z"
+  holdout_end_exclusive: "2025-03-01T00:00:00Z"
+time_contract:
+  timezone: UTC
+  bar_timestamp_semantics: open_left_closed_left
+  session_calendar: 24/7
+  daily_roll_anchor: null
+source:
+  kind: lake_raw
+  adapter: binance_um_perp
+  inputs:
+    catalog:
+      path: raw/catalog.csv
+      format: csv
+      role: symbol_catalog
+  crypto:
+    symbol_catalog: catalog
+    klines_root: raw/klines
+    funding_root: raw/funding
+    partition_period: month
+    timestamp_column: timestamp
+    entity_column: symbol
+    ignored_columns: []
+universe:
+  selection_mode: explicit_symbols
+  # Declared explicitly so the review is a diff: a broad universe is enumerated by the
+  # reviewed catalog, never inferred from today's listing.
+  symbols: [BTCUSDT, ETHUSDT]
+  retain_delisted: true
+resampling:
+  enabled: false
+  require_min_sub_bars: null
+quality_gate:
+  max_abs_bar_return: 0.3
+  mad_outlier_threshold: 12.0
+  allow_zero_volume: false
+  explicit_anomaly_filters: []
+  min_coverage_ratio: 0.4
+parquet_write:
+  compression: zstd
+  compression_level: 3
+  statistics: true
+  row_group_size: 100000
+  sort_keys: [timestamp, asset]
+funding:
+  settlement_interval: 8h
+  snap_tolerance_seconds: 15
+  # No implicit zero: a missing settlement fails the build unless the exact contract rate
+  # is declared, and then every substituted bar is audited.
+  missing_policy: contract_fallback
+  fallback_rate: 0.0001

@@ -1,0 +1,260 @@
+{
+  "classification_notes": [
+    "Workflow status ACTIVE is not scientific eligibility.",
+    "Stage 1 REJECT does not require Stage 3 and is not an untested hypothesis.",
+    "An original source/contract failure is not repaired by a failed proxy or rejected descendant.",
+    "Open-PR evidence is not yet appended to the primary authoritative research SQLite.",
+    "Updated market data never invalidates an existing negative result for its original frozen contract."
+  ],
+  "early_trial_without_stage3": 0,
+  "extra_outcomes_in_open_prs": {
+    "negative": 13,
+    "overlapping_live_ids": [],
+    "records": [
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CME_ES_15M_SYNCSTER_V1",
+        "data_sha256": "9510c42b8172d300f8dbfd047a6561270c8b6e2e391f50fbc3d0ae28fd8cfb63",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-784f9c92d0255f1d-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-CME-ES-DOWN-RTH-20261102",
+        "source_pr": 40,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/syncster_es_down_day_15m.py",
+        "summary": "PF=1.0025; time_in_market=3.71%; bootstrap p=.115"
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CME_NQ_15M_SYNCSTER_V1",
+        "data_sha256": "7a976688ea097f181203626a50dc54e983b4fb27a887502f0ddbad84d7b4e915",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-539a07d8a34dab58-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-CME-NQ-ORB-RTH-20261102",
+        "source_pr": 40,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/syncster_nq_orb_15m.py",
+        "summary": "PF=1.0634; time_in_market=4.27%; bootstrap p=.020"
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_ORDERFLOW_1H_H72_V1",
+        "data_sha256": "3045cb84e059810beec5a0f8afc2945cb7d3aee1425297a93d175126c428eafa",
+        "disposition": "PREFLIGHT_FAIL",
+        "evidence_id": "6552be460a31fab8a6140742b8c03a53990d5e1b3737efe81949ccf6304b1842",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ORDERFLOW-ATS-H72-20261102",
+        "source_pr": 40,
+        "stage": "UNAPPROVED_PREFLIGHT",
+        "strategy_module": "strategies/candidates/recovery/binance_ats_h72.py",
+        "summary": "Observed trade-size 72h Ridge IC=-.00204; HAC t=-.168; contract unsigned; no native screen."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_ORDERFLOW_1H_H72_V1",
+        "data_sha256": "3045cb84e059810beec5a0f8afc2945cb7d3aee1425297a93d175126c428eafa",
+        "disposition": "PREFLIGHT_FAIL",
+        "evidence_id": "6552be460a31fab8a6140742b8c03a53990d5e1b3737efe81949ccf6304b1842",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ORDERFLOW-NTR-H72-20261102",
+        "source_pr": 40,
+        "stage": "UNAPPROVED_PREFLIGHT",
+        "strategy_module": "strategies/candidates/recovery/binance_ntr_h72.py",
+        "summary": "Observed taker-flow 72h Ridge IC=+.00217; HAC t=+.183; contract unsigned; no native screen."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_MAJORS_1H_V1",
+        "data_sha256": "d0a6edd003507e97a725938a287e6e03527873643e2285231c199c55aaf8589d",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-429db6d2b034af44-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-BTCETH-4H-BAND-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_cost_aware_ridge_1h.py",
+        "summary": "BTC/ETH cost-aware band PF=1.0343; bootstrap p=.090."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_MAJORS_1H_V1",
+        "data_sha256": "d0a6edd003507e97a725938a287e6e03527873643e2285231c199c55aaf8589d",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-29d803216c04956d-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-BTCETH-4H-SIGN-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_cost_aware_ridge_1h.py",
+        "summary": "BTC/ETH Ridge sign PF=.9928; bootstrap p=.085."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_MAJORS_1H_V1",
+        "data_sha256": "d0a6edd003507e97a725938a287e6e03527873643e2285231c199c55aaf8589d",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-da5cd8ca85044f20-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-CRYPTO-6H-EQUAL-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_six_hour_crypto_trend.py",
+        "summary": "Six-hour trend equal weight PF=1.0072."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_MAJORS_1H_V1",
+        "data_sha256": "d0a6edd003507e97a725938a287e6e03527873643e2285231c199c55aaf8589d",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-cdf48ff435297758-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-CRYPTO-6H-VOLSCALE-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_six_hour_crypto_trend.py",
+        "summary": "Six-hour trend inverse-vol PF=1.0205."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+        "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+        "disposition": "STAGE1_PASS_UNQUALIFIED",
+        "evidence_id": "ATT-2ae7363d4315e291-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-XS-LOWVOL-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_lowvol_xs_1h.py",
+        "summary": "Inverse 24h realized volatility IC=.052817, HAC t=12.020; 4h rebalance net Sharpe=-.0402; no native Stage3. Inherits HYP-2026-031 and ten training probes."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+        "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+        "disposition": "STAGE1_PASS_UNQUALIFIED",
+        "evidence_id": "ATT-ccfdfe570c9d3343-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-XS-LOWVOL-24H-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_lowvol_xs_24h.py",
+        "summary": "Same IC vector as lowvol parent; 24h economic preview net Sharpe=.9104; 2x cost=.1528, 20 unexecutable open transitions; no full Stage3. Correlated revision."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_PIT100_1H_V1",
+        "data_sha256": "c76266d4c3bf2e37ce904bedd182cd6e54b9cfd3e6bc9fe1f337925e4a818a8a",
+        "disposition": "STAGE1_PASS_UNQUALIFIED",
+        "economic_preflight": {
+          "base_net_sharpe": -0.20821205447751973,
+          "delay_plus_one_net_sharpe": -0.2727050992907636,
+          "double_cost_net_sharpe": -1.0691611015229414,
+          "full_native_stage3": false,
+          "receipt_sha256": "5de4660add68bc42405f62160645b12a60adeeb8608c06ce0d82752207e45ada",
+          "report": "docs/PIT-LOWVOL-ECONOMIC-PREFLIGHT-20261102.md",
+          "source_pr": 47,
+          "status": "PRELIMINARY_ECONOMICS_REJECT"
+        },
+        "evidence_id": "ATT-480df2ef5d8788f2-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-XS-LOWVOL-PIT100-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_lowvol_pit100_adapter.py",
+        "summary": "Native PIT monthly-asof lowvol Stage1 IC=.057424 t=11.551 PASS (same already-seen 2024-25 validation window). Exact-hour 4h event-funded economic preflight 1x net Sharpe=-0.2082; 2x=-1.0692; +1h=-0.2727. No native Stage3, no holdout. Same low-vol original family selection debt."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+        "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-50aee13f80f8799c-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-ARXIV-XS-PRICE-PRESSURE-20261102",
+        "source_pr": 41,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/arxiv_price_pressure_xs_1h.py",
+        "summary": "Pooled Ridge price-pressure IC=.004819; HAC t=1.349."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+        "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-55ee4a3397e01826-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-XS4H-BTC-SPILLOVER-20261102",
+        "source_pr": 42,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/four_xs4h/btc_spillover.py",
+        "summary": "Beta-continuation IC=-.016818; HAC t=-2.798."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+        "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-9d45a649dd34bb76-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-XS4H-LIQ-MOM-20261102",
+        "source_pr": 42,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/four_xs4h/liquid_weekly_momentum.py",
+        "summary": "Liquidity-conditioned momentum IC=-.041216; HAC t=-8.940."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+        "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+        "disposition": "STAGE1_REJECT",
+        "evidence_id": "ATT-5d6d2cf388e6a93c-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-XS4H-PRICE-VOLUME-20261102",
+        "source_pr": 42,
+        "stage": "STAGE_1_SIGNAL",
+        "strategy_module": "strategies/candidates/four_xs4h/price_volume_confirm.py",
+        "summary": "Price-volume participation IC=-.038796; HAC t=-13.563."
+      },
+      {
+        "auto_retry": "DENY_SAME_CONFIG",
+        "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+        "data_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+        "disposition": "STAGE3_REVISE",
+        "evidence_id": "RUN-XS4H-SIGN-REVERSAL-20261102-001",
+        "fresh_research": "NEW_HYPOTHESIS_AND_SEPARATE_VALIDATION_REQUIRED",
+        "hypothesis_id": "HYP-XS4H-SIGN-REV-20261102",
+        "source_pr": 42,
+        "stage": "STAGE_3_STRESS",
+        "strategy_module": "strategies/candidates/four_xs4h/sign_reversal.py",
+        "summary": "Sign reversal Stage1 IC=.02320 PASS; Stage3 net Sharpe=-8.1754, DSR=1.56e-53, max DD=66.47%; rejected by six-check audit."
+      }
+    ],
+    "stage1_pass_unqualified": 3,
+    "total": 16
+  },
+  "hypothesis_workflow_status": {
+    "ACTIVE": 4
+  },
+  "never_attempted": [
+    {
+      "contract_id": "CONTRACT-A",
+      "data_status": "NEEDS_SOURCE_TRIAGE",
+      "detail": "No original blocker diagnosis available",
+      "hypothesis_id": "HYP-TEST-NEVER",
+      "related_evidence_id": null,
+      "title": "Unseen strategy"
+    }
+  ],
+  "never_attempted_count": 1,
+  "registry": {
+    "hypotheses": 4,
+    "selection_attempts": 2,
+    "trials": 1
+  },
+  "source": "<tmp>/rom/registry.db",
+  "stage1_passed_without_stage3": 1,
+  "stage1_rejected_without_stage3": 1,
+  "without_any_trial": 3,
+  "without_stage3": 3
+}

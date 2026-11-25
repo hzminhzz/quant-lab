@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import sqlite3
 import sys
 from pathlib import Path
+
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 DB = Path("registry/registry.db")
 LEDGER = Path(".workspace/fx_stage3/stage3_closure.md")
@@ -50,19 +51,16 @@ FX_OF = {v: k for k, v in STAGE1_SOURCE.items()}
 MECHANISM_REJECTED = {"HYP-2026-094": "breakout: Stage-1 REJECT as `HYP-2026-109`, Stage-3 REVISE as `HYP-2026-093`"}
 
 
-def _stage3(con, hyp):
-    return con.execute(
-        "SELECT run_id, net_sharpe, stress_2x_cost_sharpe, delay_plus1_sharpe, "
-        "annualized_turnover, breakeven_cost_bps, max_drawdown_pct, param_neighbor_stability, "
-        "deflated_sharpe_prob, verdict, stress_1p5_cost_sharpe, "
-        "(SELECT verdict FROM audit_evidence a WHERE a.run_id = trials.run_id) AS audit FROM trials "
-        "WHERE hypothesis_id=? ORDER BY created_at DESC LIMIT 1", (hyp,)).fetchone()
+def _stage3(ledger, hyp):
+    trial = ledger.read_latest_trial(hyp, by_created_at=True)
+    if trial is None:
+        return None
+    trial["audit"] = ledger.read_trial_audit_verdict(trial["run_id"])
+    return trial
 
 
-def _screen(con, hyp):
-    return con.execute(
-        "SELECT outcome, diagnostics_json FROM selection_attempts "
-        "WHERE hypothesis_id=? AND kind='standalone_screen' LIMIT 1", (hyp,)).fetchone()
+def _screen(ledger, hyp):
+    return ledger.read_standalone_screen(hyp)
 
 
 def blocker(repo_root: Path = Path(".")) -> str:
@@ -85,102 +83,95 @@ def blocker(repo_root: Path = Path(".")) -> str:
 
 def build(db: Path = DB, why: str | None = None) -> str:
     why = blocker() if why is None else why
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    try:
-        rows, counts = [], {"candidate": 0, "revise": 0, "blocked": 0, "stage1": 0, "unknown": 0}
-        detail = []
-        for hyp in STRATEGIES:
-            found = con.execute("SELECT strategy_module FROM hypotheses WHERE hypothesis_id=?",
-                                (hyp,)).fetchone()
-            module = found[0] if found else ""
-            src = STAGE1_SOURCE.get(hyp, hyp)
-            s3 = _stage3(con, hyp)
-            scr = _screen(con, hyp) or _screen(con, src)
-            via = f" (via `{src}`)" if src != hyp else ""
+    ledger = ReadOnlyResearchRegistry(db)
+    rows, counts = [], {"candidate": 0, "revise": 0, "blocked": 0, "stage1": 0, "unknown": 0}
+    detail = []
+    for hyp in STRATEGIES:
+        found = ledger.read_hypothesis(hyp)
+        module = found["strategy_module"] if found else ""
+        src = STAGE1_SOURCE.get(hyp, hyp)
+        s3 = _stage3(ledger, hyp)
+        scr = _screen(ledger, hyp) or _screen(ledger, src)
+        via = f" (via `{src}`)" if src != hyp else ""
 
-            if s3 and s3[9] == "CANDIDATE_FOR_QUALIFICATION":
-                counts["candidate"] += 1
-                disp, metric = f"CANDIDATE (`{s3[0]}`)", f"{s3[1]:.3f} | {s3[8]:.3f}"
-            elif s3:
-                counts["revise"] += 1
-                disp, metric = f"REVISE (`{s3[0]}`)", f"{s3[1]:.3f} | {s3[8]:.3f}"
-            elif why:
-                counts["blocked"] += 1
-                disp, metric = "BLOCKED_EXECUTION — no Stage-3 row", "— | —"
-            elif scr and scr[0] == "REJECT":
-                counts["stage1"] += 1
-                disp, metric = "Falsified at Stage 1", "— | —"
-            else:
-                counts["unknown"] += 1
-                disp, metric = "UNSCREENED — no recorded Stage-1 outcome", "— | —"
+        if s3 and s3["verdict"] == "CANDIDATE_FOR_QUALIFICATION":
+            counts["candidate"] += 1
+            disp, metric = f"CANDIDATE (`{s3['run_id']}`)", f"{s3['net_sharpe']:.3f} | {s3['deflated_sharpe_prob']:.3f}"
+        elif s3:
+            counts["revise"] += 1
+            disp, metric = f"REVISE (`{s3['run_id']}`)", f"{s3['net_sharpe']:.3f} | {s3['deflated_sharpe_prob']:.3f}"
+        elif why:
+            counts["blocked"] += 1
+            disp, metric = "BLOCKED_EXECUTION — no Stage-3 row", "— | —"
+        elif scr and scr["outcome"] == "REJECT":
+            counts["stage1"] += 1
+            disp, metric = "Falsified at Stage 1", "— | —"
+        else:
+            counts["unknown"] += 1
+            disp, metric = "UNSCREENED — no recorded Stage-1 outcome", "— | —"
 
-            stage1 = "—"
-            if scr:
-                try:
-                    diag = json.loads(scr[1])
-                except Exception:
-                    diag = {}
-                parts = []
-                for label, key, fmt in (("PF", "profit_factor", "{:.3f}"),
-                                        ("p", "bootstrap_p_value", "{:.2f}")):
-                    if isinstance(diag.get(key), (int, float)):
-                        parts.append(f"{label} " + fmt.format(diag[key]))
-                stage1 = (" · ".join(parts) or scr[0]) + via
-            rows.append(f"| `{hyp}` | `{Path(module).stem}` | {stage1} | {metric} | {disp} |")
+        stage1 = "—"
+        if scr:
+            try:
+                diag = json.loads(scr["diagnostics_json"])
+            except Exception:
+                diag = {}
+            parts = []
+            for label, key, fmt in (("PF", "profit_factor", "{:.3f}"),
+                                    ("p", "bootstrap_p_value", "{:.2f}")):
+                if isinstance(diag.get(key), (int, float)):
+                    parts.append(f"{label} " + fmt.format(diag[key]))
+            stage1 = (" · ".join(parts) or scr["outcome"]) + via
+        rows.append(f"| `{hyp}` | `{Path(module).stem}` | {stage1} | {metric} | {disp} |")
 
-            if s3:
-                nb = "n/a" if s3[7] in (None, 1.0) else f"{s3[7]:.3f}"
-                s15 = "NULL" if s3[10] is None else f"{s3[10]:.3f}"
-                detail.append(f"| `{s3[0]}` | `{hyp}` | {s3[1]:.3f} | {s15} | {s3[2]:.3f} | {s3[3]:.3f} | "
-                              f"{s3[4]:.1f}x | {s3[5]:.0f} bps | {s3[6]:.1f}% | {nb} | {s3[8]:.3f} | "
-                              f"{s3[11] or 'not audited'} |")
-    finally:
-        con.close()
+        if s3:
+            nb = "n/a" if s3["param_neighbor_stability"] in (None, 1.0) else f"{s3['param_neighbor_stability']:.3f}"
+            s15 = "NULL" if s3["stress_1p5_cost_sharpe"] is None else f"{s3['stress_1p5_cost_sharpe']:.3f}"
+            detail.append(f"| `{s3['run_id']}` | `{hyp}` | {s3['net_sharpe']:.3f} | {s15} | "
+                          f"{s3['stress_2x_cost_sharpe']:.3f} | {s3['delay_plus1_sharpe']:.3f} | "
+                          f"{s3['annualized_turnover']:.1f}x | {s3['breakeven_cost_bps']:.0f} bps | "
+                          f"{s3['max_drawdown_pct']:.1f}% | {nb} | {s3['deflated_sharpe_prob']:.3f} | "
+                          f"{s3['audit'] or 'not audited'} |")
 
     cover, cov = [], {"fx": 0, "stage1": 0, "excluded": 0, "unclassified": 0}
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    try:
-        for hyp in AF30_SET:
-            found = con.execute("SELECT strategy_module FROM hypotheses WHERE hypothesis_id=?",
-                                (hyp,)).fetchone()
-            module = Path(found[0]).stem if found else "—"
-            scr = _screen(con, hyp)
-            stage1 = "—"
-            if scr:
-                try:
-                    diag = json.loads(scr[1])
-                except Exception:
-                    diag = {}
-                pf, pv = diag.get("profit_factor"), diag.get("bootstrap_p_value")
-                bits = []
-                if isinstance(pf, (int, float)):
-                    bits.append(f"PF {pf:.3f}")
-                if isinstance(pv, (int, float)):
-                    bits.append(f"p {pv:.2f}")
-                stage1 = f"{scr[0]} · " + " · ".join(bits) if bits else scr[0]
-            else:
-                stage1 = "— (never screened)"
+    for hyp in AF30_SET:
+        found = ledger.read_hypothesis(hyp)
+        module = Path(found["strategy_module"]).stem if found and found["strategy_module"] else "—"
+        scr = _screen(ledger, hyp)
+        stage1 = "—"
+        if scr:
+            try:
+                diag = json.loads(scr["diagnostics_json"])
+            except Exception:
+                diag = {}
+            pf, pv = diag.get("profit_factor"), diag.get("bootstrap_p_value")
+            bits = []
+            if isinstance(pf, (int, float)):
+                bits.append(f"PF {pf:.3f}")
+            if isinstance(pv, (int, float)):
+                bits.append(f"p {pv:.2f}")
+            stage1 = f"{scr['outcome']} · " + " · ".join(bits) if bits else scr["outcome"]
+        else:
+            stage1 = "— (never screened)"
 
-            own = _stage3(con, hyp) or _stage3(con, STAGE3_ELSEWHERE.get(hyp, ""))
-            elsewhere = f"`{own[0]}` {own[9].replace('_FOR_QUALIFICATION', '')} {own[1]:.3f}" if own else "—"
+        own = _stage3(ledger, hyp) or _stage3(ledger, STAGE3_ELSEWHERE.get(hyp, ""))
+        elsewhere = f"`{own['run_id']}` {own['verdict'].replace('_FOR_QUALIFICATION', '')} {own['net_sharpe']:.3f}" if own else "—"
 
-            fx_hyp = FX_OF.get(hyp)
-            fx_row = _stage3(con, fx_hyp) if fx_hyp else None
-            if fx_row:
-                cov["fx"] += 1
-                fx_cell = f"`{fx_row[0]}` · netSR {fx_row[1]:.3f}"
-            elif hyp in MECHANISM_REJECTED:
-                cov["excluded"] += 1
-                fx_cell = "not run — " + MECHANISM_REJECTED[hyp]
-            elif scr and scr[0] == "REJECT":
-                cov["stage1"] += 1
-                fx_cell = "not run — REJECT is terminal on the 17-instrument book"
-            else:
-                cov["unclassified"] += 1
-                fx_cell = "not run — no recorded reason"
-            cover.append(f"| `{hyp}` | `{module}` | {stage1} | {elsewhere} | {fx_cell} |")
-    finally:
-        con.close()
+        fx_hyp = FX_OF.get(hyp)
+        fx_row = _stage3(ledger, fx_hyp) if fx_hyp else None
+        if fx_row:
+            cov["fx"] += 1
+            fx_cell = f"`{fx_row['run_id']}` · netSR {fx_row['net_sharpe']:.3f}"
+        elif hyp in MECHANISM_REJECTED:
+            cov["excluded"] += 1
+            fx_cell = "not run — " + MECHANISM_REJECTED[hyp]
+        elif scr and scr["outcome"] == "REJECT":
+            cov["stage1"] += 1
+            fx_cell = "not run — REJECT is terminal on the 17-instrument book"
+        else:
+            cov["unclassified"] += 1
+            fx_cell = "not run — no recorded reason"
+        cover.append(f"| `{hyp}` | `{module}` | {stage1} | {elsewhere} | {fx_cell} |")
 
     head = [
         BEGIN,

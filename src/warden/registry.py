@@ -8,8 +8,9 @@ import sqlite3
 import tempfile
 import time
 from contextlib import contextmanager
-from dataclasses import asdict, fields
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 
@@ -169,12 +170,42 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-class ResearchRegistry:
-    def __init__(self, db_path=Path("registry/registry.db")):
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
-            conn.executescript(f"""
+SCHEMA_VERSION = 2
+"""Current ``PRAGMA user_version`` of the registry schema.
+
+``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
+the gate, so a v0 database is *adopted* (idempotent ``CREATE ... IF NOT EXISTS`` plus
+the additive legacy backfills) rather than rebuilt. ``1`` is the P2 baseline. ``2``
+adds ``contract_governance`` (the declared ``selection_group_id`` /
+``inherits_selection_from`` per contract) so cross-contract selection scoping is
+resolvable without reading contract YAMLs at query time. The addition is a table only:
+no existing table, column or trigger changes, and the table has no rows for a legacy
+contract, so its scope stays exactly as it was. Anything newer than this constant is
+refused instead of guessed at.
+"""
+
+
+def _split_sql(script: str) -> list[str]:
+    """Split a DDL script into complete statements without executing anything.
+
+    ``sqlite3.complete_statement`` understands ``BEGIN ... END`` trigger bodies, so a
+    migration can run statement-by-statement inside one explicit transaction instead of
+    ``executescript`` (which commits any open transaction first and would leave the DDL
+    and the ``user_version`` bump non-atomic).
+    """
+    statements: list[str] = []
+    buffer = ""
+    for line in script.splitlines(keepends=True):
+        buffer += line
+        if sqlite3.complete_statement(buffer):
+            statements.append(buffer.strip())
+            buffer = ""
+    if buffer.strip():
+        statements.append(buffer.strip())
+    return statements
+
+
+_DDL_SCRIPT = f"""
                 CREATE TABLE IF NOT EXISTS contracts ({_columns(EvaluationContract)},spec_hash TEXT NOT NULL,PRIMARY KEY (contract_id));
                 CREATE TABLE IF NOT EXISTS hypotheses ({_columns(HypothesisSpec)},status TEXT NOT NULL DEFAULT 'ACTIVE',trials_used INTEGER NOT NULL DEFAULT 0,created_at REAL,attempts_json TEXT NOT NULL DEFAULT '{{}}',PRIMARY KEY (hypothesis_id));
                 CREATE TABLE IF NOT EXISTS trials ({_columns(ExperimentResult)},config_json TEXT,returns_json TEXT,returns_parquet_path TEXT,trial_number_in_hyp INTEGER,git_commit_sha TEXT,created_at REAL,PRIMARY KEY (run_id));
@@ -190,6 +221,7 @@ class ResearchRegistry:
                 CREATE TABLE IF NOT EXISTS audit_evidence (audit_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,contract_id TEXT DEFAULT '',verdict TEXT NOT NULL,checks_json TEXT NOT NULL DEFAULT '{{}}',reason TEXT NOT NULL DEFAULT '',created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS selection_attempts (attempt_id TEXT PRIMARY KEY,attempt_base TEXT NOT NULL,run_id TEXT DEFAULT '',hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,strategy_family TEXT DEFAULT '',strategy_module TEXT DEFAULT '',kind TEXT NOT NULL,stage TEXT NOT NULL,outcome TEXT NOT NULL,config_hash TEXT DEFAULT '',parameters_json TEXT DEFAULT '{{}}',data_provenance TEXT DEFAULT 'unknown',returns_observed INTEGER NOT NULL DEFAULT 0,returns_json TEXT DEFAULT '',returns_sha256 TEXT DEFAULT '',diagnostics_json TEXT DEFAULT '{{}}',simulation_epoch TEXT DEFAULT '{DEFAULT_SIMULATION_EPOCH}',created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS contract_search_state (contract_id TEXT PRIMARY KEY,max_keff_gate REAL NOT NULL,max_noise REAL NOT NULL,updated_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS contract_governance (contract_id TEXT PRIMARY KEY,selection_group_id TEXT NOT NULL DEFAULT '',inherits_selection_from TEXT NOT NULL DEFAULT '',spec_version INTEGER NOT NULL DEFAULT 1,recorded_at REAL NOT NULL);
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_update BEFORE UPDATE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_delete BEFORE DELETE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS trials_no_update BEFORE UPDATE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
@@ -212,54 +244,227 @@ class ResearchRegistry:
                     SELECT RAISE(ABORT, 'Governance violation: rejected hypothesis cannot be reactivated')
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
-            """)
-            # Additive legacy migration: a prior qualification is irrevocably
-            # spent even if the newer pre-read claim table did not yet exist.
-            conn.execute("""INSERT OR IGNORE INTO holdout_claims (lineage_id,run_id,state,claimed_at,read_started_at,finalized_at)
-                            SELECT lineage_id,run_id,'LEGACY_SPENT',COALESCE(qualified_at,0),
-                                   COALESCE(qualified_at,0),COALESCE(qualified_at,0)
-                              FROM qualifications WHERE lineage_id IS NOT NULL""")
+"""
+
+
+class ScreenStatusView(TypedDict):
+    """Write-free projection of one Stage 1 receipt."""
+
+    screen_key: str
+    state: str
+    attempt_id: str
+    outcome: str | None
+    data_sha256: str
+    retry_allowed: bool
+
+
+class SpecStatusView(TypedDict, total=False):
+    """Write-free projection of one spec; ``evidence_verified`` is always ``False``.
+
+    Consumers that must prove artifact bytes still belong on ``spec_status()``, which
+    reconciles the Parquet receipt. This view never opens an artifact and never writes.
+    """
+
+    state: str
+    reason: str
+    hypothesis_registered: bool
+    hypothesis_status: str | None
+    hypothesis_trials_used: int
+    audit_verdict: str | None
+    receipt_state: str | None
+    run_id: str | None
+    verdict: str | None
+    screen: ScreenStatusView
+    evidence_verified: bool
+
+
+class HoldoutClaimView(TypedDict):
+    """Durable one-shot holdout claim, read without acquiring any lock."""
+
+    lineage_id: str
+    run_id: str
+    state: str
+    claimed_at: float
+    read_started_at: float | None
+    finalized_at: float | None
+
+
+class TrialSummary(TypedDict):
+    """Immutable trial identity and verdict, without artifact re-hashing."""
+
+    run_id: str
+    hypothesis_id: str
+    contract_id: str
+    strategy_module: str
+    config_hash: str
+    verdict: str | None
+    stage_reached: str | None
+    created_at: float | None
+
+
+@dataclass(frozen=True)
+class SelectionScope:
+    """Which contracts' search evidence counts for one contract.
+
+    ``members`` always contains the contract itself.  ``group_id`` is empty for a legacy
+    contract, which keeps the pre-#100 family-wide floor and its own history only.
+    ``unresolved`` lists inheritance targets that could not be followed (a cycle or an
+    unregistered contract); they are reported, never guessed at.
+    """
+
+    contract_id: str
+    group_id: str
+    members: tuple[str, ...]
+    inherited: tuple[str, ...] = ()
+    unresolved: tuple[str, ...] = ()
+
+    @property
+    def scoped_by_group(self) -> bool:
+        return bool(self.group_id)
+
+
+class ResearchRegistry:
+    def __init__(self, db_path=Path("registry/registry.db"), *, readonly: bool = False):
+        self.db_path = Path(db_path)
+        self.readonly = bool(readonly)
+        if not self.readonly:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if self.readonly:
+            # Status reads keep the old adapter's contract: a missing registry is reported
+            # by the caller's ``is_file()`` guard, not by an exception at construction.
+            # Zero DDL, zero migrations, zero writes -- and never create the file.
+            self.schema_version = 0
+            if self.db_path.is_file():
+                with self._connect() as conn:
+                    self.schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+                    self._refuse_newer_schema()
+            return
+        with self._connect() as conn:
+            self.schema_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            self._refuse_newer_schema()
+            if self.schema_version < SCHEMA_VERSION:
+                self._migrate(conn)
+                self.schema_version = SCHEMA_VERSION
+            self._reconcile_legacy(conn)
+
+    def _refuse_newer_schema(self) -> None:
+        if self.schema_version > SCHEMA_VERSION:
+            raise ValueError(
+                f"Registry schema v{self.schema_version} is newer than this warden build "
+                f"(v{SCHEMA_VERSION}); refusing to open it"
+            )
+
+    def _migrate(self, conn) -> None:
+        """Additive-only schema migration, atomic with the ``user_version`` bump.
+
+        Only additive DDL runs here: ``CREATE ... IF NOT EXISTS`` for every table and
+        trigger, plus the ``ALTER TABLE`` column adoption. A crash rolls the DDL *and* the
+        version back, so the retry starts from the same v0 snapshot. Existing tables,
+        triggers and rows are never rewritten.
+        """
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            for statement in _split_sql(_DDL_SCRIPT):
+                conn.execute(statement)
             for table, cls in (("contracts", EvaluationContract), ("hypotheses", HypothesisSpec),
                                ("trials", ExperimentResult)):
                 _ensure_columns(conn, table, cls)
             if not _has_column(conn, "selection_attempts", "simulation_epoch"):
                 conn.execute("ALTER TABLE selection_attempts ADD COLUMN simulation_epoch TEXT")
-            # Idempotent legacy reconstruction: never reset counters or overwrite
-            # old verdicts; unfinalized consumed attempts remain review-required.
+            conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+
+    def _reconcile_legacy(self, conn) -> None:
+        """Idempotent repair of pre-versioning residue, guarded so a stable registry is quiet.
+
+        These are *data* reconciliations, not schema: a v1 registry cannot legitimately
+        acquire v0-era rows, but a legacy snapshot can, so each step probes for the exact
+        gap first and writes only when something is genuinely missing. On a registry that
+        is already consistent this method performs zero writes (and so never dirties WAL).
+        """
+        # A prior qualification is irrevocably spent even if the claim table was absent.
+        if conn.execute(
+            "SELECT 1 FROM qualifications q LEFT JOIN holdout_claims h ON h.lineage_id=q.lineage_id "
+            "WHERE q.lineage_id IS NOT NULL AND h.lineage_id IS NULL LIMIT 1"
+        ).fetchone():
+            conn.execute("""INSERT OR IGNORE INTO holdout_claims (lineage_id,run_id,state,claimed_at,read_started_at,finalized_at)
+                            SELECT lineage_id,run_id,'LEGACY_SPENT',COALESCE(qualified_at,0),
+                                   COALESCE(qualified_at,0),COALESCE(qualified_at,0)
+                              FROM qualifications WHERE lineage_id IS NOT NULL""")
+        # Never reset counters or overwrite old verdicts; unfinalized consumed attempts
+        # remain review-required.
+        if conn.execute(
+            "SELECT 1 FROM trials t LEFT JOIN attempt_receipts r ON r.run_id=t.run_id "
+            "WHERE r.run_id IS NULL LIMIT 1"
+        ).fetchone():
             conn.execute("""INSERT OR IGNORE INTO attempt_receipts
                             (run_id,hypothesis_id,contract_id,trial_number,state,artifact_path,artifact_sha256,reserved_at,finalized_at)
                             SELECT run_id,hypothesis_id,contract_id,COALESCE(trial_number_in_hyp,0),'FINALIZED',
                                    COALESCE(returns_parquet_path,''),COALESCE(returns_sha256,''),
                                    COALESCE(created_at,0),COALESCE(created_at,0) FROM trials""")
-            for hyp_id, contract_id, attempts_json in conn.execute(
-                    "SELECT hypothesis_id,contract_id,attempts_json FROM hypotheses"):
-                for run_id, number in json.loads(attempts_json or "{}").items():
-                    conn.execute("""INSERT OR IGNORE INTO attempt_receipts
-                                    (run_id,hypothesis_id,contract_id,trial_number,state,reason,reserved_at)
-                                    VALUES (?,?,?,?,'INTERRUPTED_REVIEW','legacy consumed attempt without trial',0)""",
-                                 (run_id, hyp_id, contract_id, int(number)))
-            # Backfill old screens without replaying them or modifying search debt.
-            for sr in conn.execute("SELECT attempt_id,hypothesis_id,contract_id,strategy_module,parameters_json,created_at FROM selection_attempts WHERE kind='standalone_screen'"):
-                sk = self.screen_key(sr[1], sr[2], sr[3], json.loads(sr[4] or '{}'))
-                conn.execute("""INSERT OR IGNORE INTO screen_receipts
-                                (screen_key,hypothesis_id,contract_id,strategy_module,parameters_json,state,attempt_id,reserved_at,finalized_at)
-                                VALUES (?,?,?,?,?,'FINALIZED',?,?,?)""",
-                             (sk, sr[1], sr[2], normalise_module(sr[3]), sr[4] or '{}', sr[0],
-                              sr[5] or 0, sr[5] or 0))
-            for r_id in LEGACY_RUNS:
-                conn.execute("INSERT OR IGNORE INTO trial_quarantine (run_id, reason, quarantined_at) VALUES (?, ?, ?)",
-                             (r_id, LEGACY_REASON, time.time()))
-            # Ticket 03: attributed, append-only superseding decision for the required regression case.
-            legacy = conn.execute("SELECT contract_id, created_at FROM trials WHERE run_id='RUN-ML-001'").fetchone()
-            if legacy:
-                q = conn.execute("SELECT quarantined_at FROM trial_quarantine WHERE run_id='RUN-ML-001'").fetchone()
-                self._append_disposition(
-                    conn, "RUN-ML-001", "QUARANTINED_SYNTHETIC",
-                    "Legacy trial recorded synthetic=0 with an empty data_snapshot_sha256, but the registry "
-                    "quarantines it as synthetic benchmark evidence; a matching digest cannot prove market origin.",
-                    "warden:migration:issue-4-03", legacy[0], (q[0] if q else legacy[1]) or time.time())
+        for hyp_id, contract_id, attempts_json in conn.execute(
+                "SELECT hypothesis_id,contract_id,attempts_json FROM hypotheses "
+                "WHERE attempts_json IS NOT NULL AND attempts_json NOT IN ('', '{}')"):
+            for run_id, number in json.loads(attempts_json or "{}").items():
+                if conn.execute("SELECT 1 FROM attempt_receipts WHERE run_id=?", (run_id,)).fetchone():
+                    continue
+                conn.execute("""INSERT OR IGNORE INTO attempt_receipts
+                                (run_id,hypothesis_id,contract_id,trial_number,state,reason,reserved_at)
+                                VALUES (?,?,?,?,'INTERRUPTED_REVIEW','legacy consumed attempt without trial',0)""",
+                             (run_id, hyp_id, contract_id, int(number)))
+        # Backfill old screens without replaying them or modifying search debt.
+        for sr in conn.execute(
+                "SELECT attempt_id,hypothesis_id,contract_id,strategy_module,parameters_json,created_at "
+                "FROM selection_attempts WHERE kind='standalone_screen'"):
+            sk = self.screen_key(sr[1], sr[2], sr[3], json.loads(sr[4] or '{}'))
+            if conn.execute("SELECT 1 FROM screen_receipts WHERE screen_key=?", (sk,)).fetchone():
+                continue
+            conn.execute("""INSERT OR IGNORE INTO screen_receipts
+                            (screen_key,hypothesis_id,contract_id,strategy_module,parameters_json,state,attempt_id,reserved_at,finalized_at)
+                            VALUES (?,?,?,?,?,'FINALIZED',?,?,?)""",
+                         (sk, sr[1], sr[2], normalise_module(sr[3]), sr[4] or '{}', sr[0],
+                          sr[5] or 0, sr[5] or 0))
+        for r_id in LEGACY_RUNS:
+            if conn.execute("SELECT 1 FROM trial_quarantine WHERE run_id=?", (r_id,)).fetchone():
+                continue
+            conn.execute("INSERT OR IGNORE INTO trial_quarantine (run_id, reason, quarantined_at) VALUES (?, ?, ?)",
+                         (r_id, LEGACY_REASON, time.time()))
+        # Ticket 03: attributed, append-only superseding decision for the required regression case.
+        legacy = conn.execute("SELECT contract_id, created_at FROM trials WHERE run_id='RUN-ML-001'").fetchone()
+        if legacy and not conn.execute(
+            "SELECT 1 FROM trial_dispositions WHERE run_id='RUN-ML-001' "
+            "AND disposition='QUARANTINED_SYNTHETIC' AND attributed_to='warden:migration:issue-4-03'"
+        ).fetchone():
+            q = conn.execute("SELECT quarantined_at FROM trial_quarantine WHERE run_id='RUN-ML-001'").fetchone()
+            self._append_disposition(
+                conn, "RUN-ML-001", "QUARANTINED_SYNTHETIC",
+                "Legacy trial recorded synthetic=0 with an empty data_snapshot_sha256, but the registry "
+                "quarantines it as synthetic benchmark evidence; a matching digest cannot prove market origin.",
+                "warden:migration:issue-4-03", legacy[0], (q[0] if q else legacy[1]) or time.time())
+
     @contextmanager
     def _connect(self):
+        """One connection per unit of work; read-only views never take a writer lock.
+
+        ``readonly=True`` uses a ``mode=ro`` URI plus ``PRAGMA query_only=ON``, so the
+        connection can neither create the file, run DDL, nor block on a writer that holds
+        ``BEGIN IMMEDIATE`` (WAL readers stay unblocked). The bounded 0.2 s timeout keeps
+        a status read from ever turning into a wait for a checkpoint.
+        """
+        if getattr(self, "readonly", False):
+            conn = sqlite3.connect(
+                f"file:{self.db_path.resolve()}?mode=ro", uri=True, timeout=0.2
+            )
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("PRAGMA query_only=ON")
+                yield conn
+            finally:
+                conn.close()
+            return
         conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         try:
@@ -451,8 +656,12 @@ class ResearchRegistry:
             if row:
                 if row[0] != contract.spec_hash():
                     raise ValueError("Registered contract is immutable; choose a new contract_id")
+                # A contract registered before #100 may still lack its declared scope row;
+                # recording it is additive and never rewrites history.
+                self._record_declared_governance(conn, contract)
                 return
             _insert(conn, "contracts", {**json.loads(canonical_json(asdict(contract))), "spec_hash": contract.spec_hash()})
+            self._record_declared_governance(conn, contract)
 
     def register_hypothesis(self, hyp):
         with self._connect() as conn:
@@ -709,6 +918,151 @@ class ResearchRegistry:
             state = "REQUIRES_RECONCILIATION"
         return {**base, "state": state, "reason": screen["state"], "run_id": None}
 
+    # --- typed, write-free read API for preflight/campaign/closure consumers ----
+
+    def read_screen_status(self, hypothesis_id, contract_id, strategy_module,
+                           parameters) -> ScreenStatusView:
+        """Stage 1 receipt projection built only from SELECTs (safe on a readonly view)."""
+        key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT state,attempt_id,data_sha256 FROM screen_receipts WHERE screen_key=?",
+                (key,),
+            ).fetchone()
+            attempt = (
+                conn.execute(
+                    "SELECT outcome FROM selection_attempts WHERE attempt_id=?", (row[1],)
+                ).fetchone()
+                if row and row[1]
+                else None
+            )
+        state: str = row[0] if row else "UNSEEN"
+        if state == "FINALIZED" and attempt is None:
+            state = "EVIDENCE_DRIFT"
+        return {
+            "screen_key": key,
+            "state": state,
+            "attempt_id": (row[1] or "") if row else "",
+            "outcome": attempt[0] if attempt else None,
+            "data_sha256": (row[2] or "") if row else "",
+            "retry_allowed": state == "UNSEEN",
+        }
+
+    def read_spec_status(self, hypothesis_id, contract_id, strategy_module,
+                         parameters) -> SpecStatusView:
+        """Write-free spec projection for consumers that must not take a writer lock.
+
+        Unlike :meth:`spec_status` this never opens a Parquet artifact and never
+        reconciles it, so ``evidence_verified`` is always ``False``: a caller that needs
+        byte-level evidence proof must still call :meth:`spec_status`/``reconcile_attempt``.
+        """
+        module = normalise_module(strategy_module)
+        config_hash = hashlib.sha256(canonical_json(parameters or {}).encode()).hexdigest()[:12]
+        screen = self.read_screen_status(hypothesis_id, contract_id, module, parameters)
+        with self._connect() as conn:
+            hyp_row = conn.execute(
+                "SELECT status,trials_used FROM hypotheses WHERE hypothesis_id=?",
+                (hypothesis_id,),
+            ).fetchone()
+            trial = conn.execute(
+                """SELECT run_id,verdict FROM trials WHERE hypothesis_id=? AND
+                   contract_id=? AND strategy_module=? AND config_hash=?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (hypothesis_id, contract_id, module, config_hash),
+            ).fetchone()
+            pending = conn.execute(
+                """SELECT run_id,state FROM attempt_receipts WHERE
+                   hypothesis_id=? AND contract_id=? AND state!='FINALIZED'
+                   ORDER BY reserved_at DESC LIMIT 1""",
+                (hypothesis_id, contract_id),
+            ).fetchone()
+            audit_row = (
+                conn.execute(
+                    "SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
+                    (trial[0],),
+                ).fetchone()
+                if trial
+                else None
+            )
+            receipt_state = (
+                conn.execute(
+                    "SELECT state FROM attempt_receipts WHERE run_id=?", (trial[0],)
+                ).fetchone()
+                if trial
+                else None
+            )
+        base: SpecStatusView = {
+            "hypothesis_registered": hyp_row is not None,
+            "hypothesis_status": hyp_row[0] if hyp_row else None,
+            "hypothesis_trials_used": int(hyp_row[1]) if hyp_row else 0,
+            "audit_verdict": audit_row[0] if audit_row else None,
+            "receipt_state": (receipt_state[0] if receipt_state else None),
+            "screen": screen,
+            "evidence_verified": False,
+            "run_id": None,
+            "verdict": None,
+        }
+        if pending:
+            return {**base, "state": "REQUIRES_RECONCILIATION",
+                    "reason": f"trial {pending[0]} is {pending[1]}",
+                    "run_id": pending[0], "receipt_state": pending[1]}
+        if trial:
+            verdict = trial[1]
+            if base["receipt_state"] != "FINALIZED" or verdict == "FAILED":
+                return {**base, "state": "REQUIRES_RECONCILIATION",
+                        "reason": f"attempt receipt {base['receipt_state']} for {trial[0]}",
+                        "run_id": trial[0], "verdict": verdict}
+            if verdict == "REJECTED_EARLY":
+                return {**base, "state": "STAGE1_REJECT",
+                        "reason": "immutable early-rejection trial recorded",
+                        "run_id": trial[0], "verdict": verdict}
+            if verdict == "CANDIDATE_FOR_QUALIFICATION" and base["audit_verdict"] is None:
+                return {**base, "state": "STAGE3_CANDIDATE_UNAUDITED",
+                        "reason": "finalized candidate trial awaiting six-check audit",
+                        "run_id": trial[0], "verdict": verdict}
+            return {**base, "state": "STAGE3_FINAL",
+                    "reason": "immutable Warden trial recorded",
+                    "run_id": trial[0], "verdict": verdict}
+        if screen["state"] == "FINALIZED":
+            state = {"PASS": "STAGE1_PASS", "REJECT": "STAGE1_REJECT"}.get(
+                str(screen["outcome"]), "REQUIRES_RECONCILIATION")
+        elif screen["state"] == "UNSEEN":
+            state = "NEW"
+        else:
+            state = "REQUIRES_RECONCILIATION"
+        return {**base, "state": state, "reason": screen["state"]}
+
+    def read_holdout_claim(self, lineage_id: str) -> HoldoutClaimView | None:
+        """The durable one-shot claim, or ``None``; never writes or releases it."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT lineage_id,run_id,state,claimed_at,read_started_at,finalized_at "
+                "FROM holdout_claims WHERE lineage_id=?",
+                (lineage_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "lineage_id": row[0], "run_id": row[1], "state": row[2],
+            "claimed_at": float(row[3]), "read_started_at": row[4], "finalized_at": row[5],
+        }
+
+    def read_trial(self, run_id: str) -> TrialSummary | None:
+        """Immutable trial identity/verdict without re-hashing its artifact."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT run_id,hypothesis_id,contract_id,strategy_module,config_hash,"
+                "verdict,stage_reached,created_at FROM trials WHERE run_id=?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "run_id": row[0], "hypothesis_id": row[1], "contract_id": row[2],
+            "strategy_module": normalise_module(row[3]), "config_hash": row[4] or "",
+            "verdict": row[5], "stage_reached": row[6], "created_at": row[7],
+        }
+
     def register_trial_start(self, hypothesis_id, run_id):
         """Atomically reserve unique run identity and monotonic hypothesis/lineage budget."""
         valid_id(run_id)
@@ -827,56 +1181,272 @@ class ResearchRegistry:
             ).fetchone()[0]
         return int(trials + screens)
 
-    def selection_history(self, contract_id, expected_len, simulation_epoch: str = DEFAULT_SIMULATION_EPOCH):
-        """Observed return streams plus explicit accounting of unvectorised attempts."""
-        epoch = _normalize_epoch(simulation_epoch)
+    # -- selection scope ----------------------------------------------------
+
+    @staticmethod
+    def _declared_governance(contract) -> tuple[str, str]:
+        """The contract's *own* declared group/inheritance; never a manifest-resolved one.
+
+        ``evaluation`` manifests carry lifecycle metadata, and reading it here would make
+        scope depend on a file the registry does not own.  A legacy contract therefore has
+        no declared scope and keeps its historical family-wide floor.
+        """
+        policy = getattr(contract, "governance", None)
+        if policy is None:
+            return "", ""
+        return (str(getattr(policy, "selection_group_id", "") or "").strip(),
+                str(getattr(policy, "inherits_selection_from", "") or "").strip())
+
+    def _governance_rows(self, conn) -> dict[str, tuple[str, str]]:
+        try:
+            rows = conn.execute(
+                "SELECT contract_id,selection_group_id,inherits_selection_from "
+                "FROM contract_governance").fetchall()
+        except sqlite3.OperationalError:
+            # A pre-#100 snapshot opened read-only keeps its legacy semantics: no table,
+            # no rows, no scope -- and never a write to add one.
+            return {}
+        return {str(row[0]): (str(row[1] or ""), str(row[2] or "")) for row in rows}
+
+    def selection_scope(self, contract) -> SelectionScope:
+        """Contracts whose search evidence counts for ``contract``.
+
+        A contract that declares ``selection_group_id`` is scoped to that group plus its
+        ``inherits_selection_from`` chain (and those targets' groups, because inheriting a
+        contract inherits the selection problem it belongs to).  A legacy contract has no
+        declared group and is scoped to itself; its floors still fall back to the
+        ``asset_class:frequency`` family, exactly as before #100.
+        """
+        own = str(contract.contract_id)
+        group, inherit = self._declared_governance(contract)
+        if not group and not inherit:
+            return SelectionScope(own, "", (own,), (), ())
+        from warden_evidence.selection_alignment import MAX_INHERITANCE_DEPTH
+
+        with self._connect() as conn:
+            recorded = self._governance_rows(conn)
+        if not recorded:
+            # A pre-#100 registry (or an unmigrated read-only snapshot) has no declared
+            # scope at all.  Falling back to the legacy family scope is the conservative
+            # reading: it can only widen the debt, never shrink it.
+            return SelectionScope(own, "", (own,), (), ())
+        if not group:
+            group = recorded.get(own, ("", ""))[0]
+        members: set[str] = {own}
+        if group:
+            members.update(cid for cid, (declared, _) in recorded.items() if declared == group)
+        inherited: list[str] = []
+        unresolved: list[str] = []
+        seen = {own}
+        target = inherit
+        while target:
+            if target in seen:
+                unresolved.append(target)
+                break
+            if len(inherited) >= MAX_INHERITANCE_DEPTH:
+                raise SelectionHistoryError(
+                    f"inherits_selection_from chain from '{own}' exceeds "
+                    f"{MAX_INHERITANCE_DEPTH} hops; refusing to guess a floor")
+            seen.add(target)
+            inherited.append(target)
+            members.add(target)
+            declared, onward = recorded.get(target, ("", ""))
+            if declared:
+                members.update(cid for cid, (group_id, _) in recorded.items()
+                               if group_id == declared)
+            target = onward
+        return SelectionScope(own, group, tuple(sorted(members)), tuple(inherited),
+                              tuple(unresolved))
+
+    def _record_declared_governance(self, conn, contract) -> None:
+        """Write-once record of what the contract itself declares.
+
+        ``INSERT OR IGNORE`` over a primary key, and the registry exposes no update or
+        delete path: a declared group cannot be silently re-homed.  This table deliberately
+        carries no triggers -- the migration family pins the pre-#100 trigger set exactly,
+        and additive tables are the only schema change that leaves it untouched.
+        """
+        group, inherit = self._declared_governance(contract)
+        if not group and not inherit:
+            return
+        policy = getattr(contract, "governance", None)
+        conn.execute(
+            "INSERT OR IGNORE INTO contract_governance "
+            "(contract_id,selection_group_id,inherits_selection_from,spec_version,recorded_at) "
+            "VALUES (?,?,?,?,?)",
+            (str(contract.contract_id), group, inherit,
+             int(getattr(policy, "spec_version", 1) or 1), time.time()))
+
+    def _artifact_timestamps(self, path) -> np.ndarray | None:
+        """UTC nanoseconds from the trial's own artifact, or ``None`` when it has none.
+
+        A missing or legacy artifact proves no clock.  That is reported as ``None`` so the
+        stream is accounted as debt; it is never replaced by an inferred index.
+        """
+        if not path:
+            return None
+        from warden_evidence.return_artifacts import ReturnArtifactError, read_return_stream
+
+        try:
+            return read_return_stream(Path(path), self.db_path.parent / "returns").timestamps_ns
+        except (ReturnArtifactError, OSError):
+            return None
+
+    def _selection_rows(self, members: tuple[str, ...], epoch: str):
+        marks = ",".join("?" * len(members))
         with self._connect() as conn:
             t_clause, t_params = self._epoch_clause(conn, "trials", epoch)
             s_clause, s_params = self._epoch_clause(conn, "selection_attempts", epoch)
             rows = conn.execute(
-                f"SELECT run_id,returns_json,stage_reached FROM trials WHERE contract_id=?{t_clause} "
-                "ORDER BY created_at,run_id",
-                (contract_id, *t_params),
-            ).fetchall()
-            attempt_rows = conn.execute(
-                "SELECT attempt_id,returns_json FROM selection_attempts "
-                "WHERE contract_id=? AND returns_observed=1 "
+                "SELECT run_id,contract_id,returns_json,stage_reached,returns_parquet_path "
+                f"FROM trials WHERE contract_id IN ({marks}){t_clause} ORDER BY created_at,run_id",
+                (*members, *t_params)).fetchall()
+            attempts = conn.execute(
+                "SELECT attempt_id,contract_id,returns_json FROM selection_attempts "
+                f"WHERE contract_id IN ({marks}) AND returns_observed=1 "
                 "AND (kind='param_grid' OR (kind='standalone_screen' AND strategy_family IN ('rules_ts', 'meta_overlay')))"
                 f"{s_clause} ORDER BY created_at,attempt_id",
-                (contract_id, *s_params),
-            ).fetchall()
+                (*members, *s_params)).fetchall()
+        return rows, attempts
 
-        streams, excluded = [], []
-        for run_id, r_json, stage in rows:
+    def _selection_streams(self, scope: SelectionScope, epoch: str) -> tuple[list, list[dict]]:
+        """Every vectorised selection stream in scope, plus the explicit debt register."""
+        from warden_evidence.selection_alignment import ReturnStream
+
+        rows, attempts = self._selection_rows(scope.members, epoch)
+        streams: list[ReturnStream] = []
+        excluded: list[dict] = []
+        for run_id, contract_id, r_json, stage, path in rows:
             if stage == "STAGE_1_SIGNAL" or not r_json or r_json == "[]":
                 excluded.append({"run_id": run_id, "reason": "no observed return stream"})
                 continue
             arr = np.array(json.loads(r_json), dtype=float)
-            if float(np.std(arr)) < 1e-12:
-                excluded.append({"run_id": run_id, "reason": "zero-variance stream is not observed returns"})
+            if arr.ndim != 1 or not np.isfinite(arr).all() or float(np.std(arr)) < 1e-12:
+                excluded.append({"run_id": run_id,
+                                 "reason": "zero-variance stream is not observed returns"})
                 continue
-            if len(arr) != expected_len:
-                raise SelectionHistoryError(
-                    f"Unaligned selection history: {run_id} has {len(arr)} bars but the candidate has "
-                    f"{expected_len}; refusing to pad, slice or correlate incompatible windows")
-            streams.append(arr)
-
-        for attempt_id, r_json in attempt_rows:
+            stamps = self._artifact_timestamps(path)
+            if stamps is not None and stamps.size != arr.size:
+                excluded.append({"run_id": run_id,
+                                 "reason": "artifact timestamps disagree with the recorded return vector"})
+                continue
+            own = str(contract_id) == scope.contract_id
+            streams.append(ReturnStream(
+                stream_id=str(run_id), returns=arr, timestamps_ns=stamps,
+                contract_id=str(contract_id), origin="trial",
+                required=own, legacy_positional=own))
+        for attempt_id, contract_id, r_json in attempts:
             if not r_json or r_json == "[]":
                 excluded.append({"attempt_id": attempt_id, "reason": "no observed return stream"})
                 continue
             arr = np.array(json.loads(r_json), dtype=float)
             if arr.ndim != 1 or not np.isfinite(arr).all() or float(np.std(arr)) < 1e-12:
-                excluded.append({"attempt_id": attempt_id, "reason": "zero-variance or non-finite selection_attempt stream"})
+                excluded.append({"attempt_id": attempt_id,
+                                 "reason": "zero-variance or non-finite selection_attempt stream"})
                 continue
-            if len(arr) != expected_len:
-                excluded.append({"attempt_id": attempt_id, "reason": "unaligned selection_attempt return length"})
-                continue
-            streams.append(arr)
+            # Selection attempts store a vector only: they have no artifact and therefore
+            # no clock.  They stay positional evidence for their own contract and debt
+            # everywhere else.
+            streams.append(ReturnStream(
+                stream_id=str(attempt_id), returns=arr, timestamps_ns=None,
+                contract_id=str(contract_id), origin="attempt", required=False,
+                legacy_positional=str(contract_id) == scope.contract_id))
+        return streams, excluded
 
-        raw = self.validation_attempt_count(contract_id, simulation_epoch=epoch)
-        return {"streams": streams, "excluded": excluded, "raw_attempt_count": raw,
-                "unvectorized_attempts": max(0, raw - len(streams)), "simulation_epoch": epoch}
+    def selection_history(
+        self,
+        contract_id,
+        expected_len,
+        simulation_epoch: str = DEFAULT_SIMULATION_EPOCH,
+        *,
+        timestamps=None,
+        candidate_returns=None,
+        contract=None,
+    ):
+        """Observed return streams plus explicit accounting of unvectorised attempts.
+
+        Pass ``timestamps`` *and* ``candidate_returns`` (the candidate's own vector) to
+        align the history on the candidate's clock.  The returned
+        ``candidate_returns`` is the candidate restricted/compounded onto the same index
+        as ``streams``; when ``alignment.frequency`` is not ``bar`` the caller must feed
+        that vector, not its raw one, to ``compute_selection_report``.
+
+        Pass ``contract`` to adopt its declared ``selection_group_id`` scope.  Without it
+        only this contract's own evidence counts, which is the pre-#100 behaviour.
+        """
+        from warden_evidence.selection_alignment import AlignmentError, align_streams
+
+        epoch = _normalize_epoch(simulation_epoch)
+        if (timestamps is None) != (candidate_returns is None):
+            raise ValueError(
+                "timestamps and candidate_returns must be supplied together: an index "
+                "without the vector it indexes cannot be aligned, and a vector without an "
+                "index cannot be placed on one")
+        if contract is not None and str(contract.contract_id) != str(contract_id):
+            raise ValueError(
+                f"contract '{contract.contract_id}' does not match contract_id '{contract_id}'")
+        scope = (self.selection_scope(contract) if contract is not None
+                 else SelectionScope(str(contract_id), "", (str(contract_id),), (), ()))
+        streams, excluded = self._selection_streams(scope, epoch)
+
+        candidate = (np.asarray(candidate_returns, dtype=float) if candidate_returns is not None
+                     else np.zeros(int(expected_len), dtype=float))
+        try:
+            aligned = align_streams(streams, candidate, timestamps, expected_len=int(expected_len))
+        except AlignmentError as exc:
+            raise SelectionHistoryError(str(exc).replace(
+                "Unaligned selection history", "Unaligned selection history")) from exc
+        aligned_streams = [aligned.matrix[:, index] for index in range(aligned.matrix.shape[1])]
+        excluded.extend(item.to_dict() for item in aligned.excluded)
+        raw = sum(self.validation_attempt_count(member, simulation_epoch=epoch)
+                  for member in scope.members)
+        return {
+            "streams": aligned_streams,
+            "excluded": excluded,
+            "raw_attempt_count": raw,
+            # Everything counted but not vectorised, including legacy streams whose clock
+            # cannot be proved: 0.5 effective attempts each, never a silent drop.
+            "unvectorized_attempts": max(0, raw - len(aligned_streams)),
+            "simulation_epoch": epoch,
+            "candidate_returns": aligned.candidate if candidate_returns is not None else None,
+            "alignment": {**aligned.to_dict(),
+                          "scope": list(scope.members),
+                          "selection_group_id": scope.group_id,
+                          "inherited": list(scope.inherited)},
+        }
+
+    def preflight_selection_alignment(
+        self,
+        contract,
+        timestamps,
+        *,
+        candidate_returns=None,
+        expected_len: int | None = None,
+        simulation_epoch: str = DEFAULT_SIMULATION_EPOCH,
+    ) -> dict:
+        """Refuse an incomparable selection history *before* a trial slot is reserved.
+
+        Read-only: no reservation, no trial row, no attempt row, no search-floor write.
+        Returns the aligned index description so the caller can log what it will compare.
+        """
+        from warden_evidence.selection_alignment import AlignmentError, check_alignment
+
+        epoch = _normalize_epoch(simulation_epoch)
+        scope = self.selection_scope(contract)
+        streams, excluded = self._selection_streams(scope, epoch)
+        vector = (np.asarray(candidate_returns, dtype=float) if candidate_returns is not None
+                  else np.zeros(int(expected_len if expected_len is not None else len(timestamps)),
+                                dtype=float))
+        try:
+            aligned = check_alignment(
+                streams, vector, timestamps,
+                expected_len=int(expected_len if expected_len is not None else vector.size))
+        except AlignmentError as exc:
+            raise SelectionHistoryError(
+                f"Pre-reservation alignment refused for '{scope.contract_id}': {exc}") from exc
+        return {**aligned.to_dict(), "excluded": excluded + aligned.to_dict()["excluded"],
+                "scope": list(scope.members), "selection_group_id": scope.group_id,
+                "inherited": list(scope.inherited), "simulation_epoch": epoch}
 
     def parent_validation_stream(
         self,
@@ -921,16 +1491,40 @@ class ResearchRegistry:
         }
 
     def prior_search_floor(self, contract: EvaluationContract):
-        """Historical floor, inherited by later contract versions of the same market/frequency."""
-        family = f"{contract.asset_class}:{contract.frequency}"
+        """Historical floor for this contract's selection problem.
+
+        Scoped by ``selection_group_id`` plus ``inherits_selection_from`` when the contract
+        declares them, so re-homing a strategy onto a narrower contract in the same group
+        inherits the higher DSR floor instead of restarting the search.  A legacy contract
+        declares neither, keeps the historical ``asset_class:frequency`` family fallback,
+        and its stored floor is still a ``MAX`` over every prior row: nothing here can
+        lower a floor, and ``contract_search_state`` refuses a relaxing write anyway.
+        """
+        scope = self.selection_scope(contract)
+        family = scope.group_id or f"{contract.asset_class}:{contract.frequency}"
+        marks = ",".join("?" * len(scope.members))
         with self._connect() as conn:
             state = conn.execute(
-                "SELECT MAX(s.max_keff_gate),MAX(s.max_noise) FROM contract_search_state s "
-                "JOIN contracts c ON c.contract_id=s.contract_id "
-                "WHERE s.contract_id=? OR (c.asset_class=? AND c.frequency=?)",
-                (contract.contract_id, contract.asset_class, contract.frequency)).fetchone()
-            trial_max = conn.execute("SELECT MAX(effective_trials_keff) FROM trials WHERE contract_id=?",
-                                     (contract.contract_id,)).fetchone()[0]
+                f"SELECT MAX(s.max_keff_gate),MAX(s.max_noise) FROM contract_search_state s "
+                f"WHERE s.contract_id IN ({marks})", scope.members).fetchone()
+            trial_max = conn.execute(
+                f"SELECT MAX(effective_trials_keff) FROM trials WHERE contract_id IN ({marks})",
+                scope.members).fetchone()[0]
+            if not scope.scoped_by_group:
+                # Pre-#100 behaviour, byte for byte: a later contract version of the same
+                # market/frequency inherits the family's stored floor.
+                family_state = conn.execute(
+                    "SELECT MAX(s.max_keff_gate),MAX(s.max_noise) FROM contract_search_state s "
+                    "JOIN contracts c ON c.contract_id=s.contract_id "
+                    "WHERE s.contract_id=? OR (c.asset_class=? AND c.frequency=?)",
+                    (contract.contract_id, contract.asset_class, contract.frequency)).fetchone()
+                state = (max(float(state[0] or 0.0), float(family_state[0] or 0.0)),
+                         max(float(state[1] or 0.0), float(family_state[1] or 0.0)))
+                family_trial_max = conn.execute(
+                    "SELECT MAX(t.effective_trials_keff) FROM trials t JOIN contracts c "
+                    "ON c.contract_id=t.contract_id WHERE c.asset_class=? AND c.frequency=?",
+                    (contract.asset_class, contract.frequency)).fetchone()[0]
+                trial_max = max(float(trial_max or 0.0), float(family_trial_max or 0.0))
         return max(float(state[0] or 1.0), float(trial_max or 1.0)), float(state[1] or 0.0), family
 
     def update_search_floor(self, contract_id, k_eff_gate, noise):
@@ -947,12 +1541,33 @@ class ResearchRegistry:
         except SelectionHistoryError as exc:
             raise ValueError(str(exc).replace("Unaligned selection history",
                                               "Contract-wide trial histories are not aligned")) from exc
-    def record_trial(self, result, config_dict, net_returns, trial_number=None, diagnostics=None):
+    def record_trial(self, result, config_dict, net_returns, trial_number=None, diagnostics=None,
+                     *, timestamps=None):
+        """Persist a trial and its immutable return artifact.
+
+        ``timestamps`` (UTC-aware, one per return) writes the #100 artifact generation:
+        ``timestamp`` (``Datetime("us","UTC")``) plus ``net_return`` (``Float64``).  Omitted,
+        the artifact keeps the legacy single-column form so an existing reader is unaffected.
+        Timestamps are validated *before* anything is written, and a naive clock is refused
+        outright: a fabricated index would make two incomparable trials look comparable.
+        """
         valid_id(result.run_id)
         valid_id(result.contract_id)
         returns = np.asarray(net_returns, dtype=float)
         if returns.ndim != 1 or not np.isfinite(returns).all():
             raise ValueError("Returns must be a finite vector")
+        stamps_ns = None
+        if timestamps is not None:
+            from warden_evidence.selection_alignment import AlignmentError, utc_ns
+
+            try:
+                stamps_ns = utc_ns(timestamps)
+            except AlignmentError as exc:
+                raise ValueError(f"Invalid trial timestamps: {exc}") from exc
+            if stamps_ns.size != returns.size:
+                raise ValueError(
+                    f"{returns.size} returns but {stamps_ns.size} timestamps; refusing to "
+                    "write a misaligned return artifact")
         if trial_number is None:
             trial_number = self.register_trial_start(result.hypothesis_id, result.run_id)
         path = self.db_path.parent / "returns" / result.contract_id / f"{result.run_id}.parquet"
@@ -964,13 +1579,13 @@ class ResearchRegistry:
             observed = len(returns) > 0
             returns_sha256 = ""
             if observed:
-                import polars as pl
+                from warden_evidence.return_artifacts import return_frame
 
                 path.parent.mkdir(parents=True, exist_ok=True)
                 # Write, fsync, then atomically publish without replacing any
                 # previous artifact. A crash before commit remains reviewable.
                 with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".pending") as handle:
-                    pl.DataFrame({"net_return": returns}).write_parquet(handle)
+                    return_frame(returns, stamps_ns).write_parquet(handle)
                     handle.flush()
                     os.fsync(handle.fileno())
                     os.link(handle.name, path)

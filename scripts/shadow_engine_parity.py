@@ -6,7 +6,6 @@ import argparse
 import json
 import math
 import resource
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -51,6 +50,7 @@ from warden.runner import (
 )
 from warden.strategy_loader import load_module_from_path
 from warden_evidence.market_validation import assign_multi_exchange_sessions
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 
 @dataclass(frozen=True)
@@ -673,23 +673,10 @@ def _assert_exploratory_path(repo_root: Path, rel_path: str) -> None:
 
 def _load_trial_metadata(repo_root: Path, run_id: str) -> dict[str, Any]:
     db_path = (repo_root / "registry" / "registry.db").resolve()
-    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            """
-            SELECT run_id, hypothesis_id, contract_id, strategy_family, strategy_module,
-                   config_json, net_sharpe, gross_sharpe, stress_2x_cost_sharpe, verdict
-            FROM trials
-            WHERE run_id = ?
-            """,
-            (run_id,),
-        ).fetchone()
-    finally:
-        conn.close()
+    row = ReadOnlyResearchRegistry(db_path).read_trial_evidence(run_id)
     if row is None:
         raise KeyError(f"Run ID {run_id!r} not found in {db_path}")
-    return dict(row)
+    return row
 
 
 def _resolve_contract_path(repo_root: Path, contract_id: str) -> Path:

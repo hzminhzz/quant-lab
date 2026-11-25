@@ -16,9 +16,21 @@ strategy_module: strategies/candidates/causal_rules_drawdown_template.py
 model_type: rules                  # nonlinear/deep models require a logged linear baseline first (deep requires clearing cost-breakeven)
 parameters:
   # passed to build_estimator(params) or required_symbols(params) + configure_strategy(contract, params)
+  # validated against the strategy's module-level ``params_model`` (a
+  # warden.params_model.ParamsModel subclass) when it declares one
   max_drawdown: 0.10
   stop_loss_pct: 0.05
-param_grid: []
-# If param_grid is empty, Warden records neighbor_tested=False and stability=None.
+# A strategy whose ParamsModel declares any numeric field (or that supplies
+# numeric values here without a model) needs at least TWO distinct perturbed
+# configurations that each change a numeric field from its effective value.
+# ``[]``, omitted, duplicate or baseline-restating entries record
+# neighbor_tested=False and "neighbor_stability" in failed_gates -> verdict
+# REVISE, never CANDIDATE_FOR_QUALIFICATION.
+param_grid:
+  - max_drawdown: 0.085   # -15% neighbour of 0.10
+  - max_drawdown: 0.115   # +15% neighbour of 0.10
+# A genuinely parameter-free strategy (ParamsModel with zero numeric fields)
+# qualifies with ``param_grid: []`` and diagnostics
+# neighbor_exemption="parameter_free"; never invent a degenerate grid for it.
 # 1.5x cost stress is computed analytically; 2.0x is a full Engine re-simulation gate.
-# If you supply ±15% neighbours here, each entry is recorded as a selection attempt and counts toward DSR.
+# Every accepted neighbour is recorded as a selection attempt and counts toward DSR.

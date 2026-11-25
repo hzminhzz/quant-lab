@@ -42,6 +42,78 @@ def _make_isolated_cli_repo(tmp_path: Path) -> Path:
     return work
 
 
+def _seed_run_ml_001_ledger(root: Path) -> Path:
+    """Seeded RUN-ML-001 synthetic trial at ``root/registry/registry.db``, inside ``tmp_path``.
+
+    The test used to query the checkout's ``registry/registry.db`` directly: on a clean tree
+    that raised ``OperationalError``, and when a sibling test had just created the file it hit
+    ``no such table: trials`` (DDL not committed) or skipped when the row was absent -- three
+    different outcomes for one test.  The seed states the denial case explicitly, mirroring the
+    recorded legacy disposition of RUN-ML-001 (a synthetic run with no pinned market digest,
+    quarantined as such), so the refusal is exercised on every checkout in any order.
+    """
+    from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+    from warden.registry import ResearchRegistry
+
+    reg = ResearchRegistry(root / "registry" / "registry.db")
+    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    reg.register_contract(contract)
+    reg.register_hypothesis(
+        HypothesisSpec(
+            "HYP-ML-001",
+            contract.contract_id,
+            "Legacy RUN-ML-001 baseline",
+            "rules_ts",
+            "Economic mechanism here",
+            "Counterparty friction here",
+            8,
+            "Criteria",
+        )
+    )
+    reg.record_trial(
+        ExperimentResult(
+            run_id="RUN-ML-001",
+            hypothesis_id="HYP-ML-001",
+            contract_id=contract.contract_id,
+            strategy_name="RidgeBaseline",
+            strategy_family="rules_ts",
+            config_hash="cfg-run-ml-001",
+            stage_reached="STAGE_3_STRESS",
+            verdict="CANDIDATE_FOR_QUALIFICATION",
+            gross_sharpe=1.2,
+            net_sharpe=1.1,
+            deflated_sharpe_prob=0.96,
+            expected_max_sharpe_noise=0.2,
+            total_trials_n=1,
+            effective_trials_keff=1.0,
+            mean_ic=None,
+            ic_hac_tstat=None,
+            hit_rate=0.55,
+            profit_factor=1.3,
+            max_drawdown_pct=3.0,
+            annualized_turnover=60.0,
+            breakeven_cost_bps=12.0,
+            stress_2x_cost_sharpe=0.9,
+            param_neighbor_stability=0.9,
+            notes="seeded legacy synthetic baseline",
+            synthetic=1,
+            data_snapshot_sha256="",
+            strategy_module="strategies/candidates/ts_breakout_20_1h.py",
+            model_type="rules",
+            data_provenance="synthetic",
+        ),
+        {},
+        np.linspace(0.01, -0.004, 120),
+    )
+    reg.record_disposition(
+        "RUN-ML-001",
+        "QUARANTINED_SYNTHETIC",
+        "Legacy RUN-ML-001 recorded synthetic=0 with no dataset digest; treated as synthetic.",
+        "warden:test",
+    )
+    return reg.db_path
+
+
 def test_herdr_dispatch_fallback_and_execution(tmp_path: Path) -> None:
     dispatch_script = Path("scripts/herdr_dispatch.sh")
     assert dispatch_script.is_file(), "scripts/herdr_dispatch.sh must exist"
@@ -80,11 +152,13 @@ def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Issue #4 tickets 02/03: historical checks may pass, effective verdict may not approve."""
-    with sqlite3.connect("registry/registry.db") as conn:
-        historic = conn.execute("SELECT 1 FROM trials WHERE run_id='RUN-ML-001'").fetchone()
-    if historic is None:
-        pytest.skip("Original RUN-ML-001 historic trial absent from clean checkout; dedicated fixture audit tests cover denial")
+    # The trial and its return artifact live inside the isolated repo, so the audit reads the
+    # seeded evidence through the registry/returns fence -- never the checkout's ledger.
     work = _make_isolated_cli_repo(tmp_path)
+    seed_db = _seed_run_ml_001_ledger(work)
+    with sqlite3.connect(seed_db) as conn:
+        historic = conn.execute("SELECT 1 FROM trials WHERE run_id='RUN-ML-001'").fetchone()
+    assert historic is not None, "the seeded ledger must carry the RUN-ML-001 trial"
     monkeypatch.chdir(work)
     assert check_worktree(work) is True
 

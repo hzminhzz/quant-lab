@@ -8,7 +8,9 @@ forward-return labeling, IC evaluation, and ml4t.backtest.Engine execution.
 
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Iterator, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
@@ -176,55 +178,231 @@ def load_and_enforce_strategy_protocol(
     return mod, kind
 
 
-def compute_execution_forward_returns(
+#: Series a ``carry_rv`` strategy must publish for Stage 1 to use its own mechanism.
+CARRY_OUTPUT_KEYS = ("spread", "net_carry")
+#: Prefix-invariance tolerance for the strategy-published carry series (same basis as
+#: ``warden.leakage``: exact float equality up to accumulated summation noise).
+CARRY_PREFIX_TOLERANCE = 1e-9
+#: Policy labels recorded on every ``carry_rv`` trial, so an explicitly authorized replay is
+#: always distinguishable from an active screen that was scored on the strategy's own series.
+CARRY_MECHANISM_ACTIVE = "active_own_outputs_required"
+CARRY_MECHANISM_LEGACY = "legacy_replay_authorized"
+
+
+class CarryMechanismRequiredError(ValueError):
+    """An active ``carry_rv`` run declared no strategy-owned carry outputs.
+
+    Stage 1 for ``carry_rv`` must score the mechanism the strategy actually trades.  The
+    equal-weight panel proxy survives only as an explicitly authorized legacy replay
+    (``allow_legacy_replay``), which is an operator boundary -- never a strategy or spec
+    field -- so an agent cannot opt itself onto the proxy.
+    """
+
+
+def carry_mechanism_policy(*, allow_legacy_replay: bool) -> str:
+    """Which carry mechanism authority applies to this run.
+
+    ``allow_legacy_replay`` is the sole authorization for the panel proxy: it is set on the
+    runner by an operator/replay path, not read from a spec.
+    """
+    return CARRY_MECHANISM_LEGACY if allow_legacy_replay else CARRY_MECHANISM_ACTIVE
+
+
+def carry_outputs_callable(mod: Any) -> Any | None:
+    """Return the strategy's optional ``causal_carry_outputs`` hook, or ``None``."""
+    for obj in (resolve_protocol_target(mod), mod):
+        hook = getattr(obj, "causal_carry_outputs", None)
+        if callable(hook):
+            return hook
+    return None
+
+
+def _call_carry_outputs(
+    hook: Any,
+    panel_df: pl.DataFrame,
+    contract: EvaluationContract,
+    timestamps: Sequence[Any],
+    assets: Sequence[str],
+    val_slice: slice,
+    params: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    out = hook(
+        panel_df=panel_df,
+        contract=contract,
+        val_slice=val_slice,
+        timestamps=list(timestamps),
+        assets=list(assets),
+        params=dict(params or {}),
+    )
+    if not isinstance(out, dict):
+        raise TypeError("causal_carry_outputs must return a mapping")
+    missing = [key for key in CARRY_OUTPUT_KEYS if key not in out]
+    if missing:
+        raise ValueError(f"causal_carry_outputs is missing {missing}")
+    net = np.asarray(out["net_carry"], dtype=float).reshape(-1)
+    spread = np.asarray(out["spread"], dtype=float).reshape(-1)
+    expected = len(list(timestamps)[val_slice])
+    if len(net) != expected or len(spread) != expected:
+        raise ValueError(
+            "causal_carry_outputs must return one entry per validation bar "
+            f"(expected {expected}, got net_carry={len(net)}, spread={len(spread)})"
+        )
+    for name, series in (("net_carry", net), ("spread", spread)):
+        if np.isinf(series).any():
+            raise ValueError(f"causal_carry_outputs returned non-finite {name}")
+    return net, spread
+
+
+def verified_carry_outputs(
+    mod: Any,
     panel_df: pl.DataFrame,
     contract: EvaluationContract,
     ts: Sequence[Any],
-) -> pl.DataFrame:
-    """Compute causal execution-aligned forward returns on the unique timestamp grid.
+    assets: Sequence[str],
+    val_slice: slice,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Stage-1 carry series published by the strategy, with an evaluator-run prefix check.
 
-    Uses ``ts`` (unique sorted timestamps) rather than raw stacked row indices or
-    per-asset ``shift(-h)`` so ragged listings/delistings never jump across gaps.
+    Returns ``None`` when the strategy declares no hook (the caller then falls back to
+    the panel proxy, which is recorded as such).  When a hook exists it is authoritative:
+    shape or causality failures propagate, so a broken declaration cannot silently
+    degrade back to the proxy.
+
+    Causality is checked the same way the leakage prover checks features: the hook is
+    re-run on panels truncated inside the validation window and the overlapping prefix
+    must be unchanged.  A series that peeks at later bars fails here.
     """
-    df = panel_df.rename({"symbol": "asset"}) if "symbol" in panel_df.columns and "asset" not in panel_df.columns else panel_df
+    hook = carry_outputs_callable(mod)
+    if hook is None:
+        return None
+    from warden.leakage import LookaheadLeakageError
+
+    ts_list = list(ts)
+    start = int(val_slice.start or 0)
+    stop = int(val_slice.stop if val_slice.stop is not None else len(ts_list))
+    span = stop - start
+    if span < 2:
+        raise ValueError("causal_carry_outputs requires at least two validation bars")
+    params = dict(params or {})
+    net, spread = _call_carry_outputs(
+        hook, panel_df, contract, ts_list, assets, slice(start, stop), params
+    )
+
+    cuts = sorted({start + span // 2, stop - 1})
+    max_delta = 0.0
+    for end in cuts:
+        n_prefix = end + 1 - start
+        prefix_ts = ts_list[: end + 1]
+        prefix_panel = panel_df.filter(pl.col("timestamp") <= prefix_ts[-1])
+        p_net, p_spread = _call_carry_outputs(
+            hook, prefix_panel, contract, prefix_ts, assets, slice(start, end + 1), params
+        )
+        for full, truncated, name in (
+            (net[:n_prefix], p_net, "net_carry"),
+            (spread[:n_prefix], p_spread, "spread"),
+        ):
+            mask = np.isfinite(full) & np.isfinite(truncated)
+            if not mask.any():
+                raise ValueError(f"causal_carry_outputs returned no finite {name} before cut {end}")
+            delta = float(np.max(np.abs(truncated[mask] - full[mask])))
+            if delta > CARRY_PREFIX_TOLERANCE:
+                raise LookaheadLeakageError(
+                    f"causal_carry_outputs {name} changes when the panel is truncated at bar "
+                    f"{end} (max delta {delta:.3e}): the series is not causal"
+                )
+            max_delta = max(max_delta, delta)
+    return {
+        "net_carry": net,
+        "spread": spread,
+        "source": "strategy_causal_outputs",
+        "prefix_cuts": float(len(cuts)),
+        "prefix_max_abs_delta": max_delta,
+    }
+
+
+#: Extra bars a single leg may skip before a label is treated as spanning a genuine
+#: calendar hole instead of adjacent bars of the same asset.  Raising it would let a
+#: label straddle a suspension/holiday and still look adjacent; lowering it to 0
+#: rejects any panel with one missing bar.
+DEFAULT_FORWARD_LABEL_MAX_GAP_BARS = 1
+
+
+def compute_execution_forward_returns(
+    panel_df: pl.DataFrame,
+    contract: EvaluationContract,
+    ts: Sequence[Any] | None = None,
+    *,
+    max_gap_bars: int | None = None,
+) -> pl.DataFrame:
+    """Compute causal execution-aligned forward returns on *per-asset bar indices*.
+
+    Each asset is labelled on its own bar grid (``shift`` by bar, not by a shared
+    timestamp index), so an asynchronous panel — 24h index futures next to an 8h
+    cash session — no longer nulls a session asset's label every hour the other
+    venue trades.  A leg is refused when the calendar time it spans exceeds its
+    bar count plus ``max_gap_bars`` steps, so a label never bridges a genuine
+    calendar gap (weekend, holiday, suspension) as if it were one bar.
+
+    ``ts`` is accepted for call-site compatibility; the union grid it describes is
+    exactly what this function must *not* use.
+    """
+    _ = ts
+    df = (
+        panel_df.rename({"symbol": "asset"})
+        if "symbol" in panel_df.columns and "asset" not in panel_df.columns
+        else panel_df
+    )
     delay = int(contract.execution_delay_bars)
     horizon = int(contract.label_horizon_bars)
+    gap_cap = (
+        DEFAULT_FORWARD_LABEL_MAX_GAP_BARS if max_gap_bars is None else max(0, int(max_gap_bars))
+    )
 
-    ts_grid = pl.DataFrame({"timestamp": list(ts), "_ts_idx": list(range(len(ts)))})
     if contract.execution_mode == "QUOTE_SIDE":
         px_expr = (0.5 * (pl.col("bid") + pl.col("ask"))).cast(pl.Float64)
     else:
         px_expr = pl.col("open").cast(pl.Float64)
 
     base = (
-        df.select("timestamp", "asset", px_expr.alias("_exec_px"))
-        .join(ts_grid, on="timestamp", how="inner")
+        df.sort("asset", "timestamp")
         .with_columns(
-            (pl.col("_ts_idx") + delay).alias("_entry_idx"),
-            (pl.col("_ts_idx") + delay + horizon).alias("_exit_idx"),
+            px_expr.alias("_exec_px"),
+            pl.int_range(pl.len()).over("asset").alias("_bar"),
+            pl.col("timestamp").diff().dt.total_seconds().over("asset").alias("_step_secs"),
         )
+        .with_columns(pl.col("_step_secs").median().over("asset").alias("_bar_secs"))
     )
-    lookup = base.select(
-        pl.col("asset"),
-        pl.col("_ts_idx"),
-        pl.col("_exec_px"),
-    )
+
+    def _leg(offset: int, price_alias: str, stamp_alias: str) -> pl.DataFrame:
+        # Label each row with the base bar it serves, so the join key is the base
+        # index and the row carries the price ``offset`` bars later.
+        return base.select(
+            "asset",
+            (pl.col("_bar") - offset).alias("_bar"),
+            pl.col("_exec_px").alias(price_alias),
+            pl.col("timestamp").alias(stamp_alias),
+        )
+
+    entry = _leg(delay, "_entry_px", "_entry_ts")
+    exit_ = _leg(delay + horizon, "_exit_px", "_exit_ts")
     labeled = (
-        base.join(
-            lookup.rename({"_ts_idx": "_entry_idx", "_exec_px": "_entry_px"}),
-            on=["asset", "_entry_idx"],
-            how="left",
-        )
-        .join(
-            lookup.rename({"_ts_idx": "_exit_idx", "_exec_px": "_exit_px"}),
-            on=["asset", "_exit_idx"],
-            how="left",
+        base.join(entry, on=["asset", "_bar"], how="left")
+        .join(exit_, on=["asset", "_bar"], how="left")
+        .with_columns(
+            ((pl.col("_entry_ts") - pl.col("timestamp")).dt.total_seconds()
+             / pl.col("_bar_secs")).alias("_entry_steps"),
+            ((pl.col("_exit_ts") - pl.col("_entry_ts")).dt.total_seconds()
+             / pl.col("_bar_secs")).alias("_exit_steps"),
         )
         .with_columns(
             pl.when(
                 pl.col("_entry_px").is_not_null()
                 & pl.col("_exit_px").is_not_null()
                 & (pl.col("_entry_px") > 0.0)
+                & (pl.col("_bar_secs") > 0.0)
+                & (pl.col("_entry_steps") <= float(delay + gap_cap) + 1e-6)
+                & (pl.col("_exit_steps") <= float(horizon + gap_cap) + 1e-6)
             )
             .then((pl.col("_exit_px") - pl.col("_entry_px")) / pl.col("_entry_px"))
             .otherwise(None)
@@ -324,6 +502,123 @@ class _UniqueTimestampPanelCV:
             if not tr_rows or not te_rows:
                 raise ValueError(
                     f"Fold {fold_idx} produced empty stacked rows (train={len(tr_rows)}, test={len(te_rows)})."
+                )
+            yield np.asarray(tr_rows, dtype=np.intp), np.asarray(te_rows, dtype=np.intp)
+
+
+class _HoldoutRefitCV:
+    """Timestamp-safe holdout refit schedule (#97).
+
+    Qualification evaluates a contract-declared holdout window whose panel is
+    prefixed with the digest-verified pre-holdout bars.  The schedule below is
+    defined on *unique sorted timestamps*, never on raw row order, so a
+    multi-asset panel cannot shift a fold boundary onto the wrong bar.  Both
+    modes keep every training timestamp strictly more than ``total_gap`` bars
+    before the first test timestamp, i.e. before
+    ``holdout_start - (label_horizon + execution_delay + embargo)``.
+
+    ``purged_expanding`` splits the holdout window into ``n_folds`` consecutive
+    test segments; fold ``k`` trains on every timestamp before
+    ``test_start_k - total_gap`` (expanding over earlier holdout bars).
+    ``frozen_pre_holdout`` yields exactly one fold: fit once on the pre-holdout
+    prefix and predict the whole window without any refit.
+
+    A prefix too short for the purge+embargo gap is an error, never a silent
+    downgrade to in-window training.
+    """
+
+    def __init__(
+        self,
+        *,
+        panel_timestamps: Sequence[Any],
+        unique_ts: Sequence[Any],
+        val_start_idx: int,
+        val_end_idx: int,
+        n_folds: int,
+        total_gap: int,
+        valid_train_mask: np.ndarray,
+        mode: str,
+    ) -> None:
+        from warden.contracts import HOLDOUT_REFIT_MODES
+
+        if mode not in HOLDOUT_REFIT_MODES:
+            raise ValueError(
+                f"unsupported holdout refit mode {mode!r}; contract modes are {list(HOLDOUT_REFIT_MODES)}"
+            )
+        self._panel_ts = list(panel_timestamps)
+        self._unique_ts = list(unique_ts)
+        self._val_start_idx = int(val_start_idx)
+        self._val_end_idx = int(val_end_idx)
+        self._n_folds = int(n_folds)
+        self._total_gap = int(total_gap)
+        self._valid_train_mask = np.asarray(valid_train_mask, dtype=bool)
+        self._mode = mode
+
+    def _rows_by_timestamp(self) -> dict[int, list[int]]:
+        ts_lookup = {t: idx for idx, t in enumerate(self._unique_ts)}
+        rows_by_ts_idx: dict[int, list[int]] = {}
+        for row_idx, ts_val in enumerate(self._panel_ts):
+            t_idx = ts_lookup.get(ts_val)
+            if t_idx is not None:
+                rows_by_ts_idx.setdefault(t_idx, []).append(row_idx)
+        return rows_by_ts_idx
+
+    def _test_segments(self) -> list[tuple[int, int]]:
+        start, stop = self._val_start_idx, self._val_end_idx
+        if stop <= start:
+            raise ValueError("Holdout window contains no timestamps for the refit schedule.")
+        if self._mode == "frozen_pre_holdout":
+            return [(start, stop)]
+        n_folds = max(1, min(self._n_folds, stop - start))
+        length = stop - start
+        base, extra = divmod(length, n_folds)
+        segments: list[tuple[int, int]] = []
+        cursor = start
+        for fold_idx in range(n_folds):
+            size = base + (1 if fold_idx < extra else 0)
+            if size <= 0:
+                continue
+            segments.append((cursor, cursor + size))
+            cursor += size
+        return segments
+
+    def split(
+        self,
+        X: Any,
+        y: Any = None,
+        groups: Any = None,
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        _ = (X, y, groups)
+        start = self._val_start_idx
+        cutoff = start - self._total_gap
+        if cutoff <= 0:
+            raise ValueError(
+                f"Insufficient pre-holdout timestamps ({start}) for purge+embargo gap "
+                f"({self._total_gap}); qualification requires a pre-holdout warmup prefix."
+            )
+        rows_by_ts_idx = self._rows_by_timestamp()
+
+        for fold_idx, (te_start, te_stop) in enumerate(self._test_segments()):
+            tr_ts = np.arange(0, max(0, te_start - self._total_gap), dtype=np.intp)
+            if tr_ts.size == 0:
+                raise ValueError(f"Fold {fold_idx} has no pre-cutoff training timestamps.")
+            gap = int(te_start) - int(tr_ts[-1])
+            if gap < self._total_gap:
+                raise ValueError(
+                    f"Fold {fold_idx} gap {gap} < {self._total_gap} bars before the holdout window"
+                )
+            tr_rows: list[int] = []
+            for t_idx in tr_ts:
+                for r_idx in rows_by_ts_idx.get(int(t_idx), ()):
+                    if self._valid_train_mask[r_idx]:
+                        tr_rows.append(r_idx)
+            te_rows: list[int] = []
+            for t_idx in range(int(te_start), int(te_stop)):
+                te_rows.extend(rows_by_ts_idx.get(t_idx, ()))
+            if not tr_rows or not te_rows:
+                raise ValueError(
+                    f"Fold {fold_idx} produced empty stacked rows "
+                    f"(train={len(tr_rows)}, test={len(te_rows)})."
                 )
             yield np.asarray(tr_rows, dtype=np.intp), np.asarray(te_rows, dtype=np.intp)
 
@@ -540,8 +835,17 @@ def iter_causal_model_folds(
     contract: EvaluationContract,
     val_start_idx: int,
     val_end_idx: int,
+    *,
+    refit_mode: str | None = None,
 ) -> Iterator[tuple[pl.DataFrame, pl.DataFrame]]:
-    """Yield fold-local scaled (train_df, val_features_df) pairs with labels stripped from val."""
+    """Yield fold-local scaled (train_df, val_features_df) pairs with labels stripped from val.
+
+    ``refit_mode`` is the contract-declared qualification schedule (#97).  ``None``
+    keeps the historical validation walk-forward untouched, so an existing
+    validation spec evaluates on exactly the partitions it always did; a holdout
+    qualification passes ``purged_expanding`` or ``frozen_pre_holdout`` and gets the
+    timestamp-safe pre-holdout schedule instead.
+    """
     from ml4t.engineer import MLDatasetBuilder, RobustScaler
 
     total_gap = (
@@ -549,15 +853,27 @@ def iter_causal_model_folds(
         + int(contract.execution_delay_bars)
         + int(contract.embargo_bars)
     )
-    panel_cv = _UniqueTimestampPanelCV(
-        panel_timestamps=model_df["timestamp"].to_list(),
-        unique_ts=ts,
-        val_start_idx=val_start_idx,
-        val_end_idx=val_end_idx,
-        n_folds=int(contract.n_folds),
-        total_gap=total_gap,
-        valid_train_mask=valid_train_mask,
-    )
+    if refit_mode is None:
+        panel_cv: Any = _UniqueTimestampPanelCV(
+            panel_timestamps=model_df["timestamp"].to_list(),
+            unique_ts=ts,
+            val_start_idx=val_start_idx,
+            val_end_idx=val_end_idx,
+            n_folds=int(contract.n_folds),
+            total_gap=total_gap,
+            valid_train_mask=valid_train_mask,
+        )
+    else:
+        panel_cv = _HoldoutRefitCV(
+            panel_timestamps=model_df["timestamp"].to_list(),
+            unique_ts=ts,
+            val_start_idx=val_start_idx,
+            val_end_idx=val_end_idx,
+            n_folds=int(contract.n_folds),
+            total_gap=total_gap,
+            valid_train_mask=valid_train_mask,
+            mode=refit_mode,
+        )
     builder = MLDatasetBuilder(
         features=model_df.select(feature_cols).cast({c: pl.Float64 for c in feature_cols}),
         labels=model_df["forward_label"].cast(pl.Float64),
@@ -576,6 +892,11 @@ def iter_causal_model_folds(
         yield train_df, val_features_df
 
 
+def _stamp(value: Any) -> str:
+    """JSON-safe timestamp for recorded schedule evidence."""
+    return value.isoformat() if isinstance(value, datetime) else str(value)
+
+
 def run_causal_model_strategy(
     mod: Any,
     panel_df: pl.DataFrame,
@@ -586,8 +907,16 @@ def run_causal_model_strategy(
     params: dict[str, Any],
     *,
     seed: int = 42,
+    refit_mode: str | None = None,
 ) -> dict[str, Any]:
-    """Execute CausalModelStrategy under Warden-owned WalkForwardCV, scaling, and IC."""
+    """Execute CausalModelStrategy under Warden-owned WalkForwardCV, scaling, and IC.
+
+    ``refit_mode`` selects the contract-declared qualification schedule (#97):
+    ``purged_expanding`` or ``frozen_pre_holdout`` train fold 0 strictly on the
+    pre-holdout prefix and predict every holdout bar; ``None`` keeps the
+    historical validation walk-forward.  The returned ``refit`` block is the
+    observed schedule evidence (fold boundaries + fit count), not a claim.
+    """
     from warden.gates import compute_cross_sectional_ic_for_screen
     from warden.leakage import verify_fold_isolation
 
@@ -601,10 +930,32 @@ def run_causal_model_strategy(
     estimator = target.build_estimator(dict(params or {}))
     label_col = "forward_label"
     oos_chunks: list[pl.DataFrame] = []
+    fold_log: list[dict[str, Any]] = []
+    window_ts = [t for t in ts[val_start_idx:val_end_idx]]
     has_target_weights = True
-    for train_df, val_features_df in iter_causal_model_folds(
-        model_df, feature_cols, valid_train_mask, ts, contract, val_start_idx, val_end_idx
+    fold_records: list[dict[str, Any]] = []
+    unique_ts = sorted(set(ts))
+    required_gap = (
+        int(contract.label_horizon_bars)
+        + int(contract.execution_delay_bars)
+        + int(contract.embargo_bars)
+    )
+    for fold_idx, (train_df, val_features_df) in enumerate(
+        iter_causal_model_folds(
+            model_df, feature_cols, valid_train_mask, ts, contract, val_start_idx, val_end_idx,
+            refit_mode=refit_mode,
+        )
     ):
+        fold_log.append({
+            "train_rows": int(train_df.height),
+            "train_bars": int(train_df["timestamp"].n_unique()),
+            "train_first_ts": _stamp(train_df["timestamp"].min()),
+            "train_last_ts": _stamp(train_df["timestamp"].max()),
+            "test_rows": int(val_features_df.height),
+            "test_bars": int(val_features_df["timestamp"].n_unique()),
+            "test_first_ts": _stamp(val_features_df["timestamp"].min()),
+            "test_last_ts": _stamp(val_features_df["timestamp"].max()),
+        })
         preds = verify_fold_isolation(
             estimator,
             train_df,
@@ -615,6 +966,29 @@ def run_causal_model_strategy(
             embargo_bars=int(contract.embargo_bars),
             seed=seed,
             panel_timestamps=ts,
+        )
+        # Evaluator-observed fold record: the gap below is measured on the panel clock
+        # between the last training bar and the first validation bar that actually ran,
+        # not copied from a contract integer or a strategy claim.
+        max_train_ts = train_df["timestamp"].max()
+        min_val_ts = val_features_df["timestamp"].min()
+        gap_bars = (
+            bisect_left(unique_ts, min_val_ts) - bisect_left(unique_ts, max_train_ts)
+            if max_train_ts is not None and min_val_ts is not None
+            else 0
+        )
+        stripped = not any(
+            col == label_col or any(k in col.lower() for k in ("label", "target", "forward", "fut_"))
+            for col in val_features_df.columns
+        )
+        fold_records.append(
+            {
+                "fold": fold_idx,
+                "n_train": int(train_df.height),
+                "n_val": int(val_features_df.height),
+                "gap_bars": int(gap_bars),
+                "labels_stripped": bool(stripped),
+            }
         )
         if "target_weight" in preds.columns:
             oos_chunks.append(preds.select("timestamp", "asset", "prediction_value", "target_weight"))
@@ -666,16 +1040,56 @@ def run_causal_model_strategy(
             rebalance_every=rebalance_every,
             top_k=top_k,
         )
+    pred_ts = oos_preds_df["timestamp"].unique().sort().to_list()
+    window_ts_set = set(window_ts)
+    covered = [t for t in pred_ts if t in window_ts_set]
+    refit_block = {
+        "mode": refit_mode or "walk_forward",
+        "fits": len(fold_log),
+        "folds": fold_log,
+        "window_bars": len(window_ts),
+        "prediction_bars": len(covered),
+        # Every evaluation timestamp appears at least once in the OOS predictions.
+        "covers_window": bool(window_ts) and len(covered) == len(window_ts),
+    }
+    fold_isolation = {
+        "protocol": "causal_model",
+        "folds": len(fold_records),
+        "min_gap_bars": (
+            float(min(record["gap_bars"] for record in fold_records)) if fold_records else 0.0
+        ),
+        "required_gap_bars": float(required_gap),
+        "labels_stripped": bool(fold_records) and all(
+            record["labels_stripped"] for record in fold_records
+        ),
+        "verified": bool(fold_records)
+        and all(record["gap_bars"] >= required_gap for record in fold_records)
+        and all(record["labels_stripped"] for record in fold_records),
+        "records": fold_records,
+    }
     return {
         "positions": positions,
         "ic_series": ic_series,
         "predictions": oos_preds_df,
         "forward_returns": valid_fwd,
+        "refit": refit_block,
+        "fold_isolation": fold_isolation,
     }
 
 
 class RulesProofPipeline:
-    """Deterministic FeaturePipelineProtocol wrapper for CausalRulesStrategy evidence."""
+    """Deterministic FeaturePipelineProtocol wrapper for CausalRulesStrategy evidence.
+
+    The pipeline's "features" are the strategy's own executed position tape.  It
+    runs through the shared :class:`~warden.evaluation.EvaluationKernel`, so the
+    tape the feature cache stores is the *same* execution the prefix-invariance
+    proof already performed — no second Engine run for identical panel bytes.
+
+    ``prefix_proof`` carries the kernel proof that this exact panel/contract
+    parameterisation was already shown prefix-invariant; ``verify_prefix_invariance``
+    consumes it instead of re-executing the strategy at four independent cut points
+    (which is what made a rules ``verify`` cost 13 extra Engine runs).
+    """
 
     def __init__(
         self,
@@ -685,19 +1099,23 @@ class RulesProofPipeline:
         code_sha256: str,
         params: dict[str, Any],
         policy_cfg: dict[str, Any] | None = None,
+        kernel: Any | None = None,
+        prefix_proof: Any | None = None,
     ) -> None:
         self.repo_root = str(repo_root)
         self.strategy_module = str(strategy_module)
         self.code_sha256 = str(code_sha256)
         self.params = dict(params)
         self.policy_cfg = dict(policy_cfg or {})
+        self.kernel = kernel
+        self.prefix_proof = prefix_proof
 
     def compute(
         self, bars_df: pl.DataFrame | pl.LazyFrame, contract: EvaluationContract
     ) -> pl.DataFrame:
         from pathlib import Path
 
-        from warden.engine_sim import extract_execution_policy, run_engine_strategy
+        from warden.evaluation import EvaluationKernel
         from warden.strategy_loader import load_module_from_path
 
         df = bars_df.collect() if isinstance(bars_df, pl.LazyFrame) else bars_df
@@ -708,20 +1126,35 @@ class RulesProofPipeline:
         assets = sorted(df["asset"].unique().to_list())
 
         mod = load_module_from_path(Path(self.repo_root) / self.strategy_module)
-        strat = resolve_protocol_target(mod).configure_strategy(contract, dict(self.params))
-        policy = extract_execution_policy(self.policy_cfg, dict(self.params))
-        sim = run_engine_strategy(
+        kernel = self.kernel if self.kernel is not None else EvaluationKernel()
+        tape = kernel.run_rules(
+            mod,
             df,
-            strat,
             ts,
             assets,
             contract,
             slice(0, len(ts)),
-            **policy,
+            dict(self.params),
         )
-        rows = [
-            {"timestamp": t_val, "asset": asset_name, "position_weight": float(sim.positions[i, j])}
-            for i, t_val in enumerate(ts)
-            for j, asset_name in enumerate(assets)
-        ]
-        return pl.DataFrame(rows).sort("timestamp", "asset")
+        return _positions_tape(ts, assets, tape.positions)
+
+
+def _positions_tape(ts: Sequence[Any], assets: Sequence[str], positions: np.ndarray) -> pl.DataFrame:
+    """Long-format position tape built column-wise, never per cell."""
+    matrix = np.asarray(positions, dtype=float)
+    expected = (len(ts), len(assets))
+    if matrix.shape != expected:
+        raise ValueError(f"position tape shape {matrix.shape} does not match {expected}")
+    wide = pl.DataFrame(
+        {asset: matrix[:, idx] for idx, asset in enumerate(assets)},
+    ).with_columns(pl.Series("timestamp", list(ts)))
+    return (
+        wide.unpivot(
+            index="timestamp",
+            on=list(assets),
+            variable_name="asset",
+            value_name="position_weight",
+        )
+        .select("timestamp", "asset", "position_weight")
+        .sort("timestamp", "asset")
+    )

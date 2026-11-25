@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-25T00:00:00Z",
+  "note": "Reviewed contract-lifecycle decisions for issue #106. Read-only: the tooling has no writer for this file. A blocking status refuses a NEW hypothesis only; historical trials, v1 spec hashes and audit reads are untouched. selection_group_id is the DSR search problem a v2 replacement inherits via inherits_selection_from; the floor number itself is always computed from recorded trials, never stored here. Archival of legacy_scripts is a host step that requires a confirmed replacement (see docs/T20-CUTOVER-RUNBOOK.md).",
+  "contracts": [
+    {
+      "contract_id": "INDICES_1H_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "Index 1h panel was salvaged from a clipped LSE minute store with level-shifted bars; no executable read path reproduces its declared pins under the current builder.",
+      "replacement_contract_id": "CME_ES_NQ_15M_SYNCSTER_V2",
+      "selection_group_id": "LEGACY_INDICES_1H",
+      "evidence": "contracts/indices_1h_v1.yaml + contracts/datasets/INDICES_1H_V1.json"
+    },
+    {
+      "contract_id": "FX_MAJORS_1H_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "FX 1h panel resampled from LSE minute stores that carry level-shifted bars; superseded by the Dukascopy daily authority, so the 1h pin no longer has an executable source.",
+      "selection_group_id": "LEGACY_FX_MAJORS_1H",
+      "evidence": "contracts/fx_majors_1h_v1.yaml; .workspace/fx_stage3/decision_record.md"
+    },
+    {
+      "contract_id": "FX_MAJORS_1D_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "Daily FX panel resampled from LSE minute stores whose level shift changes the return series; the Dukascopy daily store is the declared authority.",
+      "replacement_contract_id": "FX_MAJORS_1D_NY_CLOSE_V2",
+      "selection_group_id": "LEGACY_FX_MAJORS_1D",
+      "evidence": "contracts/fx_majors_1d_v1.yaml; scripts/build_fx_majors_1d_v2.py docstring"
+    },
+    {
+      "contract_id": "FX_MAJORS_30M_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "FX 30m panel inherits the same level-shifted LSE minute source as the 1h/1d V1 panels; no clean pinned export exists.",
+      "selection_group_id": "LEGACY_FX_MAJORS_30M",
+      "evidence": "contracts/fx_majors_30m_v1.yaml"
+    },
+    {
+      "contract_id": "FX_MAJORS_15M_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "FX 15m panel inherits the same level-shifted LSE minute source; no clean pinned export exists.",
+      "selection_group_id": "LEGACY_FX_MAJORS_15M",
+      "evidence": "contracts/fx_majors_15m_v1.yaml"
+    },
+    {
+      "contract_id": "FX_MAJORS_4H_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "FX 4h panel is resampled from the same level-shifted LSE minute source; no clean pinned export exists.",
+      "selection_group_id": "LEGACY_FX_MAJORS_4H",
+      "evidence": "contracts/fx_majors_4h_v1.yaml"
+    },
+    {
+      "contract_id": "FX_MAJORS_5M_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "FX 5m panel is resampled from the same level-shifted LSE minute source; no clean pinned export exists.",
+      "selection_group_id": "LEGACY_FX_MAJORS_5M",
+      "evidence": "contracts/fx_majors_5m_v1.yaml"
+    },
+    {
+      "contract_id": "FX_MAJORS_1M_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "FX 1m panel is resampled from the same level-shifted LSE minute source and exceeds the salvage store's retained range.",
+      "selection_group_id": "LEGACY_FX_MAJORS_1M",
+      "evidence": "contracts/fx_majors_1m_v1.yaml"
+    },
+    {
+      "contract_id": "CRYPTO_PERPS_1H_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "1h perpetual panel was produced by the ad-hoc salvage scripts from a workstation store with no delisting-complete universe and no forward funding attribution; superseded by the PIT broad-universe build.",
+      "replacement_contract_id": "CRYPTO_PERPS_BROAD_1H_V2",
+      "selection_group_id": "LEGACY_CRYPTO_PERPS_1H",
+      "evidence": "contracts/crypto_perps_1h_v1.yaml; contracts/datasets/CRYPTO_PERPS_1H_V1.json"
+    },
+    {
+      "contract_id": "METALS_1M_V1",
+      "status": "DEPRECATED_UNEXECUTABLE",
+      "reason": "Metals 1m panel's salvage source is no longer reachable read-only and its pin cannot be reproduced; executing it would silently substitute another contract's bars.",
+      "selection_group_id": "LEGACY_METALS_1M",
+      "evidence": "contracts/metals_1m_v1.yaml"
+    },
+    {
+      "contract_id": "CRYPTO_MAJORS_1H_V1",
+      "status": "LEGACY_SURVIVORSHIP_BIASED",
+      "reason": "Universe is a fixed majors set chosen after the fact, so every historical backtest is survivorship-biased; results remain readable as research proxy only.",
+      "selection_group_id": "LEGACY_CRYPTO_MAJORS_1H",
+      "evidence": "contracts/crypto_majors_1h_v1.yaml; .workspace/literature/RESEARCH_INBOX_STATUS.md"
+    },
+    {
+      "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+      "status": "LEGACY_SURVIVORSHIP_BIASED",
+      "reason": "Top-100 membership is applied as today's roster rather than point-in-time, so delisted and promoted symbols are misrepresented.",
+      "selection_group_id": "LEGACY_CRYPTO_PERPS_TOP100_1H",
+      "evidence": "contracts/crypto_perps_top100_1h_v1.yaml"
+    },
+    {
+      "contract_id": "AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1",
+      "status": "LEGACY_SURVIVORSHIP_BIASED",
+      "reason": "Auto-generated top-100 variant of the survivorship-biased V1 universe; the bias is inherited, not introduced by the parameterisation.",
+      "selection_group_id": "LEGACY_CRYPTO_PERPS_TOP100_1H",
+      "evidence": "contracts/auto_crypto_perps_top100_1h_v1_h24_e24_f45_s20_v1.yaml"
+    },
+    {
+      "contract_id": "CRYPTO_PERPS_BROAD_1H_V2",
+      "status": "ACTIVE_V2",
+      "reason": "PIT Binance USD-M broad-universe 1h replacement built by the declarative builder: delisting-complete universe, forward 8h funding, merged into the legacy 1h selection problem so no search debt is shed.",
+      "selection_group_id": "LEGACY_CRYPTO_PERPS_1H",
+      "evidence": "tests/fixtures/p2_t20/specs/crypto_perps_broad_1h_v2.yaml (host copies to specs/t20/)"
+    },
+    {
+      "contract_id": "FX_MAJORS_1D_NY_CLOSE_V2",
+      "status": "ACTIVE_V2",
+      "reason": "Dukascopy daily FX replacement on the 17:00 New York session clock (Sunday/DST aware), inheriting the legacy daily FX selection problem.",
+      "selection_group_id": "LEGACY_FX_MAJORS_1D",
+      "evidence": "tests/fixtures/p2_t20/specs/fx_majors_1d_ny_close_v2.yaml (host copies to specs/t20/)"
+    },
+    {
+      "contract_id": "CME_ES_NQ_15M_SYNCSTER_V2",
+      "status": "ACTIVE_V2",
+      "reason": "SHA-pinned Syncster CME ES/NQ 15m replacement for the deprecated index 1h panel, inheriting its selection problem.",
+      "selection_group_id": "LEGACY_INDICES_1H",
+      "evidence": "tests/fixtures/p2_t20/specs/cme_es_nq_15m_syncster_v2.yaml (host copies to specs/t20/)"
+    }
+  ],
+  "legacy_scripts": [
+    {
+      "path": "scripts/salvage_crypto.py",
+      "replaces": "CRYPTO_PERPS_BROAD_1H_V2",
+      "archive_after": "warden data build publishes the pinned broad-universe exploratory panel",
+      "status": "pending_replacement"
+    },
+    {
+      "path": "scripts/salvage_crypto_perps.py",
+      "replaces": "CRYPTO_PERPS_BROAD_1H_V2",
+      "archive_after": "warden data build publishes the pinned broad-universe exploratory panel",
+      "status": "pending_replacement"
+    },
+    {
+      "path": "scripts/salvage_multi_asset.py",
+      "replaces": "CRYPTO_PERPS_BROAD_1H_V2",
+      "archive_after": "all three replacement datasets are built, sealed and human-signed",
+      "status": "pending_replacement"
+    },
+    {
+      "path": "scripts/build_crypto_perps_broad_1h.py",
+      "replaces": "CRYPTO_PERPS_BROAD_1H_V2",
+      "archive_after": "warden data build publishes the pinned broad-universe exploratory panel",
+      "status": "pending_replacement"
+    },
+    {
+      "path": "scripts/build_fx_majors_1d_v2.py",
+      "replaces": "FX_MAJORS_1D_NY_CLOSE_V2",
+      "archive_after": "warden data build publishes the pinned NY-close daily FX panel",
+      "status": "pending_replacement"
+    },
+    {
+      "path": "scripts/prepare_syncster_cme.py",
+      "replaces": "CME_ES_NQ_15M_SYNCSTER_V2",
+      "archive_after": "warden data build publishes both pinned Syncster CME 15m panels",
+      "status": "pending_replacement"
+    }
+  ]
+}

@@ -14,10 +14,32 @@ from typing import Any
 import numpy as np
 import polars as pl
 from ml4t.engineer import compute_features
+from pydantic import Field
 from sklearn.linear_model import Ridge
 
 from warden.contracts import EvaluationContract
 from warden.leakage import WalkForwardModelProtocol
+from warden.params_model import ParamsModel
+
+
+class RidgeParams(ParamsModel):
+    """Typed declaration of the reference baseline's numeric parameters."""
+
+    ridge_alpha: float = Field(default=10.0, gt=0.0)
+    #: Position sizing knobs read by Warden's causal-model harness.
+    rebalance_every: int = Field(default=4, ge=1)
+    top_k: int = Field(default=3, ge=1)
+
+
+#: Warden's typed-parameter hook; see ``warden.params_model``.
+params_model = RidgeParams
+
+
+def validate_params(params: dict[str, Any]) -> RidgeParams:
+    """Validate the declared subset only; runner-injected keys are not model fields."""
+
+    declared = {k: v for k, v in params.items() if k in RidgeParams.model_fields}
+    return RidgeParams.model_validate(declared)
 
 
 class CausalRidgePipeline:
@@ -101,4 +123,5 @@ pipeline = CausalRidgePipeline()
 
 def build_estimator(params: dict[str, Any]) -> WalkForwardModelProtocol:
     """Build the fold estimator for Warden's walk-forward harness."""
-    return CausalRidgeEstimator(ridge_alpha=float(params.get("ridge_alpha", 10.0)))
+    tuned = validate_params(params)
+    return CausalRidgeEstimator(ridge_alpha=tuned.ridge_alpha)

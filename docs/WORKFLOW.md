@@ -153,7 +153,7 @@ All four strategy families are wired across Stage 1 and Stage 3:
 |---|---|
 | `rules_ts` | `evaluate_stage1_rules_ts`: `trade_edge > 1.5 × one_way_cost` **and** trade-level `profit_factor >= 1.15` **and** `time_in_market >= 0.05` **and** block-bootstrap `p < 0.05` **and** `trimmed_sharpe > 0.0` (`TRIMMED_SHARPE_FLOOR = 0.0`) |
 | `cross_sectional_ml` | `evaluate_stage1_cross_sectional_ml`: `mean_ic >= 0.015` **and** Newey-West HAC `t >= 2.0` (`>= 10` IC observations) |
-| `carry_rv` | `evaluate_stage1_carry_rv`: positive net carry (`mean_net_carry > 0.0`) **and** ADF stationarity (`adf_p < 0.05`) via `ml4t-diagnostic` (`kpss_p_value` is logged diagnostically) |
+| `carry_rv` | `evaluate_stage1_carry_rv`: positive net carry (`mean_net_carry > 0.0`) **and** ADF stationarity (`adf_p < 0.05`) via `ml4t-diagnostic` (`kpss_p_value` is logged diagnostically). The series scored are the strategy's own `causal_carry_outputs` (`spread`, `net_carry`), prefix-verified by the evaluator; an active run that declares none is refused with `CarryMechanismRequiredError` **before** any screen receipt or trial row. The equal-weight panel proxy survives only under `allow_legacy_replay` (an operator flag, never a spec field) and is recorded as `carry_series_source="panel_proxy"` + `carry_mechanism_policy="legacy_replay_authorized"` |
 | `meta_overlay` | `evaluate_stage1_meta_overlay`: evaluated via `apply_causal_meta_overlay` against the registered parent return stream (`tail_risk` / drawdown / turnover improvement vs. parent) |
 
 ### Stage 2 — causal simulation (`src/warden/engine_sim.py`)

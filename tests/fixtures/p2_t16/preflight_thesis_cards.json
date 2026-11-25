@@ -1,0 +1,22 @@
+[
+  {
+    "contract_id": "CRYPTO_PERPS_1H_V1",
+    "expected_holding_bars": 8.0,
+    "hypothesis_id": "HYP-PASS",
+    "registered": true,
+    "status": "ACTIVE",
+    "strategy_family": "rules_ts",
+    "title": "Campaign",
+    "trials_remaining": 3,
+    "trials_used": 0
+  },
+  {
+    "hypothesis_id": "HYP-ABSENT",
+    "registered": false
+  },
+  {
+    "hypothesis_id": "HYP-PASS",
+    "registered": false,
+    "registry": "absent"
+  }
+]

@@ -1,0 +1,9 @@
+[
+  [],
+  [
+    "run 'RUN-HYP099-003' is numbered trial 3 but would run as trial 2; trials run in sequence and a revision must run as its own number"
+  ],
+  [
+    "run 'RUN-HYP099-001' is numbered trial 1 but would run as trial 2; trials run in sequence and a revision must run as its own number"
+  ]
+]

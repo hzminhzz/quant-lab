@@ -2,15 +2,10 @@
 
 from __future__ import annotations
 
-import bisect
 import hashlib
 import json
 import math
-import pickle
 import sqlite3
-import subprocess
-import sys
-import tempfile
 from collections.abc import Sequence
 from dataclasses import replace as dc_replace
 from pathlib import Path
@@ -22,14 +17,12 @@ import polars as pl
 from warden.codeid import code_closure
 from warden.contracts import (
     ENGINE_SIMULATION_EPOCH,
-    ContractValidationError,
     EvaluationContract,
     ExperimentResult,
     HypothesisSpec,
     Stage1Report,
     canonical_json,
     load_contract,
-    validate_panel_feed_spec,
 )
 from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.engine_sim import (
@@ -39,9 +32,8 @@ from warden.engine_sim import (
     export_backtest_artifacts,
     extract_execution_policy,
     require_execution_columns,
-    run_engine_simulation,
-    run_engine_strategy,
 )
+from warden.evaluation import EvaluationKernel
 from warden.gates import (
     DSR_FLOOR,
     IC_T_FLOOR,
@@ -60,16 +52,33 @@ from warden.gates import (
     evaluate_stage1_cross_sectional_ml,
     evaluate_stage1_meta_overlay,
     evaluate_stage1_rules_ts,
+    measure_trading_cadence,
+)
+from warden.market_data import (
+    ROLE_EXPLORATORY,
+    MarketDataGateway,
+    MarketPanel,
+    select_symbols,
+)
+from warden.params_model import (
+    classify_numeric_neighbors,
+    evaluate_neighbor_requirement,
+    validate_strategy_params,
 )
 from warden.protocols import (
+    CARRY_MECHANISM_ACTIVE,
+    CARRY_MECHANISM_LEGACY,
+    CarryMechanismRequiredError,
+    carry_mechanism_policy,
     load_and_enforce_strategy_protocol,
     resolve_effective_params,
     resolve_protocol_target,
-    run_causal_model_strategy,
+    verified_carry_outputs,
 )
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
 from warden.schemas import load_experiment_spec
+from warden_evidence.selection_alignment import project_onto_grid, utc_ns
 
 
 class LinearBaselineRequiredError(ValueError):
@@ -269,6 +278,72 @@ def _extract_carry_rv_series(
     return gross_carry - cost_per_bar, spread_full[v_start:v_stop]
 
 
+def _panel_carry_basis(n_assets: int) -> str:
+    if n_assets <= 1:
+        return "single_asset_funding"
+    if n_assets == 2:
+        return "pair_log_price_spread"
+    return "equal_weight_funding_halves"
+
+
+def _carry_rv_stage1_series(
+    strat_mod: Any,
+    panel_df: pl.DataFrame,
+    contract: EvaluationContract,
+    ts: list,
+    assets: list[str],
+    v_slice: slice,
+    params: dict[str, Any],
+    expected_holding_bars: int,
+    *,
+    mechanism_policy: str = CARRY_MECHANISM_ACTIVE,
+    strategy_module: str = "",
+) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
+    """Series for the ``carry_rv`` Stage-1 gate, plus the evidence of where they came from.
+
+    A strategy must publish ``causal_carry_outputs`` -- its own spread and net-carry series
+    for the validation slice.  Those are preferred, and they pass an evaluator-run prefix
+    check first, so the gate scores the mechanism the strategy actually trades.  A strategy
+    that publishes nothing is refused *before* any ledger mutation, unless this run is an
+    explicitly authorized legacy replay (``mechanism_policy == CARRY_MECHANISM_LEGACY``), in
+    which case the panel proxy is used and recorded as such.
+    """
+    published = verified_carry_outputs(
+        strat_mod, panel_df, contract, ts, assets, v_slice, params
+    )
+    if published is not None:
+        return published["net_carry"], published["spread"], {
+            "carry_series_source": published["source"],
+            "carry_prefix_cuts": published["prefix_cuts"],
+            "carry_prefix_max_abs_delta": published["prefix_max_abs_delta"],
+            "carry_panel_basis": "strategy_published",
+            "carry_mechanism_policy": mechanism_policy,
+        }
+    if mechanism_policy != CARRY_MECHANISM_LEGACY:
+        raise CarryMechanismRequiredError(
+            f"carry_rv '{strategy_module or 'strategy'}' declares no causal_carry_outputs: "
+            "Stage 1 must score the strategy's own prefix-verified spread and net carry. "
+            "The equal-weight panel proxy is available only as an explicitly authorized "
+            "legacy replay."
+        )
+    net_carry, spread = _extract_carry_rv_series(
+        panel_df,
+        contract,
+        ts,
+        assets,
+        v_slice,
+        params,
+        expected_holding_bars,
+    )
+    return net_carry, spread, {
+        "carry_series_source": "panel_proxy",
+        "carry_prefix_cuts": 0.0,
+        "carry_prefix_max_abs_delta": 0.0,
+        "carry_panel_basis": _panel_carry_basis(len(assets)),
+        "carry_mechanism_policy": mechanism_policy,
+    }
+
+
 def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, assets: list[str]) -> dict:
     """NEXT_BAR: open-to-open. QUOTE_SIDE: long pays ask, receives bid; short the reverse."""
     require_execution_columns(panel_df, contract)
@@ -282,45 +357,25 @@ def execution_returns(panel_df: pl.DataFrame, contract: EvaluationContract, asse
 
 
 def filter_target_symbols(panel_df: pl.DataFrame, params: dict, path: str = "") -> pl.DataFrame:
+    """Kept for callers/tests; the one implementation lives in ``market_data``."""
     if not params or "target_symbols" not in params or params["target_symbols"] is None:
         return panel_df
-    tgt = params["target_symbols"]
-    if not isinstance(tgt, (list, tuple, set)) or len(tgt) == 0:
-        raise ValueError(f"target_symbols must be a non-empty list of symbols, got {tgt!r}")
-    sym_col = "asset" if "asset" in panel_df.columns else "symbol"
-    available = set(panel_df[sym_col].unique().to_list())
-    unknown = set(tgt) - available
-    if unknown:
-        raise ValueError(
-            f"target_symbols contains unknown symbols {sorted(unknown)}; available in {path or 'panel'}: {sorted(available)}"
-        )
-    return panel_df.filter(pl.col(sym_col).is_in(list(tgt)))
+    return select_symbols(panel_df, params["target_symbols"], label=path)[0]
+
+
+def prepare_market_panel(
+    repo_root: Path, dataset, params: dict, contract: EvaluationContract
+) -> MarketPanel:
+    """Load one normalised market feed through the single gateway reader (#95)."""
+    return MarketDataGateway(repo_root).load(
+        contract, ROLE_EXPLORATORY, (params or {}).get("target_symbols"), resolution=dataset
+    )
 
 
 def prepare_panel(repo_root: Path, dataset, params: dict, contract: EvaluationContract) -> tuple[pl.DataFrame, list, list, slice]:
-    panel_df = pl.read_parquet(repo_root / dataset.path)
-    if "symbol" in panel_df.columns and "asset" not in panel_df.columns:
-        panel_df = panel_df.rename({"symbol": "asset"})
-    panel_df = filter_target_symbols(panel_df, params, str(dataset.path)).sort("timestamp", "asset")
-    if "timestamp" not in panel_df.columns:
-        raise ContractValidationError(f"{contract.contract_id}: exploratory panel has no 'timestamp' column")
-    # Temporal fence: no bar at or after the holdout cutoff may enter exploratory
-    # loading, so it fails before Stage-0 volatility, feature caching or reservation.
-    latest = panel_df["timestamp"].max() if not panel_df.is_empty() else None
-    if latest is not None and latest >= contract.holdout_start:
-        raise ContractValidationError(
-            f"{contract.contract_id}: exploratory panel reaches {latest} at or past holdout_start "
-            f"{contract.holdout_start.isoformat()}; holdout bars may not be loaded as exploratory data"
-        )
-    ts = panel_df["timestamp"].unique().sort().to_list()
-    assets = sorted(panel_df["asset"].unique().to_list())
-    v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
-    if v_slice.start >= v_slice.stop:
-        raise ContractValidationError(
-            f"{contract.contract_id}: validation slice {contract.val_start.isoformat()}.."
-            f"{contract.val_end.isoformat()} contains no bars; refusing an empty validation panel"
-        )
-    return panel_df, ts, assets, v_slice
+    """Thin adapter over :func:`prepare_market_panel`; the tuple shape is public."""
+    market = prepare_market_panel(repo_root, dataset, params, contract)
+    return market.panel, list(market.ts), list(market.assets), market.eval_slice
 
 
 def simulation_inputs(panel_df: pl.DataFrame, contract: EvaluationContract, ts: list, assets: list) -> tuple[dict, np.ndarray | None, np.ndarray]:
@@ -330,66 +385,17 @@ def simulation_inputs(panel_df: pl.DataFrame, contract: EvaluationContract, ts: 
 
 
 def _run_strategy_isolated(strategy_module_path: Path, panel_df: pl.DataFrame, contract: EvaluationContract, params: dict) -> dict[str, Any]:
-    with tempfile.NamedTemporaryFile("wb", delete=False) as f:
-        pickle.dump((str(strategy_module_path.resolve()), panel_df, contract, params), f)
-        inp_path = f.name
-    out_path = inp_path + ".out"
-    cmd = [
-        sys.executable,
-        "-c",
-        (
-            "import sys, pickle\n"
-            "from pathlib import Path\n"
-            "from warden.strategy_loader import load_module_from_path\n"
-            "inp, out = sys.argv[1], sys.argv[2]\n"
-            "with open(inp, 'rb') as f: mod_str, p, c, kwargs = pickle.load(f)\n"
-            "mod = load_module_from_path(Path(mod_str))\n"
-            "res = mod.generate_positions(p, c, **kwargs)\n"
-            "with open(out, 'wb') as f: pickle.dump(res, f)\n"
-        ),
-        inp_path,
-        out_path,
-    ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if proc.returncode != 0:
-            err = proc.stderr.strip() or f"Strategy subprocess failed with code {proc.returncode}"
-            raise RuntimeError(err)
-        with open(out_path, "rb") as f:
-            return pickle.load(f)
-    finally:
-        Path(inp_path).unlink(missing_ok=True)
-        Path(out_path).unlink(missing_ok=True)
+    """Legacy replay only: the single call site lives in :mod:`warden.legacy_replay`."""
+    from warden.legacy_replay import run_generate_positions_isolated
+
+    return run_generate_positions_isolated(strategy_module_path, panel_df, contract, params)
 
 
-def simulate_positions(positions, returns_panel, funding_panel, contract, val_slice, cost_multiplier=1.0,
-                       delay_offset=0, funding_mask=None, quote_returns=None) -> dict[str, np.ndarray]:
-    pos = np.asarray(positions, dtype=float)
-    total_delay = contract.execution_delay_bars + delay_offset
-    if total_delay > 0:
-        pos = np.roll(pos, total_delay, axis=0)
-        pos[:total_delay] = 0.0
-    pos_val = pos[val_slice]
-    ret_val = returns_panel[val_slice]
-    turnover = np.sum(np.abs(np.diff(pos_val, axis=0, prepend=0.0)), axis=1)
-    if quote_returns is not None and quote_returns.get("short") is not None:
-        long_r, short_r = quote_returns["long"][val_slice], quote_returns["short"][val_slice]
-        # short_ret is already the per-unit-short PnL, so exposure is |position|.
-        gross = np.sum(np.where(pos_val > 0, pos_val * long_r, np.abs(pos_val) * short_r), axis=1)
-    else:
-        gross = np.sum(pos_val * ret_val, axis=1)
-    one_way_cost = contract.total_one_way_cost_decimal() * cost_multiplier
-    if funding_panel is not None:
-        fund_slice = funding_panel[val_slice]
-        if funding_mask is not None:
-            f_mask = np.asarray(funding_mask, dtype=bool)[val_slice, None]
-            funding_cost = np.sum(pos_val * fund_slice * f_mask, axis=1)
-        else:
-            funding_cost = np.sum(pos_val * fund_slice, axis=1)
-    else:
-        funding_cost = 0.0
-    net = gross - turnover * one_way_cost - funding_cost
-    return {"positions": pos_val, "gross_returns": gross, "net_returns": net, "turnover": turnover}
+def simulate_positions(*args: Any, **kwargs: Any) -> dict[str, np.ndarray]:
+    """Legacy PnL arithmetic, re-exported from :mod:`warden.legacy_replay`."""
+    from warden.legacy_replay import simulate_positions as _simulate
+
+    return _simulate(*args, **kwargs)
 
 
 def calculate_metrics_from_returns(gross_returns, net_returns, bar_turnover, bars_per_year) -> dict[str, float]:
@@ -444,9 +450,13 @@ class ExperimentRunner:
     ):
         try:
             dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
-            panel_df, ts, assets, v_slice = prepare_panel(self.repo_root, dataset, params, contract)
+            market = prepare_market_panel(self.repo_root, dataset, params, contract)
+            panel_df, ts, assets, v_slice = (
+                market.panel, list(market.ts), list(market.assets), market.eval_slice
+            )
+            # validate_panel_feed_spec already ran inside the gateway; keeping the direct
+            # call would assert the same feed twice and mask which reader produced it.
             require_execution_columns(panel_df, contract)
-            validate_panel_feed_spec(panel_df, contract)
         except (ValueError, OSError) as exc:
             self._note_failure(contract, hyp_id, family, strat_module, params, None, "DATA", exc,
                                simulation_epoch=simulation_epoch)
@@ -461,7 +471,53 @@ class ExperimentRunner:
                                simulation_epoch=simulation_epoch)
             raise
         code_sha, _ = code_closure(self.repo_root, strat_module)
-        return dataset, panel_df, ts, assets, v_slice, code_sha
+        return dataset, panel_df, ts, assets, v_slice, code_sha, market
+
+    def _enforce_linear_first_gate(
+        self,
+        *,
+        hyp_id: str,
+        family: str,
+        model_type: str,
+        spec_payload: dict[str, Any],
+        strat_mod: Any,
+        contract: EvaluationContract,
+    ) -> None:
+        """Refuse a nonlinear/deep ML entry point until a logged linear baseline clears.
+
+        Shared by ``screen`` and ``backtest`` so the funnel cannot be entered through the
+        cheaper command.  Callers run it before reserving a screen slot or a trial, so a
+        refusal leaves no selection attempt and no consumed trial behind.
+        """
+        model_tier, _model_class = _classify_model_tier(str(model_type), spec_payload, strat_mod)
+        if family != "cross_sectional_ml" or model_tier == "linear":
+            return
+        with self.registry._connect() as conn:
+            rows = conn.execute(
+                "SELECT model_type, strategy_name, strategy_module, breakeven_cost_bps, diagnostics_json "
+                "FROM trials WHERE hypothesis_id = ? AND verdict NOT IN ('REJECTED_EARLY', 'FAILED')",
+                (hyp_id,),
+            ).fetchall()
+        linear_rows = [
+            (breakeven_bps,)
+            for row_mt, row_name, row_mod, breakeven_bps, row_diag in rows
+            if _trial_is_linear_baseline(row_mt, row_name, row_mod, row_diag)
+        ]
+        if not linear_rows:
+            raise LinearBaselineRequiredError(
+                f"Linear baseline required for '{hyp_id}' before {model_tier} model '{model_type}'."
+            )
+        if model_tier == "deep":
+            cost_bps = contract.total_one_way_cost_decimal() * 1e4
+            cleared = any(
+                breakeven_bps is not None and float(breakeven_bps) > cost_bps
+                for (breakeven_bps,) in linear_rows
+            )
+            if not cleared:
+                raise LinearBaselineRequiredError(
+                    f"Linear baseline required for '{hyp_id}' to clear cost-breakeven hurdle "
+                    f"(> {cost_bps:.2f} bps) before deep model '{model_type}'."
+                )
 
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
         # Frozen typed spec first: an unknown or policy-injecting key raises
@@ -509,12 +565,34 @@ class ExperimentRunner:
             strategy_family=family,
             allow_legacy_replay=self.allow_legacy_replay,
         )
+        # Typed parameter declaration first: a strategy that declares a
+        # ``ParamsModel`` refuses a mistyped declaration before the screen slot
+        # is reserved, exactly like the frozen spec refuses an unknown key.
+        validate_strategy_params(strat_mod, params)
         effective_params = resolve_effective_params(strat_mod, protocol, params)
-        dataset, panel_df, ts, assets, v_slice, _ = self._prepare_and_check_stage0(
+        # Linear-first ordering is enforced at the cheapest entry point too: a nonlinear or
+        # deep ML spec is refused here, before the screen slot is reserved, so no
+        # selection_attempts row and no DSR penalty is written for an unqualified model.
+        self._enforce_linear_first_gate(
+            hyp_id=hyp_id,
+            family=family,
+            model_type=str(spec.model_type or ""),
+            spec_payload=spec.model_dump(),
+            strat_mod=strat_mod,
+            contract=contract,
+        )
+        dataset, panel_df, ts, assets, v_slice, _, market = self._prepare_and_check_stage0(
             contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch)
-        screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
+        # #95: a panel narrowed to target_symbols is annualised on its own measured calendar,
+        # not on the contract's multi-exchange union bars_per_year.  Without a symbol filter
+        # this is byte-identical to contract.bars_per_year.
+        bpy = market.bars_per_year
+        # The carry series are computed before the screen slot is reserved: a strategy whose
+        # published series is malformed or non-causal is refused without consuming a receipt.
+        carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
         if family == "carry_rv":
-            net_carry, spread = _extract_carry_rv_series(
+            carry_series = _carry_rv_stage1_series(
+                strat_mod,
                 panel_df,
                 contract,
                 ts,
@@ -522,8 +600,17 @@ class ExperimentRunner:
                 v_slice,
                 effective_params,
                 hyp.expected_holding_bars,
+                mechanism_policy=carry_mechanism_policy(
+                    allow_legacy_replay=self.allow_legacy_replay
+                ),
+                strategy_module=strat_module,
             )
+        screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
+        if family == "carry_rv":
+            assert carry_series is not None
+            net_carry, spread, carry_evidence = carry_series
             report = evaluate_stage1_carry_rv(net_carry, spread)
+            report.metrics.update(carry_evidence)
             self.registry.record_selection_attempt(
                 hypothesis_id=hyp_id,
                 contract_id=contract.contract_id,
@@ -569,47 +656,32 @@ class ExperimentRunner:
                     simulation_epoch=simulation_epoch,
                 )
                 return report
-            policy_dict = extract_execution_policy()
-            if protocol == "causal_rules":
-                strat_obj = resolve_protocol_target(strat_mod).configure_strategy(contract, params)
-                sim1 = run_engine_strategy(
-                    panel_df,
-                    strat_obj,
-                    ts,
-                    assets,
-                    contract,
-                    v_slice,
-                    cost_multiplier=1.0,
-                    **policy_dict,
+            policy_dict = extract_execution_policy(contract=contract)
+            sim1 = EvaluationKernel().run(
+                strat_mod,
+                panel_df,
+                ts,
+                assets,
+                contract,
+                v_slice,
+                params,
+                protocol=protocol,
+                policy=policy_dict,
+            )
+            declared_delay = int(sim1.strategy_output().get("signal_delay_bars", 0))
+            if declared_delay > 0:
+                raise DoubleLatencyError(
+                    f"'{spec.strategy_name or Path(exp_yaml_path).stem}' declares "
+                    f"signal_delay_bars={declared_delay} while Warden already applies "
+                    f"execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged."
                 )
-            else:
-                if protocol == "causal_model":
-                    out = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, params)
-                else:
-                    out = _run_strategy_isolated(strat_file, panel_df, contract, params)
-                if int(out.get("signal_delay_bars", 0)) > 0:
-                    raise DoubleLatencyError(
-                        f"'{spec.strategy_name or Path(exp_yaml_path).stem}' declares "
-                        f"signal_delay_bars={out['signal_delay_bars']} while Warden already applies "
-                        f"execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged."
-                    )
-                sim1 = run_engine_simulation(
-                    panel_df,
-                    out["positions"],
-                    ts,
-                    assets,
-                    contract,
-                    v_slice,
-                    cost_multiplier=1.0,
-                    **policy_dict,
-                )
-            child_ann_turn = float(np.mean(sim1.turnover) * contract.bars_per_year)
+            child_ann_turn = float(np.mean(sim1.turnover) * bpy)
             report = evaluate_stage1_meta_overlay(
                 parent_stream["net_returns"],
                 sim1.net_returns,
                 parent_stream["annualized_turnover"],
                 child_ann_turn,
-                contract.bars_per_year,
+                bpy,
                 parent_run_id=parent_stream["run_id"],
                 parent_data_sha256=parent_stream.get("data_snapshot_sha256", ""),
                 child_data_sha256=dataset.sha256,
@@ -633,17 +705,24 @@ class ExperimentRunner:
         if protocol == "causal_rules":
             if family != "rules_ts":
                 raise ValueError(f"Unsupported strategy_family '{family}' for Stage 1 screen")
-            policy_dict = extract_execution_policy()
-            strat_obj = resolve_protocol_target(strat_mod).configure_strategy(contract, params)
-            sim1 = run_engine_strategy(
-                panel_df, strat_obj, ts, assets, contract, v_slice, cost_multiplier=1.0, **policy_dict
+            policy_dict = extract_execution_policy(contract=contract)
+            sim1 = EvaluationKernel().run(
+                strat_mod,
+                panel_df,
+                ts,
+                assets,
+                contract,
+                v_slice,
+                params,
+                protocol=protocol,
+                policy=policy_dict,
             )
             report = evaluate_stage1_rules_ts(
                 sim1.net_returns,
                 sim1.gross_returns,
                 contract.total_one_way_cost_decimal(),
                 sim1.positions,
-                bars_per_year=contract.bars_per_year,
+                bars_per_year=bpy,
                 holding_horizon_bars=hyp.expected_holding_bars,
             )
             self.registry.record_selection_attempt(
@@ -654,8 +733,25 @@ class ExperimentRunner:
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         if protocol == "causal_model":
-            out = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, params)
+            # #96: an active protocol screens through the same single dispatch as its trial
+            # does.  The previous branch executed the model here and then scored it with the
+            # frozen ``simulate_positions`` arithmetic, so a screen and a backtest of the same
+            # strategy measured two different executions.
+            policy_dict = extract_execution_policy(contract=contract)
+            sim_model = EvaluationKernel().run(
+                strat_mod,
+                panel_df,
+                ts,
+                assets,
+                contract,
+                v_slice,
+                params,
+                protocol=protocol,
+                policy=policy_dict,
+            )
+            out = sim_model.strategy_output()
         else:
+            sim_model = None
             out = _run_strategy_isolated(strat_file, panel_df, contract, params)
         if family == "cross_sectional_ml":
             report, ic_series = _evaluate_cs_ml_stage1(out, contract)
@@ -668,6 +764,23 @@ class ExperimentRunner:
             return report
         if family != "rules_ts":
             raise ValueError(f"Unsupported strategy_family '{family}' for Stage 1 screen")
+        if sim_model is not None:
+            # Same tape the trial will be scored on: one kernel dispatch, no frozen arithmetic.
+            report = evaluate_stage1_rules_ts(
+                sim_model.net_returns,
+                sim_model.gross_returns,
+                contract.total_one_way_cost_decimal(),
+                sim_model.positions,
+                bars_per_year=bpy,
+                holding_horizon_bars=hyp.expected_holding_bars,
+            )
+            self.registry.record_selection_attempt(
+                hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
+                stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
+                strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
+                returns=sim_model.net_returns, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                screen_key=screen_key, simulation_epoch=simulation_epoch)
+            return report
         ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
         sim1 = simulate_positions(out["positions"], ret_p["long"], fund_p, contract, v_slice, cost_multiplier=1.0,
                                   funding_mask=fund_mask, quote_returns=ret_p)
@@ -676,7 +789,7 @@ class ExperimentRunner:
             sim1["gross_returns"],
             contract.total_one_way_cost_decimal(),
             sim1["positions"],
-            bars_per_year=contract.bars_per_year,
+            bars_per_year=bpy,
             holding_horizon_bars=hyp.expected_holding_bars,
         )
         self.registry.record_selection_attempt(
@@ -700,7 +813,7 @@ class ExperimentRunner:
         # Live runs are always stamped with the active engine epoch.  Historical
         # epochs are an explicit replay boundary, never an agent YAML field.
         simulation_epoch = ENGINE_SIMULATION_EPOCH
-        policy_dict = extract_execution_policy()
+        policy_dict = extract_execution_policy(contract=contract)
 
         with self.registry._connect() as conn:
             h = conn.execute(
@@ -737,38 +850,73 @@ class ExperimentRunner:
         )
 
         model_tier, model_class = _classify_model_tier(str(model_type), spec.model_dump(), strat_mod)
-        if family == "cross_sectional_ml" and model_tier != "linear":
-            with self.registry._connect() as conn:
-                rows = conn.execute(
-                    "SELECT model_type, strategy_name, strategy_module, breakeven_cost_bps, diagnostics_json "
-                    "FROM trials WHERE hypothesis_id = ? AND verdict NOT IN ('REJECTED_EARLY', 'FAILED')",
-                    (hyp_id,),
-                ).fetchall()
-            linear_rows = [
-                (breakeven_bps,)
-                for row_mt, row_name, row_mod, breakeven_bps, row_diag in rows
-                if _trial_is_linear_baseline(row_mt, row_name, row_mod, row_diag)
-            ]
-            if not linear_rows:
-                raise LinearBaselineRequiredError(
-                    f"Linear baseline required for '{hyp_id}' before {model_tier} model '{model_type}'."
-                )
-            if model_tier == "deep":
-                cost_bps = contract.total_one_way_cost_decimal() * 1e4
-                cleared = any(
-                    breakeven_bps is not None and float(breakeven_bps) > cost_bps
-                    for (breakeven_bps,) in linear_rows
-                )
-                if not cleared:
-                    raise LinearBaselineRequiredError(
-                        f"Linear baseline required for '{hyp_id}' to clear cost-breakeven hurdle "
-                        f"(> {cost_bps:.2f} bps) before deep model '{model_type}'."
-                    )
+        self._enforce_linear_first_gate(
+            hyp_id=hyp_id,
+            family=family,
+            model_type=str(model_type),
+            spec_payload=spec.model_dump(),
+            strat_mod=strat_mod,
+            contract=contract,
+        )
 
         effective_params = resolve_effective_params(strat_mod, protocol, params)
 
-        dataset, panel_df, ts, assets, v_slice, code_sha = self._prepare_and_check_stage0(
+        # Typed parameters and neighbor evidence are decided before the trial
+        # slot is reserved: a mistyped declaration or a type-invalid grid entry
+        # is a parse refusal, never a consumed trial.  The requirement itself is
+        # evaluated at Stage 3, where the neighbor sharpes exist.
+        params_model_report = validate_strategy_params(strat_mod, params)
+        neighbor_grid = classify_numeric_neighbors(spec.param_grid, params_model_report)
+
+        dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
             contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch)
+        # #95: see run_stage1_screen; equal to contract.bars_per_year unless symbols narrowed.
+        bpy = market.bars_per_year
+        # #100: the *selection* clock.  A ``target_symbols`` trial observes only the bars its
+        # own symbols present, but its evidence must be published on the contract's validation
+        # grid: scoring it on the subset's calendar put the same history on a different index
+        # and a different annualisation than every other attempt on this contract, so the DSR
+        # basis was not reciprocal.  The panel's own clock is kept for the engine statistics
+        # below (they describe the execution that actually ran); only the recorded selection
+        # series moves onto the contract grid, with a structural zero on bars where the trial
+        # held no position (``project_onto_grid`` refuses a stamp the grid does not contain).
+        panel_validation_ts = list(ts[v_slice])
+        validation_ts = panel_validation_ts
+        contract_clock = False
+        if market.symbols_filtered:
+            contract_ts = list(
+                MarketDataGateway(self.repo_root).contract_validation_grid(
+                    contract, resolution=dataset
+                )
+            )
+            if contract_ts != panel_validation_ts:
+                validation_ts = contract_ts
+                contract_clock = True
+        # Ordering: the alignment check is a pure read and runs *before* the slot is reserved,
+        # so a history that cannot be placed on this clock costs nothing -- no trial row, no
+        # attempt row, no search-floor write.  A refusal is evidence, never a consumed trial.
+        preflight = self.registry.preflight_selection_alignment(
+            contract, validation_ts, expected_len=len(validation_ts),
+            simulation_epoch=simulation_epoch)
+        # carry_rv own-mechanism policy: resolved here, before the trial slot is registered, so
+        # a strategy that declares no prefix-verified own carry series is refused without a
+        # trial row, a selection attempt, or a moved `trials_used` counter.
+        carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
+        if family == "carry_rv":
+            carry_series = _carry_rv_stage1_series(
+                strat_mod,
+                panel_df,
+                contract,
+                ts,
+                assets,
+                v_slice,
+                effective_params,
+                hyp.expected_holding_bars,
+                mechanism_policy=carry_mechanism_policy(
+                    allow_legacy_replay=self.allow_legacy_replay
+                ),
+                strategy_module=strat_module_str,
+            )
         run_id = override_run_id or spec.run_id or default_run_id(hyp_id, trials_used + 1)
         self.registry.record_hypothesis_module(hyp_id, strat_module_str)
         trial_num = self.registry.register_trial_start(hyp_id, run_id)
@@ -780,16 +928,10 @@ class ExperimentRunner:
             prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
             s1_carry: Stage1Report | None = None
             if family == "carry_rv":
-                net_carry, spread = _extract_carry_rv_series(
-                    panel_df,
-                    contract,
-                    ts,
-                    assets,
-                    v_slice,
-                    effective_params,
-                    hyp.expected_holding_bars,
-                )
+                assert carry_series is not None
+                net_carry, spread, carry_evidence = carry_series
                 s1_carry = evaluate_stage1_carry_rv(net_carry, spread)
+                s1_carry.metrics.update(carry_evidence)
                 if not s1_carry.passed:
                     return self._record_early_rejection(
                         run_id=run_id, hyp_id=hyp_id, contract_id=contract.contract_id,
@@ -822,34 +964,27 @@ class ExperimentRunner:
 
             ret_p = execution_returns(panel_df, contract, assets)
 
-            strat_file = self.repo_root / strat_module
-            if protocol == "causal_rules":
-                strat_target = resolve_protocol_target(strat_mod)
-                sim1 = run_engine_strategy(
-                    panel_df,
-                    strat_target.configure_strategy(contract, params),
-                    ts,
-                    assets,
-                    contract,
-                    v_slice,
-                    cost_multiplier=1.0,
-                    **policy_dict,
-                )
-                raw_pos = None
-            else:
-                if protocol == "causal_model":
-                    out = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, params)
-                else:
-                    out = _run_strategy_isolated(strat_file, panel_df, contract, params)
-                if int(out.get("signal_delay_bars", 0)) > 0:
-                    raise DoubleLatencyError(
-                        f"'{strat_name}' declares signal_delay_bars={out['signal_delay_bars']} while Warden already "
-                        f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
-                raw_pos = out["positions"]
+            kernel = EvaluationKernel()
+            sim1 = kernel.run(
+                strat_mod,
+                panel_df,
+                ts,
+                assets,
+                contract,
+                v_slice,
+                params,
+                protocol=protocol,
+                policy=policy_dict,
+            )
+            declared_delay = int(sim1.strategy_output().get("signal_delay_bars", 0))
+            if declared_delay > 0:
+                raise DoubleLatencyError(
+                    f"'{strat_name}' declares signal_delay_bars={declared_delay} while Warden already "
+                    f"applies execution_delay_bars={contract.execution_delay_bars}; signals must not be pre-lagged.")
 
             mean_ic, ic_hac_t = None, None
             if family == "cross_sectional_ml":
-                s1, ic_series = _evaluate_cs_ml_stage1(out, contract)
+                s1, ic_series = _evaluate_cs_ml_stage1(sim1.strategy_output(), contract)
                 mean_ic, ic_hac_t = s1.metrics.get("mean_ic"), s1.metrics.get("ic_hac_tstat")
                 if not s1.passed:
                     return self._record_early_rejection(
@@ -864,19 +999,24 @@ class ExperimentRunner:
                         mean_ic=mean_ic, ic_hac_t=ic_hac_t,
                     )
 
-            if protocol != "causal_rules":
-                sim1 = run_engine_simulation(
-                    panel_df, raw_pos, ts, assets, contract, v_slice, cost_multiplier=1.0, **policy_dict
-                )
             sr_1p5 = analytical_1p5x_sharpe(
                 sim1.backtest_result,
-                contract.bars_per_year,
+                bpy,
                 val_ts=ts[v_slice],
             )
             net_ret, gross_ret, turnover = sim1.net_returns, sim1.gross_returns, sim1.turnover
-            m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, contract.bars_per_year)
+            # The series that is recorded, aligned and deflated lives on the selection clock
+            # decided above; the Engine's own gate statistics keep the tape they ran on.  A
+            # structural zero is written only where the trial held no position, and an observed
+            # stamp the contract grid does not carry is refused rather than moved.
+            selection_net = net_ret
+            if contract_clock:
+                selection_net = project_onto_grid(
+                    utc_ns(panel_validation_ts), net_ret, utc_ns(validation_ts)
+                )
+            m = calculate_metrics_from_returns(gross_ret, net_ret, turnover, bpy)
             m.update(compute_trade_metrics(sim1.positions, net_ret, ret_p["long"][v_slice],
-                                           contract.bars_per_year, contract.total_one_way_cost_decimal()))
+                                           bpy, contract.total_one_way_cost_decimal()))
 
             s1_rules = (
                 evaluate_stage1_rules_ts(
@@ -884,7 +1024,7 @@ class ExperimentRunner:
                     gross_ret,
                     contract.total_one_way_cost_decimal(),
                     sim1.positions,
-                    bars_per_year=contract.bars_per_year,
+                    bars_per_year=bpy,
                     holding_horizon_bars=hyp.expected_holding_bars,
                 )
                 if family == "rules_ts"
@@ -898,7 +1038,7 @@ class ExperimentRunner:
                     net_ret,
                     parent_stream["annualized_turnover"],
                     m["annualized_turnover"],
-                    contract.bars_per_year,
+                    bpy,
                     parent_run_id=parent_stream["run_id"],
                     parent_data_sha256=parent_stream.get("data_snapshot_sha256", ""),
                     child_data_sha256=data_sha,
@@ -916,64 +1056,37 @@ class ExperimentRunner:
                             "notes": s1_meta.notes,
                             "parent_run_id": parent_stream["run_id"],
                         },
-                        metrics=m, returns_vec=net_ret,
+                        metrics=m, returns_vec=selection_net, returns_timestamps=validation_ts,
                     )
 
-            if protocol == "causal_rules":
-                strat_target = resolve_protocol_target(strat_mod)
-                sim2 = run_engine_strategy(
-                    panel_df,
-                    strat_target.configure_strategy(contract, params),
-                    ts,
-                    assets,
-                    contract,
-                    v_slice,
-                    cost_multiplier=2.0,
-                    **policy_dict,
-                )
-                sim_d = run_engine_strategy(
-                    panel_df,
-                    strat_target.configure_strategy(contract, params),
-                    ts,
-                    assets,
-                    contract,
-                    v_slice,
-                    delay_offset=1,
-                    **policy_dict,
-                )
-            else:
-                sim2 = run_engine_simulation(
-                    panel_df, raw_pos, ts, assets, contract, v_slice, cost_multiplier=2.0, **policy_dict
-                )
-                sim_d = run_engine_simulation(
-                    panel_df, raw_pos, ts, assets, contract, v_slice, delay_offset=1, **policy_dict
-                )
-            sr2 = annualised_sharpe(sim2.net_returns, contract.bars_per_year)
-            srd = annualised_sharpe(sim_d.net_returns, contract.bars_per_year)
+            sim2 = kernel.reprice(
+                sim1, strat_mod, panel_df, ts, assets, contract, v_slice, params,
+                policy=policy_dict, cost_multiplier=2.0,
+            )
+            sim_d = kernel.reprice(
+                sim1, strat_mod, panel_df, ts, assets, contract, v_slice, params,
+                policy=policy_dict, delay_offset=1,
+            )
+            sr2 = annualised_sharpe(sim2.net_returns, bpy)
+            srd = annualised_sharpe(sim_d.net_returns, bpy)
 
             ngrid, n_sr = list(spec.param_grid), []
             grid_returns_list: list[np.ndarray] = [net_ret]
             for grid_params in ngrid:
-                if protocol == "causal_rules":
-                    grid_sim = run_engine_strategy(
-                        panel_df,
-                        resolve_protocol_target(strat_mod).configure_strategy(contract, grid_params),
-                        ts,
-                        assets,
-                        contract,
-                        v_slice,
-                        **policy_dict,
-                    )
-                else:
-                    if protocol == "causal_model":
-                        grid_pos = run_causal_model_strategy(strat_mod, panel_df, contract, ts, assets, v_slice, grid_params)["positions"]
-                    else:
-                        grid_pos = _run_strategy_isolated(strat_file, panel_df, contract, grid_params)["positions"]
-                    grid_sim = run_engine_simulation(
-                        panel_df, grid_pos, ts, assets, contract, v_slice, **policy_dict
-                    )
+                grid_sim = kernel.run(
+                    strat_mod,
+                    panel_df,
+                    ts,
+                    assets,
+                    contract,
+                    v_slice,
+                    grid_params,
+                    protocol=protocol,
+                    policy=policy_dict,
+                    legacy_isolated=True,
+                )
                 grid_returns_list.append(grid_sim.net_returns)
-                n_sr.append(annualised_sharpe(grid_sim.net_returns, contract.bars_per_year))
+                n_sr.append(annualised_sharpe(grid_sim.net_returns, bpy))
                 # Grid configurations consume validation evidence: count them, never silently.
                 self.registry.record_selection_attempt(
                     hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="param_grid",
@@ -982,9 +1095,19 @@ class ExperimentRunner:
                     config_hash=hashlib.sha256(canonical_json(grid_params).encode()).hexdigest()[:12],
                     data_provenance=dataset.provenance, returns=grid_sim.net_returns,
                     diagnostics={"net_sharpe": n_sr[-1]}, simulation_epoch=simulation_epoch)
-            neighbor_report = evaluate_neighbor_stability(n_sr, m["net_sharpe"])
+            # Only *distinct, genuine, numeric* configurations are neighbor
+            # evidence.  Duplicates, entries that restate the effective baseline
+            # and non-numeric edits stay executed and recorded (their selection
+            # attempts are already above) but can never stand in for a perturbed
+            # run -- an empty or degenerate grid is an untested neighbor axis.
+            neighbor_requirement = evaluate_neighbor_requirement(
+                params_model_report, neighbor_grid
+            )
+            neighbor_sharpes = [n_sr[i] for i in neighbor_grid.evaluated_indices]
+            neighbor_report = evaluate_neighbor_stability(neighbor_sharpes, m["net_sharpe"])
+            neighbor_report["distinct_numeric_neighbors"] = neighbor_grid.distinct_numeric
             stability = neighbor_report["stability"]
-            trimmed_sr = compute_trimmed_sharpe(net_ret, contract.bars_per_year)
+            trimmed_sr = compute_trimmed_sharpe(net_ret, bpy)
 
             artifacts_dir = (
                 self.registry.db_path.parent
@@ -1008,11 +1131,26 @@ class ExperimentRunner:
                 grid_return_matrix=grid_mat,
             )
 
-            # Record param_grid attempts before evaluating n_attempts and effective_rank.
             hist = self.registry.selection_history(
-                contract.contract_id, v_slice.stop - v_slice.start, simulation_epoch=simulation_epoch)
+                contract.contract_id, len(validation_ts), simulation_epoch=simulation_epoch,
+                timestamps=validation_ts, candidate_returns=selection_net, contract=contract)
+            alignment = hist["alignment"]
             n_attempts = hist["raw_attempt_count"] + 1
-            report = compute_selection_report(net_ret, hist["streams"], contract.bars_per_year,
+            # A UTC-day panel compounds the candidate onto the shared daily index, so the DSR
+            # base is the observation rate measured from that index -- never the contract's bar
+            # calendar, which would overstate the sample for a daily panel.  A series projected
+            # onto the contract grid is annualised on that grid's rate, the same basis every
+            # other attempt on this contract is scored on.
+            periods = alignment.get("periods_per_year")
+            if alignment["frequency"] == "utc_day" and periods:
+                bars_for_dsr = periods
+            elif contract_clock:
+                bars_for_dsr = int(contract.bars_per_year)
+            else:
+                bars_for_dsr = bpy
+            candidate_returns = (hist["candidate_returns"] if hist["candidate_returns"] is not None
+                                 else net_ret)
+            report = compute_selection_report(candidate_returns, hist["streams"], bars_for_dsr,
                                               raw_attempt_count=n_attempts, prior_max_keff=prior_keff,
                                               prior_max_noise=prior_noise)
             self.registry.update_search_floor(contract.contract_id, report["k_eff_gate"],
@@ -1022,6 +1160,7 @@ class ExperimentRunner:
             diag = {"dataset": dataset, "family_key": family_key,
                     "retrospective_replication_only": retrospective,
                     "source_published_at": hyp.source_published_at,
+                    "execution_protocol": protocol,
                     "model_metadata": {
                         "model_type": str(model_type),
                         "model_class": model_class,
@@ -1036,8 +1175,25 @@ class ExperimentRunner:
                                                             "prior_max_keff", "k_eff_dedup", "k_eff_effective",
                                                             "k_eff_gate", "noise_floor_applied", "correction_policy",
                                                             "non_promotable_reason")},
-                                  "simulation_epoch": simulation_epoch},
+                                  "simulation_epoch": simulation_epoch,
+                                  "alignment": alignment,
+                                  "bars_per_year_used": float(bars_for_dsr),
+                                  "selection_clock": {
+                                      "projected_onto_contract_grid": bool(contract_clock),
+                                      "contract_validation_bars": len(validation_ts),
+                                      "panel_validation_bars": len(panel_validation_ts),
+                                      "structural_zero_bars": (
+                                          int(len(validation_ts) - len(panel_validation_ts))
+                                          if contract_clock else 0),
+                                  },
+                                  "preflight": {key: preflight[key] for key in
+                                                ("frequency", "aligned_bars", "overlap_fraction",
+                                                 "selection_group_id", "scope")}},
                     "excluded_streams": hist["excluded"]}
+            if market.build_identity:
+                # A v2-built dataset states which builder and spec produced these bars; a legacy
+                # dataset has no build identity and none is invented for it.
+                diag["dataset_build_identity"] = market.build_identity
             if s1_rules is not None:
                 diag["stage1_rules"] = {"metrics": s1_rules.metrics, "notes": s1_rules.notes}
             if s1_carry is not None:
@@ -1053,7 +1209,31 @@ class ExperimentRunner:
                                                               contract.label_horizon_bars)
             diag["neighbor_tested"] = neighbor_report["neighbor_tested"]
             diag["neighbor_stability"] = neighbor_report
+            diag["params_model"] = params_model_report.to_diagnostics()
+            diag["neighbor_grid"] = neighbor_grid.to_diagnostics()
+            diag["neighbor_requirement"] = neighbor_requirement
+            if neighbor_requirement["exemption"] is not None:
+                # Explicit, machine-readable exemption label; its presence is the
+                # only thing that lets an untested neighbor axis qualify.
+                diag["neighbor_exemption"] = neighbor_requirement["exemption"]
             diag["trimmed_sharpe"] = trimmed_sr
+            # Audit Check 1 evidence: measured on the tape the Engine actually executed on
+            # this validation slice, plus any alignment the spec declared up front.  A later
+            # audit compares this against the contract's label horizon; the strategy cannot
+            # write these numbers.
+            declared_alignment = params.get("label_horizon_alignment")
+            diag["cadence_evidence"] = {
+                **measure_trading_cadence(sim1.positions),
+                "label_horizon_bars": float(contract.label_horizon_bars),
+                "expected_holding_bars": float(hyp.expected_holding_bars),
+                "declared_alignment": (
+                    dict(declared_alignment) if isinstance(declared_alignment, dict) else None
+                ),
+                "measured_on": "evaluation_tape_positions",
+            }
+            # Audit Check 4 evidence: only a causal_model execution can carry this record,
+            # and it comes from the folds that ran, not from the contract's integers.
+            diag["fold_isolation"] = sim1.fold_isolation
 
             min_sr = MIN_SR.get(family, REVISE_SR_FLOOR)
             failed_gates: list[str] = []
@@ -1065,7 +1245,13 @@ class ExperimentRunner:
                 failed_gates.append("cost_2x")
             if not (srd > SRD_FLOOR):
                 failed_gates.append("latency_plus1")
-            if neighbor_report["neighbor_tested"] and not neighbor_report["passed"]:
+            if not (neighbor_requirement["met"]):
+                # A parameterized strategy with fewer than two distinct numeric
+                # neighbors has not exercised the axis at all; an untested grid
+                # is a REVISE, never a candidate.  Only a genuine parameter-free
+                # declaration is exempt, and that is recorded explicitly.
+                failed_gates.append("neighbor_stability")
+            elif neighbor_report["neighbor_tested"] and not neighbor_report["passed"]:
                 failed_gates.append("neighbor_stability")
             if trimmed_sr is None or not (trimmed_sr > TRIMMED_SHARPE_FLOOR):
                 failed_gates.append("trimmed_sharpe")
@@ -1087,7 +1273,10 @@ class ExperimentRunner:
                 verdict = "CANDIDATE_FOR_QUALIFICATION" if statistical else "REVISE"
             res = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "STAGE_3_STRESS", verdict, m["gross_sharpe"], m["net_sharpe"], dsr_p, float(exp_max), report["raw_attempt_count"], k_eff, mean_ic, ic_hac_t, m["hit_rate"], m["profit_factor"], m["max_drawdown_pct"], m["annualized_turnover"], m["breakeven_cost_bps"], sr2, stability, f"Simulated on {contract.contract_id}; 2xCostSR={sr2:.2f}.", srd, m["cvar_99_pct"], int(is_synthetic), data_sha, strat_module_str, str(model_type), "")
             res = dc_replace(res, **provenance_kw, stress_1p5_cost_sharpe=sr_1p5, diagnostics_json=canonical_json(diag))
-            self.registry.record_trial(res, params, net_ret, trial_number=trial_num, diagnostics=diag)
+            # The artifact carries the same clock the trial was scored on; a legacy artifact
+            # (and a failed reservation below) stays clockless rather than inventing one.
+            self.registry.record_trial(res, params, selection_net, trial_number=trial_num,
+                                       diagnostics=diag, timestamps=validation_ts)
             return res
         except Exception as exc:
             res_failed = ExperimentResult(run_id, hyp_id, contract.contract_id, strat_name, family, hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12], "FAILED", "FAILED", 0.0, 0.0, 0.0, 0.0, 1, 1.0, None, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, None, f"Execution failed: {exc}", 0.0, 0.0, int(is_synthetic), data_sha, strat_module_str, str(model_type), "", strategy_code_sha256=code_sha, simulation_epoch=simulation_epoch)
@@ -1124,6 +1313,7 @@ class ExperimentRunner:
         ic_hac_t: float | None = None,
         metrics: dict[str, float] | None = None,
         returns_vec: np.ndarray | None = None,
+        returns_timestamps: list | None = None,
     ) -> ExperimentResult:
         n_attempts = (
             self.registry.validation_attempt_count(contract_id, simulation_epoch=simulation_epoch) + 1
@@ -1175,6 +1365,9 @@ class ExperimentRunner:
             np.zeros(0) if returns_vec is None else returns_vec,
             trial_number=trial_num,
             diagnostics=diag,
+            # An early rejection that holds a real validation vector publishes it on the trial's
+            # own clock.  Without a vector there is no clock: the artifact stays legacy.
+            timestamps=returns_timestamps if returns_vec is not None else None,
         )
         return res
 

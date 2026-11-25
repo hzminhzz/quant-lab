@@ -4,6 +4,79 @@ Notable changes to quant-lab. Commit refs are pushed to origin/main unless noted
 protected files change, the governance manifest (`.warden_manifest.sha256`) is re-signed by the human
 principal — or by an agent under explicit in-session delegation, recorded in an approval trail.
 
+## 2026-11-25
+
+### P2 research refactor (#79, #94–#106)
+
+- Warden owns panel loading and shares one evaluation kernel across verification and execution. Run-bound evidence ties causality checks to the inputs and strategy code used by the evaluator.
+- Contract governance is tracked separately from the frozen evaluation identity. Typed strategy parameters reject unknown keys, and neighbor stress varies eligible numeric parameters rather than silently reporting stability for an empty grid.
+- Holdout qualification supports prefix warmup and explicit refit policy. Validation returns are timestamped and aligned before reserving a run, and related contracts share selection-group DSR accounting.
+- Reporting and preflight use read-only registry access. Dataset tools add reproducible builds, PIT crypto and funding inputs, NY-close FX and pinned composite adapters, plus an exploratory fence and signed-origin admission for v2 market datasets.
+- The software merge does not activate replacement datasets, touch the production holdout, or archive legacy builders. Those steps stay open under [#106](https://github.com/hzminhzz/quant-lab/issues/106). See [What changed in P2](docs/P2-REFACTOR.md).
+
+### T13 carry mechanism + Check 1 holding gate (#99)
+- `carry_rv` Stage 1 now requires the strategy's own `causal_carry_outputs`: an active run that
+  declares none raises `CarryMechanismRequiredError` **before** the screen receipt, the selection
+  attempt, or the trial slot is written (`screen` and `backtest` both resolve the series before the
+  ledger moves). The equal-weight panel proxy survives only under `allow_legacy_replay` and is
+  recorded as `carry_series_source="panel_proxy"` with `carry_mechanism_policy`. Every carry trial
+  records the policy that authorized its series, so a replay is never mistaken for an active screen.
+- Audit Check 1 now gates the measured **holding** cadence as well as the decision cadence: a hold
+  that diverges from the horizon the hypothesis declared (``expected_holding_bars``) fails without a
+  valid declared alignment, and `AUDIT_<run>.md` prints the measured decision/holding numbers. Only
+  *completed* holding epochs are judged; a position still open at the last bar is right-censored and
+  reported as such. A declaration now has to name a reason **and** a cadence that agrees with the
+  tape, so a bare narrative cannot waive a divergence. Check 4 (fold proof) and the linear-first
+  entry guards are unchanged.
+- The shipped carry test strategy (ticket 09) migrated from the panel proxy to its own pair spread +
+  funding net carry; no shipped strategy declares `carry_rv` today, so no module needed new economics.
+
+### T20 contract lifecycle, exploratory fence & signed-origin admission (#106, software only)
+- Added `contracts/lifecycle/contract_lifecycle.json` + `src/warden/lifecycle.py`: an external,
+  read-only lifecycle document (no writer exists) that closes the 10 `DEPRECATED_UNEXECUTABLE`
+  and 3 `LEGACY_SURVIVORSHIP_BIASED` legacy contracts to **new** hypotheses, in both
+  `register-hypothesis` and `advance`'s auto-registration. A corrupt/ambiguous document fails
+  closed; `status`, `spec-status`, `verify-causality` and `audit-check` never import it, so
+  historical trials read back unchanged and all 36 production contract `spec_hash()` values are
+  byte-identical to the frozen base.
+- Added `warden data fence` (`src/warden_evidence/exploratory_fence.py`): exits 0 only when every
+  Parquet under `data/exploratory` is owned by exactly one dataset manifest whose digest it
+  matches and whose contract's `holdout_start` is strictly after its last bar. Read-only; the
+  Parquet reader is injected from `warden.market_data` so the AST boundary is unchanged.
+- Wired the previously orphaned `warden_evidence.data_admission` into `provenance.resolve_dataset`:
+  a **v2** market dataset now needs a verified HMAC origin attestation
+  (`contracts/attestations/<ID>.json`, operator-held `WARDEN_ADMISSION_HMAC_KEY`) to be market
+  eligible; v1 contracts report `legacy_grandfathered` and keep their historical eligibility.
+- The `#105` extensions no longer move a pre-existing dataset identity: `canonical_payload()` prunes
+  an absent `seal_source` and an absent per-input `sha256`, so the T17 fixture hash is unchanged.
+- Replacement rehearsal fixtures under `tests/fixtures/p2_t20/` (PIT crypto broad 1h, NY-close daily
+  FX, Syncster CME ES/NQ 15m composite) declare the inherited `selection_group_id`; a recorded-trial
+  rehearsal proves the v2 contract inherits the legacy DSR floor. Nothing is installed under
+  `contracts/`, no dataset is built, sealed or archived: those are host steps in
+  `docs/T20-CUTOVER-RUNBOOK.md`.
+
+### T12 typed strategy parameters & genuine numeric neighbors (#98)
+- Added `src/warden/params_model.py`: `ParamsModel` (Pydantic, `extra="forbid"`, frozen),
+  `resolve_params_model`, `validate_strategy_params`, `classify_numeric_neighbors` and
+  `evaluate_neighbor_requirement`. Spec parameters are validated against a strategy's
+  module-level `params_model` before a screen slot or trial is reserved; only the declared
+  field subset is validated so runner-injected keys (`target_symbols`) still flow through.
+- Closed the empty-`param_grid` neighbor-stability bypass: `CANDIDATE_FOR_QUALIFICATION`
+  now requires **≥2 distinct, genuine numeric** neighbors whenever the declaration has a
+  numeric field (effective baseline = model defaults + spec parameters) or the spec supplies
+  numeric values without a model. Duplicates, baseline-restating entries and non-numeric
+  edits are still executed and recorded as selection attempts, but never count; the
+  diagnostics carry `neighbor_grid`, `neighbor_requirement` and, for a zero-numeric-field
+  model, `neighbor_exemption="parameter_free"`.
+- `strategies/baselines/causal_{ridge,ipca,linear_portfolio}_1h.py` and
+  `strategies/candidates/causal_rules_drawdown_template.py` now declare typed models and
+  validate through them; `.workspace/templates/experiment.yaml` shows the ±15% grid form.
+- Stage-3 sign-safe stability math (`gates.evaluate_neighbor_stability`) is unchanged; the
+  gate only feeds it distinct evaluated configurations.
+- `tests/test_p2_t12.py` pins typed refusal (zero trials consumed), the empty/omitted/
+  degenerate/duplicate REVISE outcomes, the parameter-free exemption, effective-default
+  baselines, and reference-funnel evidence for both reference templates.
+
 ## 2026-11-24
 
 ### Ticket 01 host holdout containment, dataset manifest pinning & principal-delegated manifest re-sign (#87; `be5cfe1`, local `main`)

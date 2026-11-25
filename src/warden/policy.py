@@ -13,8 +13,15 @@ ALLOWED = frozenset({
     "audit-check", "handoff", "continue", "register-hypothesis",
     "attempt-status", "reconcile-attempt", "reconcile-screen", "verify-causality",
     "spec-status", "advance",
+    # ``data build`` publishes a new dataset + provenance manifest under the protected
+    # inventory; it is agent-facing and file-write-once, never a human-only signing gate.
+    # ``data fence`` is a read-only audit of the exploratory store (#106).
+    "data", "data build", "data fence",
 })
-APPROVAL = frozenset({"qualify", "generate-manifest"})
+#: Commands a caller cannot run on their own authority.  ``data seal-holdout`` is on this
+#: list because it writes the protected holdout root and pins ``holdout.sealed``: no agent,
+#: cron job or MCP client may do that, whatever arguments it passes.
+APPROVAL = frozenset({"qualify", "generate-manifest", "data seal-holdout"})
 
 
 @dataclass(frozen=True)

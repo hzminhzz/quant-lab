@@ -25,9 +25,28 @@ PROTECTED_GLOBS = (
     "contracts/*.yaml",
     "contracts/*.yml",
     "contracts/datasets/*.json",
+    # Dataset specs are protected exactly like manifests: a build publishes both, so an
+    # edit to either must be visible as protected-set drift here as well.
+    "contracts/datasets/*.yaml",
+    "contracts/datasets/*.yml",
+)
+PROTECTED_FILES = (
+    # Contract lifecycle decisions (#106) are protected by exact path in
+    # ``warden_ops.integrity._PROTECTED_FILES``: the ``contracts/*.yaml`` globs deliberately
+    # do not reach ``contracts/lifecycle/``. Naming it here keeps this standalone view in
+    # parity with the integrity manifest's protected set instead of widening the globs.
+    "contracts/lifecycle/contract_lifecycle.json",
 )
 PROTECTED_DIR_PREFIXES = ("src/warden/", "src/warden_ops/", "src/warden_evidence/", "contracts/")
 TRUST_FILES = (MANIFEST_FILE, "pyproject.toml", "uv.lock")
+
+
+def protected_paths(repo: Path) -> list[Path]:
+    """Files this preflight assesses: protected globs, exact-path entries, trust files."""
+    paths = {p for pattern in PROTECTED_GLOBS for p in repo.glob(pattern) if p.is_file()}
+    paths |= {repo / rel for rel in PROTECTED_FILES if (repo / rel).is_file()}
+    paths |= {repo / name for name in TRUST_FILES if (repo / name).is_file()}
+    return sorted(paths)
 
 
 def manifest_approval_state(repo: Path) -> dict:
@@ -85,8 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     repo = args.repo_root.resolve()
 
-    protected = [p for pattern in PROTECTED_GLOBS for p in sorted(repo.glob(pattern))]
-    protected += [repo / name for name in TRUST_FILES if (repo / name).is_file()]
+    protected = protected_paths(repo)
     files = [describe(p) for p in protected]
     approval = manifest_approval_state(repo)
     holdout = repo / "data" / "holdout"

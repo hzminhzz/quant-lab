@@ -1,0 +1,41 @@
+# T20 #106 replacement contract fixture — PIT Binance USD-M broad-universe 1h.
+#
+# This is the shape the host step materialises into `contracts/`; it is a *fixture* here so
+# the rehearsal can prove the inheritance rule without editing production contracts.
+# It replaces CRYPTO_PERPS_1H_V1 (DEPRECATED_UNEXECUTABLE) and deliberately declares the
+# same selection_group_id, plus `inherits_selection_from`, so the DSR floor recorded against
+# the legacy 1h search problem carries over instead of restarting at 1.
+#
+# `dataset_id`/`dataset_manifest_sha256` are intentionally empty: a real manifest pin is the
+# human's build output, never a value a fixture may invent.
+contract_id: CRYPTO_PERPS_BROAD_1H_V2
+asset_class: crypto_perps
+frequency: 1h
+bars_per_year: 8760
+exploratory_data_path: data/exploratory/binance_um_crypto_perps_broad_1h_ohlcv_funding_r1.parquet
+holdout_data_path: data/holdout/binance_um_crypto_perps_broad_1h_ohlcv_funding_r1.parquet
+train_start: '2024-01-01T00:00:00Z'
+val_start: '2025-01-01T00:00:00Z'
+val_end: '2025-02-01T00:00:00Z'
+holdout_start: '2025-02-01T00:00:00Z'
+holdout_end: '2025-03-01T00:00:00Z'
+n_folds: 4
+label_horizon_bars: 4
+embargo_bars: 2
+execution_delay_bars: 1
+execution_mode: NEXT_BAR
+taker_fee_bps: 4.0
+slippage_bps: 2.0
+funding_bps_per_8h: 1.0
+min_expected_move_to_cost_ratio: 2.5
+data_snapshot_sha256: ''
+data_provenance: unknown
+spec_version: 2
+evidence_tier: synthetic
+selection_group_id: LEGACY_CRYPTO_PERPS_1H
+inherits_selection_from: CRYPTO_PERPS_1H_V1
+allow_leverage: false
+max_gross_leverage: 1.0
+holdout_refit_mode: purged_expanding
+dataset_id: ''
+dataset_manifest_sha256: ''

@@ -1,0 +1,55 @@
+# T20 #106 replacement dataset spec — Dukascopy daily FX on the 17:00 New York session clock.
+#
+# Fixture only (`evidence_tier: synthetic`).  The two declarations that make this a
+# replacement rather than a resample of V1: the venue session anchor (so the daily bar is
+# 17:00 -> 17:00 New York and follows DST) and `volume_semantics: tick_count_proxy` (a
+# vendor tick count is never published as contracts).
+schema_version: 1
+dataset_id: dukascopy_fx_majors_1d_ohlcv_r1
+asset_class: fx
+evidence_tier: synthetic
+venue: dukascopy
+frequency: 1d
+price_basis: ohlcv
+volume_semantics: tick_count_proxy
+time_window:
+  start_inclusive: "2024-01-01T22:00:00Z"
+  exploratory_end_exclusive: "2025-02-01T22:00:00Z"
+  holdout_start_inclusive: "2025-02-01T22:00:00Z"
+  holdout_end_exclusive: "2025-03-01T22:00:00Z"
+time_contract:
+  timezone: UTC
+  bar_timestamp_semantics: open_left_closed_left
+  session_calendar: FX_24_5
+  daily_roll_anchor: "17:00 America/New_York"
+source:
+  kind: lake_raw
+  adapter: dukascopy_local
+  inputs:
+    eurusd:
+      path: raw/eurusd_hist.csv
+      format: csv
+      source_timezone: UTC
+    usdjpy:
+      path: raw/usdjpy_hist.csv
+      format: csv
+      source_timezone: UTC
+universe:
+  selection_mode: explicit_symbols
+  symbols: [EURUSD, USDJPY]
+  retain_delisted: true
+resampling:
+  enabled: true
+  require_min_sub_bars: 600
+quality_gate:
+  max_abs_bar_return: 0.02
+  mad_outlier_threshold: 10.0
+  allow_zero_volume: false
+  explicit_anomaly_filters: []
+  min_coverage_ratio: 1.0
+parquet_write:
+  compression: zstd
+  compression_level: 3
+  statistics: true
+  row_group_size: 100000
+  sort_keys: [timestamp, asset]

@@ -17,12 +17,20 @@ _PROTECTED_GLOBS = (
     "src/warden_evidence/**/*.py",
     "contracts/*.yaml",
     "contracts/*.yml",
+    # A dataset manifest (``*.json``) *and* the spec that produced it are trusted inputs:
+    # a build publishes both, and either one can silently re-point a contract's data.
     "contracts/datasets/*.json",
+    "contracts/datasets/*.yaml",
+    "contracts/datasets/*.yml",
 )
 _PROTECTED_FILES = (
     "AGENTS.md",
     "pyproject.toml",
     "uv.lock",
+    # Contract lifecycle decisions (#106): deleting or editing the document invalidates the
+    # worktree gate, which every agent runs before registering a hypothesis.  It is listed
+    # explicitly because ``contracts/*.yaml`` deliberately does not reach its directory.
+    "contracts/lifecycle/contract_lifecycle.json",
     "scripts/registry_evidence_snapshot.py",
     "scripts/rehearse_state_machine_migration.py",
     "scripts/mcp_warden/adapter.py",
@@ -56,6 +64,17 @@ _BANNED_FROM_CHILDREN: dict[str, dict[str, tuple[str, frozenset[str]]]] = {
         "ml4t.backtest": ("ml4t.backtest.Engine", frozenset({"Engine", "engine", "*"})),
     },
 }
+#: Issue #95: market bars are read through ``warden.market_data.MarketDataGateway`` only.
+#: Every evaluator module is checked; the two permitted readers hold Warden-owned bytes
+#: (feature cache, trial return artifacts), never market data.
+_EVALUATOR_ROOTS = ("src/warden", "src/warden_evidence")
+_PARQUET_READER_ALLOWLIST = frozenset({
+    "src/warden/market_data.py",
+    "src/warden_evidence/feature_cache.py",
+    "src/warden_evidence/return_artifacts.py",
+})
+_PARQUET_READ_CALLS = frozenset({"read_parquet", "scan_parquet"})
+_POLARS_MODULES = frozenset({"polars", "polars.io", "polars.lazyframe.frame"})
 
 
 def _matches_prefix(name: str, prefixes: tuple[str, ...]) -> bool:
@@ -72,6 +91,84 @@ def _call_target_name(func: ast.expr) -> str | None:
         and func.value.id == "builtins"
     ):
         return func.attr
+    return None
+
+
+def _is_evaluator(rel: str) -> bool:
+    return any(rel == root or rel.startswith(root + "/") for root in _EVALUATOR_ROOTS)
+
+
+def _dotted(node: ast.expr) -> str:
+    """``polars.io`` for the attribute chain rooted at a simple name, else ``""``."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    return ".".join([node.id, *reversed(parts)])
+
+
+def _polars_aliases(tree: ast.Module) -> tuple[dict[str, str], dict[str, str], int | None]:
+    """Resolve every alias a module can read Parquet through.
+
+    Returns ``(module_names, reader_names, star_import_line)``:
+
+    * ``module_names`` maps a locally bound name to the polars module it refers to —
+      ``import polars as pl``, ``import polars`` and ``import polars.io`` all bind one;
+    * ``reader_names`` maps a locally bound name to ``read_parquet``/``scan_parquet`` —
+      ``from polars import read_parquet as rp``;
+    * ``star_import_line`` is set for ``from polars import *``, which cannot be resolved
+      and is therefore rejected outright rather than assumed safe.
+    """
+    module_names: dict[str, str] = {}
+    reader_names: dict[str, str] = {}
+    star_import_line: int | None = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in _POLARS_MODULES or alias.name.startswith("polars."):
+                    module_names[alias.asname or alias.name.split(".")[0]] = alias.name
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            module = node.module or ""
+            if module not in _POLARS_MODULES:
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    star_import_line = node.lineno
+                elif alias.name in _PARQUET_READ_CALLS:
+                    reader_names[alias.asname or alias.name] = alias.name
+    return module_names, reader_names, star_import_line
+
+
+def _parquet_read_target(
+    node: ast.Call, module_names: dict[str, str], reader_names: dict[str, str]
+) -> str | None:
+    """The banned Parquet read this call performs, if any — alias-aware.
+
+    Covers ``pl.read_parquet``, ``polars.scan_parquet``, ``pl.io.read_parquet``,
+    ``from polars import read_parquet as rp; rp(...)`` and
+    ``getattr(polars, "read_parquet")``.  A dotted chain rooted at a polars alias is
+    rejected even when the middle attribute is unfamiliar, so a renamed submodule cannot
+    slip past the rule.
+    """
+    func = node.func
+    if isinstance(func, ast.Name) and func.id in reader_names:
+        return f"{func.id} (alias of polars.{reader_names[func.id]})"
+    if isinstance(func, ast.Attribute) and func.attr in _PARQUET_READ_CALLS:
+        dotted = _dotted(func.value)
+        root = dotted.split(".")[0] if dotted else ""
+        if root in module_names:
+            return f"{_dotted(func)}(...) via {root}={module_names[root]}"
+    if isinstance(func, ast.Name) and func.id == "getattr" and len(node.args) >= 2:
+        target, attr = node.args[0], node.args[1]
+        if (
+            isinstance(attr, ast.Constant)
+            and attr.value in _PARQUET_READ_CALLS
+            and isinstance(target, ast.Name)
+            and target.id in module_names
+        ):
+            return f"getattr({target.id}, {attr.value!r})"
     return None
 
 
@@ -106,6 +203,15 @@ def check_ast_boundaries(repo_root: Path = Path(".")) -> list[str]:
             continue
 
         is_strategy = rel_path.parts[0] == "strategies"
+        checks_parquet = _is_evaluator(rel) and rel not in _PARQUET_READER_ALLOWLIST
+        polars_names, parquet_readers, parquet_star_line = (
+            _polars_aliases(tree) if checks_parquet else ({}, {}, None)
+        )
+        if parquet_star_line is not None:
+            violations.append(
+                f"{rel}:{parquet_star_line}: banned star import from 'polars' "
+                "(a Parquet reader must not be imported under an unresolvable name)"
+            )
         scopes: list[tuple[str, tuple[str, ...], frozenset[str]]] = [
             ("repo-wide", _BANNED_REPO_MODULES, frozenset()),
         ]
@@ -140,6 +246,13 @@ def check_ast_boundaries(repo_root: Path = Path(".")) -> list[str]:
                 called = _call_target_name(node.func)
                 if called in _BANNED_STRATEGY_CALLS:
                     violations.append(f"{rel}:{node.lineno}: banned strategy call '{called}()'")
+            if checks_parquet and isinstance(node, ast.Call):
+                target = _parquet_read_target(node, polars_names, parquet_readers)
+                if target is not None:
+                    violations.append(
+                        f"{rel}:{node.lineno}: banned market-data read '{target}'; "
+                        "market bars are readable only through MarketDataGateway"
+                    )
     return violations
 
 def compute_file_sha256(path: Path) -> str:

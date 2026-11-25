@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import math
-import sqlite3
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +12,7 @@ import polars as pl
 
 from warden.contracts import load_contract
 from warden.strategy_loader import load_module_from_path
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 
 def main():
@@ -27,12 +27,10 @@ def main():
     out = book_mod.generate_positions(panel_df, contract)
     stats = book_mod.LAST_BOOK_STATS
 
-    db_path = repo_root / "registry" / "registry.db"
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        trial_row = conn.execute(
-            "SELECT * FROM trials WHERE run_id='RUN-HYP091-001'"
-        ).fetchone()
+    trial_row = ReadOnlyResearchRegistry(
+        repo_root / "registry" / "registry.db").read_trial_evidence("RUN-HYP091-001")
+    if trial_row is None:
+        raise LookupError("RUN-HYP091-001 is not recorded in this registry")
 
     train_idx = stats["train_indices"]
     val_idx = stats["val_indices"]

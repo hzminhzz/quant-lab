@@ -1,0 +1,29 @@
+[
+  {
+    "automatic_replay": "DENIED",
+    "contract_id": "CRYPTO_PERPS_1H_V1",
+    "evidence_id": "ATT-cd8fbf4020112a8d-001",
+    "hypothesis_id": "HYP-PASS",
+    "reason": "PASS",
+    "spec": "<tmp>/specs/HYP-PASS.yaml",
+    "status": "STAGE1_PASS"
+  },
+  {
+    "automatic_replay": "REQUIRES_NEW_APPROVAL",
+    "contract_id": "CRYPTO_PERPS_1H_V1",
+    "evidence_id": null,
+    "hypothesis_id": "HYP-PENDING",
+    "reason": "no authoritative Warden attempt",
+    "spec": "<tmp>/specs/HYP-PENDING.yaml",
+    "status": "PENDING"
+  },
+  {
+    "automatic_replay": "DENIED",
+    "contract_id": "CRYPTO_PERPS_1H_V1",
+    "evidence_id": "ATT-24b6886648136f68-001",
+    "hypothesis_id": "HYP-REJECT",
+    "reason": "REJECT",
+    "spec": "<tmp>/specs/HYP-REJECT.yaml",
+    "status": "STAGE1_REJECT"
+  }
+]

@@ -14,11 +14,43 @@ from ml4t.backtest import Strategy
 from ml4t.backtest.execution.rebalancer import RebalanceConfig, TargetWeightExecutor
 from ml4t.backtest.risk.portfolio import MaxDrawdownLimit, RiskManager
 from ml4t.backtest.risk.position import StopLoss
+from pydantic import Field
 
 from warden.contracts import EvaluationContract
+from warden.params_model import ParamsModel
 
 # Portfolio drawdown gating couples asset allocations via live account equity.
 portfolio_coupled = True
+
+
+class DrawdownRulesParams(ParamsModel):
+    """Typed declaration of every numeric knob this template exposes.
+
+    Warden reads this to decide whether Stage 3 must show distinct numeric
+    neighbors: a declaration with numeric fields (this one) cannot be a
+    candidate on an empty or degenerate ``param_grid``.
+    """
+
+    fast_span: int = Field(default=8, ge=1)
+    slow_span: int = Field(default=24, ge=2)
+    max_drawdown: float = Field(default=0.10, gt=0.0, le=1.0)
+    drawdown_floor: float = Field(default=0.50, gt=0.0, le=1.0)
+    stop_loss_pct: float = Field(default=0.05, gt=0.0, le=1.0)
+    rebalance_buffer: float = Field(default=0.10, ge=0.0, le=1.0)
+    max_single_weight: float = Field(default=0.40, gt=0.0, le=1.0)
+    max_gross_leverage: float = Field(default=0.90, gt=0.0, le=5.0)
+    warmup_bars: int = Field(default=4, ge=0)
+
+
+#: Warden's typed-parameter hook; see ``warden.params_model``.
+params_model = DrawdownRulesParams
+
+
+def validate_params(params: dict[str, Any]) -> DrawdownRulesParams:
+    """Validate the declared subset; unknown runner keys (``target_symbols``) pass through."""
+
+    declared = {k: v for k, v in params.items() if k in DrawdownRulesParams.model_fields}
+    return DrawdownRulesParams.model_validate(declared)
 
 
 def required_symbols(params: dict[str, Any]) -> list[str] | None:
@@ -168,14 +200,15 @@ class CausalDrawdownRulesStrategy(Strategy):
 def configure_strategy(contract: EvaluationContract, params: dict[str, Any]) -> Strategy:
     """Instantiate the causal drawdown-gated rules strategy for Engine execution."""
     _ = contract
+    tuned = validate_params(params)
     return CausalDrawdownRulesStrategy(
-        fast_span=int(params.get("fast_span", 8)),
-        slow_span=int(params.get("slow_span", 24)),
-        max_drawdown=float(params.get("max_drawdown", 0.10)),
-        drawdown_floor=float(params.get("drawdown_floor", 0.50)),
-        stop_loss_pct=float(params.get("stop_loss_pct", 0.05)),
-        rebalance_buffer=float(params.get("rebalance_buffer", 0.10)),
-        max_single_weight=float(params.get("max_single_weight", 0.40)),
-        max_gross_leverage=float(params.get("max_gross_leverage", 0.90)),
-        warmup_bars=int(params.get("warmup_bars", 4)),
+        fast_span=tuned.fast_span,
+        slow_span=tuned.slow_span,
+        max_drawdown=tuned.max_drawdown,
+        drawdown_floor=tuned.drawdown_floor,
+        stop_loss_pct=tuned.stop_loss_pct,
+        rebalance_buffer=tuned.rebalance_buffer,
+        max_single_weight=tuned.max_single_weight,
+        max_gross_leverage=tuned.max_gross_leverage,
+        warmup_bars=tuned.warmup_bars,
     )

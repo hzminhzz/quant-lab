@@ -270,7 +270,10 @@ def test_constant_ic_series_yields_zero_hac_tstat() -> None:
 
 def test_continue_rejects_unallowlisted_shell_commands(tmp_path: Path) -> None:
     """cmd_continue must refuse arbitrary commands not in the read-only allowlist."""
-    runner = ExperimentRunner(repo_root=Path("."))
+    # An empty tmp registry: the runner's default would create the checkout's registry.db.
+    runner = ExperimentRunner(
+        registry=ResearchRegistry(tmp_path / "registry" / "registry.db"), repo_root=Path(".")
+    )
     evil_trans = tmp_path / "evil.md"
     evil_trans.write_text("```bash\ntouch /tmp/forbidden_pwn\n```\n")
     ret = cmd_continue(Namespace(transition_path=str(evil_trans)), runner)
@@ -280,7 +283,9 @@ def test_continue_rejects_unallowlisted_shell_commands(tmp_path: Path) -> None:
 
 def test_continue_exact_match_rejects_substring_count_drift(tmp_path: Path) -> None:
     """cmd_continue must reject substring matching (e.g. expected 5 matching actual 15)."""
-    runner = ExperimentRunner(repo_root=Path("."))
+    runner = ExperimentRunner(
+        registry=ResearchRegistry(tmp_path / "registry" / "registry.db"), repo_root=Path(".")
+    )
     drift_trans = tmp_path / "drift.md"
     drift_trans.write_text("```bash\necho 15\n# expect: 5\n```\n")
     ret = cmd_continue(Namespace(transition_path=str(drift_trans)), runner)
@@ -289,7 +294,11 @@ def test_continue_exact_match_rejects_substring_count_drift(tmp_path: Path) -> N
 
 def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contract) -> None:
     """cmd_verify on a module without a pipeline or compute() method must exit with code 1."""
-    runner = ExperimentRunner(repo_root=Path("."))
+    # An explicit tmp registry: the default would create the checkout's registry/registry.db,
+    # which other tests then read as if it were live evidence.
+    runner = ExperimentRunner(
+        registry=ResearchRegistry(tmp_path / "registry" / "registry.db"), repo_root=Path(".")
+    )
     nopipe = tmp_path / "nopipe.py"
     nopipe.write_text("def generate_positions(df, contract, **kw): return {}\n")
     spec_f = tmp_path / "spec.yaml"

@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import InitVar, asdict, dataclass, field, fields
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -69,6 +69,186 @@ def valid_id(value: str) -> None:
         raise ContractValidationError("IDs must contain only letters, digits, '_' or '-'")
 
 
+# --- Contract-owned governance metadata (ticket #94) --------------------------
+# The governance block is *not* a dataclass field.  ``registry`` derives the
+# ``contracts`` DDL from ``fields(EvaluationContract)`` and persists
+# ``asdict(contract)``; adding a field would silently ALTER the live ledger and
+# invalidate every registered row.  Keeping the block off the field list keeps
+# ``asdict()``, the DDL and every legacy digest byte-identical.
+#
+# It does have to survive a copy.  ``dataclasses.replace()`` reconstructs through
+# ``__init__``, and ``warden verify``'s rules-prefix leakage check replaces
+# ``exploratory_data_path`` on a live contract (``leakage.py``) and then executes
+# the copy.  A plain ``__dict__`` carrier is dropped there, which silently
+# downgrades the copy to a legacy v1 contract: tier back to ``native_venue``, a
+# v1 digest, and caller-supplied leverage limits.
+#
+# So the policy travels through an ``InitVar`` (``policy``): ``InitVar`` is
+# excluded from ``dataclasses.fields()`` and from ``asdict()`` (DDL and v1
+# digests unchanged), while ``dataclasses.replace()`` reads it off the instance
+# and passes it to ``__init__``, where ``__post_init__`` validates and re-attaches
+# it.  The same name is the stored carrier (a JSON-safe dict), so
+# ``EvaluationContract(**contract.__dict__)`` is policy-preserving too.
+GOVERNANCE_ATTR = "policy"
+GOVERNANCE_INITVAR = "policy"
+CURRENT_SPEC_VERSION = 2
+LEGACY_SPEC_VERSION = 1
+
+EVIDENCE_TIERS = ("native_venue", "research_proxy", "unverified_roll", "synthetic")
+#: Tiers whose numeric holdout pass may never be promoted to a market claim.
+PROMOTION_CAPPED_EVIDENCE_TIERS = frozenset({"research_proxy", "unverified_roll", "synthetic"})
+HOLDOUT_REFIT_MODES = ("purged_expanding", "frozen_pre_holdout")
+
+PROXY_HOLDOUT_PASS = "PROXY_HOLDOUT_PASS"
+PROMOTED = "PROMOTED"
+REJECTED_ON_HOLDOUT = "REJECTED_ON_HOLDOUT"
+
+#: Keys a contract YAML may declare only when it also declares
+#: ``spec_version: 2``.  A legacy v1 contract reads its tier from the dataset
+#: manifest instead, so its ``spec_hash()`` never moves.
+GOVERNANCE_KEYS = (
+    "spec_version",
+    "evidence_tier",
+    "selection_group_id",
+    "allow_leverage",
+    "max_gross_leverage",
+    "holdout_refit_mode",
+    "dataset_id",
+    "dataset_manifest_sha256",
+    "inherits_selection_from",
+)
+
+
+@dataclass(frozen=True)
+class ContractPolicy:
+    """Contract-owned execution and evidence policy.
+
+    ``spec_version`` is 1 for every legacy contract (undeclared) and 2 for a
+    contract that owns its governance block in YAML.  A v1 policy may carry a
+    manifest-declared tier; it never contributes to ``spec_hash()``.
+    """
+
+    spec_version: int = LEGACY_SPEC_VERSION
+    evidence_tier: str = "native_venue"
+    selection_group_id: str = ""
+    allow_leverage: bool = False
+    max_gross_leverage: float = 1.0
+    holdout_refit_mode: str = "purged_expanding"
+    dataset_id: str = ""
+    dataset_manifest_sha256: str = ""
+    inherits_selection_from: str = ""
+
+    def __post_init__(self):
+        if type(self.spec_version) is not int or self.spec_version not in {LEGACY_SPEC_VERSION, CURRENT_SPEC_VERSION}:
+            raise ContractValidationError(
+                f"unsupported spec_version {self.spec_version!r}; only {LEGACY_SPEC_VERSION} and {CURRENT_SPEC_VERSION} exist")
+        if not isinstance(self.evidence_tier, str) or self.evidence_tier not in EVIDENCE_TIERS:
+            raise ContractValidationError(f"evidence_tier must be one of {list(EVIDENCE_TIERS)}")
+        if not isinstance(self.holdout_refit_mode, str) or self.holdout_refit_mode not in HOLDOUT_REFIT_MODES:
+            raise ContractValidationError(f"holdout_refit_mode must be one of {list(HOLDOUT_REFIT_MODES)}")
+        if type(self.allow_leverage) is not bool:
+            raise ContractValidationError("allow_leverage must be a bool")
+        if not isinstance(self.max_gross_leverage, (int, float)) or type(self.max_gross_leverage) is bool:
+            raise ContractValidationError("max_gross_leverage must be a finite number")
+        if not math.isfinite(float(self.max_gross_leverage)) or float(self.max_gross_leverage) <= 0.0:
+            raise ContractValidationError("max_gross_leverage must be finite positive")
+        if not self.allow_leverage and float(self.max_gross_leverage) > 1.0:
+            raise ContractValidationError(
+                "max_gross_leverage > 1.0 requires allow_leverage=True; leverage is never granted implicitly")
+        for name in ("selection_group_id", "inherits_selection_from"):
+            value = getattr(self, name)
+            if value and (not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", value)):
+                raise ContractValidationError(f"{name} must contain only letters, digits, '_' or '-'")
+        for name in ("dataset_id", "dataset_manifest_sha256"):
+            value = getattr(self, name)
+            if value and not isinstance(value, str):
+                raise ContractValidationError(f"{name} must be a string")
+        if self.dataset_manifest_sha256 and not re.fullmatch(r"[0-9a-f]{64}", self.dataset_manifest_sha256):
+            raise ContractValidationError("dataset_manifest_sha256 must be 64 lowercase hex characters")
+        if self.spec_version >= CURRENT_SPEC_VERSION and not self.selection_group_id:
+            raise ContractValidationError("spec_version 2 requires an explicit selection_group_id")
+
+    @property
+    def declares_governance(self) -> bool:
+        """True when the contract itself owns the policy (and its hash covers it)."""
+        return self.spec_version >= CURRENT_SPEC_VERSION
+
+    @property
+    def is_promotion_capped(self) -> bool:
+        return self.evidence_tier in PROMOTION_CAPPED_EVIDENCE_TIERS
+
+    def promotion_cap_reason(self) -> str:
+        if not self.is_promotion_capped:
+            return ""
+        return (f"evidence_tier '{self.evidence_tier}' caps holdout outcome at {PROXY_HOLDOUT_PASS}; "
+                "market promotion requires native_venue evidence")
+
+    def hash_payload(self) -> dict:
+        """Only the declared governance keys, in a stable order, for the v2 digest."""
+        return {key: getattr(self, key) for key in GOVERNANCE_KEYS}
+
+    def to_dict(self) -> dict:
+        return {
+            "spec_version": self.spec_version,
+            "evidence_tier": self.evidence_tier,
+            "selection_group_id": self.selection_group_id,
+            "allow_leverage": self.allow_leverage,
+            "max_gross_leverage": float(self.max_gross_leverage),
+            "holdout_refit_mode": self.holdout_refit_mode,
+            "dataset_id": self.dataset_id,
+            "dataset_manifest_sha256": self.dataset_manifest_sha256,
+            "inherits_selection_from": self.inherits_selection_from,
+        }
+
+    @classmethod
+    def from_mapping(cls, raw: dict | None) -> ContractPolicy:
+        """Build from an untrusted mapping; unknown keys are refused, not ignored."""
+        if not raw:
+            return cls()
+        unknown = sorted(set(raw) - set(GOVERNANCE_KEYS))
+        if unknown:
+            raise ContractValidationError(f"unknown governance metadata keys: {unknown}")
+        values = dict(raw)
+        if "max_gross_leverage" in values and isinstance(values["max_gross_leverage"], (int, float)):
+            values["max_gross_leverage"] = float(values["max_gross_leverage"])
+        if "spec_version" in values and isinstance(values["spec_version"], float):
+            raise ContractValidationError("spec_version must be an integer")
+        try:
+            return cls(**values)
+        except TypeError as exc:
+            raise ContractValidationError(f"invalid governance metadata: {exc}") from exc
+
+
+def coerce_contract_policy(value) -> ContractPolicy:
+    """Accept a validated policy, a mapping, or ``None`` (legacy default)."""
+    if value is None:
+        return ContractPolicy()
+    if isinstance(value, ContractPolicy):
+        return value
+    if isinstance(value, dict):
+        return ContractPolicy.from_mapping(value)
+    raise ContractValidationError(
+        f"contract policy must be a ContractPolicy or mapping, got {type(value).__name__}")
+
+
+def attach_contract_policy(contract: EvaluationContract, policy) -> EvaluationContract:
+    """Attach a validated policy to a frozen contract without touching its fields.
+
+    The stored attribute is the same name as the ``policy`` ``InitVar`` so that
+    ``dataclasses.replace()`` forwards it (see the module comment above).  A
+    policy equal to the legacy default is not stored at all, which keeps
+    ``contract.__dict__`` — and therefore any YAML fixture dumped from it —
+    byte-identical to a pre-#94 contract.
+    """
+    resolved = coerce_contract_policy(policy)
+    if resolved == ContractPolicy():
+        if GOVERNANCE_ATTR in getattr(contract, "__dict__", {}):
+            object.__delattr__(contract, GOVERNANCE_ATTR)
+        return contract
+    object.__setattr__(contract, GOVERNANCE_ATTR, resolved.to_dict())
+    return contract
+
+
 @dataclass(frozen=True)
 class EvaluationContract:
     contract_id: str
@@ -95,8 +275,12 @@ class EvaluationContract:
     # Declared origin, independent of the digest. Only "verified_market" may reach
     # market qualification; "unknown" fails closed.
     data_provenance: str = "unknown"
+    #: Constructor/copy channel for the contract-owned policy, never a stored
+    #: field: excluded from ``fields()``/``asdict()`` so the registry DDL and the
+    #: 36 legacy digests stay put, while ``dataclasses.replace()`` forwards it.
+    policy: InitVar[ContractPolicy | dict | None] = None
 
-    def __post_init__(self):
+    def __post_init__(self, policy: ContractPolicy | dict | None):
         valid_id(self.contract_id)
         for n in ("train_start", "val_start", "val_end", "holdout_start", "holdout_end"):
             object.__setattr__(self, n, utc(getattr(self, n)))
@@ -118,6 +302,7 @@ class EvaluationContract:
             raise ContractValidationError("data_provenance must be verified_market, synthetic or unknown")
         if self.data_provenance != "unknown" and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256 or ""):
             raise ContractValidationError("declared data_provenance requires a data_snapshot_sha256 pin")
+        attach_contract_policy(self, policy)
 
     def total_one_way_cost_decimal(self) -> float:
         return (self.taker_fee_bps + self.slippage_bps) * 1e-4
@@ -125,8 +310,87 @@ class EvaluationContract:
     def bar_duration(self) -> timedelta:
         return FREQUENCY_BAR_DURATION[self.frequency]
 
+    @property
+    def governance(self) -> ContractPolicy:
+        """Contract-owned policy (v2 YAML, else the legacy default).
+
+        Resolved off the instance carrier instead of a dataclass field so that
+        ``asdict()``, the ``contracts`` DDL and every v1 digest stay unchanged.
+        The carrier is copied by ``dataclasses.replace()``, ``copy``/``deepcopy``
+        and pickling, so a copy never silently reverts to the legacy default.
+        """
+        raw = getattr(self, GOVERNANCE_ATTR, None) or {}
+        return ContractPolicy.from_mapping(raw)
+
+    def spec_hash_payload(self) -> dict:
+        """The exact mapping a digest is computed over, per spec version.
+
+        v1 is the historical ``asdict()`` projection, unchanged since the first
+        registered contract.  v2 adds the declared governance block, so a policy
+        edit is a different contract rather than a silent re-interpretation.
+        """
+        payload = asdict(self)
+        policy = self.governance
+        if policy.declares_governance:
+            payload["governance"] = policy.hash_payload()
+        return payload
+
+    def to_dict(self) -> dict:
+        """Policy-preserving serialisation in contract-YAML document shape.
+
+        This — not ``asdict()`` — is the supported serialisation: a declared
+        governance block is emitted as top-level keys, so
+        ``EvaluationContract.from_dict(c.to_dict())`` reproduces ``c``,
+        including its ``spec_hash()``.  ``asdict()`` deliberately stays the
+        historical field projection and therefore describes a *v1* contract.
+        """
+        payload = asdict(self)
+        policy = self.governance
+        if policy.declares_governance:
+            payload.update(policy.hash_payload())
+        return payload
+
+    @classmethod
+    def from_dict(cls, document: dict, *, source: str = "<mapping>") -> EvaluationContract:
+        """Official deserialiser; mirrors the contract-YAML document rules.
+
+        A governance block is only accepted together with ``spec_version: 2``
+        (a legacy v1 contract declares its tier in the dataset manifest).  Any
+        other key is refused, so a mistyped governance key can never leave a
+        proxy contract quietly promotable.
+        """
+        if not isinstance(document, dict):
+            raise ContractValidationError(f"{source}: contract must be a mapping")
+        valid_keys = {f.name for f in fields(cls)}
+        # A contract's own ``__dict__`` carries the policy under its InitVar name,
+        # so that spelling is accepted as the same declaration (a dumped contract
+        # reloads with its governance instead of failing as an unknown key).
+        accepted = valid_keys | set(GOVERNANCE_KEYS) | {GOVERNANCE_INITVAR}
+        unknown = sorted(set(document) - accepted)
+        if unknown:
+            raise ContractValidationError(
+                f"{source}: unknown contract key(s) {unknown}; a governance key must match "
+                f"{list(GOVERNANCE_KEYS)} exactly")
+        governance = {key: document[key] for key in GOVERNANCE_KEYS if key in document}
+        carried = document.get(GOVERNANCE_INITVAR)
+        if carried is not None:
+            if not isinstance(carried, dict):
+                raise ContractValidationError(f"{source}: policy must be a mapping")
+            clash = sorted(set(carried) & set(governance))
+            if clash:
+                raise ContractValidationError(f"{source}: policy redeclares {clash} outside the policy block")
+            governance = {**governance, **carried}
+        if governance and governance.get("spec_version") != CURRENT_SPEC_VERSION:
+            raise ContractValidationError(
+                f"{source}: governance keys {sorted(governance)} require spec_version: {CURRENT_SPEC_VERSION}; "
+                "a legacy v1 contract declares its evidence_tier in the dataset manifest instead")
+        kwargs = {key: value for key, value in document.items() if key in valid_keys}
+        if governance:
+            kwargs[GOVERNANCE_INITVAR] = ContractPolicy.from_mapping(governance)
+        return cls(**kwargs)
+
     def spec_hash(self) -> str:
-        return hashlib.sha256(canonical_json(asdict(self)).encode()).hexdigest()[:16]
+        return hashlib.sha256(canonical_json(self.spec_hash_payload()).encode()).hexdigest()[:16]
 
     def to_feed_spec(self) -> FeedSpec:
         from ml4t.specs import FeedSpec
@@ -337,9 +601,17 @@ def _load(path, cls, markdown=False):
         v = yaml.safe_load(text)
         if not isinstance(v, dict):
             raise ContractValidationError("spec must be YAML mapping")
+        if cls is EvaluationContract:
+            # One deserialisation rule for YAML and for ``from_dict``: a
+            # misspelled governance key must not silently leave a proxy
+            # contract promotable, and an undeclared block is refused rather
+            # than dropped onto a hash that does not cover it.
+            return EvaluationContract.from_dict(v, source=str(path))
         valid_keys = {f.name for f in fields(cls)}
         return cls(**{k: val for k, val in v.items() if k in valid_keys})
     except (TypeError, ValueError, yaml.YAMLError) as exc:
+        if isinstance(exc, ContractValidationError):
+            raise
         raise ContractValidationError(f"{path}: {exc}") from exc
 
 

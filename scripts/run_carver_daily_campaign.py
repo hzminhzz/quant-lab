@@ -14,13 +14,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 import yaml
+
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 if __package__:
     from scripts.campaign_projection import project as project_campaign
@@ -38,15 +39,10 @@ def run(args: list[str]) -> subprocess.CompletedProcess:
 
 
 def recorded(hypothesis_id: str) -> tuple[str, dict] | None:
-    with sqlite3.connect(DB) as conn:
-        row = conn.execute(
-            "SELECT outcome, diagnostics_json FROM selection_attempts "
-            "WHERE hypothesis_id=? AND kind='standalone_screen'",
-            (hypothesis_id,),
-        ).fetchone()
-    if not row:
+    screen = ReadOnlyResearchRegistry(DB).read_standalone_screen(hypothesis_id)
+    if not screen:
         return None
-    return row[0], json.loads(row[1] or "{}")
+    return screen["outcome"], json.loads(screen["diagnostics_json"] or "{}")
 
 
 def strategy_label(module: Path) -> str:

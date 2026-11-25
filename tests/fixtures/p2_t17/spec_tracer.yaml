@@ -1,0 +1,54 @@
+# Synthetic tracer dataset for the local-only builder tests (issue #103).
+# Paths are repo-relative source-root paths; nothing here points at real data.
+schema_version: 1
+dataset_id: synth_indices_tracer_15m_ohlcv_r1
+asset_class: indices
+evidence_tier: synthetic
+venue: synth_local
+frequency: 15m
+price_basis: ohlcv
+volume_semantics: real_contracts
+time_window:
+  start_inclusive: "2025-01-02T00:00:00Z"
+  exploratory_end_exclusive: "2025-01-02T03:00:00Z"
+  holdout_start_inclusive: "2025-01-02T03:00:00Z"
+  holdout_end_exclusive: "2025-01-02T06:00:00Z"
+time_contract:
+  timezone: UTC
+  bar_timestamp_semantics: open_left_closed_left
+  session_calendar: CME_Equity
+  daily_roll_anchor: null
+source:
+  kind: lake_raw
+  adapter: local_tracer
+  inputs:
+    es:
+      path: raw/es.csv
+      format: csv
+    nq:
+      path: raw/nq.csv
+      format: csv
+universe:
+  selection_mode: explicit_symbols
+  symbols: [ES, NQ]
+  retain_delisted: true
+resampling:
+  enabled: false
+  require_min_sub_bars: null
+quality_gate:
+  max_abs_bar_return: 0.20
+  mad_outlier_threshold: 10.0
+  allow_zero_volume: false
+  explicit_anomaly_filters:
+    - id: drop_volume_spike
+      column: volume
+      comparison: gt
+      value: 5000.0
+      assets: null
+      reason: vendor volume spike
+parquet_write:
+  compression: zstd
+  compression_level: 3
+  statistics: true
+  row_group_size: 100000
+  sort_keys: [timestamp, asset]

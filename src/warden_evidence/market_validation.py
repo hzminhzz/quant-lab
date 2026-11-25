@@ -265,12 +265,21 @@ def write_contract_and_manifest_atomic(
     allow_overwrite: bool = False,
     repo_root: Path | None = None,
 ) -> None:
-    """Validate provenance and digest synchronization, then atomically write contract YAML + manifest JSON."""
+    """Validate provenance and digest synchronization, then atomically write contract YAML + manifest JSON.
+
+    ``contract_dict`` is a contract-YAML document: either the legacy 22-field
+    projection or a v2 declaration carrying its governance keys (``spec_version``,
+    ``evidence_tier``, ``selection_group_id``, ``allow_leverage``,
+    ``max_gross_leverage``, ...).  It is validated through
+    :meth:`EvaluationContract.from_dict` — the same rule set the YAML loader uses —
+    so a declared policy is validated and written instead of being refused, and a
+    document that declares governance without ``spec_version: 2`` is refused.
+    """
     prov = contract_dict.get("data_provenance")
     if prov not in {MARKET, "synthetic"}:
         raise ContractValidationError(f"data_provenance must be {MARKET!r} or 'synthetic', got {prov!r}")
     try:
-        contract = EvaluationContract(**contract_dict)
+        contract = EvaluationContract.from_dict(contract_dict, source=str(contract_path))
     except TypeError as exc:
         raise ContractValidationError(f"Invalid contract payload: {exc}") from exc
 

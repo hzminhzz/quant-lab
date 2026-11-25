@@ -5,28 +5,23 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import sqlite3
+
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 
-def main():
-    repo_root = Path(__file__).resolve().parent.parent
+def main(repo_root: Path | None = None):
+    repo_root = Path(__file__).resolve().parent.parent if repo_root is None else Path(repo_root)
     out_dir = repo_root / ".workspace" / "af30_campaign"
     screens_path = out_dir / "screens.json"
 
     screens = json.loads(screens_path.read_text(encoding="utf-8"))
 
-    db_path = repo_root / "registry" / "registry.db"
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        search_state = conn.execute(
-            "SELECT * FROM contract_search_state WHERE contract_id='MULTI_ASSET_1H_V1'"
-        ).fetchone()
-        t1 = conn.execute(
-            "SELECT * FROM trials WHERE run_id='RUN-HYP091-001'"
-        ).fetchone()
-        t2 = conn.execute(
-            "SELECT * FROM trials WHERE run_id='RUN-HYP091-002'"
-        ).fetchone()
+    ledger = ReadOnlyResearchRegistry(repo_root / "registry" / "registry.db")
+    search_state = ledger.read_search_state("MULTI_ASSET_1H_V1")
+    t1 = ledger.read_trial_evidence("RUN-HYP091-001")
+    t2 = ledger.read_trial_evidence("RUN-HYP091-002")
+    if search_state is None or t1 is None or t2 is None:
+        raise LookupError("AF30 campaign report needs the search-state row and both HYP-2026-091 trials")
 
     lines = [
         "# AF30 Campaign Report — 20 Strategies & Handcrafted Book on MULTI_ASSET_1H_V1",

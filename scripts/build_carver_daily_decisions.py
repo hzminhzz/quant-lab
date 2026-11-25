@@ -29,6 +29,7 @@ from typing import Any
 from scipy import stats
 
 from warden.gates import DSR_FLOOR, REVISE_SR_FLOOR, SR2_FLOOR, SRD_FLOOR
+from warden_ops.readonly import ReadOnlyResearchRegistry
 
 DEFAULT_DB = Path("registry/registry.db")
 DEFAULT_OUT = Path(".workspace/af30_campaign/decision")
@@ -53,10 +54,8 @@ DELAY_SR_HURDLE = SRD_FLOOR
 DSR_HURDLE = DSR_FLOOR
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
-    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    con.row_factory = sqlite3.Row
-    return con
+def connect(db_path: Path) -> ReadOnlyResearchRegistry:
+    return ReadOnlyResearchRegistry(db_path)
 
 
 def audit_report(run_id: str, audit_dir: Path) -> dict[str, Any] | None:
@@ -259,43 +258,31 @@ def classify(hyp: dict[str, Any], trial: dict[str, Any] | None,
 def campaign_summary(db_path: Path, audit_dir: Path, revisions_dir: Path,
                      hyp_ids: tuple[str, ...] = HYPOTHESES) -> str:
     """Render the campaign-level report from the same rows the records cite."""
-    con = connect(db_path)
-    try:
-        rows = []
-        trial_rows: dict[str, Any] = {}
-        for hyp_id in hyp_ids:
-            hyp = con.execute("SELECT * FROM hypotheses WHERE hypothesis_id=?", (hyp_id,)).fetchone()
-            if hyp is None:
-                raise ValueError(f"{hyp_id} is not registered; refusing to summarise a partial set")
-            trial = con.execute("SELECT * FROM trials WHERE hypothesis_id=? "
-                                "ORDER BY trial_number_in_hyp DESC LIMIT 1", (hyp_id,)).fetchone()
-            screen = con.execute("SELECT * FROM selection_attempts WHERE hypothesis_id=? "
-                                 "AND kind='standalone_screen'", (hyp_id,)).fetchone()
-            verdict, gate = classify(dict(hyp), dict(trial) if trial else None,
-                                     dict(screen) if screen else None)
-            if trial is not None:
-                trial_rows[hyp_id] = dict(trial)
-            rows.append((hyp_id, hyp["title"], verdict, gate, int(hyp["trials_used"]),
-                         trial["verdict"] if trial else ""))
-        total = con.execute("SELECT (SELECT COUNT(*) FROM trials WHERE contract_id=?) + "
-                            "(SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?)",
-                            (CONTRACT_ID, CONTRACT_ID)).fetchone()[0]
-        ours = con.execute(
-            f"SELECT (SELECT COUNT(*) FROM trials WHERE hypothesis_id IN ({','.join('?' * len(hyp_ids))})) + "
-            f"(SELECT COUNT(*) FROM selection_attempts WHERE hypothesis_id IN ({','.join('?' * len(hyp_ids))}) "
-            f"AND kind='param_grid')", (*hyp_ids, *hyp_ids)).fetchone()[0]
-        qualified = sum(1 for r in rows if r[5] == "CANDIDATE_FOR_QUALIFICATION")
-        con_screens = con.execute("SELECT COUNT(*) FROM selection_attempts WHERE contract_id=? "
-                                  "AND kind='standalone_screen'", (CONTRACT_ID,)).fetchone()[0]
-        floor_now = con.execute("SELECT max_keff_gate FROM contract_search_state WHERE contract_id=?",
-                                (CONTRACT_ID,)).fetchone()[0]
-        s05_grid = [json.loads(r[0]).get("net_sharpe") for r in con.execute(
-            "SELECT diagnostics_json FROM selection_attempts WHERE hypothesis_id='HYP-2026-099' "
-            "AND kind='param_grid' ORDER BY created_at").fetchall()]
-        s01_sel = json.loads(trial_rows.get("HYP-2026-095", {}).get("diagnostics_json") or "{}").get("selection", {})
-
-    finally:
-        con.close()
+    ledger = connect(db_path)
+    rows = []
+    trial_rows: dict[str, Any] = {}
+    for hyp_id in hyp_ids:
+        hyp = ledger.read_hypothesis(hyp_id)
+        if hyp is None:
+            raise ValueError(f"{hyp_id} is not registered; refusing to summarise a partial set")
+        trial = ledger.read_latest_trial(hyp_id)
+        screen = ledger.read_standalone_screen(hyp_id)
+        verdict, gate = classify(dict(hyp), dict(trial) if trial else None,
+                                 dict(screen) if screen else None)
+        if trial is not None:
+            trial_rows[hyp_id] = dict(trial)
+        rows.append((hyp_id, hyp["title"], verdict, gate, int(hyp["trials_used"]),
+                     trial["verdict"] if trial else ""))
+    contract_counts = ledger.read_contract_evidence_counts(CONTRACT_ID)
+    total = contract_counts["trials"] + contract_counts["selection_attempts"]
+    owned = ledger.read_hypothesis_evidence_counts(hyp_ids, attempt_kind="param_grid")
+    ours = owned["trials"] + owned["selection_attempts"]
+    qualified = sum(1 for r in rows if r[5] == "CANDIDATE_FOR_QUALIFICATION")
+    con_screens = contract_counts["standalone_screens"]
+    floor_now = (ledger.read_search_state(CONTRACT_ID) or {}).get("max_keff_gate")
+    s05_grid = [json.loads(diag).get("net_sharpe") for diag in
+                ledger.read_param_grid_diagnostics("HYP-2026-099")]
+    s01_sel = json.loads(trial_rows.get("HYP-2026-095", {}).get("diagnostics_json") or "{}").get("selection", {})
 
     lines = ["# AF30 daily strategy suite — campaign decision report", "",
              ("Derived from `registry/registry.db` by `scripts/build_carver_daily_decisions.py --report`. "
@@ -363,36 +350,30 @@ def campaign_summary(db_path: Path, audit_dir: Path, revisions_dir: Path,
 def collect(db_path: Path, audit_dir: Path, revisions_dir: Path,
             hyp_ids: tuple[str, ...] = HYPOTHESES) -> list[tuple[Path, str]]:
     """Resolve and render every record, or raise before anything is written."""
-    con = connect(db_path)
-    try:
-        state = con.execute("SELECT * FROM contract_search_state WHERE contract_id=?", (CONTRACT_ID,)).fetchone()
-        if state is None:
-            raise ValueError(f"no contract_search_state row for {CONTRACT_ID}")
-        contract = dict(state)
-        contract["unvectorized_screens"] = con.execute(
-            "SELECT COUNT(*) FROM selection_attempts WHERE contract_id=? AND kind='standalone_screen'",
-            (CONTRACT_ID,)).fetchone()[0]
-        rendered: list[tuple[Path, str]] = []
-        for hyp_id in hyp_ids:
-            hyp = con.execute("SELECT * FROM hypotheses WHERE hypothesis_id=?", (hyp_id,)).fetchone()
-            if hyp is None:
-                raise ValueError(f"{hyp_id} is not registered; refusing to emit a partial set")
-            trial = con.execute("SELECT * FROM trials WHERE hypothesis_id=? ORDER BY trial_number_in_hyp DESC LIMIT 1",
-                                (hyp_id,)).fetchone()
-            screen = con.execute("SELECT * FROM selection_attempts WHERE hypothesis_id=? AND kind='standalone_screen'",
-                                 (hyp_id,)).fetchone()
-            if trial is None and screen is None:
-                raise ValueError(f"{hyp_id} has neither a trial nor a Stage-1 screen row; no evidence to cite")
-            refusals_path = revisions_dir / f"{hyp_id}.refusals.md"
-            refusals = str(refusals_path) if refusals_path.is_file() else None
-            audit = audit_report(trial["run_id"], audit_dir) if trial is not None else None
-            if trial is not None and audit is None:
-                raise ValueError(f"{hyp_id}: no audit report for {trial['run_id']}")
-            text = render(dict(hyp), dict(trial) if trial else None, dict(screen) if screen else None,
-                          audit, contract, refusals)
-            rendered.append((Path(hyp_id) / "DECISION.md", text))
-    finally:
-        con.close()
+    ledger = connect(db_path)
+    state = ledger.read_search_state(CONTRACT_ID)
+    if state is None:
+        raise ValueError(f"no contract_search_state row for {CONTRACT_ID}")
+    contract = dict(state)
+    contract["unvectorized_screens"] = ledger.read_contract_evidence_counts(
+        CONTRACT_ID)["standalone_screens"]
+    rendered: list[tuple[Path, str]] = []
+    for hyp_id in hyp_ids:
+        hyp = ledger.read_hypothesis(hyp_id)
+        if hyp is None:
+            raise ValueError(f"{hyp_id} is not registered; refusing to emit a partial set")
+        trial = ledger.read_latest_trial(hyp_id)
+        screen = ledger.read_standalone_screen(hyp_id)
+        if trial is None and screen is None:
+            raise ValueError(f"{hyp_id} has neither a trial nor a Stage-1 screen row; no evidence to cite")
+        refusals_path = revisions_dir / f"{hyp_id}.refusals.md"
+        refusals = str(refusals_path) if refusals_path.is_file() else None
+        audit = audit_report(trial["run_id"], audit_dir) if trial is not None else None
+        if trial is not None and audit is None:
+            raise ValueError(f"{hyp_id}: no audit report for {trial['run_id']}")
+        text = render(dict(hyp), dict(trial) if trial else None, dict(screen) if screen else None,
+                      audit, contract, refusals)
+        rendered.append((Path(hyp_id) / "DECISION.md", text))
     return rendered
 
 

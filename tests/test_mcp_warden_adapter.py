@@ -274,3 +274,14 @@ def test_execute_forces_non_interactive_and_handles_bad_flags_type(
     truncated_body = json.loads(truncated_rpc["result"]["content"][0]["text"])
     assert truncated_body["result"] is None
     assert truncated_body["no_auto_retry"] is True
+
+
+def test_reconcile_screen_is_cli_only_and_never_exposed(fixture_root: Path) -> None:
+    parser = build_parser()
+    subparsers_action = next(
+        a for a in parser._actions if isinstance(a, argparse._SubParsersAction)
+    )
+    assert "reconcile-screen" in subparsers_action.choices
+    assert "reconcile-screen" not in COMMANDS
+    with pytest.raises(RestrictedCommandError):
+        build_argv("reconcile-screen", ["experiments/active/test.yaml"], root=fixture_root)

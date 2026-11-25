@@ -148,7 +148,7 @@ def test_valid_causal_pipelines_pass_verification(test_dataset: tuple[pl.DataFra
 
 
 def test_content_addressed_feature_cache_hit_speed(
-    test_dataset: tuple[pl.DataFrame, EvaluationContract], tmp_path: Path
+    test_dataset: tuple[pl.DataFrame, EvaluationContract], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     panel, contract = test_dataset
     cache_dir = tmp_path / "cache" / "features"
@@ -158,17 +158,39 @@ def test_content_addressed_feature_cache_hit_speed(
     # First call: computes and caches
     t0 = time.perf_counter()
     feat1 = compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=registry)
-    _ = time.perf_counter() - t0
+    cold_seconds = time.perf_counter() - t0
     assert feat1.height == panel.height
 
-    # Second call: hits Parquet cache directly
+    # A hit must not recompute features or revalidate the prover. The spies are
+    # installed *before* the timed call so instrumentation setup is not measured.
+    from warden import leakage
+
+    calls = {"compute": 0, "verify": 0}
+    real_compute, real_verify = CausalTimeSeriesPipeline.compute, leakage.verify_prefix_invariance
+
+    def spy_compute(self, *args, **kwargs):
+        calls["compute"] += 1
+        return real_compute(self, *args, **kwargs)
+
+    def spy_verify(*args, **kwargs):
+        calls["verify"] += 1
+        return real_verify(*args, **kwargs)
+
+    # Patch the class, not the instance: instance attributes enter feature_identity's params.
+    monkeypatch.setattr(CausalTimeSeriesPipeline, "compute", spy_compute)
+    monkeypatch.setattr(leakage, "verify_prefix_invariance", spy_verify)
+
+    # Second call: hits the Parquet cache directly. One single sample, no
+    # warm-up and no best-of-N: the hit must clear the strict 50ms budget.
     t1 = time.perf_counter()
     feat2 = compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=registry)
     t_second = time.perf_counter() - t1
 
     assert feat2.equals(feat1)
-    # Cache hit must clear strict 50ms budget (< 0.050s)
-    assert t_second < 0.05, f"Cache hit took {t_second * 1000:.1f}ms (expected < 50ms)"
+    assert calls == {"compute": 0, "verify": 0}, calls
+    assert t_second < 0.05, (
+        f"Cache hit took {t_second * 1000:.1f}ms (expected < 50ms; cold {cold_seconds:.3f}s)"
+    )
 
     # Verify SQLite feature_sets record
     with registry._connect() as conn:
@@ -222,3 +244,87 @@ def test_purged_walk_forward_splits_and_fold_isolation(
         label_col="target",
     )
     assert "prediction_value" in preds.columns
+
+
+class _FoldCausalPipeline:
+    def compute(self, bars_df: pl.DataFrame, contract: EvaluationContract) -> pl.DataFrame:
+        return bars_df.sort("timestamp", "asset").with_columns(
+            feat=pl.col("close").pct_change(1).shift(1).over("asset")
+        )
+
+
+class _LaterFoldLeakyEstimator:
+    """Causal in the first fold; peeks at the next validation bar from ``leak_from`` on."""
+
+    def __init__(self, leak_from) -> None:
+        self.leak_from = leak_from
+        self.calls = 0
+
+    def fit_predict_fold(
+        self, train_df: pl.DataFrame, val_features_df: pl.DataFrame,
+        feature_cols: Sequence[str], label_col: str, seed: int = 42
+    ) -> pl.DataFrame:
+        self.calls += 1
+        if val_features_df["timestamp"].min() >= self.leak_from:
+            return (
+                val_features_df.sort("timestamp", "asset")
+                .with_columns(
+                    prediction_value=pl.col(feature_cols[0]).shift(-1).over("asset").fill_null(0.0)
+                )
+                .select("timestamp", "asset", "prediction_value")
+            )
+        return (
+            val_features_df.with_columns(prediction_value=pl.col(feature_cols[0]))
+            .select("timestamp", "asset", "prediction_value")
+        )
+
+
+def test_within_fold_lookahead_in_later_folds_is_detected(
+    test_dataset: tuple[pl.DataFrame, EvaluationContract], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Acceptance #3: a leak planted only in fold 2+ must not hide behind fold 0."""
+    from types import SimpleNamespace
+
+    from warden import protocols
+    from warden.leakage import verify_model_prefix_invariance
+
+    panel, contract = test_dataset
+    timestamps = sorted(panel["timestamp"].unique().to_list())[:60]
+    panel = panel.filter(pl.col("timestamp").is_in(timestamps)).sort("timestamp", "asset")
+    fold_a = timestamps[30:35]
+    fold_b = timestamps[40:45]
+    created: list[_LaterFoldLeakyEstimator] = []
+
+    def build_estimator(params: dict) -> _LaterFoldLeakyEstimator:
+        estimator = _LaterFoldLeakyEstimator(leak_from=fold_b[0])
+        created.append(estimator)
+        return estimator
+
+    mod = SimpleNamespace(pipeline=_FoldCausalPipeline(), build_estimator=build_estimator)
+
+    def fake_prepare(*args, **kwargs):
+        model_df = pl.DataFrame(
+            {"timestamp": fold_a + fold_b, "asset": ["AAA"] * 10, "feat": [1.0] * 10}
+        )
+        return None, model_df, None, ["feat"], None
+
+    def fake_folds(*args, **kwargs):
+        for fold_ts in (fold_a, fold_b):
+            val = pl.DataFrame(
+                {"timestamp": fold_ts, "asset": ["AAA"] * len(fold_ts), "feat": [1.0] * len(fold_ts)}
+            )
+            yield val, val
+
+    empty = pl.DataFrame(
+        {"timestamp": [], "asset": [], "prediction_value": []},
+        schema={"timestamp": pl.Datetime("us", "UTC"), "asset": pl.String, "prediction_value": pl.Float64},
+    )
+    monkeypatch.setattr(protocols, "prepare_causal_model_dataset", fake_prepare)
+    monkeypatch.setattr(protocols, "iter_causal_model_folds", fake_folds)
+    monkeypatch.setattr(protocols, "run_causal_model_strategy",
+                        lambda *args, **kwargs: {"predictions": empty})
+
+    with pytest.raises(LookaheadLeakageError, match=r"fold 1"):
+        verify_model_prefix_invariance(mod, panel, contract, {})
+    # Both folds were exercised (two fit_predict_fold calls each: full and truncated).
+    assert created[-1].calls == 4

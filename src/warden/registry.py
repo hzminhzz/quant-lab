@@ -574,6 +574,49 @@ class ResearchRegistry:
                 "outcome": attempt[0] if attempt else None, "data_sha256": row[2] if row else "",
                 "retry_allowed": state == "UNSEEN"}
 
+    def reconcile_screen(self, hypothesis_id, contract_id, strategy_module, parameters, *,
+                         confirm_interrupted: bool = False) -> dict:
+        """Project a Stage 1 receipt and durably mark an orphan for review.
+
+        Moving RESERVED -> INTERRUPTED_REVIEW keeps the screen identity consumed:
+        the receipt can never be reserved or finalized again, and no trial or
+        selection debt is credited back. This is a review transition, not a retry.
+        """
+        key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT state,attempt_id,data_sha256 FROM screen_receipts WHERE screen_key=?",
+                (key,),
+            ).fetchone()
+            if row is None:
+                return {"screen_key": key, "state": "UNSEEN", "reason": "no reservation",
+                        "attempt_id": "", "outcome": None, "data_sha256": "",
+                        "eligible": False, "retry_allowed": True}
+            if confirm_interrupted and row[0] == "RESERVED":
+                conn.execute(
+                    "UPDATE screen_receipts SET state='INTERRUPTED_REVIEW',finalized_at=? "
+                    "WHERE screen_key=? AND state='RESERVED'",
+                    (time.time(), key),
+                )
+                row = conn.execute(
+                    "SELECT state,attempt_id,data_sha256 FROM screen_receipts WHERE screen_key=?",
+                    (key,),
+                ).fetchone()
+            attempt = (conn.execute("SELECT outcome FROM selection_attempts WHERE attempt_id=?",
+                                    (row[1],)).fetchone() if row[1] else None)
+        state = row[0]
+        reason = {
+            "RESERVED": "screen compute uncommitted; reconcile after writer exits, never auto retry",
+            "INTERRUPTED_REVIEW": "interrupted before committed screen result; review, never replay",
+            "FINALIZED": "screen result committed",
+        }.get(state, "screen receipt requires review")
+        if state == "FINALIZED" and attempt is None:
+            state, reason = "EVIDENCE_DRIFT", "finalized receipt has no immutable selection attempt"
+        return {"screen_key": key, "state": state, "reason": reason,
+                "attempt_id": row[1] or "", "outcome": attempt[0] if attempt else None,
+                "data_sha256": row[2] or "", "eligible": state == "FINALIZED",
+                "retry_allowed": state == "UNSEEN"}
+
     def spec_status(self, hypothesis_id, contract_id, strategy_module, parameters) -> dict:
         """One read-only projection for queue restart, without running research."""
         module, config = normalise_module(strategy_module), canonical_json(parameters or {})

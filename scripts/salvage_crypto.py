@@ -28,7 +28,7 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
     if preset == "majors":
         contract_id = "CRYPTO_MAJORS_1H_V1"
         out_exp_path = Path("data/exploratory/crypto_majors_1h.parquet")
-        out_hold_path = Path("data/holdout_staging/crypto_majors_1h.parquet")
+        out_hold_path = Path("data/holdout/crypto_majors_1h.parquet")
         contract_yaml = Path("contracts/crypto_majors_1h_v1.yaml")
         start_year, n_assets = 2020, 23
         t_start, v_start, v_end, h_end = "2020-01-01T00:00:00Z", "2023-01-01T00:00:00Z", "2025-01-01T00:00:00Z", "2026-10-24T00:00:00Z"
@@ -37,7 +37,7 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
     elif preset == "top100":
         contract_id = "CRYPTO_PERPS_TOP100_1H_V1"
         out_exp_path = Path("data/exploratory/crypto_perps_top100_1h.parquet")
-        out_hold_path = Path("data/holdout_staging/crypto_perps_top100_1h.parquet")
+        out_hold_path = Path("data/holdout/crypto_perps_top100_1h.parquet")
         contract_yaml = Path("contracts/crypto_perps_top100_1h_v1.yaml")
         start_year, n_assets = 2023, 100
         t_start, v_start, v_end, h_end = "2023-01-01T00:00:00Z", "2024-07-01T00:00:00Z", "2025-07-01T00:00:00Z", "2026-10-24T00:00:00Z"
@@ -135,12 +135,26 @@ def salvage_crypto_universe(preset: str = "majors") -> None:
     )
 
     out_exp_path.parent.mkdir(parents=True, exist_ok=True)
-    out_hold_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        out_hold_path.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        raise PermissionError(
+            f"cannot create holdout directory '{out_hold_path.parent}': {exc}. "
+            "No staging fallback exists; the sealed holdout directory must be written by its "
+            "authorized operator."
+        ) from exc
 
     print(f"5. Writing exploratory panel: {out_exp_path} ({exp_df.height} rows)...")
     exp_df.write_parquet(out_exp_path)
-    print(f"Writing holdout staging panel: {out_hold_path} ({holdout_df.height} rows)...")
-    holdout_df.write_parquet(out_hold_path)
+    print(f"Writing sealed holdout panel: {out_hold_path} ({holdout_df.height} rows)...")
+    try:
+        holdout_df.write_parquet(out_hold_path)
+    except PermissionError as exc:
+        raise PermissionError(
+            f"cannot write holdout dataset to '{out_hold_path}': {exc}. "
+            "No staging fallback exists; the sealed holdout directory must be written by its "
+            "authorized operator."
+        ) from exc
 
     exp_sha = hashlib.sha256(out_exp_path.read_bytes()).hexdigest()
 

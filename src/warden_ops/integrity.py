@@ -10,15 +10,45 @@ import os
 from pathlib import Path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
+MANIFEST_SHA256_LEN = 64
+_PROTECTED_GLOBS = (
+    "src/warden/**/*.py",
+    "src/warden_ops/**/*.py",
+    "src/warden_evidence/**/*.py",
+    "contracts/*.yaml",
+    "contracts/*.yml",
+    "contracts/datasets/*.json",
+)
+_PROTECTED_FILES = (
+    "AGENTS.md",
+    "pyproject.toml",
+    "uv.lock",
+    "scripts/registry_evidence_snapshot.py",
+    "scripts/rehearse_state_machine_migration.py",
+    "scripts/mcp_warden/adapter.py",
+    "scripts/campaign_projection.py",
+    "scripts/run_carver_daily_campaign.py",
+    "scripts/research_outcome_memory.py",
+    "scripts/run_hourly_pipeline.sh",
+    "scripts/setup_agent_adapter.sh",
+    "scripts/lock_holdout_permissions.sh",
+    "scripts/lock_governance_permissions.py",
+    "scripts/preflight_trust_boundary.py",
+    "scripts/apply_trust_boundary.sh",
+)
 _AST_SKIP_DIRS = frozenset({
     ".git", ".venv", "venv", "__pycache__", ".pytest_cache",
     ".ruff_cache", ".mypy_cache", "build", "dist", "node_modules",
 })
 _BANNED_REPO_MODULES = ("ml4t.live", "ml4t_live")
 _BANNED_STRATEGY_ROOTS = frozenset(
-    {"sqlite3", "aiosqlite", "subprocess", "httpx", "requests", "urllib", "urllib3", "socket", "aiohttp"}
+    {
+        "sqlite3", "aiosqlite", "subprocess", "httpx", "requests", "urllib", "urllib3", "socket", "aiohttp",
+        "duckdb", "importlib",
+    }
 )
 _BANNED_STRATEGY_MODULES = ("http.client", "ml4t.backtest.engine", "ml4t.backtest.Engine")
+_BANNED_STRATEGY_CALLS = frozenset({"__import__", "eval", "exec"})
 _BANNED_FROM_CHILDREN: dict[str, dict[str, tuple[str, frozenset[str]]]] = {
     "repo-wide": {"ml4t": ("ml4t.live", frozenset({"live", "*"}))},
     "strategy": {
@@ -30,6 +60,19 @@ _BANNED_FROM_CHILDREN: dict[str, dict[str, tuple[str, frozenset[str]]]] = {
 
 def _matches_prefix(name: str, prefixes: tuple[str, ...]) -> bool:
     return any(name == p or name.startswith(p + ".") for p in prefixes)
+
+
+def _call_target_name(func: ast.expr) -> str | None:
+    """Return the called builtin's bare name for `name(...)` or `builtins.name(...)`."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "builtins"
+    ):
+        return func.attr
+    return None
 
 
 def _iter_repo_py_files(repo: Path) -> list[Path]:
@@ -62,10 +105,11 @@ def check_ast_boundaries(repo_root: Path = Path(".")) -> list[str]:
             violations.append(f"{rel}:{lineno}: {type(exc).__name__}: {msg}")
             continue
 
+        is_strategy = rel_path.parts[0] == "strategies"
         scopes: list[tuple[str, tuple[str, ...], frozenset[str]]] = [
             ("repo-wide", _BANNED_REPO_MODULES, frozenset()),
         ]
-        if rel_path.parts[0] == "strategies":
+        if is_strategy:
             scopes.append(("strategy", _BANNED_STRATEGY_MODULES, _BANNED_STRATEGY_ROOTS))
 
         for node in ast.walk(tree):
@@ -92,45 +136,83 @@ def check_ast_boundaries(repo_root: Path = Path(".")) -> list[str]:
                             f"{rel}:{node.lineno}: banned {scope} import '{rule[0]}' "
                             f"(from {mod} import {', '.join(imported)})"
                         )
+            elif isinstance(node, ast.Call) and is_strategy:
+                called = _call_target_name(node.func)
+                if called in _BANNED_STRATEGY_CALLS:
+                    violations.append(f"{rel}:{node.lineno}: banned strategy call '{called}()'")
     return violations
 
 def compute_file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def protected_manifest_entries(repo_root: Path = Path(".")) -> dict[str, Path]:
+    """The exact protected set: evaluator packages, contracts, dataset manifests, trust files.
+
+    This is the single source of truth shared by manifest generation and verification, so a
+    newly added file under a protected directory can never be silently absent from the set.
+    """
+    repo = Path(repo_root)
+    entries: dict[str, Path] = {}
+    for pattern in _PROTECTED_GLOBS:
+        for path in sorted(repo.glob(pattern)):
+            if path.is_file():
+                entries[path.relative_to(repo).as_posix()] = path
+    for rel in _PROTECTED_FILES:
+        path = repo / rel
+        if path.is_file():
+            entries[rel] = path
+    return entries
+
+
 def generate_manifest(repo_root: Path = Path(".")) -> str:
     repo = Path(repo_root)
-    protected = (
-        sorted(repo.glob("src/warden/**/*.py"))
-        + sorted(repo.glob("src/warden_ops/**/*.py"))
-        + sorted(repo.glob("src/warden_evidence/**/*.py"))
-        + sorted(repo.glob("contracts/*.yaml"))
-        + sorted(repo.glob("contracts/*.yml"))
-        + sorted(repo.glob("contracts/datasets/*.json"))
-    )
-    protected += [
-        p for p in (
-            repo / "AGENTS.md",
-            repo / "pyproject.toml",
-            repo / "uv.lock",
-            repo / "scripts" / "registry_evidence_snapshot.py",
-            repo / "scripts" / "rehearse_state_machine_migration.py",
-            repo / "scripts" / "mcp_warden" / "adapter.py",
-            repo / "scripts" / "campaign_projection.py",
-            repo / "scripts" / "run_carver_daily_campaign.py",
-            repo / "scripts" / "research_outcome_memory.py",
-            repo / "scripts" / "run_hourly_pipeline.sh",
-            repo / "scripts" / "setup_agent_adapter.sh",
-            repo / "scripts" / "lock_holdout_permissions.sh",
-            repo / "scripts" / "lock_governance_permissions.sh",
-            repo / "scripts" / "preflight_trust_boundary.py",
-            repo / "scripts" / "apply_trust_boundary.sh",
-        ) if p.is_file()
-    ]
-    protected = list(dict.fromkeys(protected))
-    content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo)}" for p in protected) + "\n"
+    protected = list(protected_manifest_entries(repo).values())
+    content = "\n".join(f"{compute_file_sha256(p)}  {p.relative_to(repo).as_posix()}" for p in protected) + "\n"
     (repo / MANIFEST_FILE).write_text(content, encoding="utf-8")
     return content
+
+
+def _parse_manifest(manifest: Path) -> dict[str, str] | None:
+    """Parse `<sha256>  <relpath>` lines; malformed, empty or duplicate entries fail closed."""
+    entries: dict[str, str] = {}
+    try:
+        lines = manifest.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return None
+    if not any(line.strip() for line in lines):
+        return None
+    for line in lines:
+        if not line.strip():
+            continue
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) != 2:
+            return None
+        digest, rel = parts
+        if len(digest) != MANIFEST_SHA256_LEN or any(c not in "0123456789abcdef" for c in digest):
+            return None
+        if rel in entries:
+            return None
+        entries[rel] = digest
+    return entries
+
+
+def _manifest_signature_ok(repo: Path) -> bool:
+    """Verify a present human signature whenever the human-held key is available.
+
+    A missing signature is not a hash-integrity failure (approval state reports it); a present
+    signature under a supplied key must match the manifest bytes exactly.
+    """
+    sig = repo / (MANIFEST_FILE + ".sig")
+    key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
+    if not sig.is_file() or not key:
+        return True
+    try:
+        recorded = sig.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return False
+    digest = hmac.new(key.encode(), (repo / MANIFEST_FILE).read_bytes(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(digest, recorded)
 
 
 def manifest_approval_state(repo_root: Path = Path(".")) -> dict:
@@ -155,15 +237,22 @@ def manifest_approval_state(repo_root: Path = Path(".")) -> dict:
 
 
 def check_worktree(repo_root: Path = Path(".")) -> bool:
+    """Fail closed unless the manifest lists exactly the protected set with matching hashes."""
     repo = Path(repo_root)
     manifest = repo / MANIFEST_FILE
     if not manifest.is_file():
         return False
-    for line in manifest.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        expected, rel = line.strip().split(maxsplit=1)
-        target = repo / rel
-        if not target.is_file() or compute_file_sha256(target) != expected:
+    listed = _parse_manifest(manifest)
+    if listed is None:
+        return False
+    protected = protected_manifest_entries(repo)
+    # Exact set equality: an unlisted new file under a protected directory, a manifest entry
+    # whose file disappeared, and a stale manifest are all integrity failures.
+    if set(listed) != set(protected):
+        return False
+    for rel, expected in listed.items():
+        if compute_file_sha256(protected[rel]) != expected:
             return False
+    if not _manifest_signature_ok(repo):
+        return False
     return not check_ast_boundaries(repo)

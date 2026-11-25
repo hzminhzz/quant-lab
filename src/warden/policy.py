@@ -11,7 +11,8 @@ from dataclasses import dataclass
 ALLOWED = frozenset({
     "status", "check-worktree", "verify", "screen", "backtest",
     "audit-check", "handoff", "continue", "register-hypothesis",
-    "attempt-status", "reconcile-attempt", "verify-causality", "spec-status", "advance",
+    "attempt-status", "reconcile-attempt", "reconcile-screen", "verify-causality",
+    "spec-status", "advance",
 })
 APPROVAL = frozenset({"qualify", "generate-manifest"})
 

@@ -37,6 +37,7 @@ from pathlib import Path
 
 from warden.audit import record as audit_record
 from warden.cli import cmd_backtest, cmd_screen, cmd_verify
+from warden.lease import MutationBusy, mutation_lease
 from warden.policy import authorize
 from warden.runner import ExperimentRunner
 
@@ -125,39 +126,59 @@ def main(argv: list[str] | None = None) -> int:
         print(f"REFUSED: spec not found: {spec}", file=sys.stderr)
         return 2
 
-    runner = ExperimentRunner()
-    started = time.perf_counter()
-    stages: list[dict] = []
-    failed_stage = None
-    for stage in STAGES:
-        if failed_stage is not None and not (args.force_all and failed_stage == "screen"):
-            break
-        result = run_stage(stage, spec, runner, args.json, echo=not args.json)
-        stages.append(result)
-        if not result["ok"]:
-            failed_stage = stage
-    session = {"ok": failed_stage is None, "spec": str(spec), "failed_stage": failed_stage,
-               "wall_ms": round((time.perf_counter() - started) * 1000.0, 1), "stages": stages}
+    # One session is one registry mutation: it must not interleave with the CLI,
+    # the MCP adapter or another session. The handlers themselves never take the
+    # lease (main() does), so holding it for the whole session stays non-reentrant.
+    try:
+        lease = mutation_lease(Path("registry") / "registry.db")
+        lease.__enter__()
+    except MutationBusy as exc:
+        busy = {"ok": False, "busy": True, "status": "BUSY", "reason": str(exc),
+                "spec": str(spec), "failed_stage": None, "exit": 75, "stages": []}
+        if args.summary_out:
+            Path(args.summary_out).write_text(json.dumps(busy) + "\n", encoding="utf-8")
+        if args.json:
+            print(json.dumps(busy))
+        else:
+            print(f"REFUSED: {exc}", file=sys.stderr)
+        return 75
 
-    by_stage = {s["stage"]: s for s in stages}
-    screen = by_stage.get("screen", {}).get("payload", {})
-    backtest = by_stage.get("backtest", {}).get("payload", {})
-    envelope = {"ok": session["ok"], "spec": str(spec), "failed_stage": failed_stage,
-                "screen_passed": screen.get("passed"), "run_id": backtest.get("run_id"),
-                "verdict": backtest.get("verdict"),
-                "exit": 0 if session["ok"] else by_stage[failed_stage]["exit"],
-                "wall_ms": session["wall_ms"], "stages": session["stages"]}
+    try:
+        runner = ExperimentRunner()
+        started = time.perf_counter()
+        stages: list[dict] = []
+        failed_stage = None
+        for stage in STAGES:
+            if failed_stage is not None and not (args.force_all and failed_stage == "screen"):
+                break
+            result = run_stage(stage, spec, runner, args.json, echo=not args.json)
+            stages.append(result)
+            if not result["ok"]:
+                failed_stage = stage
+        session = {"ok": failed_stage is None, "spec": str(spec), "failed_stage": failed_stage,
+                   "wall_ms": round((time.perf_counter() - started) * 1000.0, 1), "stages": stages}
 
-    if args.summary_out:
-        Path(args.summary_out).write_text(json.dumps(envelope) + "\n", encoding="utf-8")
-    if args.json:
-        print(json.dumps(envelope))
-    else:
-        verdict = envelope["verdict"] or "n/a"
-        print(f"Session: stages={','.join(s['stage'] for s in stages)} "
-              f"failed={failed_stage or 'none'} screen_passed={envelope['screen_passed']} "
-              f"verdict={verdict} wall={envelope['wall_ms'] / 1000.0:.2f}s")
-    return envelope["exit"]
+        by_stage = {s["stage"]: s for s in stages}
+        screen = by_stage.get("screen", {}).get("payload", {})
+        backtest = by_stage.get("backtest", {}).get("payload", {})
+        envelope = {"ok": session["ok"], "spec": str(spec), "failed_stage": failed_stage,
+                    "screen_passed": screen.get("passed"), "run_id": backtest.get("run_id"),
+                    "verdict": backtest.get("verdict"),
+                    "exit": 0 if session["ok"] else by_stage[failed_stage]["exit"],
+                    "wall_ms": session["wall_ms"], "stages": session["stages"]}
+
+        if args.summary_out:
+            Path(args.summary_out).write_text(json.dumps(envelope) + "\n", encoding="utf-8")
+        if args.json:
+            print(json.dumps(envelope))
+        else:
+            verdict = envelope["verdict"] or "n/a"
+            print(f"Session: stages={','.join(s['stage'] for s in stages)} "
+                  f"failed={failed_stage or 'none'} screen_passed={envelope['screen_passed']} "
+                  f"verdict={verdict} wall={envelope['wall_ms'] / 1000.0:.2f}s")
+        return envelope["exit"]
+    finally:
+        lease.__exit__(None, None, None)
 
 
 if __name__ == "__main__":

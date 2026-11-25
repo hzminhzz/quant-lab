@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import hmac
 import io
 import os
 import sqlite3
@@ -370,3 +372,314 @@ def test_feature_cache_records_dynamic_ml4t_engineer_version(
     with sqlite3.connect(fixture.registry.db_path) as conn:
         versions = {r[0] for r in conn.execute("SELECT ml4t_engineer_version FROM feature_sets")}
     assert "9.9.9-test" in versions
+
+
+# --------------------------------------------------------------------------------------
+# Protected-set coverage: the manifest must be exactly the enforced protected set.
+# --------------------------------------------------------------------------------------
+
+
+def _make_protected_mini_repo(tmp_path: Path) -> Path:
+    """Mini repo whose protected set spans every enforced protected directory."""
+    from warden_ops.integrity import generate_manifest
+
+    repo = tmp_path / "protected_repo"
+    for rel in (
+        "contracts/datasets",
+        "src/warden",
+        "src/warden_ops",
+        "src/warden_evidence",
+        "scripts",
+        "strategies/candidates",
+        "experiments/active",
+    ):
+        (repo / rel).mkdir(parents=True, exist_ok=True)
+
+    (repo / "AGENTS.md").write_text("# test agents\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("[project]\nname = 'mini'\n", encoding="utf-8")
+    (repo / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (repo / "contracts" / "tiny.yaml").write_text("contract_id: TINY_V1\n", encoding="utf-8")
+    (repo / "contracts" / "tiny.yml").write_text("contract_id: TINY_YML_V1\n", encoding="utf-8")
+    (repo / "contracts" / "datasets" / "tiny.json").write_text('{"dataset": "TINY"}\n', encoding="utf-8")
+    (repo / "src" / "warden" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "src" / "warden" / "evaluator.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repo / "src" / "warden_ops" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "src" / "warden_ops" / "integrity.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repo / "src" / "warden_evidence" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "src" / "warden_evidence" / "market_validation.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (repo / "scripts" / "preflight_trust_boundary.py").write_text("# preflight\n", encoding="utf-8")
+
+    generate_manifest(repo)
+    return repo
+
+
+def _protected_rels(repo: Path) -> set[str]:
+    from warden_ops.integrity import protected_manifest_entries
+
+    return set(protected_manifest_entries(repo))
+
+
+def test_protected_set_covers_every_evaluator_contract_and_dataset_entry(tmp_path: Path) -> None:
+    from warden_ops.integrity import MANIFEST_FILE, check_worktree
+
+    repo = _make_protected_mini_repo(tmp_path)
+    rels = _protected_rels(repo)
+    required = {
+        "src/warden/evaluator.py",
+        "src/warden_ops/integrity.py",
+        "src/warden_evidence/market_validation.py",
+        "contracts/tiny.yaml",
+        "contracts/tiny.yml",
+        "contracts/datasets/tiny.json",
+        "AGENTS.md",
+        "pyproject.toml",
+        "uv.lock",
+        "scripts/preflight_trust_boundary.py",
+    }
+    assert required <= rels, sorted(required - rels)
+
+    manifest_rels = {
+        line.strip().split(maxsplit=1)[1]
+        for line in (repo / MANIFEST_FILE).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    }
+    assert manifest_rels == rels
+
+    assert check_worktree(repo) is True
+    assert _run_cli_check_worktree(repo).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "rel_path",
+    [
+        "contracts/late_contract.yaml",
+        "contracts/late_contract.yml",
+        "contracts/datasets/late_dataset.json",
+        "src/warden/late_evaluator.py",
+        "src/warden/nested/late_evaluator.py",
+        "src/warden_ops/late_ops.py",
+        "src/warden_evidence/late_evidence.py",
+    ],
+)
+def test_unlisted_protected_file_fails_closed(tmp_path: Path, rel_path: str) -> None:
+    from warden_ops.integrity import check_ast_boundaries, check_worktree
+
+    repo = _make_protected_mini_repo(tmp_path)
+    target = repo / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("VALUE = 1\n", encoding="utf-8")
+
+    # The file is innocuous: the failure must come from set coverage, not syntax or imports.
+    assert check_ast_boundaries(repo) == []
+    assert check_worktree(repo) is False
+    assert _run_cli_check_worktree(repo).returncode == 2
+
+
+def test_manifest_omitting_a_protected_file_fails_closed(tmp_path: Path) -> None:
+    from warden_ops.integrity import MANIFEST_FILE, check_worktree
+
+    repo = _make_protected_mini_repo(tmp_path)
+    manifest = repo / MANIFEST_FILE
+    lines = manifest.read_text(encoding="utf-8").splitlines()
+    kept = [line for line in lines if not line.endswith("  src/warden/evaluator.py")]
+    assert len(kept) == len(lines) - 1, "fixture must contain the omitted entry"
+    manifest.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+    assert check_worktree(repo) is False
+    assert _run_cli_check_worktree(repo).returncode == 2
+
+
+def test_manifest_entry_without_a_file_fails_closed(tmp_path: Path) -> None:
+    from warden_ops.integrity import MANIFEST_FILE, check_worktree
+
+    repo = _make_protected_mini_repo(tmp_path)
+    manifest = repo / MANIFEST_FILE
+    ghost = "0" * 64 + "  src/warden/ghost.py\n"
+    manifest.write_text(manifest.read_text(encoding="utf-8") + ghost, encoding="utf-8")
+
+    assert check_worktree(repo) is False
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(lambda text: text + text.splitlines()[0] + "\n", id="duplicate-entry"),
+        pytest.param(lambda text: text + "deadbeef  src/warden/evaluator.py\n", id="short-digest"),
+        pytest.param(lambda text: text + "not-a-digest-line\n", id="malformed-line"),
+        pytest.param(lambda text: "\n\n", id="empty-manifest"),
+    ],
+)
+def test_malformed_or_duplicate_manifest_lines_fail_closed(tmp_path: Path, mutate) -> None:
+    from warden_ops.integrity import MANIFEST_FILE, check_worktree
+
+    repo = _make_protected_mini_repo(tmp_path)
+    manifest = repo / MANIFEST_FILE
+    manifest.write_text(mutate(manifest.read_text(encoding="utf-8")), encoding="utf-8")
+
+    assert check_worktree(repo) is False
+
+
+def test_worktree_signature_is_verified_only_with_the_matching_human_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from warden_ops.integrity import MANIFEST_FILE, check_worktree
+
+    repo = _make_protected_mini_repo(tmp_path)
+    manifest = repo / MANIFEST_FILE
+    human_key = "human-held-key"
+    sig = repo / (MANIFEST_FILE + ".sig")
+    sig.write_text(hmac.new(human_key.encode(), manifest.read_bytes(), hashlib.sha256).hexdigest() + "\n",
+                   encoding="utf-8")
+
+    monkeypatch.delenv("WARDEN_HUMAN_SIGNING_KEY", raising=False)
+    assert check_worktree(repo) is True  # no key available: hash integrity only
+
+    monkeypatch.setenv("WARDEN_HUMAN_SIGNING_KEY", human_key)
+    assert check_worktree(repo) is True  # matching HMAC
+
+    monkeypatch.setenv("WARDEN_HUMAN_SIGNING_KEY", "guessed-key")
+    assert check_worktree(repo) is False  # a foreign key cannot certify the manifest
+
+    monkeypatch.setenv("WARDEN_HUMAN_SIGNING_KEY", human_key)
+    manifest.write_text(manifest.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    assert check_worktree(repo) is False  # HMAC covers the manifest bytes, not only the hashes
+
+    monkeypatch.delenv("WARDEN_HUMAN_SIGNING_KEY", raising=False)
+    assert check_worktree(repo) is True  # bytes still self-consistent, approval state reports the rest
+
+
+def test_missing_signature_is_not_a_hash_integrity_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from warden_ops.integrity import MANIFEST_FILE, check_worktree
+
+    repo = _make_protected_mini_repo(tmp_path)
+    assert not (repo / (MANIFEST_FILE + ".sig")).exists()
+    monkeypatch.setenv("WARDEN_HUMAN_SIGNING_KEY", "human-held-key")
+    assert check_worktree(repo) is True
+
+
+# --------------------------------------------------------------------------------------
+# Strategy-module AST boundaries: duckdb and dynamic import/exec primitives.
+# --------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "source"),
+    [
+        ("strategies/candidates/bad_duckdb.py", "import duckdb\n"),
+        ("strategies/books/bad_duckdb_from.py", "from duckdb import connect\n"),
+        ("strategies/candidates/bad_duckdb_sub.py", "def f():\n    import duckdb.connect\n"),
+        ("strategies/candidates/bad_importlib.py", "import importlib\n"),
+        ("strategies/books/bad_importlib_util.py", "import importlib.util\n"),
+        ("strategies/candidates/bad_from_importlib.py", "from importlib import import_module\n"),
+        ("strategies/candidates/bad_dunder_import.py",
+         "def f():\n    return __import__('datetime')\n"),
+        ("strategies/books/bad_dunder_import_attr.py",
+         "import builtins\n\ndef f():\n    return builtins.__import__('os')\n"),
+        ("strategies/candidates/bad_exec.py", "def f(payload):\n    exec(payload)\n"),
+        ("strategies/candidates/bad_eval.py", "def f(expr):\n    return eval(expr)\n"),
+        ("strategies/books/bad_eval_builtins.py",
+         "import builtins\n\ndef f(expr):\n    return builtins.eval(expr)\n"),
+    ],
+)
+def test_strategy_dynamic_import_and_exec_primitives_fail_closed(
+    tmp_path: Path, rel_path: str, source: str
+) -> None:
+    from warden_ops.integrity import check_ast_boundaries, check_worktree
+
+    repo = _make_ast_mini_repo(tmp_path, rel_path, source)
+    violations = check_ast_boundaries(repo)
+    assert violations, f"Expected AST violation for {rel_path}"
+    assert any(rel_path in v for v in violations)
+    assert check_worktree(repo) is False
+    assert _run_cli_check_worktree(repo).returncode == 2
+
+
+def test_dynamic_primitive_bans_are_scoped_to_strategy_modules(tmp_path: Path) -> None:
+    from warden_ops.integrity import check_ast_boundaries, check_worktree
+
+    source = (
+        "import importlib.util\n"
+        "import duckdb\n"
+        "\n"
+        "def load():\n"
+        "    return __import__('polars'), importlib.util, eval('1')\n"
+    )
+    repo = _make_ast_mini_repo(tmp_path, "scripts/dynamic_probe.py", source)
+    assert check_ast_boundaries(repo) == []
+    assert check_worktree(repo) is True
+
+
+def test_valid_causal_strategy_imports_remain_green(tmp_path: Path) -> None:
+    from warden_ops.integrity import check_ast_boundaries, check_worktree
+
+    source = (
+        "from __future__ import annotations\n"
+        "\n"
+        "import math\n"
+        "import numpy as np\n"
+        "import polars as pl\n"
+        "from ml4t.backtest import RuleChain, StopLoss, Strategy\n"
+        "from ml4t.engineer import compute_features\n"
+        "\n"
+        "def generate_positions(panel_df, contract, **kwargs):\n"
+        "    frame = panel_df.with_columns(\n"
+        "        pl.col('close').rolling_mean(20).alias('sma'),\n"
+        "        pl.col('close').shift(1).alias('lag_close'),\n"
+        "    )\n"
+        "    weight = float(np.clip(math.tanh(0.1), -1.0, 1.0))\n"
+        "    return {'positions': [{'asset': a, 'weight': weight} for a in frame['asset'].unique()]}\n"
+    )
+    repo = _make_ast_mini_repo(tmp_path, "strategies/candidates/valid_causal.py", source)
+    assert check_ast_boundaries(repo) == []
+    assert check_worktree(repo) is True
+    assert _run_cli_check_worktree(repo).returncode == 0
+
+
+def test_strategy_scan_carries_no_exemption_machinery() -> None:
+    """#89 is satisfied only with zero per-file waivers, so the scanner must not ship any."""
+    from warden_ops import integrity
+
+    names = set(dir(integrity))
+    assert {n for n in names if "EXEMPT" in n.upper() or "WAIVER" in n.upper()} == set()
+    assert "_STRATEGY_ROOTS_ACTIVE" not in names
+    # The shipped strategy root set is the full ban: nothing is subtracted at scan time.
+    assert {"importlib", "duckdb"} <= integrity._BANNED_STRATEGY_ROOTS
+    assert integrity._BANNED_STRATEGY_CALLS == frozenset({"__import__", "eval", "exec"})
+
+
+def test_pre_migration_strategy_bytes_now_fail_closed(tmp_path: Path) -> None:
+    """The two historical dynamic-primitive lines must violate even at their old paths."""
+    from warden_ops.integrity import check_ast_boundaries, check_worktree
+
+    historical = {
+        # What s183_reference.py did before the #89 migration.
+        "strategies/candidates/s183_reference.py": (
+            "import importlib.util\n"
+            "from pathlib import Path\n"
+            "\n"
+            "TB_PATH = Path('data/external/trends-research/Live/2_Engine/trading_book.py')\n"
+            "\n"
+            "\n"
+            "def _tb():\n"
+            "    spec = importlib.util.spec_from_file_location('trends_trading_book', TB_PATH)\n"
+            "    module = importlib.util.module_from_spec(spec)\n"
+            "    spec.loader.exec_module(module)\n"
+            "    return module\n"
+        ),
+        # What social_stoic_xsmom_10d21d.py did before the #89 migration.
+        "strategies/candidates/social_stoic_xsmom_10d21d.py": (
+            "from __future__ import annotations\n"
+            "\n"
+            "\n"
+            "def generate_positions(ts, hours):\n"
+            "    return ts + __import__('datetime').timedelta(hours=hours)\n"
+        ),
+    }
+    for rel, source in historical.items():
+        repo = _make_ast_mini_repo(tmp_path / Path(rel).stem, rel, source)
+        violations = check_ast_boundaries(repo)
+        assert violations, f"{rel}: pre-migration bytes must not pass the strict scan"
+        assert any(rel in v for v in violations)
+        assert check_worktree(repo) is False

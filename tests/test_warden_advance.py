@@ -124,6 +124,21 @@ def _prepare_fixture(tiny_repo, *, hyp_id: str = "HYP-ADV-001", module_code: str
     return fx, runner, spec_path, module_rel
 
 
+def _write_outcome_index(repo: Path, body: dict | None = None) -> Path:
+    index_path = repo / "docs" / "research-outcomes" / "branch-result-index-v1.json"
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    index_path.write_text(
+        json.dumps(body if body is not None else {
+            "schema_version": 1,
+            "source_refs": [{"pr": 40, "commit": "abc1234"}],
+            "outcomes": [],
+            "original_unattempted": [],
+        }),
+        encoding="utf-8",
+    )
+    return index_path
+
+
 def test_advance_full_progression_and_idempotent_rerun(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
     _fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-001", module_code=PASS_RULES_MODULE)
     monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
@@ -306,6 +321,7 @@ def test_advance_pending_skips_legacy_and_blocked_without_moving_files(
 ) -> None:
     fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-005")
     monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+    _write_outcome_index(fx.repo)
     legacy_mod = fx.repo / "strategies" / "candidates" / "legacy_mod.py"
     legacy_mod.write_text("def generate_positions(panel, contract, **params): return {}\n", encoding="utf-8")
     _write_hypothesis_md(fx.repo, "HYP-LEGACY", fx.contract.contract_id)
@@ -426,3 +442,96 @@ def test_advance_rejects_mismatched_hypothesis_file(tiny_repo, monkeypatch: pyte
     assert "does not match spec" in out["reason"]
     with fx.registry._connect() as conn:
         assert conn.execute("SELECT 1 FROM hypotheses WHERE hypothesis_id=?", ("HYP-ADV-OTHER",)).fetchone() is None
+
+
+def test_advance_reconcile_screen_marks_review_and_never_screens(
+    tiny_repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-RECON")
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+    hyp = HypothesisSpec(
+        "HYP-ADV-RECON",
+        fx.contract.contract_id,
+        "Interrupted screen",
+        "rules_ts",
+        "Persistent drift across crypto assets after short-term volatility compression",
+        "Paid by late trend followers after cost-adjusted breakout confirmation",
+        4,
+        "Reject if Stage 1 or Stage 3 fails",
+    )
+    fx.registry.register_hypothesis(hyp)
+    key = fx.registry.reserve_screen("HYP-ADV-RECON", fx.contract.contract_id, module_rel, {})
+
+    rc = cli.cmd_reconcile_screen(
+        Namespace(spec_yaml=str(spec_path), json=True), runner
+    )
+    payload = json.loads(capsys.readouterr().out.strip())
+
+    assert rc == 0
+    assert payload["ok"] is True and payload["source"] == "warden.reconcile-screen"
+    assert payload["value"]["screen_key"] == key
+    assert payload["value"]["state"] == "INTERRUPTED_REVIEW"
+    assert fx.registry.screen_status("HYP-ADV-RECON", fx.contract.contract_id, module_rel, {})["state"] == "INTERRUPTED_REVIEW"
+
+    # Review is CLI-only and idempotent; advance must report review, not replay.
+    import sqlite3
+
+    (fx.repo / "registry").mkdir(exist_ok=True)
+    with sqlite3.connect(fx.registry.db_path) as src, sqlite3.connect(fx.repo / "registry" / "registry.db") as dst:
+        src.backup(dst)
+    monkeypatch.chdir(fx.repo)
+    capsys.readouterr()
+    cli_rc = cli.main(["reconcile-screen", spec_path.relative_to(fx.repo).as_posix(), "--json"])
+    cli_payload = json.loads(capsys.readouterr().out.strip())
+    assert cli_rc == 0 and cli_payload["source"] == "warden.reconcile-screen"
+    assert cli_payload["value"]["state"] == "INTERRUPTED_REVIEW"
+
+    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    assert out["action"] == "REVIEW_REQUIRED"
+    assert out["state"] == "REQUIRES_RECONCILIATION"
+    with fx.registry._connect() as conn:
+        assert conn.execute("SELECT trials_used FROM hypotheses WHERE hypothesis_id='HYP-ADV-RECON'").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM selection_attempts").fetchone()[0] == 0
+
+
+def test_advance_outcome_memory_missing_index_requires_review(
+    tiny_repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-NOIDX")
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+
+    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=True)
+    assert out["action"] == "REVIEW_REQUIRED"
+    assert "missing" in out["reason"].lower()
+    assert fx.registry.screen_status("HYP-ADV-NOIDX", fx.contract.contract_id, module_rel, {})["state"] == "UNSEEN"
+
+
+def test_advance_outcome_memory_malformed_index_requires_review(
+    tiny_repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-BADIDX")
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+    index_path = _write_outcome_index(fx.repo, {"schema_version": 1, "source_refs": [], "outcomes": [], "original_unattempted": []})
+
+    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=True)
+    assert out["action"] == "REVIEW_REQUIRED"
+    assert "unreadable or malformed" in out["reason"]
+    assert index_path.is_file()
+    assert fx.registry.screen_status("HYP-ADV-BADIDX", fx.contract.contract_id, module_rel, {})["state"] == "UNSEEN"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permission bits")
+def test_advance_outcome_memory_unreadable_index_requires_review(
+    tiny_repo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-PERM")
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+    index_path = _write_outcome_index(fx.repo)
+    index_path.chmod(0o000)
+    try:
+        out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=True)
+    finally:
+        index_path.chmod(0o600)
+    assert out["action"] == "REVIEW_REQUIRED"
+    assert "unreadable or malformed" in out["reason"]
+    assert fx.registry.screen_status("HYP-ADV-PERM", fx.contract.contract_id, module_rel, {})["state"] == "UNSEEN"

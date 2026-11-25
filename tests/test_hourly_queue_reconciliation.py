@@ -78,3 +78,39 @@ def test_run_hourly_pipeline_exits_cleanly_when_locked(tmp_path: Path) -> None:
     assert proc.returncode == 0, proc.stderr + proc.stdout
     payload = json.loads(proc.stdout.strip())
     assert payload == {"locked": True, "processed": 0, "outcomes": []}
+
+
+def test_run_hourly_pipeline_maps_registry_busy_to_clean_success(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    fake_uv = bin_dir / "uv"
+    fake_uv.write_text(
+        """#!/usr/bin/env python3
+import json
+print(json.dumps({"ok": False, "value": {"status": "BUSY", "reason": "another writer"}, "source": "warden.mutation-lease"}))
+raise SystemExit(75)
+""",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o700)
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "QUANT_LAB_REPO_DIR": str(repo),
+        "QUANT_LAB_HOURLY_LOCK_FILE": str(tmp_path / "hourly.lock"),
+    }
+    proc = subprocess.run(
+        ["bash", str(SCRIPT), "--json"],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+    payload = json.loads(proc.stdout.strip())
+    assert payload["busy"] is True and payload["processed"] == 0 and payload["blocked"] == 0
+    assert "BUSY" not in proc.stdout  # quiet busy: the CLI envelope is not replayed

@@ -23,7 +23,6 @@ dependencies = [
     "ml4t-engineer",
     "ml4t-diagnostic",
     "ml4t-backtest",
-    "ml4t-live",
     "ml4t-models",
 ]
 

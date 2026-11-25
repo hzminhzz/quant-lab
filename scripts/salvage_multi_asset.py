@@ -280,16 +280,16 @@ def salvage_dataset(
         out_path.parent.mkdir(parents=True, exist_ok=True)
         try:
             frame.write_parquet(out_path)
-            actual_path = str(out_path)
             sha = hashlib.sha256(out_path.read_bytes()).hexdigest()
-        except PermissionError:
-            # When holdout directory is root:trader 0750 locked, stage to holdout_staging
-            staged = out_dir / f"{name}_staging" / dest_filename
-            staged.parent.mkdir(parents=True, exist_ok=True)
-            frame.write_parquet(staged)
-            actual_path = str(staged)
-            sha = hashlib.sha256(staged.read_bytes()).hexdigest()
-            evidence["staging_note"] = f"Holdout locked; saved to {staged}"
+        except PermissionError as exc:
+            # No staging fallback: a directory this process may not write is an operator
+            # problem to surface, never a reason to park holdout bars somewhere weaker.
+            raise PermissionError(
+                f"cannot write {name} dataset to '{out_path}': {exc}. "
+                "No staging fallback exists; the sealed holdout directory must be written by its "
+                "authorized operator."
+            ) from exc
+        actual_path = str(out_path)
 
         evidence[name] = {
             "path": actual_path,
@@ -452,8 +452,8 @@ def main():
         )
         results["multi_asset_1d"] = res_multi
     print(json.dumps(results, indent=2))
-    print("\nSalvage complete. To lock holdout staging into production holdout:")
-    print("  sudo cp -r data/holdout_staging/* data/holdout/ && sudo ./scripts/lock_holdout_permissions.sh ./data/holdout")
+    print("\nSalvage complete. Holdout splits must be written directly into the sealed holdout")
+    print("  directory by its authorized operator; there is no staging fallback.")
 
 if __name__ == "__main__":
     main()

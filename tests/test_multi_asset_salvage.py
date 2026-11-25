@@ -290,11 +290,8 @@ def test_indices_domain_exploratory_datasets(freq, rows):
     )
     assert abs(df_2024["timestamp"].n_unique() - contract.bars_per_year) / contract.bars_per_year < 0.01
 
-    stg_path = Path("data/holdout_staging") / exp_path.name
-    assert stg_path.is_file()
-    df_stg = pl.read_parquet(stg_path)
-    assert df_stg["timestamp"].min() >= contract.holdout_start
-    assert df_stg["timestamp"].max() < contract.holdout_end
+    # The holdout split is sealed under data/holdout/ and is deliberately never read
+    # here; the exploratory bytes are fenced by the max-timestamp assertion above.
 
 
 @pytest.mark.parametrize("freq,rows", [("5m", 6290027), ("30m", 1051876), ("1h", 526720), ("4h", 136390), ("1d", 26576)])
@@ -317,20 +314,17 @@ def test_fx_majors_domain_exploratory_datasets(freq, rows):
     )
     assert abs(df_2024["timestamp"].n_unique() - contract.bars_per_year) / contract.bars_per_year < 0.01
 
-    stg_path = Path("data/holdout_staging") / exp_path.name
-    assert stg_path.is_file()
-    df_stg = pl.read_parquet(stg_path)
-    assert df_stg["timestamp"].min() >= contract.holdout_start
-    assert df_stg["timestamp"].max() < contract.holdout_end
+    # The holdout split is sealed under data/holdout/ and is deliberately never read
+    # here; the exploratory bytes are fenced by the max-timestamp assertion above.
 
-@pytest.mark.parametrize("freq,rows,stg_rows,contract_file", [
-    ("5m", 1260288, 1107840, "contracts/crypto_perps_5m_v1.yaml"),
-    ("30m", 210048, 184640, "contracts/crypto_perps_30m_v1.yaml"),
-    ("1h", 105024, 92320, "contracts/crypto_perps_1h_v2.yaml"),
-    ("4h", 26256, 23080, "contracts/crypto_perps_4h_v1.yaml"),
-    ("1d", 4376, 3840, "contracts/crypto_perps_1d_v1.yaml"),
+@pytest.mark.parametrize("freq,rows,contract_file", [
+    ("5m", 1260288, "contracts/crypto_perps_5m_v1.yaml"),
+    ("30m", 210048, "contracts/crypto_perps_30m_v1.yaml"),
+    ("1h", 105024, "contracts/crypto_perps_1h_v2.yaml"),
+    ("4h", 26256, "contracts/crypto_perps_4h_v1.yaml"),
+    ("1d", 4376, "contracts/crypto_perps_1d_v1.yaml"),
 ])
-def test_crypto_perps_domain_exploratory_datasets(freq, rows, stg_rows, contract_file):
+def test_crypto_perps_domain_exploratory_datasets(freq, rows, contract_file):
     contract_path = Path(contract_file)
     contract = load_contract(contract_path)
     assert contract.asset_class == "crypto_perps"
@@ -349,12 +343,8 @@ def test_crypto_perps_domain_exploratory_datasets(freq, rows, stg_rows, contract
     )
     assert abs(df_2024["timestamp"].n_unique() - contract.bars_per_year) / contract.bars_per_year < 0.01
 
-    stg_path = Path("data/holdout_staging") / exp_path.name
-    assert stg_path.is_file()
-    df_stg = pl.read_parquet(stg_path)
-    assert len(df_stg) == stg_rows
-    assert df_stg["timestamp"].min() >= contract.holdout_start
-    assert df_stg["timestamp"].max() < contract.holdout_end
+    # The holdout split is sealed under data/holdout/ and is deliberately never read
+    # here; the exploratory bytes are fenced by the max-timestamp assertion above.
 
 
 def test_normalize_panel_validation():

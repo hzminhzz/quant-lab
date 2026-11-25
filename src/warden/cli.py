@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import datetime
 import hashlib
 import hmac
@@ -27,7 +28,7 @@ ExperimentRunner: Any = None
 MANIFEST_FILE = ".warden_manifest.sha256"
 WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and AST boundaries intact."
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
-MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt"})
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
 
 
 def envelope(ok: bool, value, source: str, policy: str = "allow") -> dict:
@@ -93,6 +94,38 @@ def cmd_spec_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     return 0
 
 
+def cmd_reconcile_screen(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
+    """CLI-only review transition for an interrupted Stage 1 reservation.
+
+    The spec may be reviewed by a human afterwards; this command never refunds
+    budget, deletes the receipt or replays the screen. The MCP adapter does not
+    expose it.
+    """
+    import yaml
+    try:
+        cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        value = {"screen_key": "", "state": "INVALID_SPEC", "reason": f"Invalid spec YAML: {exc}"}
+        print(json.dumps(envelope(False, value, "warden.reconcile-screen", "deny")) if args.json else
+              f"Screen reconciliation refused: {value['reason']}")
+        return 1
+    if not isinstance(cfg, dict) or not cfg.get("hypothesis_id") or not cfg.get("contract_id"):
+        value = {"screen_key": "", "state": "INVALID_SPEC",
+                 "reason": "Spec missing hypothesis_id or contract_id"}
+        print(json.dumps(envelope(False, value, "warden.reconcile-screen", "deny")) if args.json else
+              f"Screen reconciliation refused: {value['reason']}")
+        return 1
+    value = runner.registry.reconcile_screen(
+        str(cfg["hypothesis_id"]), str(cfg["contract_id"]),
+        str(cfg.get("strategy_module", "") or ""), cfg.get("parameters") or {},
+        confirm_interrupted=True,
+    )
+    ok = value["state"] == "INTERRUPTED_REVIEW"
+    print(json.dumps(envelope(ok, value, "warden.reconcile-screen", "allow" if ok else "deny"))
+          if args.json else f"Screen {value['screen_key']}: {value['state']} ({value['reason']})")
+    return 0 if ok else 1
+
+
 def cmd_attempt_status(args: argparse.Namespace, runner: ExperimentRunner) -> int:
     state = runner.registry.reconcile_attempt(args.run_id,
         confirm_interrupted=args.subcommand == "reconcile-attempt")
@@ -132,10 +165,9 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     if not check_worktree():
         sys.exit(2)
     import polars as pl
-    import yaml
 
     from warden.codeid import code_closure
-    from warden.contracts import canonical_json
+    from warden.contracts import ContractValidationError, canonical_json
     from warden.leakage import (
         CrossAssetLeakageError,
         LookaheadLeakageError,
@@ -155,15 +187,23 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     from warden.provenance import resolve_dataset
     from warden.registry import normalise_module
     from warden.runner import filter_target_symbols
+    from warden.schemas import load_experiment_spec
     from warden.strategy_loader import load_module_from_path
     from warden_evidence.feature_cache import verified_feature_evidence
-    cfg = yaml.safe_load(Path(args.spec_yaml).read_text(encoding="utf-8"))
-    contract = runner.resolve_contract(cfg["contract_id"])
-    params = cfg.get("parameters", {}) or {}
-    strat_module = normalise_module(cfg["strategy_module"])
+    # #90: validate the frozen spec before any contract, registry, dataset or artifact
+    # side effect.  pydantic.ValidationError subclasses ValueError, so an unknown or
+    # policy-injecting key returns exit 1 here instead of being silently accepted.
+    try:
+        spec = load_experiment_spec(args.spec_yaml)
+    except ValueError as exc:
+        print(f"Verify failed: {exc}", file=sys.stderr)
+        return 1
+    contract = runner.resolve_contract(spec.contract_id)
+    params = spec.parameters
+    strat_module = normalise_module(spec.strategy_module)
     mod = load_module_from_path(runner.repo_root / strat_module)
     hyp_status = "ACTIVE"
-    hyp_id = cfg.get("hypothesis_id")
+    hyp_id = spec.hypothesis_id
     if hyp_id and runner.registry.db_path.is_file():
         with runner.registry._connect() as conn:
             row = conn.execute(
@@ -173,33 +213,58 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
             if row:
                 hyp_status = str(row[0])
     try:
+        family = spec.strategy_family if "strategy_family" in spec.model_fields_set else None
         protocol = enforce_active_strategy_protocol(
             mod,
             hypothesis_status=hyp_status,
-            strategy_family=cfg.get("strategy_family"),
+            strategy_family=family,
             allow_legacy_replay=runner.allow_legacy_replay,
         )
+        # One closure digest binds every cache/evidence row in this verify to the code that ran.
+        # Kept inside the handled region and after protocol validation: an out-of-repo
+        # ``strategy_module`` makes ``code_closure`` raise ValueError, which must fail closed
+        # as exit 1 rather than escape as a traceback.  It is still computed before any
+        # strategy proof or feature-cache write, so #92's identity binding is unchanged.
+        closure_sha = code_closure(runner.repo_root, strat_module)[0]
         dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
         panel = pl.read_parquet(runner.repo_root / dataset.path)
         if "symbol" in panel.columns and "asset" not in panel.columns:
             panel = panel.rename({"symbol": "asset"})
         effective_params = resolve_effective_params(mod, protocol, params)
         panel = filter_target_symbols(panel, effective_params, str(dataset.path)).sort("timestamp", "asset")
+        # #88 exploratory fence: the same boundary runner.prepare_panel enforces, checked
+        # here before any strategy proof or feature-cache write.  A panel reaching
+        # holdout_start or an empty validation window is refused; the holdout is never
+        # opened, and no staging fallback exists.
+        if "timestamp" not in panel.columns:
+            raise ContractValidationError(f"{contract.contract_id}: exploratory panel has no 'timestamp' column")
+        latest = panel["timestamp"].max() if not panel.is_empty() else None
+        if latest is not None and latest >= contract.holdout_start:
+            raise ContractValidationError(
+                f"{contract.contract_id}: exploratory panel reaches {latest} at or past holdout_start "
+                f"{contract.holdout_start.isoformat()}; holdout bars may not be loaded as exploratory data"
+            )
+        ts = panel["timestamp"].unique().sort().to_list()
+        v_slice = slice(bisect.bisect_left(ts, contract.val_start), bisect.bisect_left(ts, contract.val_end))
+        if v_slice.start >= v_slice.stop:
+            raise ContractValidationError(
+                f"{contract.contract_id}: validation slice {contract.val_start.isoformat()}.."
+                f"{contract.val_end.isoformat()} contains no bars; refusing an empty validation panel"
+            )
 
         cache_dir = runner.repo_root / "cache" / "features"
         if protocol == "causal_model":
             verify_model_prefix_invariance(mod, panel, contract, params)
             pipeline = resolve_protocol_target(mod).pipeline
         elif protocol == "causal_rules":
-            verify_rules_strategy_prefix_invariance(mod, panel, contract, params, policy_cfg=cfg)
-            verify_rules_strategy_asset_independence(mod, panel, contract, params, policy_cfg=cfg)
-            mod_sha, _ = code_closure(runner.repo_root, strat_module)
+            verify_rules_strategy_prefix_invariance(mod, panel, contract, params, policy_cfg=spec.model_dump())
+            verify_rules_strategy_asset_independence(mod, panel, contract, params, policy_cfg=spec.model_dump())
             pipeline = RulesProofPipeline(
                 repo_root=str(runner.repo_root.resolve()),
                 strategy_module=strat_module,
-                code_sha256=mod_sha,
+                code_sha256=closure_sha,
                 params=dict(params),
-                policy_cfg=cfg,
+                policy_cfg=spec.model_dump(),
             )
         else:
             pipeline = getattr(mod, "pipeline", None) or (mod if hasattr(mod, "compute") else None)
@@ -207,8 +272,10 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
                 raise ValueError("Strategy module does not expose a pipeline or compute() method.")
             verify_prefix_invariance(pipeline, panel, contract)
 
-        compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry)
-        proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir)
+        compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry,
+                                   code_closure_digest=closure_sha)
+        proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir,
+                                          code_closure_digest=closure_sha)
         if not proof["verified"]:
             raise ValueError("Causal cache artifact could not be independently reconciled")
     except (
@@ -222,12 +289,15 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     ) as exc:
         print(f"Verify failed: {exc}", file=sys.stderr)
         return 1
+    if not hyp_id:
+        print("Verify failed: spec declares no hypothesis_id; causal evidence cannot be recorded", file=sys.stderr)
+        return 1
     evidence = runner.registry.record_spec_causality(
-        hypothesis_id=cfg["hypothesis_id"], contract_id=contract.contract_id,
+        hypothesis_id=hyp_id, contract_id=contract.contract_id,
         strategy_module=strat_module,
         config_hash=hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12],
         data_sha256=dataset.sha256,
-        module_sha256=code_closure(runner.repo_root, strat_module)[0],
+        module_sha256=closure_sha,
         feature_identity=proof["feature_identity"], artifact_sha256=proof["artifact_sha256"],
         proof_sha256=hashlib.sha256((cache_dir / f"{proof['feature_identity']}.proof.json").read_bytes()).hexdigest())
     res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),
@@ -547,17 +617,30 @@ def _advance_one_spec(
 
         if check_outcome_memory:
             index_path = repo / "docs" / "research-outcomes" / "branch-result-index-v1.json"
-            if index_path.is_file():
+            if not index_path.is_file():
+                return _result(
+                    "REVIEW_REQUIRED",
+                    status,
+                    "Research outcome memory index is missing: "
+                    "docs/research-outcomes/branch-result-index-v1.json; review before screening",
+                )
+            try:
                 from scripts.research_outcome_memory import check_spec as check_outcome_spec
 
                 mem = check_outcome_spec(spec_path, runner.registry.db_path, index_path)
-                if not mem.get("eligible"):
-                    return _result(
-                        "BLOCKED_OUTCOME_MEMORY",
-                        status,
-                        str(mem.get("reason", "Blocked by research_outcome_memory")),
-                        outcome_memory=mem,
-                    )
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                return _result(
+                    "REVIEW_REQUIRED",
+                    status,
+                    f"Research outcome memory index is unreadable or malformed: {type(exc).__name__}: {exc}",
+                )
+            if not mem.get("eligible"):
+                return _result(
+                    "BLOCKED_OUTCOME_MEMORY",
+                    status,
+                    str(mem.get("reason", "Blocked by research_outcome_memory")),
+                    outcome_memory=mem,
+                )
 
         v_rc, v_detail = _invoke_quiet(cmd_verify, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
         if v_rc != 0:
@@ -742,6 +825,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("spec-status").add_argument("spec_yaml")
     for name in ("attempt-status", "reconcile-attempt", "verify-causality"):
         s.add_parser(name).add_argument("--run-id", required=True)
+    s.add_parser("reconcile-screen").add_argument("spec_yaml")
     h = s.add_parser("handoff")
     h.add_argument("--notes", default="Session transition checkpoint")
     h.add_argument("--ticket", default=None)
@@ -850,6 +934,7 @@ def main(argv: list[str] | None = None) -> int:
                 runner = _get_runner(readonly=False)
             cmds = {"status": cmd_status, "verify": cmd_verify, "screen": cmd_screen, "backtest": cmd_backtest, "advance": cmd_advance, "audit-check": cmd_audit_check, "continue": cmd_continue, "qualify": cmd_qualify,
                     "attempt-status": cmd_attempt_status, "reconcile-attempt": cmd_attempt_status, "verify-causality": cmd_verify_causality,
+                    "reconcile-screen": cmd_reconcile_screen,
                     "spec-status": cmd_spec_status}
             fn = cmds.get(args.subcommand)
             code = fn(args, runner) if fn else 0

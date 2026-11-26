@@ -41,7 +41,23 @@ def qualify_candidate(
     if human_confirm_token != "YES_UNSEAL_HOLDOUT":
         raise PermissionError("Holdout unsealing requires confirmation token 'YES_UNSEAL_HOLDOUT'.")
 
+    from warden.contract_source import is_sandbox_contract
+
     reg = runner.registry
+    # Namespace refusal first: a compiled sandbox artifact (#117) never reaches a holdout
+    # claim, an eligibility verdict or a 500-line replay.  Promotion into ``contracts/`` and
+    # the human re-sign are a separate, human-only step; this gate stays shut until then.
+    with reg._connect() as conn:
+        sandbox_row = conn.execute(
+            "SELECT contract_id FROM trials WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    if sandbox_row is not None and is_sandbox_contract(runner.repo_root, sandbox_row[0]):
+        raise PermissionError(
+            f"Run ID '{run_id}' belongs to sandbox contract '{sandbox_row[0]}' under "
+            "contracts/sandbox/: a compiled exploratory artifact is never holdout-qualified. "
+            "Promote the contract and its dataset manifest into contracts/ and let the human "
+            "re-sign the manifest first."
+        )
     with reg._connect() as conn:
         t_row = conn.execute("SELECT * FROM trials WHERE run_id = ?", (run_id,)).fetchone()
         if not t_row:

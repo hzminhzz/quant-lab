@@ -17,6 +17,11 @@ ALLOWED = frozenset({
     # inventory; it is agent-facing and file-write-once, never a human-only signing gate.
     # ``data fence`` is a read-only audit of the exploratory store (#106).
     "data", "data build", "data fence",
+    # ``data compile`` turns a ``compile_required`` requirement into a write-once *sandbox*
+    # artifact under ``contracts/sandbox/`` (#117).  Agent-facing on purpose: it injects the
+    # signed policy, refuses an override, keeps the worktree gate in front and cannot reach
+    # a holdout or a promotion.
+    "data compile",
     # ``resolve-data`` answers "which signed contract, or which gap" and writes nothing
     # (#116): it is the read-only front half of ``data build``.
     "resolve-data",

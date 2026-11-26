@@ -35,6 +35,10 @@ DEFAULT_CONTRACTS_DIR = "contracts"
 #: Read-only archive namespace (#114): archived contracts and their dataset manifests live
 #: here and must still be visible to the fence, or every archived file becomes UNOWNED.
 DEFAULT_ARCHIVE_DIR = "contracts/archive"
+#: Agent-writable sandbox namespace (#117): compiled artifacts are exploratory bytes like
+#: any other, so their contract and manifest must be visible here or a lawful compile would
+#: be reported UNOWNED/NO_CONTRACT the moment it landed.
+DEFAULT_SANDBOX_DIR = "contracts/sandbox"
 HOLDOUT_ROOT = "data/holdout"
 
 #: ``state`` values. Only ``fenced`` passes; everything else is a refusal with a reason.
@@ -115,13 +119,19 @@ def _relative(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _load_manifests(manifest_dir: Path, archive_dir: Path | None = None) -> list[tuple[str, dict[str, Any]]]:
+def _load_manifests(
+    manifest_dir: Path,
+    archive_dir: Path | None = None,
+    sandbox_dir: Path | None = None,
+) -> list[tuple[str, dict[str, Any]]]:
     out: list[tuple[str, dict[str, Any]]] = []
     # An archived contract's dataset manifest is archived with it (#114).  Reading it here
     # is what keeps its exploratory file *owned* instead of silently becoming UNOWNED.
     dirs = [manifest_dir]
     if archive_dir is not None:
         dirs.append(archive_dir / manifest_dir.name)
+    if sandbox_dir is not None:
+        dirs.append(sandbox_dir / manifest_dir.name)
     for directory in dirs:
         if not directory.is_dir():
             continue
@@ -138,11 +148,17 @@ def _load_manifests(manifest_dir: Path, archive_dir: Path | None = None) -> list
     return out
 
 
-def _load_contracts(contracts_dir: Path, archive_dir: Path | None = None) -> dict[str, Any]:
+def _load_contracts(
+    contracts_dir: Path,
+    archive_dir: Path | None = None,
+    sandbox_dir: Path | None = None,
+) -> dict[str, Any]:
     contracts: dict[str, Any] = {}
     # Archived contracts are loaded too (#114): a manifest may still name an archived
     # contract, and "no contract document" is a fence failure, not a silent unownership.
     dirs = [archive_dir, contracts_dir] if archive_dir is not None else [contracts_dir]
+    if sandbox_dir is not None:
+        dirs.append(sandbox_dir)
     for directory in dirs:
         if not directory.is_dir():
             continue
@@ -177,6 +193,7 @@ def audit_exploratory_storage(
     manifest_dir: str = DEFAULT_MANIFEST_DIR,
     contracts_dir: str = DEFAULT_CONTRACTS_DIR,
     archive_dir: str = DEFAULT_ARCHIVE_DIR,
+    sandbox_dir: str = DEFAULT_SANDBOX_DIR,
     parquet_reader: Callable[[bytes], Any],
 ) -> FenceReport:
     """Audit every Parquet file under ``dataset_dir`` against its manifest and the fence.
@@ -199,8 +216,8 @@ def audit_exploratory_storage(
     if not base.is_dir():
         raise ExploratoryFenceError(f"dataset dir {dataset_rel!r} does not exist")
 
-    manifests = _load_manifests(root / manifest_dir, root / archive_dir)
-    contracts = _load_contracts(root / contracts_dir, root / archive_dir)
+    manifests = _load_manifests(root / manifest_dir, root / archive_dir, root / sandbox_dir)
+    contracts = _load_contracts(root / contracts_dir, root / archive_dir, root / sandbox_dir)
     owners: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for name, record in manifests:
         declared = record.get("exploratory_path") or record.get("path")

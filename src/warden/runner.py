@@ -443,12 +443,22 @@ class ExperimentRunner:
         Live first, then the read-only archive (#114), so ``status``/``spec-status``
         readback and any replay of an archived contract keep resolving.  This is *not*
         authorization for new work: execution paths call :meth:`resolve_active_contract`.
+
+        A compiled sandbox contract (#117) resolves too — registration, spec-status and the
+        advance/audit paths read the same document the trial was recorded against, and
+        ``qualify`` is the one gate that refuses the namespace.
         """
-        return load_recorded_contract(self.repo_root, contract_id)
+        return load_recorded_contract(self.repo_root, contract_id, allow_sandbox=True)
 
     def resolve_active_contract(self, contract_id: str) -> EvaluationContract:
-        """**Active** lookup: refuses an archived contract, naming its archive location."""
-        return load_active_contract(self.repo_root, contract_id)
+        """**Active** lookup: refuses an archived contract, naming its archive location.
+
+        A compiled sandbox contract (#117) resolves here on purpose: it may run the ordinary
+        pipeline (verify/screen/backtest/advance).  It is not *reusable* (the resolver reads
+        only live contracts) and not *qualifiable* (``qualify`` refuses the namespace), so
+        resolving it cannot promote un-promoted evidence.
+        """
+        return load_active_contract(self.repo_root, contract_id, allow_sandbox=True)
 
     def _prepare_and_check_stage0(
         self, contract, hyp, hyp_id, family, strat_module, params, trials_used,

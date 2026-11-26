@@ -53,8 +53,16 @@ ARCHIVE_DIR = Path("contracts") / "archive"
 #: Reviewed mapping document (original path -> archive path, digests, provenance commit).
 ARCHIVE_MAP_NAME = "archive_map.json"
 DATASET_DIR = Path("contracts") / "datasets"
+#: Agent-writable exploratory namespace (#117).  A compiled *sandbox* contract is runnable
+#: and never reusable: it is outside the active lookup's active set, outside the archive,
+#: and outside the protected inventory, so compiling one neither re-signs the human
+#: manifest nor lets a later requirement resolve to it as signed evidence.
+SANDBOX_DIR = Path("contracts") / "sandbox"
+SANDBOX_MANIFEST_DIR = SANDBOX_DIR / "datasets"
+SANDBOX_README_NAME = "README.md"
 ACTIVE = "active"
 ARCHIVE = "archive"
+SANDBOX = "sandbox"
 
 _SCHEMA_VERSION = 1
 _TOP_LEVEL_KEYS = frozenset(
@@ -355,8 +363,38 @@ def _active_path(root: Path, contract_id: str) -> Path | None:
     return None
 
 
+def sandbox_contract_path(repo_root: Path | str, contract_id: str) -> Path | None:
+    """The compiled sandbox contract document for ``contract_id``, or ``None``."""
+    stem = str(contract_id).lower()
+    for suffix in (".yaml", ".yml"):
+        candidate = Path(repo_root) / SANDBOX_DIR / f"{stem}{suffix}"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def sandbox_contract_paths(repo_root: Path | str = ".") -> list[Path]:
+    """Every compiled sandbox contract, in stable order.  Never the live or archived set."""
+    root = Path(repo_root)
+    out: list[Path] = []
+    for pattern in (f"{SANDBOX_DIR.as_posix()}/*.yaml", f"{SANDBOX_DIR.as_posix()}/*.yml"):
+        out.extend(sorted(root.glob(pattern)))
+    return out
+
+
+def is_sandbox_contract(repo_root: Path | str, contract_id: str) -> bool:
+    """True when ``contract_id`` resolves to the sandbox namespace.
+
+    Production always wins a name clash: a live ``contracts/<id>.yaml`` makes the id a
+    production contract even if a sandbox copy also exists.
+    """
+    if _active_path(Path(repo_root), str(contract_id)) is not None:
+        return False
+    return sandbox_contract_path(repo_root, contract_id) is not None
+
+
 def resolve_contract_source(
-    repo_root: Path | str, contract_id: str, *, allow_archive: bool
+    repo_root: Path | str, contract_id: str, *, allow_archive: bool, allow_sandbox: bool = False
 ) -> ContractSource:
     """Resolve one contract id under an explicit authority.
 
@@ -364,6 +402,11 @@ def resolve_contract_source(
     archived id raises :class:`ArchivedContractRefused` naming the archive location
     (never a fallback to a live copy).  ``allow_archive=True`` is the *recorded* lookup
     used by historical replay: live first, then the archive, digest-checked.
+
+    ``allow_sandbox=True`` additionally resolves a compiled sandbox contract (#117) — the
+    authority an *execution* path needs, because a sandbox artifact may run the ordinary
+    pipeline.  It is never combined with reuse: a caller that must not run un-promoted
+    evidence (qualification) checks the returned ``location`` and refuses.
     """
     root = Path(repo_root)
     cid = str(contract_id)
@@ -375,31 +418,58 @@ def resolve_contract_source(
         if entry is not None:
             raise ArchivedContractRefused(entry)
         active = _active_path(root, cid)
-        if active is None:
-            raise ContractNotFound(cid)
-        return ContractSource(cid, active, ACTIVE)
+        if active is not None:
+            return ContractSource(cid, active, ACTIVE)
+        if allow_sandbox:
+            sandbox = sandbox_contract_path(root, cid)
+            if sandbox is not None:
+                return ContractSource(cid, sandbox, SANDBOX)
+        raise ContractNotFound(cid)
     active = _active_path(root, cid)
     if active is not None:
         return ContractSource(cid, active, ACTIVE)
     if entry is not None:
         _verify_archived_bytes(root, entry)
         return ContractSource(cid, root / entry.archive_path, ARCHIVE)
-    raise ContractNotFound(cid, searched="the active contracts directory or the contract archive")
+    if allow_sandbox:
+        sandbox = sandbox_contract_path(root, cid)
+        if sandbox is not None:
+            return ContractSource(cid, sandbox, SANDBOX)
+    raise ContractNotFound(
+        cid,
+        searched="the active contracts directory or the contract archive",
+    )
 
 
-def load_active_contract(repo_root: Path | str, contract_id: str) -> EvaluationContract:
+def load_active_contract(
+    repo_root: Path | str, contract_id: str, *, allow_sandbox: bool = False
+) -> EvaluationContract:
     """Load a contract for *new work*; refuses an archived id with its archive location."""
-    return load_contract(resolve_contract_source(repo_root, contract_id, allow_archive=False).path)
+    return load_contract(
+        resolve_contract_source(
+            repo_root, contract_id, allow_archive=False, allow_sandbox=allow_sandbox
+        ).path
+    )
 
 
-def load_recorded_contract(repo_root: Path | str, contract_id: str) -> EvaluationContract:
-    """Load a contract for *historical replay*; archived bytes resolve identically."""
-    return load_contract(resolve_contract_source(repo_root, contract_id, allow_archive=True).path)
+def load_recorded_contract(
+    repo_root: Path | str, contract_id: str, *, allow_sandbox: bool = False
+) -> EvaluationContract:
+    """Load a contract for *historical replay*; archived bytes (and optionally sandbox) resolve."""
+    return load_contract(
+        resolve_contract_source(
+            repo_root, contract_id, allow_archive=True, allow_sandbox=allow_sandbox
+        ).path
+    )
 
 
-def recorded_contract_path(repo_root: Path | str, contract_id: str) -> Path:
-    """The path a *recorded* lookup resolves: the live document, else the archived one."""
-    return resolve_contract_source(repo_root, contract_id, allow_archive=True).path
+def recorded_contract_path(
+    repo_root: Path | str, contract_id: str, *, allow_sandbox: bool = False
+) -> Path:
+    """The path a *recorded* lookup resolves: live, then archived, then sandbox."""
+    return resolve_contract_source(
+        repo_root, contract_id, allow_archive=True, allow_sandbox=allow_sandbox
+    ).path
 
 
 def active_contract_paths(repo_root: Path | str = ".") -> list[Path]:

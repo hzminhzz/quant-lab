@@ -8,9 +8,12 @@ look at the source tree, and it publishes only what the gate approved.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+import polars as pl
 
 from warden_evidence.dataset_builder.adapters import (
     Ml4tLakeAdapter,
@@ -111,6 +114,9 @@ def build_dataset(
     adapter: SourceAdapter | None = None,
     fs: RawFileSystem | None = None,
     parquet_reader: ParquetReader | None = None,
+    frame_guard: Callable[[pl.DataFrame], None] | None = None,
+    manifest_extra: dict[str, Any] | None = None,
+    manifest_name: str | None = None,
 ) -> BuildOutcome:
     """Build one dataset from a parsed spec.
 
@@ -133,8 +139,14 @@ def build_dataset(
     dataset_relative, dataset_path = _relative_target(
         root, dataset_dir, filename, role="dataset_dir"
     )
+    # A reviewer resolves a dataset manifest by the *contract* that owns it, so a caller may
+    # name the file explicitly (spec #117 publishes a sandbox manifest under its contract id).
+    # The default keeps every existing build naming it by dataset id, byte for byte.
+    published_name = manifest_name or spec.dataset_id
+    if not published_name or "/" in published_name or published_name in {".", ".."}:
+        raise DatasetBuildError(f"manifest_name {published_name!r} must be a plain file stem")
     manifest_relative, manifest_path = _relative_target(
-        root, manifest_dir, f"{spec.dataset_id}.json", role="manifest_dir"
+        root, manifest_dir, f"{published_name}.json", role="manifest_dir"
     )
 
     # Write-once precedes every raw read: a refused rebuild touches nothing.
@@ -165,6 +177,11 @@ def build_dataset(
         )
 
     bundle = adapter.load(spec)
+    if frame_guard is not None:
+        # A caller-owned assertion on the exact raw bytes that were read, run *before* the
+        # gate: a lawful refusal here publishes nothing (spec #117 fences the holdout this
+        # way, and a leak must not be reachable through the aggregate either).
+        frame_guard(bundle.frame)
     outcome: GateOutcome = run_quality_gate(bundle.frame, spec)
     frame = outcome.frame
     if frame.is_empty():  # pragma: no cover - the gate already refuses emptiness
@@ -192,6 +209,11 @@ def build_dataset(
         last_bar=last_bar,
         assets=assets,
         lineage=bundle.summary.get("lineage"),
+        # A manifest published under an explicit name is *addressed* by that name: a reader
+        # (the provenance gate, the exploratory fence) resolves the owner from this field, so
+        # the two must agree.
+        contract_id=published_name,
+        extra=manifest_extra,
     )
     published = publish_once(
         dataset_path=dataset_path,

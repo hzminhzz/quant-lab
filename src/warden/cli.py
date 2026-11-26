@@ -1082,12 +1082,14 @@ def _pinned_dataset_paths(repo_root: Path) -> dict[str, str]:
     """
     import yaml
 
-    from warden.contract_source import all_contract_paths
+    from warden.contract_source import all_contract_paths, sandbox_contract_paths
 
     pinned: dict[str, str] = {}
     # Archived contracts are included on purpose: their datasets are historical
     # evidence, and a build must not overwrite a file any recorded contract pins.
-    for path in all_contract_paths(repo_root):
+    # Compiled sandbox contracts (#117) are included for the same reason: their Parquet is
+    # write-once evidence too, so an ordinary ``data build`` may not create or shadow it.
+    for path in [*all_contract_paths(repo_root), *sandbox_contract_paths(repo_root)]:
         if not path.is_file():
             continue
         try:
@@ -1377,6 +1379,96 @@ def cmd_data_fence(args: argparse.Namespace, runner: Any) -> int:
     return 0 if report.ok else 1
 
 
+def _override_pairs(values: list[str] | None) -> dict[str, str]:
+    """Parse repeated ``--override KEY=VALUE`` into a mapping, refusing a malformed pair."""
+    pairs: dict[str, str] = {}
+    for item in values or []:
+        key, sep, value = str(item).partition("=")
+        key = key.strip()
+        if not sep or not key:
+            raise ValueError(f"override {item!r} must be KEY=VALUE")
+        if key in pairs:
+            raise ValueError(f"override {key!r} is stated twice; state it once")
+        pairs[key] = value.strip()
+    return pairs
+
+
+def cmd_data_compile(args: argparse.Namespace, runner: Any) -> int:
+    """``warden data compile``: a resolved requirement -> fenced sandbox artifact (#117).
+
+    Ordering is the contract: the worktree gate first (a tampered tree may not publish
+    provenance), then the compile itself, which refuses an override, an untrusted policy, a
+    fence that cannot be held and an existing artifact *before* it writes anything.  The
+    command never signs, never opens the registry, never reads a holdout and never promotes:
+    promotion is a separate human-only step.
+    """
+    if not check_worktree():
+        print("WARDEN_DATA_COMPILE_FAILED", file=sys.stderr)
+        sys.exit(2)
+    from pydantic import ValidationError
+
+    from warden.compile import (
+        CompileFenceError,
+        CompileGap,
+        CompileNotRequired,
+        CompileRefused,
+        CompileWriteOnce,
+        compile_data_requirement,
+    )
+    from warden.market_data import read_parquet_bytes
+    from warden.resolve import RequirementSourceError
+
+    repo_root = Path(runner.repo_root)
+    try:
+        overrides = _override_pairs(getattr(args, "override", None))
+        artifact = compile_data_requirement(
+            args.requirement,
+            repo_root=repo_root,
+            lake_root=getattr(args, "lake_root", None),
+            parquet_reader=read_parquet_bytes,
+            overrides=overrides,
+        )
+    except CompileNotRequired as exc:
+        payload = {**exc.report.to_dict(), "compiled": False, "detail": str(exc)}
+        print(json.dumps(envelope(True, payload, "warden.data-compile", "allow")) if args.json
+              else f"No compile needed: {exc}")
+        print("WARDEN_DATA_COMPILE_COMPLETE")
+        return 0
+    except CompileGap as exc:
+        payload = {**exc.report.to_dict(), "compiled": False, "detail": str(exc)}
+        print(json.dumps(envelope(False, payload, "warden.data-compile", "deny")) if args.json
+              else f"Data compile refused (not satisfiable): {exc}")
+        print("WARDEN_DATA_COMPILE_FAILED", file=sys.stderr)
+        return 3
+    except CompileRefused as exc:
+        print(f"Data compile refused: {exc}", file=sys.stderr)
+        print("WARDEN_DATA_COMPILE_FAILED", file=sys.stderr)
+        return 2
+    except (CompileFenceError, CompileWriteOnce) as exc:
+        print(f"Data compile refused: {exc}", file=sys.stderr)
+        print("WARDEN_DATA_COMPILE_FAILED", file=sys.stderr)
+        return 1
+    except (ValidationError, RequirementSourceError, ValueError, OSError) as exc:
+        print(f"Data compile failed (input): {exc}", file=sys.stderr)
+        print("WARDEN_DATA_COMPILE_FAILED", file=sys.stderr)
+        return 2
+    payload = artifact.to_dict()
+    if args.json:
+        print(json.dumps(envelope(True, payload, "warden.data-compile", "allow")))
+    else:
+        verb = "Reused identical" if payload["reused"] else "Compiled"
+        print(f"{verb} artifact '{payload['contract_id']}': {payload['rows']} bars, "
+              f"{len(payload['assets'])} asset(s), parquet={payload['parquet_sha256'][:12]}, "
+              f"group={payload['selection_group_id']}, fence={payload['last_bar_close']}.")
+        print(f"  contract: {payload['contract_path']}")
+        print(f"  manifest: {payload['manifest_path']}")
+    if not check_worktree():
+        print("WARN: the protected inventory is now stale; only the human re-signs it.",
+              file=sys.stderr)
+    print("WARDEN_DATA_COMPILE_COMPLETE")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="warden", description="Deterministic quantitative research harness.")
     p.add_argument("--version", action="version", version=f"warden {__version__}")
@@ -1436,6 +1528,14 @@ def build_parser() -> argparse.ArgumentParser:
     data_fence.add_argument("--manifest-dir", default="contracts/datasets")
     data_fence.add_argument("--contracts-dir", default="contracts")
     data_fence.add_argument("--json", action="store_true")
+    # ``warden data compile`` -- a resolved requirement becomes a write-once sandbox
+    # artifact (#117).  Agent-facing: it injects the signed policy, refuses any override,
+    # never signs and never promotes.
+    data_compile = data_actions.add_parser("compile")
+    data_compile.add_argument("--requirement", required=True, metavar="FILE|JSON")
+    data_compile.add_argument("--lake-root", default=None)
+    data_compile.add_argument("--override", action="append", default=None, metavar="KEY=VALUE")
+    data_compile.add_argument("--json", action="store_true")
     # ``warden resolve-data`` -- read-only resolution of a declarative DataRequirement
     # (#116): the answer to "which active signed contract can run this, or what is
     # missing", before any strategy code is loaded.  It never opens the registry.
@@ -1514,7 +1614,7 @@ def main(argv: list[str] | None = None) -> int:
                     "handoff": cmd_handoff, "resolve-data": cmd_resolve_data}
             if args.subcommand == "data":
                 data_actions = {"build": cmd_data_build, "seal-holdout": cmd_data_seal_holdout,
-                                "fence": cmd_data_fence}
+                                "fence": cmd_data_fence, "compile": cmd_data_compile}
                 code = data_actions[args.action](args, runner)
             else:
                 code = cmds[args.subcommand](args, runner)

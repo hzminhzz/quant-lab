@@ -15,7 +15,11 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from warden.contract_source import archived_contract
+from warden.contract_source import (
+    SANDBOX_MANIFEST_DIR,
+    archived_contract,
+    is_sandbox_contract,
+)
 from warden.contracts import (
     CURRENT_SPEC_VERSION,
     GOVERNANCE_KEYS,
@@ -26,6 +30,18 @@ from warden.contracts import (
 )
 
 MANIFEST_DIR = Path("contracts") / "datasets"
+
+
+def manifest_path_for(contract_id: str, repo_root: Path | str = Path(".")) -> Path:
+    """The dataset manifest a contract resolves: production directory, else sandbox (#117).
+
+    The namespace is chosen by *where the contract document lives*, never by the caller, so
+    a compiled sandbox artifact can never shadow — or be shadowed by — production evidence.
+    Production wins a name clash (see ``contract_source.is_sandbox_contract``).
+    """
+    root = Path(repo_root)
+    directory = SANDBOX_MANIFEST_DIR if is_sandbox_contract(root, contract_id) else MANIFEST_DIR
+    return root / directory / f"{contract_id}.json"
 #: Human-held attestations of *origin* (see ``warden_evidence.data_admission``).  Absent
 #: directory means "no attestation exists", which is a state, not an error.
 ATTESTATION_DIR = Path("contracts") / "attestations"
@@ -88,7 +104,7 @@ def resolve_contract_governance(
     declared = contract.governance
     if declared.declares_governance:
         return declared
-    manifest = Path(repo_root) / MANIFEST_DIR / f"{contract.contract_id}.json"
+    manifest = manifest_path_for(contract.contract_id, repo_root)
     if not manifest.is_file():
         return declared
     record = json.loads(manifest.read_text(encoding="utf-8"))
@@ -180,9 +196,19 @@ def resolve_dataset(contract: EvaluationContract, repo_root: Path = Path("."), r
             "archived contract"
         )
     rel = getattr(contract, f"{role}_data_path")
-    manifest = Path(repo_root) / MANIFEST_DIR / f"{contract.contract_id}.json"
+    manifest = manifest_path_for(contract.contract_id, repo_root)
     record: dict | None = None
     if role == "holdout":
+        if is_sandbox_contract(repo_root, contract.contract_id):
+            # A compiled sandbox artifact declares a holdout path it never wrote, and no
+            # sandbox contract may ever read a holdout: the refusal is on the namespace,
+            # before any path is statted.
+            return _ineligible(
+                contract.contract_id,
+                role,
+                rel if isinstance(rel, str) else "",
+                "sandbox contract under contracts/sandbox/ is never eligible for holdout",
+            )
         # A holdout read is only ever authorized against an explicit pin declared in the
         # dataset manifest, checked before any holdout byte is opened, statted or hashed.
         if not isinstance(rel, str) or not rel.strip():

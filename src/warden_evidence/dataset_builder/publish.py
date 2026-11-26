@@ -106,6 +106,8 @@ def build_manifest(
     assets: list[str],
     source_audit: dict[str, Any] | None = None,
     lineage: dict[str, Any] | None = None,
+    contract_id: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> Manifest:
     """Construct the canonical v2 manifest dictionary.
 
@@ -117,8 +119,10 @@ def build_manifest(
     payload: dict[str, Any] = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "dataset_id": spec.dataset_id,
-        # Legacy gateway keys (contracts/datasets/<contract_id>.json resolution).
-        "contract_id": spec.dataset_id,
+        # Legacy gateway keys (contracts/datasets/<contract_id>.json resolution).  A caller
+        # that publishes the manifest under its own name states which id owns it; otherwise
+        # the dataset id is the owner, exactly as before.
+        "contract_id": contract_id or spec.dataset_id,
         "path": dataset_relative_path,
         "sha256": parquet_sha256,
         # A builder never claims market verification: only a synthetic build is
@@ -170,6 +174,15 @@ def build_manifest(
     }
     if source_audit:
         payload["source_audit"] = source_audit
+    if extra:
+        # A caller-owned block (spec #117's ``sandbox`` evidence) is merged verbatim and is
+        # therefore covered by ``manifest_sha256``.  It may never shadow a key the builder
+        # owns: that would let a caller rewrite the provenance it is supposed to attest.
+        clash = sorted(set(extra) & set(payload))
+        if clash:
+            raise WriteOnceError(
+                f"manifest block(s) {clash} would overwrite builder-owned keys; refused")
+        payload.update(extra)
     return Manifest(payload=payload, sha256=hashlib.sha256(canonical_json_bytes(payload)).hexdigest())
 
 

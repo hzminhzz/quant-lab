@@ -1081,4 +1081,6 @@ def test_mcp_surface_gains_no_data_or_seal_authority() -> None:
     data_actions = next(
         action for action in actions._actions if isinstance(action, argparse._SubParsersAction)
     ).choices
-    assert {"build", "seal-holdout", "fence"} == set(data_actions)
+    # #117 added ``data compile``: a write-once *sandbox* artifact, agent-facing, and still
+    # invisible to the MCP surface above.
+    assert {"build", "seal-holdout", "fence", "compile"} == set(data_actions)

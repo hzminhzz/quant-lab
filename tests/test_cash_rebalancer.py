@@ -115,6 +115,35 @@ def test_target_gross_uses_contract_cap_with_headroom_before_next_open():
     assert all(gross / equity <= 0.8 for _, equity, _, gross, _, _ in result.portfolio_state)
 
 
+def test_a_target_book_above_the_budget_scales_the_whole_book_down():
+    """A decision whose gross exceeds the budget shrinks the *targets*, not only additions.
+
+    ``{AAA: 1.5, BBB: 0.5}`` is 2.0 gross against a 0.72 budget (0.8 cap, 10% headroom), so
+    every target is scaled by 0.36: AAA 0.54 and BBB 0.18 of equity.  AAA is held at 0.72
+    from the first decision, so this is a **partial reduction** — the case only ``scale``
+    produces; without it AAA would look like an addition (1.5 > 0.72) and the book would be
+    left at 0.72 gross in one name instead of being rebalanced.
+    """
+    contract = _contract()
+    strategy = _Targets(
+        contract,
+        {1: {"AAA": 0.72}, 3: {"AAA": 1.5, "BBB": 0.5}},
+        headroom=0.10,
+    )
+    result = _run(_panel(), strategy, contract)
+
+    assert not result.rejected_orders
+    assert [(fill.timestamp, fill.asset, fill.side.value) for fill in result.fills] == [
+        (START + timedelta(hours=2), "AAA", "buy"),
+        (START + timedelta(hours=4), "AAA", "sell"),
+        (START + timedelta(hours=4), "BBB", "buy"),
+    ]
+    # 0.54 x $10,000 at $100 is 54 shares: sell the 18 over budget, then buy BBB's 18.  The
+    # third decimal is the cost of the first buy, which moves account equity slightly.
+    assert [fill.quantity for fill in result.fills] == pytest.approx([72.0, 18.0, 18.0], abs=0.1)
+    assert all(gross / equity <= 0.8 for _, equity, _, gross, _, _ in result.portfolio_state)
+
+
 @pytest.mark.parametrize("remaining", [{}, {"BBB": 0.1}], ids=["dropped", "reduced"])
 def test_rotation_submits_sells_before_buys(remaining):
     contract = _contract()

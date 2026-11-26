@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -390,8 +391,14 @@ def test_a_fence_that_straddles_one_bar_is_refused_not_truncated(workspace, monk
     assert _tree(repo) == before
 
 
-def test_a_store_partition_that_straddles_the_fence_is_refused(tmp_path, monkeypatch) -> None:
-    """A monthly partition covering the fence cannot be sliced: the compile refuses."""
+def test_a_store_partition_that_straddles_the_fence_is_dropped_and_nothing_is_left(
+    tmp_path, monkeypatch
+) -> None:
+    """A monthly partition covering the fence is never sliced: dropped whole.
+
+    Here it is the only partition in the window, so dropping it leaves nothing to compile
+    and the refusal names the excluded partition (review B8).
+    """
     repo = tmp_path / "repo"
     repo.mkdir()
     lake = _lake(tmp_path / "lake", partitions=("year=2021/month=01",))
@@ -399,8 +406,47 @@ def test_a_store_partition_that_straddles_the_fence_is_refused(tmp_path, monkeyp
     before = _tree(repo)
     with pytest.raises(CompileFenceError) as caught:
         _compile(repo, lake)
-    assert "year=2021/month=01" in str(caught.value)
+    message = str(caught.value)
+    assert "year=2021/month=01" in message
+    assert "straddle" in message and "no usable partition" in message
     assert _tree(repo) == before
+
+
+def test_a_mid_month_fence_excludes_the_straddling_partition_and_records_it(
+    tmp_path, monkeypatch
+) -> None:
+    """Review B8: a fence inside a month/daily partition now compiles, minus that partition.
+
+    Nothing at or after the fence is read (the partition is dropped by name), the exclusion
+    is recorded in the manifest, and the post-aggregate proof still holds: the last emitted
+    bar closes before the fence.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake", days=("01", "02", "03", "04"))
+    midpoint = datetime(2021, 1, 4, 12, tzinfo=UTC)
+    _policy(
+        repo,
+        monkeypatch,
+        POLICY.replace("holdout_start: '2021-01-04T00:00:00Z'",
+                       "holdout_start: '2021-01-04T12:00:00Z'"),
+    )
+
+    artifact = _compile(repo, lake)
+
+    manifest = json.loads((repo / artifact.manifest_path).read_text(encoding="utf-8"))
+    sandbox = manifest["sandbox"]
+    assert sandbox["fence"]["partition_policy"] == "exclude_straddling_partition"
+    excluded = sandbox["lake"]["excluded_partitions"]
+    assert any(path.endswith("day=04") for path in excluded)
+    # No byte of the straddling partition was read, and no bar is emitted from it.
+    assert all("day=04" not in record["path"] for record in manifest["raw_inputs"])
+    frame = pl.read_parquet(repo / artifact.parquet_path)
+    assert frame["timestamp"].max() == datetime(2021, 1, 3, 23, tzinfo=UTC)
+    assert _at(artifact.last_bar_close) < midpoint
+    assert _at(manifest["sandbox"]["window"]["compiled_start_inclusive"]) == START
+    # The window is the whole pre-fence data: only the straddling day is missing.
+    assert frame["timestamp"].min() == START
 
 
 def test_a_raw_row_at_or_after_the_fence_is_counted_and_refused(workspace) -> None:
@@ -499,6 +545,36 @@ def test_a_published_bar_that_closes_after_the_fence_is_withdrawn(workspace, mon
     # The just-written evidence is withdrawn: a refused compile leaves no artifact behind.
     assert [path.exists() for path in published] == [False, False]
     assert not list((repo / "contracts" / "sandbox").glob("*.yaml"))
+
+
+def test_a_window_that_leaves_no_training_bar_before_val_start_is_refused(
+    tmp_path, monkeypatch
+) -> None:
+    """Review B3: the *achieved* window start is reconciled with ``val_start``.
+
+    The policy's ``val_start`` is checked against the requested ``min_start`` before any
+    read, but not against the window the store can actually serve.  Here the earliest
+    partition is missing (a stale ``.metadata`` record still declares a first bar on
+    2021-01-01), so the compiled window would begin at 2021-01-02 — exactly ``val_start``,
+    with no training bar at all.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake")
+    shutil.rmtree(lake / "forex_minute_EURUSD" / "year=2021" / "month=01" / "day=01")
+    metadata = json.loads(
+        (lake / ".metadata" / "forex_minute_EURUSD.json").read_text(encoding="utf-8")
+    )
+    assert metadata["first_timestamp"].startswith("2021-01-01")  # stale, and unknowable here
+    _policy(repo, monkeypatch)
+    before = _tree(repo)
+
+    with pytest.raises(CompileRefused) as caught:
+        _compile(repo, lake)
+    message = str(caught.value)
+    assert "2021-01-02T00:00:00+00:00" in message
+    assert "val_start" in message and "no training bar" in message
+    assert _tree(repo) == before
 
 
 def test_no_input_partition_at_or_after_the_fence_is_ever_opened(tmp_path, monkeypatch) -> None:

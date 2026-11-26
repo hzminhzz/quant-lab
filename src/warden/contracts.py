@@ -6,7 +6,7 @@ import hashlib
 import json
 import math
 import re
-from dataclasses import InitVar, asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -69,28 +69,28 @@ def valid_id(value: str) -> None:
         raise ContractValidationError("IDs must contain only letters, digits, '_' or '-'")
 
 
-# --- Contract-owned governance metadata (ticket #94) --------------------------
-# The governance block is *not* a dataclass field.  ``registry`` derives the
-# ``contracts`` DDL from ``fields(EvaluationContract)`` and persists
-# ``asdict(contract)``; adding a field would silently ALTER the live ledger and
-# invalidate every registered row.  Keeping the block off the field list keeps
-# ``asdict()``, the DDL and every legacy digest byte-identical.
+# --- Contract-owned governance metadata (#94, unified by #113) ---------------
+# ``policy`` is an explicit, declared field holding the contract's governance
+# block as a JSON-safe mapping (``None`` for a legacy v1 contract).  #94 had to
+# hide the block in an ``InitVar`` because ``asdict()`` fed both the ``contracts``
+# DDL and the digest; #113 retires that workaround:
 #
-# It does have to survive a copy.  ``dataclasses.replace()`` reconstructs through
-# ``__init__``, and ``warden verify``'s rules-prefix leakage check replaces
-# ``exploratory_data_path`` on a live contract (``leakage.py``) and then executes
-# the copy.  A plain ``__dict__`` carrier is dropped there, which silently
-# downgrades the copy to a legacy v1 contract: tier back to ``native_venue``, a
-# v1 digest, and caller-supplied leverage limits.
-#
-# So the policy travels through an ``InitVar`` (``policy``): ``InitVar`` is
-# excluded from ``dataclasses.fields()`` and from ``asdict()`` (DDL and v1
-# digests unchanged), while ``dataclasses.replace()`` reads it off the instance
-# and passes it to ``__init__``, where ``__post_init__`` validates and re-attaches
-# it.  The same name is the stored carrier (a JSON-safe dict), so
-# ``EvaluationContract(**contract.__dict__)`` is policy-preserving too.
+# * a real field survives ``dataclasses.replace()``, ``copy.deepcopy`` and pickling
+#   natively, so ``warden verify``'s leakage copy can no longer silently downgrade
+#   a v2 contract to a v1 one (the failure #94's ``InitVar`` was written to avoid);
+# * it is persisted in its own additive ``contracts.policy`` TEXT column, so the
+#   ledger records the declared group instead of re-deriving it from YAML;
+# * it is *excluded* from ``spec_hash_payload()`` and ``to_dict()`` explicitly, so
+#   every historical v1 digest and every v2 digest computed before this change is
+#   byte-identical.  ``asdict()`` does carry the carrier now — deliberately:
+#   ``EvaluationContract(**asdict(c))`` is policy-preserving instead of collapsing
+#   to a v1 projection (that collapse was the DSR-reset loophole #109 names).
 GOVERNANCE_ATTR = "policy"
-GOVERNANCE_INITVAR = "policy"
+#: Historical spelling: a dumped ``__dict__`` (or a pre-#113 document) carries the
+#: policy under the field name itself, so ``from_dict`` accepts it either way.
+GOVERNANCE_INITVAR = GOVERNANCE_ATTR
+#: SQLite storage hint for the explicit carrier column (canonical JSON text).
+POLICY_FIELD_METADATA = {"sqlite_type": "TEXT"}
 CURRENT_SPEC_VERSION = 2
 LEGACY_SPEC_VERSION = 1
 
@@ -232,20 +232,16 @@ def coerce_contract_policy(value) -> ContractPolicy:
 
 
 def attach_contract_policy(contract: EvaluationContract, policy) -> EvaluationContract:
-    """Attach a validated policy to a frozen contract without touching its fields.
+    """Attach a validated policy to a frozen contract's explicit carrier field.
 
-    The stored attribute is the same name as the ``policy`` ``InitVar`` so that
-    ``dataclasses.replace()`` forwards it (see the module comment above).  A
-    policy equal to the legacy default is not stored at all, which keeps
-    ``contract.__dict__`` — and therefore any YAML fixture dumped from it —
-    byte-identical to a pre-#94 contract.
+    The stored value is the JSON-safe ``to_dict()`` mapping, so ``asdict()``,
+    YAML dumping and the ``contracts.policy`` JSON column all see the same
+    document.  A policy equal to the legacy default clears the carrier, which
+    keeps a legacy contract's row and document byte-identical to a pre-#94 one.
     """
     resolved = coerce_contract_policy(policy)
-    if resolved == ContractPolicy():
-        if GOVERNANCE_ATTR in getattr(contract, "__dict__", {}):
-            object.__delattr__(contract, GOVERNANCE_ATTR)
-        return contract
-    object.__setattr__(contract, GOVERNANCE_ATTR, resolved.to_dict())
+    object.__setattr__(contract, GOVERNANCE_ATTR,
+                       None if resolved == ContractPolicy() else resolved.to_dict())
     return contract
 
 
@@ -275,13 +271,24 @@ class EvaluationContract:
     # Declared origin, independent of the digest. Only "verified_market" may reach
     # market qualification; "unknown" fails closed.
     data_provenance: str = "unknown"
-    #: Constructor/copy channel for the contract-owned policy, never a stored
-    #: field: excluded from ``fields()``/``asdict()`` so the registry DDL and the
-    #: 36 legacy digests stay put, while ``dataclasses.replace()`` forwards it.
-    policy: InitVar[ContractPolicy | dict | None] = None
+    #: Contract-owned governance block (#94, explicit field since #113): a validated
+    #: ``ContractPolicy`` or its JSON-safe mapping, normalised to the mapping.
+    #: ``None`` for a legacy v1 contract.  Held off the digest by
+    #: ``spec_hash_payload()`` rather than by hiding the field, and stored in the
+    #: additive ``contracts.policy`` column.  ``compare=False`` keeps equality,
+    #: hashing and frozen-dataclass copying independent of the (unhashable) block.
+    policy: ContractPolicy | dict | None = field(default=None, compare=False, repr=False,
+                                                 metadata=POLICY_FIELD_METADATA)
 
-    def __post_init__(self, policy: ContractPolicy | dict | None):
+    def __post_init__(self):
         valid_id(self.contract_id)
+        # The explicit carrier is stored in its canonical JSON-safe form; the
+        # legacy default is stored as ``None`` so a v1 contract's row and digest
+        # stay byte-identical to a pre-#94 contract.
+        if self.policy is not None:
+            resolved = coerce_contract_policy(self.policy)
+            object.__setattr__(self, GOVERNANCE_ATTR,
+                               None if resolved == ContractPolicy() else resolved.to_dict())
         for n in ("train_start", "val_start", "val_end", "holdout_start", "holdout_end"):
             object.__setattr__(self, n, utc(getattr(self, n)))
         d = [self.train_start, self.val_start, self.val_end, self.holdout_start, self.holdout_end]
@@ -302,7 +309,6 @@ class EvaluationContract:
             raise ContractValidationError("data_provenance must be verified_market, synthetic or unknown")
         if self.data_provenance != "unknown" and not re.fullmatch(r"[0-9a-f]{64}", self.data_snapshot_sha256 or ""):
             raise ContractValidationError("declared data_provenance requires a data_snapshot_sha256 pin")
-        attach_contract_policy(self, policy)
 
     def total_one_way_cost_decimal(self) -> float:
         return (self.taker_fee_bps + self.slippage_bps) * 1e-4
@@ -314,22 +320,35 @@ class EvaluationContract:
     def governance(self) -> ContractPolicy:
         """Contract-owned policy (v2 YAML, else the legacy default).
 
-        Resolved off the instance carrier instead of a dataclass field so that
-        ``asdict()``, the ``contracts`` DDL and every v1 digest stay unchanged.
-        The carrier is copied by ``dataclasses.replace()``, ``copy``/``deepcopy``
-        and pickling, so a copy never silently reverts to the legacy default.
+        The carrier is an ordinary field, so ``dataclasses.replace()``,
+        ``copy``/``deepcopy`` and pickling carry it without a special case; a copy
+        never silently reverts to the legacy default.
         """
-        raw = getattr(self, GOVERNANCE_ATTR, None) or {}
-        return ContractPolicy.from_mapping(raw)
+        raw = self.policy
+        return ContractPolicy() if raw is None else coerce_contract_policy(raw)
+
+    @property
+    def selection_group_id(self) -> str:
+        """The contract's *own* declared selection group (``""`` for a v1 contract).
+
+        Policy-derived membership is a registry fact (``contract_governance``), not
+        a contract field: a contract may only ever declare its own group, and the
+        registry is the only authority that can add a policy-mapped one.
+        """
+        return self.governance.selection_group_id
 
     def spec_hash_payload(self) -> dict:
         """The exact mapping a digest is computed over, per spec version.
 
-        v1 is the historical ``asdict()`` projection, unchanged since the first
-        registered contract.  v2 adds the declared governance block, so a policy
-        edit is a different contract rather than a silent re-interpretation.
+        v1 is the historical ``asdict()`` projection without the policy carrier,
+        unchanged since the first registered contract.  v2 adds the declared
+        governance block, so a policy edit is a different contract rather than a
+        silent re-interpretation.  The carrier itself is never hashed: it is the
+        *transport* for that block, and popping it keeps every pre-#113 digest
+        (v1 and v2 alike) byte-identical.
         """
         payload = asdict(self)
+        payload.pop(GOVERNANCE_ATTR, None)
         policy = self.governance
         if policy.declares_governance:
             payload["governance"] = policy.hash_payload()
@@ -338,13 +357,13 @@ class EvaluationContract:
     def to_dict(self) -> dict:
         """Policy-preserving serialisation in contract-YAML document shape.
 
-        This — not ``asdict()`` — is the supported serialisation: a declared
-        governance block is emitted as top-level keys, so
-        ``EvaluationContract.from_dict(c.to_dict())`` reproduces ``c``,
-        including its ``spec_hash()``.  ``asdict()`` deliberately stays the
-        historical field projection and therefore describes a *v1* contract.
+        A declared governance block is emitted as top-level keys, so
+        ``EvaluationContract.from_dict(c.to_dict())`` reproduces ``c``, including
+        its ``spec_hash()``.  The carrier field itself is not emitted: the block
+        it transports *is* the top-level keys, and a document never carries both.
         """
         payload = asdict(self)
+        payload.pop(GOVERNANCE_ATTR, None)
         policy = self.governance
         if policy.declares_governance:
             payload.update(policy.hash_payload())
@@ -357,15 +376,16 @@ class EvaluationContract:
         A governance block is only accepted together with ``spec_version: 2``
         (a legacy v1 contract declares its tier in the dataset manifest).  Any
         other key is refused, so a mistyped governance key can never leave a
-        proxy contract quietly promotable.
+        proxy contract quietly promotable.  A ``policy`` carrier (a dumped
+        ``__dict__`` or a pre-#113 document) is accepted as the same declaration.
         """
         if not isinstance(document, dict):
             raise ContractValidationError(f"{source}: contract must be a mapping")
         valid_keys = {f.name for f in fields(cls)}
-        # A contract's own ``__dict__`` carries the policy under its InitVar name,
-        # so that spelling is accepted as the same declaration (a dumped contract
+        # A contract's own ``__dict__`` carries the policy under the field name, so
+        # that spelling is accepted as the same declaration (a dumped contract
         # reloads with its governance instead of failing as an unknown key).
-        accepted = valid_keys | set(GOVERNANCE_KEYS) | {GOVERNANCE_INITVAR}
+        accepted = valid_keys | set(GOVERNANCE_KEYS)
         unknown = sorted(set(document) - accepted)
         if unknown:
             raise ContractValidationError(
@@ -386,7 +406,7 @@ class EvaluationContract:
                 "a legacy v1 contract declares its evidence_tier in the dataset manifest instead")
         kwargs = {key: value for key, value in document.items() if key in valid_keys}
         if governance:
-            kwargs[GOVERNANCE_INITVAR] = ContractPolicy.from_mapping(governance)
+            kwargs[GOVERNANCE_ATTR] = ContractPolicy.from_mapping(governance)
         return cls(**kwargs)
 
     def spec_hash(self) -> str:
@@ -410,6 +430,22 @@ class EvaluationContract:
             data_frequency=self.frequency,
             time_contract_version=2,
         )
+
+
+def contract_row(contract: EvaluationContract) -> dict:
+    """The ``contracts``-table row for a contract (#113).
+
+    ``asdict()`` carries the explicit ``policy`` field, but SQLite cannot bind a
+    mapping, so the row stores the canonical JSON text (``""`` for a legacy
+    contract).  Everything else is the historical field projection, and
+    ``spec_hash`` is the contract's own digest — the row therefore records the
+    same bytes as before #113 for every pre-existing contract.
+    """
+    row = asdict(contract)
+    policy = row.pop(GOVERNANCE_ATTR, None)
+    row[GOVERNANCE_ATTR] = canonical_json(policy) if policy else ""
+    row["spec_hash"] = contract.spec_hash()
+    return row
 
 
 def validate_panel_feed_spec(panel: pl.DataFrame, contract: EvaluationContract) -> FeedSpec:

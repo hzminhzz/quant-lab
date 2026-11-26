@@ -24,6 +24,15 @@ class VenuePolicyError(ValueError):
     """The venue policy is unavailable, is not trusted, or cannot govern this market."""
 
 
+class SelectionGroupResolutionError(VenuePolicyError):
+    """No policy ``selection_group_id`` resolves for a contract's market domain.
+
+    Raised at registration time by :func:`require_selection_group`.  The message
+    always names the asset class and the cadence bucket that could not be mapped,
+    because "no group" must be actionable, not a bare refusal.
+    """
+
+
 class _PolicyLoader(yaml.SafeLoader):
     def construct_mapping(self, node, deep=False):
         if not isinstance(node, yaml.MappingNode):
@@ -124,6 +133,28 @@ class VenuePolicy:
 
     def selection_group_id(self, asset_class: str, frequency: str) -> str:
         return self.rules_for(asset_class, frequency).selection_group_id
+
+
+def require_selection_group(policy: VenuePolicy, asset_class: str, frequency: str) -> str:
+    """The mandatory ``selection_group_id`` for a contract's market domain (#113).
+
+    This is the single authority every new-contract path must consult: the group
+    is a policy fact, never a caller's choice and never a hardcoded mapping.  A
+    domain the policy does not map fails closed, naming the asset class and the
+    cadence bucket, so the refusal is actionable instead of a silent per-contract
+    DSR reset.
+    """
+    try:
+        bucket = cadence_bucket(frequency)
+    except VenuePolicyError:
+        bucket = None
+    try:
+        return policy.selection_group_id(asset_class, frequency)
+    except VenuePolicyError as exc:
+        domain = (f"asset class {asset_class!r} at cadence {bucket!r}"
+                  if bucket is not None else f"asset class {asset_class!r} at frequency {frequency!r}")
+        raise SelectionGroupResolutionError(
+            f"no selection_group_id maps {domain}: {exc}") from None
 
 
 def load_venue_policy(repo_root: Path = Path(".")) -> VenuePolicy:

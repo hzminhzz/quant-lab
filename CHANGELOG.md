@@ -4,6 +4,33 @@ Notable changes to quant-lab. Commit refs are pushed to origin/main unless noted
 protected files change, the governance manifest (`.warden_manifest.sha256`) is re-signed by the human
 principal — or by an agent under explicit in-session delegation, recorded in an approval trail.
 
+## 2026-11-27
+
+### Unified contract schema and shared selection debt (#113, spec #109 lane F)
+
+- `EvaluationContract.policy` is now an explicit field instead of #94's `InitVar` carrier. It is
+  persisted in an additive `contracts.policy` TEXT column, survives `asdict()`/`replace()`/pickle
+  natively, and is excluded from `spec_hash_payload()`/`to_dict()` so all 36 legacy v1 digests and
+  every v2 digest are byte-identical (verified against the pinned table in `tests/test_p2_t08.py`).
+  A projection can no longer collapse a v2 contract into a v1 one, which was the DSR-reset path
+  #109 names.
+- `register_new_contract(..., venue_policy=|repo_root=)` makes the signed venue policy the sole
+  authority for a new contract's `selection_group_id`: an unmapped `(asset_class, cadence)` domain
+  fails closed with the domain named (`SelectionGroupResolutionError`), and a declaration that
+  contradicts the policy is refused. `register_contract` records the group for every contract,
+  including a policy-mapped legacy one (`contract_governance.group_source` = `declared` | `policy`).
+- `map_selection_groups(...)` maps pre-existing contracts onto their policy group as an explicit,
+  auditable step (additive `INSERT OR IGNORE` only; unmapped domains are reported, never guessed),
+  and `selection_group_debt(contract)` / `recorded_policy(contract_id)` expose the persisted count
+  and ledger-side governance block. A legacy contract's own scope and `asset_class:frequency` floor
+  are unchanged — the mapping widens the group's debt, it never narrows a hurdle.
+- Registry schema `user_version` 3: two additive columns (`contracts.policy`,
+  `contract_governance.group_source`), no row rewrite, no new trigger, no changed table DDL. The
+  down-path is data-only: a v2 build refuses a v3 registry, so rollback is `PRAGMA user_version=2`
+  with both columns left in place and ignored.
+- Library-only: `src/warden/cli.py` and the live registry are untouched (lane A/J own the CLI
+  wiring and the manifest re-sign).
+
 ## 2026-11-25
 
 ### P2 research refactor (#79, #94–#106)

@@ -97,6 +97,9 @@ LEGACY_SPEC_HASHES = {
 
 #: The registered ``contracts`` column set, which governance must not perturb.
 LEGACY_CONTRACT_FIELDS = 22
+#: #113: the governance block travels in one explicit carrier field (persisted as
+#: ``contracts.policy``), excluded from ``spec_hash_payload()`` and ``to_dict()``.
+POLICY_CARRIER_FIELDS = frozenset({"policy"})
 
 
 def _legacy_documents() -> dict[str, dict]:
@@ -142,9 +145,12 @@ def test_governance_carrier_never_enters_asdict_or_the_registry_schema() -> None
     # v1 keeps its digest even though the resolved tier changed...
     assert contract.spec_hash() == pinned
     assert contract.governance.evidence_tier == "research_proxy"
-    # ...because governance is not a dataclass field, so asdict() and the
-    # registry-derived DDL are untouched.
-    assert len(fields(EvaluationContract)) == LEGACY_CONTRACT_FIELDS
+    # ...because no governance *key* is a field and the carrier is excluded from the
+    # digest, so the historical field projection and the digest are untouched.  #113
+    # promotes the carrier itself to an explicit field (``policy``), which is why the
+    # field count is the historical 22 plus that one carrier.
+    assert len(fields(EvaluationContract)) - len(POLICY_CARRIER_FIELDS) == LEGACY_CONTRACT_FIELDS
+    assert {f.name for f in fields(EvaluationContract)} & POLICY_CARRIER_FIELDS == POLICY_CARRIER_FIELDS
     assert not {f.name for f in fields(EvaluationContract)} & set(GOVERNANCE_KEYS)
     assert "governance" not in contract.spec_hash_payload()
 
@@ -530,13 +536,13 @@ def test_official_serialisation_preserves_governance(tmp_path: Path) -> None:
         assert rebuilt.governance == contract.governance, label
         assert rebuilt.spec_hash() == contract.spec_hash(), label
 
-    # ``asdict()`` stays the historical field projection: it cannot describe a
-    # v2 contract, which is why ``to_dict()``/``from_dict()`` are the supported
-    # serialisation and ``register_contract`` derives its columns from it.
+    # ``asdict()`` is the field projection *including* the explicit policy carrier
+    # (#113): a v2 contract survives it instead of collapsing to a v1 projection, so
+    # the projection rebuilds the same digest rather than the legacy one.
     projected = EvaluationContract(**asdict(contract))
-    assert len(asdict(contract)) == LEGACY_CONTRACT_FIELDS
-    assert projected.governance.spec_version == 1
-    assert projected.spec_hash() == LEGACY_SPEC_HASHES["CRYPTO_PERPS_1H_V1"]
+    assert len(asdict(contract)) == LEGACY_CONTRACT_FIELDS + len(POLICY_CARRIER_FIELDS)
+    assert projected.governance == contract.governance
+    assert projected.spec_hash() == contract.spec_hash()
 
 
 def test_v2_copy_registers_on_the_unchanged_schema(tmp_path: Path) -> None:
@@ -808,7 +814,9 @@ def test_write_contract_and_manifest_atomic_round_trips_a_v2_declaration(tmp_pat
         reloaded.governance.max_gross_leverage,
     ) == (CURRENT_SPEC_VERSION, True, 1.5)
     assert reloaded.spec_hash() == declared.spec_hash()
-    assert reloaded.spec_hash() != EvaluationContract(**asdict(declared)).spec_hash()
+    # #113: ``asdict()`` carries the explicit policy carrier, so the historical
+    # projection is now policy-preserving rather than a silent v1 downgrade.
+    assert reloaded.spec_hash() == EvaluationContract(**asdict(declared)).spec_hash()
 
     # Identical bytes are an idempotent no-op, so the policy-bearing document is
     # stable across a write/reload/write cycle.
@@ -818,12 +826,15 @@ def test_write_contract_and_manifest_atomic_round_trips_a_v2_declaration(tmp_pat
 
     # A v1 control document still writes with its historical digest.  Note
     # ``attach_contract_policy`` mutates in place, so the historical projection is
-    # rebuilt from the fields rather than from ``declared`` itself.
-    v1_control = EvaluationContract(**asdict(declared))
+    # rebuilt from the fields with the #113 policy carrier dropped.
+    v1_control = EvaluationContract(
+        **{key: value for key, value in asdict(declared).items() if key not in POLICY_CARRIER_FIELDS})
     assert v1_control.governance.declares_governance is False
     v1_path = repo / "contracts" / "v1_control.yaml"
     v1_manifest = repo / "contracts" / "datasets" / "T08_WRITER_V1_v1.json"
-    write_contract_and_manifest_atomic(v1_path, asdict(v1_control), v1_manifest, manifest, repo_root=repo)
+    write_contract_and_manifest_atomic(
+        v1_path, {key: value for key, value in asdict(v1_control).items() if key not in POLICY_CARRIER_FIELDS},
+        v1_manifest, manifest, repo_root=repo)
     assert load_contract(v1_path).spec_hash() == v1_control.spec_hash()
 
     # Governance without `spec_version: 2` is refused (never silently downgraded)

@@ -36,6 +36,7 @@ PROTECTED_FILES = (
     # do not reach ``contracts/lifecycle/``. Naming it here keeps this standalone view in
     # parity with the integrity manifest's protected set instead of widening the globs.
     "contracts/lifecycle/contract_lifecycle.json",
+    "contracts/policy/venue_policy.yaml",
 )
 PROTECTED_DIR_PREFIXES = ("src/warden/", "src/warden_ops/", "src/warden_evidence/", "contracts/")
 TRUST_FILES = (MANIFEST_FILE, "pyproject.toml", "uv.lock")

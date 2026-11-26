@@ -4,7 +4,7 @@ The builder knows nothing about venues.  An adapter turns one declared
 ``source`` block into a canonical raw frame plus the exact bytes it read, so the
 Merkle commitment is computed over read inputs rather than over a path list.
 
-Four adapters ship here, and each refuses the shape it is not:
+Five adapters ship here, and each refuses the shape it is not:
 
 * ``local_tracer`` — a local-file tracer that reads declared CSV, TSV, JSON/NDJSON
   and (with an injected reader) Parquet inputs beneath one source root;
@@ -12,7 +12,8 @@ Four adapters ship here, and each refuses the shape it is not:
   funding rate to keep and its volume is a tick count, so the adapter enforces both
   declarations instead of letting them drift into the panel;
 * ``derived_from_dataset`` — resample one digest-verified built dataset;
-* ``composite_union`` — union several digest-verified built datasets into one panel.
+* ``composite_union`` — union several digest-verified built datasets into one panel;
+* ``ml4t_lake`` — read canonical Hive or flat OHLCV Parquet from the configured lake.
 
 Vendored lake adapters register through :func:`register_source_adapter` without
 touching the builder.  No adapter imports a Parquet reader: the owning caller injects
@@ -24,15 +25,19 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
 import polars as pl
 
+from warden.lake_root import resolve_lake_root
 from warden_evidence.dataset_builder.containment import (
     AdapterError,
+    ListingRawFileSystem,
+    LocalRawFileSystem,
     RawFileSystem,
     canonical_source_path,
 )
@@ -598,3 +603,180 @@ def _derived_factory(*, fs: RawFileSystem, parquet_reader: ParquetReader | None 
 @register_source_adapter(CompositeUnionAdapter.name)
 def _composite_factory(*, fs: RawFileSystem, parquet_reader: ParquetReader | None = None) -> SourceAdapter:
     return CompositeUnionAdapter(fs=fs, parquet_reader=parquet_reader)
+
+class Ml4tLakeAdapter:
+    """Read Hive-partitioned or flat Parquet stores from an ``ml4t-data`` lake root.
+
+    Each declared input points to a store directory (e.g. ``forex_daily_EURUSD``) or
+    single Parquet file beneath the lake root. Partitions are discovered through
+    :class:`ListingRawFileSystem` in numeric ``year=/month=[/day=]`` order, hashed by
+    actual read bytes into the Merkle commitment, parsed via the injected
+    ``parquet_reader``, and enriched with catalog audit metadata when
+    ``.catalog/research-dataset-catalog.json`` exists under the lake root.
+    """
+
+    name = "ml4t_lake"
+
+    def __init__(self, *, fs: ListingRawFileSystem, parquet_reader: ParquetReader | None = None) -> None:
+        if parquet_reader is None:
+            raise AdapterError(
+                f"adapter {self.name!r} reads Parquet lake stores and requires an injected "
+                "parquet_reader; the builder never imports a Parquet reader itself"
+            )
+        self._fs = fs
+        self._parquet_reader = parquet_reader
+
+    @staticmethod
+    def _partition_sort_key(name: str) -> tuple[int, int | str]:
+        if "=" in name:
+            _, val = name.split("=", 1)
+            if val.isdigit():
+                return (0, int(val))
+        return (1, name)
+
+    def _discover_parquets(self, store_rel: PurePosixPath) -> list[PurePosixPath]:
+        if store_rel.suffix == ".parquet":
+            return [store_rel]
+        found: list[PurePosixPath] = []
+        stack: list[PurePosixPath] = [store_rel]
+        while stack:
+            current = stack.pop()
+            entries = sorted(
+                self._fs.list_dir(current),
+                key=self._partition_sort_key,
+                reverse=True,
+            )
+            for name in entries:
+                if name.startswith((".", "_")):
+                    continue
+                child = canonical_source_path(f"{current.as_posix()}/{name}")
+                if name.endswith(".parquet"):
+                    found.append(child)
+                elif "=" in name or "." not in name:
+                    stack.append(child)
+        found.sort(key=lambda p: tuple(self._partition_sort_key(part) for part in p.parts))
+        if not found:
+            raise AdapterError(f"{store_rel.as_posix()}: no Parquet partitions found in lake store")
+        return found
+
+    def _read_catalog_audit(self, store_names: list[str]) -> dict[str, Any]:
+        catalog_rel = canonical_source_path(".catalog/research-dataset-catalog.json", role="catalog")
+        try:
+            payload = self._fs.read_bytes(catalog_rel)
+            catalog = json.loads(payload.decode("utf-8"))
+        except (AdapterError, FileNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError):
+            return {}
+        if not isinstance(catalog, dict):
+            return {}
+        raw_entries = catalog.get("entries")
+        if not isinstance(raw_entries, list):
+            return {}
+        entries = {
+            str(item.get("dataset_key")): item
+            for item in raw_entries
+            if isinstance(item, dict) and item.get("dataset_key")
+        }
+        matched: dict[str, Any] = {}
+        for store in store_names:
+            item = entries.get(store)
+            if item is not None:
+                matched[store] = {
+                    "asset_class": item.get("asset_class"),
+                    "provider": item.get("provider"),
+                    "tier": item.get("tier"),
+                    "qualification": item.get("qualification"),
+                }
+        return {
+            "catalog_identity": catalog.get("catalog_identity"),
+            "stores": matched,
+        }
+
+    def load(self, spec: DatasetSpec, *, source: SourceSpec | None = None) -> RawBundle:
+        declared = source or spec.source
+        read_blobs: list[tuple[str, bytes]] = []
+        frames: list[pl.DataFrame] = []
+        summary_inputs: list[dict[str, Any]] = []
+        store_names: list[str] = []
+
+        for key, raw_input in sorted(declared.inputs.items(), key=lambda item: item[1].path):
+            if raw_input.role != "ohlcv":
+                raise AdapterError(
+                    f"{raw_input.path}: role {raw_input.role!r} is unsupported by ml4t_lake; "
+                    "declare OHLCV store inputs only"
+                )
+            if raw_input.format != "parquet":
+                raise AdapterError(
+                    f"{raw_input.path}: ml4t_lake reads Parquet stores, got format {raw_input.format!r}"
+                )
+            store_rel = canonical_source_path(raw_input.path)
+            store_names.append(store_rel.parts[0])
+            parquet_paths = self._discover_parquets(store_rel)
+            store_frames: list[pl.DataFrame] = []
+            for p_rel in parquet_paths:
+                payload = self._fs.read_bytes(p_rel)
+                read_blobs.append((p_rel.as_posix(), payload))
+                try:
+                    raw_df = self._parquet_reader(payload)
+                except Exception as exc:
+                    raise AdapterError(f"{p_rel.as_posix()}: cannot parse Parquet partition: {exc}") from exc
+                canon_df = _canonicalise(raw_df, raw_input)
+                keep_cols = ["timestamp", "asset", "open", "high", "low", "close", "volume"]
+                casts: list[pl.Expr] = [
+                    pl.col("asset").cast(pl.String),
+                    pl.col("open").cast(pl.Float64),
+                    pl.col("high").cast(pl.Float64),
+                    pl.col("low").cast(pl.Float64),
+                    pl.col("close").cast(pl.Float64),
+                    pl.col("volume").cast(pl.Float64),
+                ]
+                if spec.asset_class == "crypto_perps" and "funding_rate" in canon_df.columns:
+                    keep_cols.append("funding_rate")
+                    casts.append(pl.col("funding_rate").cast(pl.Float64))
+                store_frames.append(canon_df.with_columns(casts).select(keep_cols))
+
+            store_combined = (
+                pl.concat(store_frames, how="vertical") if len(store_frames) > 1 else store_frames[0]
+            )
+            frames.append(store_combined)
+            summary_inputs.append(
+                {
+                    "key": key,
+                    "path": store_rel.as_posix(),
+                    "partitions": len(parquet_paths),
+                    "rows": store_combined.height,
+                }
+            )
+
+        merkle, records = merkle_sha256(read_blobs)
+        combined = pl.concat(frames, how="vertical") if len(frames) > 1 else frames[0]
+        combined = combined.unique(subset=["timestamp", "asset"], keep="last").sort("timestamp", "asset")
+        audit = self._read_catalog_audit(sorted(set(store_names)))
+        return RawBundle(
+            adapter=self.name,
+            frame=combined,
+            inputs=tuple(records),
+            merkle_sha256=merkle,
+            summary={
+                "adapter": self.name,
+                "inputs": summary_inputs,
+                "rows_read": combined.height,
+            },
+            audit=audit,
+        )
+
+
+@register_source_adapter(Ml4tLakeAdapter.name)
+def _ml4t_lake_factory(
+    *,
+    fs: RawFileSystem | None = None,
+    parquet_reader: ParquetReader | None = None,
+    repo_root: Path | str = Path("."),
+) -> SourceAdapter:
+    if fs is None:
+        fs = LocalRawFileSystem(resolve_lake_root(repo_root))
+    if not isinstance(fs, ListingRawFileSystem):
+        raise AdapterError(
+            f"adapter {Ml4tLakeAdapter.name!r} requires a ListingRawFileSystem "
+            "to enumerate lake partitions"
+        )
+    return Ml4tLakeAdapter(fs=fs, parquet_reader=parquet_reader)

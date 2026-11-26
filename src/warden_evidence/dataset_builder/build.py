@@ -13,6 +13,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from warden_evidence.dataset_builder.adapters import (
+    Ml4tLakeAdapter,
     ParquetReader,
     SourceAdapter,
     get_source_adapter,
@@ -117,7 +118,7 @@ def build_dataset(
         spec: a validated :class:`DatasetSpec` (parse it with ``load_dataset_spec``).
         repo_root: root the published paths are relative to.
         source_root: local root of the declared raw inputs; ignored when ``fs`` or
-            ``adapter`` is supplied.
+            ``adapter`` is supplied. If omitted, ``ml4t_lake`` uses the configured lake.
         dataset_dir / manifest_dir: repository-relative output directories.
         adapter: explicit adapter (used by tests and by venue-specific adapters).
         fs: explicit raw filesystem (containment still applies per input).
@@ -145,14 +146,18 @@ def build_dataset(
             )
 
     if adapter is None:
-        reader = fs
-        if reader is None:
-            if source_root is None:
-                raise DatasetBuildError(
-                    f"adapter {spec.source.adapter!r} needs source_root or an explicit fs"
-                )
-            reader = LocalRawFileSystem(source_root)
-        adapter = get_source_adapter(spec.source.adapter, fs=reader, parquet_reader=parquet_reader)
+        if fs is None and source_root is not None:
+            fs = LocalRawFileSystem(source_root)
+        if fs is not None:
+            adapter = get_source_adapter(spec.source.adapter, fs=fs, parquet_reader=parquet_reader)
+        elif spec.source.adapter == Ml4tLakeAdapter.name:
+            adapter = get_source_adapter(
+                spec.source.adapter, repo_root=root, parquet_reader=parquet_reader
+            )
+        else:
+            raise DatasetBuildError(
+                f"adapter {spec.source.adapter!r} needs source_root or an explicit fs"
+            )
     if getattr(adapter, "name", None) != spec.source.adapter:
         raise DatasetBuildError(
             f"adapter {getattr(adapter, 'name', None)!r} does not match declared "

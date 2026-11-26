@@ -183,12 +183,24 @@ def _load_contracts(
     archive_dir: Path | None = None,
     sandbox_dir: Path | None = None,
 ) -> dict[str, Any]:
+    """``{contract_id: contract}`` across every namespace, in the resolver's precedence.
+
+    Archived contracts are loaded too (#114): a manifest may still name an archived contract,
+    and "no contract document" is a fence failure, not a silent unownership.
+
+    The load order is **sandbox, archive, production**, and the loop overwrites, so the last
+    namespace wins — the same precedence :func:`warden.contract_source.resolve_contract_source`
+    applies (production beats archive beats sandbox).  A promoted id therefore has its
+    production document decide the fence; the agent-writable sandbox copy cannot re-point it
+    (review K6), and the contract is the same document the resolver would hand out.
+    """
     contracts: dict[str, Any] = {}
-    # Archived contracts are loaded too (#114): a manifest may still name an archived
-    # contract, and "no contract document" is a fence failure, not a silent unownership.
-    dirs = [archive_dir, contracts_dir] if archive_dir is not None else [contracts_dir]
+    dirs: list[Path] = []
     if sandbox_dir is not None:
         dirs.append(sandbox_dir)
+    if archive_dir is not None:
+        dirs.append(archive_dir)
+    dirs.append(contracts_dir)
     for directory in dirs:
         if not directory.is_dir():
             continue

@@ -1137,3 +1137,40 @@ def test_a_receipt_from_an_earlier_promotion_is_reported_before_the_evidence(
     captured = capsys.readouterr()
     assert "already_promoted" in captured.err
     assert "mismatched_merkle" not in captured.err
+
+
+def test_the_fence_reads_the_production_contract_not_the_sandbox_copy(
+    compiled, monkeypatch, capsys
+) -> None:
+    """probe6: after promotion, the agent-writable sandbox contract must not re-point the fence."""
+    from warden.market_data import read_parquet_bytes
+    from warden_evidence.exploratory_fence import BEYOND_HOLDOUT, audit_exploratory_storage
+
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    assert _promote(repo, artifact.contract_id) == 0
+    capsys.readouterr()
+
+    # A leaky Parquet whose digest both byte-identical manifests agree on.
+    path = repo / artifact.parquet_path
+    frame = pl.read_parquet(path)
+    extra = pl.DataFrame(
+        [{"timestamp": FENCE, "asset": "EURUSD", "open": 100.0, "high": 101.0, "low": 99.0,
+          "close": 100.5, "volume": 1.0, "observed_sub_bars": 60}]
+    ).select([pl.col(column).cast(frame.schema[column]) for column in frame.columns])
+    frame.vstack(extra).write_parquet(path)
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    manifest_rel = artifact.manifest_path
+    production_manifest_rel = _production_paths(artifact.contract_id)[1]
+    record = json.loads((repo / manifest_rel).read_text(encoding="utf-8"))
+    record["sha256"] = digest
+    text = json.dumps(record)
+    (repo / manifest_rel).write_text(text, encoding="utf-8")
+    (repo / production_manifest_rel).write_text(text, encoding="utf-8")
+
+    # Only the sandbox (agent-writable) contract is moved: production still says 2021-01-04.
+    _edit_contract(repo, artifact, holdout_start="2021-01-10T00:00:00+00:00")
+
+    report = audit_exploratory_storage(repo, parquet_reader=read_parquet_bytes)
+    assert report.files[0].state == BEYOND_HOLDOUT, report.to_dict()
+    assert report.files[0].holdout_start == "2021-01-04T00:00:00+00:00"

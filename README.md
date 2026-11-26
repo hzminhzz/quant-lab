@@ -38,8 +38,12 @@
 `export ML4T_DATA_STORE=/path/to/ml4t-data/.data/store`, and use the same value in
 `ml4t-data`. Use an absolute path for shells, scheduled runs, and worktrees
 that may start in different directories. If the variable is unset, Warden
-uses `../ml4t-data/.data/store` relative to the quant-lab checkout. A blank,
-missing, or non-directory override is an error, not a fallback. Existing
+uses `../ml4t-data/.data/store` relative to the quant-lab checkout — that is, the
+sibling must literally be named `ml4t-data` and sit next to the checkout. On a
+machine whose data repository lives deeper (for example `dev/quant/ml4t-data`)
+the default is not the right store, so set `ML4T_DATA_STORE` explicitly; a
+default that is missing or empty fails closed at the read, not with a fallback.
+A blank, missing, or non-directory override is an error, not a fallback. Existing
 pinned Warden artifacts and contracts are unchanged.
 
 ## Repository Architecture & Layout

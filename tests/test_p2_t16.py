@@ -509,7 +509,7 @@ def _cases(tmp_path: Path) -> dict[str, str]:
         [revision._check_spec(revision.load_prereg(prereg), probe, rdb) for probe in probes],
         indent=2, sort_keys=True)
 
-    rom = _load("research_outcome_memory.py")
+    from warden_ops import research_outcome_memory as rom
     rom_db = _rom_fixture(tmp_path / "rom")
     cases["research_outcome_inventory.json"] = json.dumps(
         rom.inventory(rom_db, REPO / "docs/research-outcomes/branch-result-index-v1.json"),

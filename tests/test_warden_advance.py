@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from argparse import Namespace
@@ -12,7 +13,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.conftest import FLAT_MODULE
+from tests.conftest import FLAT_MODULE, write_fixture_checksums
 from warden import cli
 from warden.contracts import HypothesisSpec
 from warden.lease import mutation_lease
@@ -137,6 +138,32 @@ def _write_outcome_index(repo: Path, body: dict | None = None) -> Path:
         encoding="utf-8",
     )
     return index_path
+
+
+def test_installed_advance_without_pythonpath(tiny_repo) -> None:
+    fx = tiny_repo()
+    repo = fx.repo
+    spec_path = _write_spec_yaml(
+        repo, "tiny.yaml", hyp_id="HYP-TINY", contract_id=fx.contract.contract_id,
+        module_rel="strategies/tiny.py",
+    )
+    (repo / "strategies" / "tiny.py").write_text(FLAT_MODULE, encoding="utf-8")
+    write_fixture_checksums(
+        repo, "contracts/tiny_v1.yaml", f"contracts/datasets/{fx.contract.contract_id}.json",
+    )
+    (repo / "registry").mkdir()
+    with sqlite3.connect(fx.registry.db_path) as src, sqlite3.connect(repo / "registry/registry.db") as dst:
+        src.backup(dst)
+    _write_outcome_index(repo)
+
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    env["WARDEN_NON_INTERACTIVE"] = "1"
+    result = subprocess.run(
+        [str(Path(sys.executable).with_name("warden")), "advance", str(spec_path), "--json"],
+        cwd=repo, env=env, capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert json.loads(result.stdout)["value"]["action"] == "STAGE1_REJECTED"
 
 
 def test_advance_full_progression_and_idempotent_rerun(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:

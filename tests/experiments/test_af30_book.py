@@ -63,6 +63,12 @@ def test_opposing_strategies_netting(tmp_path: Path):
 
 
 def test_idm_bounds_and_smoke_call():
+    import os
+
+    import pytest
+
+    if os.environ.get("WARDEN_LIVE_DATA") != "1":
+        pytest.skip("IDM smoke call reads the operator-mounted multi-asset panel; set WARDEN_LIVE_DATA=1")
     contract = load_contract(Path("contracts/multi_asset_1h_v1.yaml"))
     df_full = pl.read_parquet(contract.exploratory_data_path)
     ts_200 = df_full["timestamp"].unique().sort().head(200)

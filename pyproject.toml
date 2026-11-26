@@ -40,7 +40,7 @@ warden = "warden.cli:main"
 path = "src/warden/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/warden"]
+packages = ["src/warden", "src/warden_ops", "src/warden_evidence"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

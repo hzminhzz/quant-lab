@@ -72,7 +72,7 @@ def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path
     assert verdict == "REJECTED" and "QUARANTINED_SYNTHETIC" in reason
 
 
-def test_effective_eligibility_agrees_across_status_and_handoff(tmp_path: Path) -> None:
+def test_effective_eligibility_agrees_across_status_and_handoff(tmp_path: Path, cli_repo: Path) -> None:
     reg = _registry(tmp_path)
     _with_returns(tmp_path, reg, _candidate("RUN-OK", "verified_market"))
     _with_returns(tmp_path, reg, _candidate("RUN-UNPINNED", "verified_market", sha=""))
@@ -89,7 +89,9 @@ def test_effective_eligibility_agrees_across_status_and_handoff(tmp_path: Path) 
     assert by_run["RUN-UNPINNED"]["eligible"] is False
     assert "no pinned dataset digest" in by_run["RUN-UNPINNED"]["eligibility_reason"]
 
-    state = _build_state(REPO, "issue-4", "eligibility")  # live registry: no crash, additive evidence
+    # Build the checkpoint against the scratch checkout: `_build_state` constructs a real
+    # ResearchRegistry, so pointing it at "." would create and migrate the live ledger.
+    state = _build_state(cli_repo, "issue-4", "eligibility")
     assert any(e["kind"] == "effective_eligibility" for e in state["evidence"])
     assert "eligibility_surface_reachable" in state["quality_gates"]
 

@@ -75,11 +75,7 @@ def _setup_isolated_repo(tmp_path: Path, *, name: str = "iso") -> Path:
         dst = repo / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src, dst) if src.is_dir() else shutil.copy2(src, dst)
-    live_db = REPO_ROOT / "registry" / "registry.db"
-    if live_db.is_file():
-        _backup_sqlite(live_db, repo / "registry" / "registry.db")
-    else:
-        ResearchRegistry(repo / "registry" / "registry.db")
+    ResearchRegistry(repo / "registry" / "registry.db")
     return repo
 
 
@@ -668,7 +664,7 @@ def test_empirical_holding_volatility_quote_only_and_price_fallbacks() -> None:
     assert empirical_holding_volatility(quote_df.drop("bid", "ask"), 4) == 0.0
 
 
-def test_xs_panel_diagnostics_and_inspect_env_capability_probe() -> None:
+def test_xs_panel_diagnostics_and_inspect_env_capability_probe(tmp_path: Path) -> None:
     xs = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "xs_panel_diagnostics.py"), "--help"],
         cwd=REPO_ROOT, capture_output=True, text=True, check=False,
@@ -679,13 +675,16 @@ def test_xs_panel_diagnostics_and_inspect_env_capability_probe() -> None:
         [
             sys.executable,
             "-c",
-            "import sys, scripts.inspect_env as ie; assert ie.main() == 0; assert not any(m.startswith('ml4t.live') for m in sys.modules)",
+            "import sys; from pathlib import Path; import scripts.inspect_env as ie; "
+            "ie.OUTPUT_PATH = Path(sys.argv[1]); assert ie.main() == 0; "
+            "assert not any(m.startswith('ml4t.live') for m in sys.modules)",
+            str(tmp_path / "env_manifest.json"),
         ],
         cwd=REPO_ROOT, capture_output=True, text=True, check=False,
     )
     assert probe.returncode == 0, probe.stderr
 
-    manifest = json.loads((REPO_ROOT / ".workspace" / "env_manifest.json").read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "env_manifest.json").read_text(encoding="utf-8"))
     assert manifest["import_errors"] == []
     assert manifest["probe_errors"] == []
     assert "ml4t-live" not in manifest["packages"]

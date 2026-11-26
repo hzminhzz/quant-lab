@@ -10,6 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.conftest import write_fixture_checksums
 from warden.cli import MANIFEST_FILE, build_parser, manifest_approval_state
 
 REPO = Path(__file__).resolve().parents[1]
@@ -89,11 +90,11 @@ def test_interactive_human_approval_is_recorded(tmp_path: Path) -> None:
     assert manifest_approval_state(repo) == {**manifest_approval_state(repo), "signed": False, "mode": "interactive"}
 
 
-def test_preflight_is_read_only_and_reports_the_agent_trust_gap() -> None:
-    target = REPO / "contracts" / "crypto_perps_1h_v1.yaml"
+def test_preflight_is_read_only_and_reports_the_agent_trust_gap(cli_repo: Path) -> None:
+    target = cli_repo / "contracts/fixture.yaml"
     before = (target.stat().st_mtime_ns, target.stat().st_mode)
     proc = subprocess.run([sys.executable, str(REPO / "scripts" / "preflight_trust_boundary.py"), "--json"],
-                          cwd=REPO, capture_output=True, text=True, check=False, env=ENV_BASE)
+                          cwd=cli_repo, capture_output=True, text=True, check=False, env=ENV_BASE)
     assert proc.returncode == 2, proc.stderr
     report = json.loads(proc.stdout)
     assert report["mode"] == "dry-run" and report["compliant"] is False
@@ -102,51 +103,47 @@ def test_preflight_is_read_only_and_reports_the_agent_trust_gap() -> None:
     assert (target.stat().st_mtime_ns, target.stat().st_mode) == before
 
 
-def test_apply_script_defaults_to_dry_run_and_refuses_privileged_apply() -> None:
+def test_apply_script_defaults_to_dry_run_and_refuses_privileged_apply(cli_repo: Path) -> None:
     script = REPO / "scripts" / "apply_trust_boundary.sh"
-    dry = subprocess.run(["bash", str(script)], cwd=REPO, capture_output=True, text=True, check=False, env=ENV_BASE)
+    dry = subprocess.run(["bash", str(script)], cwd=cli_repo, capture_output=True, text=True, check=False, env=ENV_BASE)
     assert dry.returncode == 0
     assert "DRY RUN: chown -R root:warden-trust src/warden" in dry.stdout
     assert "REFUSED" not in dry.stdout and "--apply" in dry.stdout
-    mode = (REPO / "src" / "warden" / "contracts.py").stat().st_mode
-    apply = subprocess.run(["bash", str(script), "--apply"], cwd=REPO, capture_output=True, text=True,
-                           check=False, env=ENV_BASE)
+    target = cli_repo / "contracts/fixture.yaml"
+    mode = target.stat().st_mode
+    env = {**ENV_BASE, "WARDEN_HUMAN_APPROVED_CUTOVER": "0"}
+    apply = subprocess.run(["bash", str(script), "--apply"], cwd=cli_repo, capture_output=True, text=True,
+                           check=False, env=env)
     assert apply.returncode == 3 and "REFUSED: --apply requires root" in apply.stderr
-    assert (REPO / "src" / "warden" / "contracts.py").stat().st_mode == mode
+    assert target.stat().st_mode == mode
 
 
-def _preflight_report() -> dict:
-    proc = subprocess.run([sys.executable, str(REPO / "scripts" / "preflight_trust_boundary.py"), "--json"],
-                          cwd=REPO, capture_output=True, text=True, check=False, env=ENV_BASE)
+def _preflight_report(repo: Path) -> dict:
+    proc = subprocess.run(
+        [sys.executable, str(REPO / "scripts/preflight_trust_boundary.py"), "--json"],
+        cwd=repo, capture_output=True, text=True, check=False, env=ENV_BASE,
+    )
     assert proc.stdout, proc.stderr
     return json.loads(proc.stdout)
 
 
-def test_preflight_enumerates_administrative_and_evidence_packages() -> None:
-    report = _preflight_report()
-    reported = {Path(f["path"]).resolve() for f in report["files"]}
-
-    expected: set[Path] = set()
-    for pattern in (
-        "src/warden/**/*.py",
-        "src/warden_ops/**/*.py",
-        "src/warden_evidence/**/*.py",
-        "contracts/*.yaml",
-        "contracts/*.yml",
-        "contracts/datasets/*.json",
-    ):
-        expected |= {p.resolve() for p in REPO.glob(pattern) if p.is_file()}
-
-    assert (REPO / "src" / "warden_ops" / "integrity.py").resolve() in expected
-    assert (REPO / "src" / "warden_ops" / "checkpoint.py").resolve() in expected
-    assert (REPO / "src" / "warden_ops" / "readonly.py").resolve() in expected
-    assert (REPO / "src" / "warden_evidence" / "market_validation.py").resolve() in expected
-    assert (REPO / "src" / "warden_evidence" / "feature_cache.py").resolve() in expected
-    # #106: a protected file outside the globbed directories must still be assessed here.
-    assert (REPO / "contracts" / "lifecycle" / "contract_lifecycle.json").resolve() in reported
-    assert expected <= reported, sorted(str(p) for p in expected - reported)
-
-    # The preflight's protected view and the integrity manifest must not drift apart.
+def test_preflight_enumerates_administrative_and_evidence_packages(cli_repo: Path) -> None:
+    expected = (
+        "src/warden/fixture.py",
+        "src/warden_ops/fixture.py",
+        "src/warden_evidence/nested/fixture.py",
+        "contracts/fixture.yml",
+        "contracts/datasets/FIXTURE.json",
+        "contracts/lifecycle/contract_lifecycle.json",
+    )
+    for rel in expected:
+        path = cli_repo / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+    write_fixture_checksums(cli_repo, "contracts/fixture.yaml", *expected)
+    report = _preflight_report(cli_repo)
+    reported = {Path(f["path"]).relative_to(cli_repo).as_posix() for f in report["files"]}
+    assert set(expected) <= reported
     assert "PROTECTED_SET_MISMATCH" not in {f["id"] for f in report["findings"]}
 
 

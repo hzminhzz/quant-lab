@@ -712,7 +712,7 @@ def _advance_one_spec(
                 "docs/research-outcomes/branch-result-index-v1.json; review before screening",
             )
         try:
-            from scripts.research_outcome_memory import check_spec as check_outcome_spec
+            from warden_ops.research_outcome_memory import check_spec as check_outcome_spec
 
             mem = check_outcome_spec(spec_path, runner.registry.db_path, index_path)
         except (OSError, ValueError, TypeError, KeyError) as exc:

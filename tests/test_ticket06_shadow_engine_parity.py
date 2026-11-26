@@ -689,15 +689,25 @@ def test_replay_historical_run_rejects_holdout_path(tmp_path: Path) -> None:
 
 
 def test_probe_multi_exchange_calendar_synthetic_and_repo(tmp_path: Path) -> None:
-    res = probe_multi_exchange_calendar(_REPO_ROOT)
-    assert "synthetic_mixed_venue" in res
-    syn = res["synthetic_mixed_venue"]
+    import os
+
+    import pytest
+
+    import scripts.shadow_engine_parity as sep
+
+    syn = sep._probe_session_assigned_panel(sep._build_synthetic_mixed_venue_panel())
     assert syn["null_session_date_rows"] > 0
     assert "null" in syn["raw_datafeed_error"].lower()
     assert "duplicate" in syn["non_null_hourly_error"].lower()
     assert "missing" in syn["session_collapsed_partial_holiday_error"].lower()
     assert syn["partial_holiday_sessions"] >= 1
 
+    # The repository half reads operator-mounted `data/exploratory/` panels, which are not
+    # repository state; opt in with WARDEN_LIVE_DATA=1 when the lake is mounted.
+    if os.environ.get("WARDEN_LIVE_DATA") != "1":
+        pytest.skip("repository dataset probe needs data/exploratory; set WARDEN_LIVE_DATA=1")
+
+    res = probe_multi_exchange_calendar(_REPO_ROOT)
     assert "INDICES_1H_V2" in res["datasets"]
     assert "MULTI_ASSET_1H_V1" in res["datasets"]
     for ds_key in ("INDICES_1H_V2", "MULTI_ASSET_1H_V1"):

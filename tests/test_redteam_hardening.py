@@ -292,8 +292,11 @@ def test_continue_exact_match_rejects_substring_count_drift(tmp_path: Path) -> N
     assert ret == 1
 
 
-def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contract) -> None:
+def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contract, monkeypatch) -> None:
     """cmd_verify on a module without a pipeline or compute() method must exit with code 1."""
+    # The subject is a missing pipeline, not checkout integrity (covered by the scratch-repo
+    # manifest tests); stub the integrity gate so an unsigned branch does not mask the verdict.
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
     # An explicit tmp registry: the default would create the checkout's registry/registry.db,
     # which other tests then read as if it were live evidence.
     runner = ExperimentRunner(

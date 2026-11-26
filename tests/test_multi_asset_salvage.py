@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import runpy
 from pathlib import Path
 
@@ -11,6 +12,26 @@ API = runpy.run_path("scripts/salvage_multi_asset.py")
 normalize_panel = API["normalize_panel"]
 from warden.contracts import load_contract
 
+LIVE_DATA_ENV = "WARDEN_LIVE_DATA"
+
+
+def _require_live_dataset(contract) -> Path:
+    """Return the contract's exploratory parquet, or skip unless opt-in.
+
+    These assertions validate operator-mounted market bytes under
+    ``data/exploratory/``; that lake is not repository state, so the default
+    suite must not require it. Set ``WARDEN_LIVE_DATA=1`` in a checkout with
+    the lake mounted to run the byte and row-count checks. Once opted in, a
+    missing dataset is a failure, never a skip.
+    """
+    if os.environ.get(LIVE_DATA_ENV) != "1":
+        pytest.skip(f"live market bytes not requested; set {LIVE_DATA_ENV}=1")
+    path = Path(contract.exploratory_data_path)
+    if not path.is_file():
+        pytest.fail(f"live dataset missing for {contract.contract_id}: {path}")
+    return path
+
+
 
 def test_fx_majors_exploratory_dataset():
     contract_path = Path("contracts/fx_majors_15m_v1.yaml")
@@ -18,9 +39,7 @@ def test_fx_majors_exploratory_dataset():
     assert contract.asset_class == "fx"
     assert contract.frequency == "15m"
 
-    exp_path = Path(contract.exploratory_data_path)
-    if not exp_path.is_file():
-        pytest.skip(f"FX exploratory dataset not mounted at {exp_path}; source-only checkout cannot validate market bytes")
+    exp_path = _require_live_dataset(contract)
 
     # Verify pinned SHA-256
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
@@ -45,7 +64,7 @@ def test_fx_majors_1m_exploratory_dataset():
     assert contract.label_horizon_bars == 240
     assert contract.embargo_bars == 60
 
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file(), f"FX 1m exploratory dataset not found at {exp_path}"
 
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
@@ -67,9 +86,7 @@ def test_indices_exploratory_dataset():
     assert contract.asset_class == "indices"
     assert contract.frequency == "1h"
 
-    exp_path = Path(contract.exploratory_data_path)
-    if not exp_path.is_file():
-        pytest.skip(f"Indices exploratory dataset not mounted at {exp_path}; source-only checkout cannot validate market bytes")
+    exp_path = _require_live_dataset(contract)
 
     # Verify pinned SHA-256
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
@@ -91,9 +108,7 @@ def test_indices_1m_exploratory_dataset():
     assert contract.asset_class == "indices"
     assert contract.frequency == "1m"
 
-    exp_path = Path(contract.exploratory_data_path)
-    if not exp_path.is_file():
-        pytest.skip(f"Indices 1m exploratory dataset not mounted at {exp_path}; source-only checkout cannot validate market bytes")
+    exp_path = _require_live_dataset(contract)
 
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
     assert actual_sha == contract.data_snapshot_sha256
@@ -112,9 +127,7 @@ def test_metals_1m_exploratory_dataset():
     assert contract.asset_class == "metals"
     assert contract.frequency == "1m"
 
-    exp_path = Path(contract.exploratory_data_path)
-    if not exp_path.is_file():
-        pytest.skip(f"Metals 1m exploratory dataset not mounted at {exp_path}; source-only checkout cannot validate market bytes")
+    exp_path = _require_live_dataset(contract)
 
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
     assert actual_sha == contract.data_snapshot_sha256
@@ -133,9 +146,7 @@ def test_commodities_1m_exploratory_dataset():
     assert contract.asset_class == "commodities"
     assert contract.frequency == "1m"
 
-    exp_path = Path(contract.exploratory_data_path)
-    if not exp_path.is_file():
-        pytest.skip(f"Commodities 1m exploratory dataset not mounted at {exp_path}; source-only checkout cannot validate market bytes")
+    exp_path = _require_live_dataset(contract)
 
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
     assert actual_sha == contract.data_snapshot_sha256
@@ -154,9 +165,7 @@ def test_crypto_perps_1m_exploratory_dataset():
     assert contract.asset_class == "crypto_perps"
     assert contract.frequency == "1m"
 
-    exp_path = Path(contract.exploratory_data_path)
-    if not exp_path.is_file():
-        pytest.skip(f"Crypto 1m exploratory dataset not mounted at {exp_path}; source-only checkout cannot validate market bytes")
+    exp_path = _require_live_dataset(contract)
 
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
     assert actual_sha == contract.data_snapshot_sha256
@@ -177,7 +186,7 @@ def test_multi_asset_1h_exploratory_dataset():
     assert contract.asset_class == "multi_asset"
     assert contract.frequency == "1h"
 
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file(), f"Multi-asset exploratory dataset not found at {exp_path}"
 
     actual_sha = hashlib.sha256(exp_path.read_bytes()).hexdigest()
@@ -204,7 +213,7 @@ def test_multi_asset_5m_exploratory_dataset():
     contract = load_contract(contract_path)
     assert contract.asset_class == "multi_asset"
     assert contract.frequency == "5m"
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file()
     assert hashlib.sha256(exp_path.read_bytes()).hexdigest() == contract.data_snapshot_sha256
     df = pl.read_parquet(exp_path)
@@ -222,7 +231,7 @@ def test_multi_asset_30m_exploratory_dataset():
     contract = load_contract(contract_path)
     assert contract.asset_class == "multi_asset"
     assert contract.frequency == "30m"
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file()
     assert hashlib.sha256(exp_path.read_bytes()).hexdigest() == contract.data_snapshot_sha256
     df = pl.read_parquet(exp_path)
@@ -240,7 +249,7 @@ def test_multi_asset_4h_exploratory_dataset():
     contract = load_contract(contract_path)
     assert contract.asset_class == "multi_asset"
     assert contract.frequency == "4h"
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file()
     assert hashlib.sha256(exp_path.read_bytes()).hexdigest() == contract.data_snapshot_sha256
     df = pl.read_parquet(exp_path)
@@ -258,7 +267,7 @@ def test_multi_asset_1d_exploratory_dataset():
     contract = load_contract(contract_path)
     assert contract.asset_class == "multi_asset"
     assert contract.frequency == "1d"
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file()
     assert hashlib.sha256(exp_path.read_bytes()).hexdigest() == contract.data_snapshot_sha256
     df = pl.read_parquet(exp_path)
@@ -276,7 +285,7 @@ def test_indices_domain_exploratory_datasets(freq, rows):
     contract = load_contract(contract_path)
     assert contract.asset_class == "indices"
     assert contract.frequency == freq
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file()
     assert hashlib.sha256(exp_path.read_bytes()).hexdigest() == contract.data_snapshot_sha256
     df = pl.read_parquet(exp_path)
@@ -300,7 +309,7 @@ def test_fx_majors_domain_exploratory_datasets(freq, rows):
     contract = load_contract(contract_path)
     assert contract.asset_class == "fx"
     assert contract.frequency == freq
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file()
     assert hashlib.sha256(exp_path.read_bytes()).hexdigest() == contract.data_snapshot_sha256
     df = pl.read_parquet(exp_path)
@@ -329,7 +338,7 @@ def test_crypto_perps_domain_exploratory_datasets(freq, rows, contract_file):
     contract = load_contract(contract_path)
     assert contract.asset_class == "crypto_perps"
     assert contract.frequency == freq
-    exp_path = Path(contract.exploratory_data_path)
+    exp_path = _require_live_dataset(contract)
     assert exp_path.is_file()
     assert hashlib.sha256(exp_path.read_bytes()).hexdigest() == contract.data_snapshot_sha256
     df = pl.read_parquet(exp_path)

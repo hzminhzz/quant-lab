@@ -7,7 +7,7 @@ from pathlib import Path
 
 import polars as pl
 
-from warden.runner import ExperimentRunner
+from warden.contracts import load_contract
 from warden.strategy_loader import load_module_from_path
 
 s21_mod = load_module_from_path(Path("strategies/candidates/ts_breakout_20_1h.py"))
@@ -15,8 +15,9 @@ generate_positions = s21_mod.generate_positions
 
 
 def test_s21_post_stop_reset_latch():
-    r = ExperimentRunner()
-    contract = r.resolve_contract("INDICES_1H_V2")
+    # Load the contract directly: constructing ExperimentRunner() would create and migrate
+    # the checkout's registry/registry.db, writing live-ledger state from a unit test.
+    contract = load_contract(Path("contracts/indices_1h_v2.yaml"))
 
     start = datetime(2023, 1, 1, 0, 0, tzinfo=UTC)
     timestamps = [start + timedelta(hours=i) for i in range(100)]
@@ -87,8 +88,7 @@ def test_s21_post_stop_reset_latch():
 
 
 def test_s21_asynchronous_sparse_union_handling():
-    r = ExperimentRunner()
-    contract = r.resolve_contract("INDICES_1H_V2")
+    contract = load_contract(Path("contracts/indices_1h_v2.yaml"))
 
     start = datetime(2023, 1, 1, 0, 0, tzinfo=UTC)
     rows = []

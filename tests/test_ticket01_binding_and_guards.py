@@ -675,9 +675,11 @@ def test_xs_panel_diagnostics_and_inspect_env_capability_probe(tmp_path: Path) -
         [
             sys.executable,
             "-c",
-            "import sys; from pathlib import Path; import scripts.inspect_env as ie; "
-            "ie.OUTPUT_PATH = Path(sys.argv[1]); assert ie.main() == 0; "
-            "assert not any(m.startswith('ml4t.live') for m in sys.modules)",
+            (
+                "import sys; from pathlib import Path; import scripts.inspect_env as ie; "
+                "ie.OUTPUT_PATH = Path(sys.argv[1]); assert ie.main() == 0; "
+                "assert not any(m.startswith('ml4t.live') for m in sys.modules)"
+            ),
             str(tmp_path / "env_manifest.json"),
         ],
         cwd=REPO_ROOT, capture_output=True, text=True, check=False,

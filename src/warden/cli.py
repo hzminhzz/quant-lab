@@ -1082,21 +1082,24 @@ def _pinned_dataset_paths(repo_root: Path) -> dict[str, str]:
     """
     import yaml
 
+    from warden.contract_source import all_contract_paths
+
     pinned: dict[str, str] = {}
-    for pattern in ("contracts/*.yaml", "contracts/*.yml"):
-        for path in sorted(Path(repo_root).glob(pattern)):
-            if not path.is_file():
-                continue
-            try:
-                record = yaml.safe_load(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError, yaml.YAMLError):
-                continue
-            if not isinstance(record, dict):
-                continue
-            for key in ("exploratory_data_path", "holdout_data_path"):
-                value = record.get(key)
-                if isinstance(value, str) and value.strip():
-                    pinned[value.strip()] = str(record.get("contract_id") or path.stem)
+    # Archived contracts are included on purpose: their datasets are historical
+    # evidence, and a build must not overwrite a file any recorded contract pins.
+    for path in all_contract_paths(repo_root):
+        if not path.is_file():
+            continue
+        try:
+            record = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, yaml.YAMLError):
+            continue
+        if not isinstance(record, dict):
+            continue
+        for key in ("exploratory_data_path", "holdout_data_path"):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                pinned[value.strip()] = str(record.get("contract_id") or path.stem)
     return pinned
 
 

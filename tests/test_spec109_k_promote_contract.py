@@ -1174,3 +1174,82 @@ def test_the_fence_reads_the_production_contract_not_the_sandbox_copy(
     report = audit_exploratory_storage(repo, parquet_reader=read_parquet_bytes)
     assert report.files[0].state == BEYOND_HOLDOUT, report.to_dict()
     assert report.files[0].holdout_start == "2021-01-04T00:00:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# 6. review K-fix: the write path itself — O_EXCL, rollback order, collapse safety
+# ---------------------------------------------------------------------------
+
+
+def test_the_exclusive_copy_never_overwrites_an_existing_file(tmp_path) -> None:
+    """M1: `open(..., "xb")` is the write-once guarantee; `"wb"` silently replaces the file."""
+    from warden.promote import _copy_exclusive
+
+    target = tmp_path / "already-there.json"
+    target.write_bytes(b'{"a human wrote this"}\n')
+    with pytest.raises(FileExistsError):
+        _copy_exclusive(target, b'{"a promotion overwrote it"}\n')
+    assert target.read_bytes() == b'{"a human wrote this"}\n'
+
+
+def test_a_copy_that_loses_a_race_is_rolled_back_in_reverse(compiled, monkeypatch, capsys) -> None:
+    """M1/M2: a concurrent writer's receipt survives, and the partial set is unwound newest-first."""
+    import warden.promote as promote_module
+
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    receipt_rel = _production_paths(artifact.contract_id)[2]
+    contract_rel, manifest_rel = _production_paths(artifact.contract_id)[:2]
+    receipt = repo / receipt_rel
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_bytes(b'{"schema": "a concurrent promotion"}\n')
+
+    # The race: the file appears after the request checks and before the copy.
+    monkeypatch.setattr(promote_module, "_check_target_paths", lambda *args, **kwargs: None)
+
+    removed: list[str] = []
+    original_unlink = Path.unlink
+
+    def spy(self, missing_ok: bool = False):
+        removed.append(self.as_posix())
+        return original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", spy)
+    assert _promote(repo, artifact.contract_id) == 2
+    captured = capsys.readouterr()
+    assert "already_promoted" in captured.err
+
+    # Write order is manifest -> contract -> receipt, so the rollback is receipt -> contract ->
+    # manifest; nothing of this attempt survives, and the other writer's receipt is intact.
+    assert removed == [contract_rel, manifest_rel]
+    assert receipt.read_bytes() == b'{"schema": "a concurrent promotion"}\n'
+    assert not (repo / contract_rel).exists()
+    assert not (repo / manifest_rel).exists()
+
+
+def test_a_manifest_that_declares_itself_qualifying_is_refused(compiled, monkeypatch, capsys) -> None:
+    """M5: a promotion never inherits an eligibility claim from the artifact."""
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+
+    def qualifying(record):
+        record["sandbox"]["qualification_eligible"] = True
+
+    _edit_manifest(repo, artifact, qualifying)
+    _assert_refusal(repo, capsys, artifact.contract_id, "wrong_namespace", 2)
+
+
+def test_two_different_documents_for_one_contract_stay_ambiguous(compiled) -> None:
+    """M7: the collapse is safe only because it requires byte-identical manifests."""
+    from warden.market_data import read_parquet_bytes
+    from warden_evidence.exploratory_fence import AMBIGUOUS, audit_exploratory_storage
+
+    repo, _lake_root, artifact = compiled
+    production_manifest = repo / "contracts" / "datasets" / f"{artifact.contract_id}.json"
+    production_manifest.parent.mkdir(parents=True, exist_ok=True)
+    record = json.loads((repo / artifact.manifest_path).read_text(encoding="utf-8"))
+    production_manifest.write_text(json.dumps(record, indent=1), encoding="utf-8")
+
+    report = audit_exploratory_storage(repo, parquet_reader=read_parquet_bytes)
+    assert not report.ok
+    assert report.failures[0].state == AMBIGUOUS, report.to_dict()

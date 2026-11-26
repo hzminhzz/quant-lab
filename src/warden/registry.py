@@ -16,11 +16,13 @@ import numpy as np
 
 from warden.codeid import code_closure
 from warden.contracts import (
+    CURRENT_SPEC_VERSION,
     DEFAULT_SIMULATION_EPOCH,
     EvaluationContract,
     ExperimentResult,
     HypothesisSpec,
     canonical_json,
+    contract_row,
     utc,
     valid_id,
 )
@@ -54,6 +56,18 @@ class ScreenAlreadyAttemptedError(ValueError):
 
 class SelectionHistoryError(ValueError):
     """Selection history is not comparable; refusing to pad, slice or zero-fill it."""
+
+
+class ContractSelectionGroupError(ValueError):
+    """A contract cannot be registered with a policy-resolvable selection group.
+
+    Raised by :meth:`ResearchRegistry.register_contract` /
+    :meth:`ResearchRegistry.register_new_contract` when the signed venue policy
+    cannot map the contract's ``(asset_class, cadence)`` domain, when a contract's
+    declared group contradicts the policy, or when a new contract is registered
+    without a policy at all.  The message always names the domain, so the refusal
+    is actionable and cannot be mistaken for a per-contract DSR reset.
+    """
 
 
 def _eigen_rank(matrix: np.ndarray) -> float:
@@ -153,15 +167,17 @@ def _has_column(conn: sqlite3.Connection, table: str, column: str) -> bool:
 
 
 def _columns(cls):
-    return ",".join(f"{f.name} {'TEXT' if 'str' in str(f.type) or 'datetime' in str(f.type) else 'REAL'}"
-                    for f in fields(cls))
+    return ", ".join(
+        f"{f.name} {f.metadata.get('sqlite_type') or ('TEXT' if 'str' in str(f.type) or 'datetime' in str(f.type) else 'REAL')}"
+        for f in fields(cls))
 
 
 def _ensure_columns(conn, table, cls):
     existing = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     for f in fields(cls):
         if f.name not in existing:
-            kind = "TEXT" if ("str" in str(f.type) or "datetime" in str(f.type)) else "REAL"
+            kind = (f.metadata.get("sqlite_type")
+                    or ("TEXT" if ("str" in str(f.type) or "datetime" in str(f.type)) else "REAL"))
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {f.name} {kind}")
 
 
@@ -170,7 +186,7 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 """Current ``PRAGMA user_version`` of the registry schema.
 
 ``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
@@ -180,8 +196,16 @@ adds ``contract_governance`` (the declared ``selection_group_id`` /
 ``inherits_selection_from`` per contract) so cross-contract selection scoping is
 resolvable without reading contract YAMLs at query time. The addition is a table only:
 no existing table, column or trigger changes, and the table has no rows for a legacy
-contract, so its scope stays exactly as it was. Anything newer than this constant is
-refused instead of guessed at.
+contract, so its scope stays exactly as it was. ``3`` (#113) unifies the contract
+schema: it adds the explicit ``contracts.policy`` TEXT column (#94's ``InitVar``
+carrier, now a real field) and ``contract_governance.group_source`` (``declared`` vs
+``policy``), both by ``ALTER TABLE ... ADD COLUMN`` with a non-destructive default.
+Nothing newer than this constant is refused instead of guessed at.
+
+Down-path: v3 is data-only to undo. A v2 build refuses to open a v3 registry (it is
+newer than the build), so rolling back means ``PRAGMA user_version=2``; both added
+columns are nullable/defaulted and are ignored by v2 readers, and no row is rewritten,
+so the rollback is a version flip, not a data migration.
 """
 
 
@@ -221,7 +245,7 @@ _DDL_SCRIPT = f"""
                 CREATE TABLE IF NOT EXISTS audit_evidence (audit_id TEXT PRIMARY KEY,run_id TEXT NOT NULL,contract_id TEXT DEFAULT '',verdict TEXT NOT NULL,checks_json TEXT NOT NULL DEFAULT '{{}}',reason TEXT NOT NULL DEFAULT '',created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS selection_attempts (attempt_id TEXT PRIMARY KEY,attempt_base TEXT NOT NULL,run_id TEXT DEFAULT '',hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,strategy_family TEXT DEFAULT '',strategy_module TEXT DEFAULT '',kind TEXT NOT NULL,stage TEXT NOT NULL,outcome TEXT NOT NULL,config_hash TEXT DEFAULT '',parameters_json TEXT DEFAULT '{{}}',data_provenance TEXT DEFAULT 'unknown',returns_observed INTEGER NOT NULL DEFAULT 0,returns_json TEXT DEFAULT '',returns_sha256 TEXT DEFAULT '',diagnostics_json TEXT DEFAULT '{{}}',simulation_epoch TEXT DEFAULT '{DEFAULT_SIMULATION_EPOCH}',created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS contract_search_state (contract_id TEXT PRIMARY KEY,max_keff_gate REAL NOT NULL,max_noise REAL NOT NULL,updated_at REAL NOT NULL);
-                CREATE TABLE IF NOT EXISTS contract_governance (contract_id TEXT PRIMARY KEY,selection_group_id TEXT NOT NULL DEFAULT '',inherits_selection_from TEXT NOT NULL DEFAULT '',spec_version INTEGER NOT NULL DEFAULT 1,recorded_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS contract_governance (contract_id TEXT PRIMARY KEY,selection_group_id TEXT NOT NULL DEFAULT '',inherits_selection_from TEXT NOT NULL DEFAULT '',spec_version INTEGER NOT NULL DEFAULT 1,group_source TEXT NOT NULL DEFAULT 'declared',recorded_at REAL NOT NULL);
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_update BEFORE UPDATE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_delete BEFORE DELETE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS trials_no_update BEFORE UPDATE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
@@ -371,6 +395,10 @@ class ResearchRegistry:
                 _ensure_columns(conn, table, cls)
             if not _has_column(conn, "selection_attempts", "simulation_epoch"):
                 conn.execute("ALTER TABLE selection_attempts ADD COLUMN simulation_epoch TEXT")
+            if not _has_column(conn, "contract_governance", "group_source"):
+                # #113: distinguish a contract's own declaration from a policy-derived
+                # mapping of legacy debt.  Additive, non-null with a default, no row rewrite.
+                conn.execute("ALTER TABLE contract_governance ADD COLUMN group_source TEXT NOT NULL DEFAULT 'declared'")
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             conn.commit()
         except BaseException:
@@ -650,18 +678,115 @@ class ResearchRegistry:
                          (aid, run_id, contract_id, verdict, canonical_json(checks), reason, time.time()))
         return aid
 
-    def register_contract(self, contract):
+    # -- registration -------------------------------------------------------
+
+    @staticmethod
+    def _venue_policy(venue_policy=None, repo_root=None):
+        """Resolve the policy object a registration must obey (``None`` = pre-#113 path)."""
+        if venue_policy is not None and repo_root is not None:
+            raise ValueError("pass venue_policy or repo_root, not both")
+        if venue_policy is not None:
+            return venue_policy
+        if repo_root is not None:
+            from warden_ops.venue_policy import load_venue_policy
+
+            return load_venue_policy(Path(repo_root))
+        return None
+
+    @staticmethod
+    def _domain(contract) -> str:
+        from warden_ops.venue_policy import cadence_bucket
+
+        try:
+            cadence = f" at cadence {cadence_bucket(contract.frequency)!r}"
+        except ValueError:
+            cadence = ""
+        return f"asset class {contract.asset_class!r}{cadence} (frequency {contract.frequency!r})"
+
+    def _selection_group_for(self, contract, policy, *, require_new: bool) -> tuple[str, str]:
+        """``(group, source)`` a registration must record; fails closed (#113).
+
+        ``source`` is ``"declared"`` (the contract's own v2 governance block, or an
+        unpolicy-mapped legacy contract's absence of one) or ``"policy"`` (the signed
+        venue policy's mandatory mapping).  When a policy is supplied the policy is
+        authoritative: an unmapped domain is refused with the domain named, and a
+        declaration that contradicts it is refused rather than re-homed.
+        """
+        from warden_ops.venue_policy import require_selection_group
+
+        declared = contract.governance.selection_group_id
+        declares_governance = contract.governance.declares_governance
+        if require_new and not declares_governance:
+            raise ContractSelectionGroupError(
+                f"cannot register {contract.contract_id} as a new contract: it declares no "
+                f"spec_version {CURRENT_SPEC_VERSION} governance block for {self._domain(contract)}")
+        if require_new and policy is None:
+            raise ContractSelectionGroupError(
+                f"cannot register new contract {contract.contract_id} without the signed venue "
+                f"policy: no policy-resolvable selection_group_id for {self._domain(contract)}")
+        if policy is not None:
+            resolved = require_selection_group(policy, contract.asset_class, contract.frequency)
+            if declared and declared != resolved:
+                raise ContractSelectionGroupError(
+                    f"{contract.contract_id} declares selection_group_id {declared!r} but the signed "
+                    f"venue policy maps {self._domain(contract)} to {resolved!r}; the policy is "
+                    "authoritative and a contract may not re-home itself")
+            return resolved, "policy"
+        if declares_governance and not declared:
+            # Unreachable through ContractPolicy, but a registration must never be the
+            # first place a v2 contract's missing group is discovered.
+            raise ContractSelectionGroupError(
+                f"{contract.contract_id} declares no selection_group_id for {self._domain(contract)} "
+                "and no venue policy was supplied to derive one")
+        return declared, ("declared" if declared else "")
+
+    def register_contract(self, contract, *, venue_policy=None, repo_root=None) -> dict:
+        """Register a contract idempotently, recording its selection group (#113).
+
+        Pass ``venue_policy`` (a :class:`warden_ops.venue_policy.VenuePolicy`) or
+        ``repo_root`` to make the signed venue policy authoritative for the
+        contract's ``selection_group_id``: an unmapped domain fails closed naming
+        the asset class and cadence, and a contradicting declaration is refused.
+        Without either, a legacy v1 contract keeps its historical registration and a
+        v2 contract keeps its own mandatory declaration.  New contracts belong on
+        :meth:`register_new_contract`, which requires the policy.
+
+        Returns the recorded registration (``contract_id``, ``spec_hash``,
+        ``selection_group_id``, ``inherits_selection_from``, ``group_source``,
+        ``created``).
+        """
+        return self._register_contract(contract, self._venue_policy(venue_policy, repo_root),
+                                       require_new=False)
+
+    def register_new_contract(self, contract, *, venue_policy=None, repo_root=None) -> dict:
+        """Register a *new* contract under the signed venue policy's sole authority.
+
+        Every compiled/production contract path must come through here: a v2
+        governance block and a policy that maps ``(asset_class, cadence)`` are both
+        required, so a sandbox or production contract cannot invent its own group
+        and cannot restart the group's DSR debt.
+        """
+        return self._register_contract(contract, self._venue_policy(venue_policy, repo_root),
+                                       require_new=True)
+
+    def _register_contract(self, contract, policy, *, require_new: bool) -> dict:
+        group, source = self._selection_group_for(contract, policy, require_new=require_new)
+        inherit = contract.governance.inherits_selection_from
+        spec_version = contract.governance.spec_version
         with self._connect() as conn:
             row = conn.execute("SELECT spec_hash FROM contracts WHERE contract_id=?", (contract.contract_id,)).fetchone()
-            if row:
-                if row[0] != contract.spec_hash():
-                    raise ValueError("Registered contract is immutable; choose a new contract_id")
-                # A contract registered before #100 may still lack its declared scope row;
-                # recording it is additive and never rewrites history.
-                self._record_declared_governance(conn, contract)
-                return
-            _insert(conn, "contracts", {**json.loads(canonical_json(asdict(contract))), "spec_hash": contract.spec_hash()})
-            self._record_declared_governance(conn, contract)
+            if row and row[0] != contract.spec_hash():
+                raise ValueError("Registered contract is immutable; choose a new contract_id")
+            created = row is None
+            if created:
+                _insert(conn, "contracts", contract_row(contract))
+            # A contract registered before #113 may still lack its scope row; recording it
+            # is additive and never rewrites history (write-once, INSERT OR IGNORE).
+            self._record_governance(conn, contract.contract_id, group, inherit, spec_version, source)
+            recorded = self._governance_rows(conn).get(str(contract.contract_id), ("", "", ""))
+        return {"contract_id": str(contract.contract_id), "spec_hash": contract.spec_hash(),
+                "selection_group_id": recorded[0], "inherits_selection_from": recorded[1],
+                "group_source": recorded[2], "created": created}
 
     def register_hypothesis(self, hyp):
         with self._connect() as conn:
@@ -1197,25 +1322,66 @@ class ResearchRegistry:
         return (str(getattr(policy, "selection_group_id", "") or "").strip(),
                 str(getattr(policy, "inherits_selection_from", "") or "").strip())
 
-    def _governance_rows(self, conn) -> dict[str, tuple[str, str]]:
+    def _governance_rows(self, conn) -> dict[str, tuple[str, str, str]]:
+        """``contract_id -> (selection_group_id, inherits_selection_from, group_source)``."""
         try:
             rows = conn.execute(
-                "SELECT contract_id,selection_group_id,inherits_selection_from "
+                "SELECT contract_id,selection_group_id,inherits_selection_from,"
+                "COALESCE(group_source,'declared') "
                 "FROM contract_governance").fetchall()
         except sqlite3.OperationalError:
             # A pre-#100 snapshot opened read-only keeps its legacy semantics: no table,
             # no rows, no scope -- and never a write to add one.
             return {}
-        return {str(row[0]): (str(row[1] or ""), str(row[2] or "")) for row in rows}
+        return {str(row[0]): (str(row[1] or ""), str(row[2] or ""), str(row[3] or "declared"))
+                for row in rows}
+
+    def recorded_policy(self, contract_id) -> dict | None:
+        """The governance block persisted with a registered contract (#113), read-only.
+
+        ``None`` when the contract is unknown or is a legacy v1 contract (the column
+        is empty).  This is the ledger's own copy, not a re-read of the contract YAML.
+        """
+        with self._connect() as conn:
+            try:
+                row = conn.execute("SELECT policy FROM contracts WHERE contract_id=?",
+                                   (str(contract_id),)).fetchone()
+            except sqlite3.OperationalError:
+                return None
+        if not row or not str(row[0] or "").strip():
+            return None
+        return json.loads(str(row[0]))
+
+    def selection_group_debt(self, contract, *,
+                             simulation_epoch: str = DEFAULT_SIMULATION_EPOCH) -> dict:
+        """Persisted trial/search-debt count for the whole selection group (#113).
+
+        Read-only: sums ``validation_attempt_count`` over every member of the
+        contract's scope, so two contract ids in one group -- including one whose
+        membership was derived from the venue policy -- report a single shared
+        count instead of one each.
+        """
+        epoch = _normalize_epoch(simulation_epoch)
+        scope = self.selection_scope(contract)
+        per_contract = {member: self.validation_attempt_count(member, simulation_epoch=epoch)
+                        for member in scope.members}
+        return {"contract_id": str(contract.contract_id), "selection_group_id": scope.group_id,
+                "scope": list(scope.members), "per_contract": per_contract,
+                "shared_attempt_count": int(sum(per_contract.values())),
+                "simulation_epoch": epoch}
 
     def selection_scope(self, contract) -> SelectionScope:
         """Contracts whose search evidence counts for ``contract``.
 
         A contract that declares ``selection_group_id`` is scoped to that group plus its
         ``inherits_selection_from`` chain (and those targets' groups, because inheriting a
-        contract inherits the selection problem it belongs to).  A legacy contract has no
+        contract inherits the selection problem it belongs to).  Every contract the
+        registry records in that group counts, including a legacy contract whose
+        membership was mapped from the venue policy (#113).  A legacy contract has no
         declared group and is scoped to itself; its floors still fall back to the
-        ``asset_class:frequency`` family, exactly as before #100.
+        ``asset_class:frequency`` family, exactly as before #100 -- a policy-derived
+        mapping joins the *group's* evidence but never narrows the legacy contract's own
+        family floor, which could otherwise drop a hurdle.
         """
         own = str(contract.contract_id)
         group, inherit = self._declared_governance(contract)
@@ -1231,10 +1397,15 @@ class ResearchRegistry:
             # reading: it can only widen the debt, never shrink it.
             return SelectionScope(own, "", (own,), (), ())
         if not group:
-            group = recorded.get(own, ("", ""))[0]
+            # Only a *declared* row can stand in for a contract's own missing declaration
+            # (a v1-shaped projection of a registered v2 contract).  A policy-mapped row
+            # must not re-home a legacy contract and shrink its family floor.
+            recorded_group, _, source = recorded.get(own, ("", "", ""))
+            if source == "declared":
+                group = recorded_group
         members: set[str] = {own}
         if group:
-            members.update(cid for cid, (declared, _) in recorded.items() if declared == group)
+            members.update(cid for cid, (declared, _, _) in recorded.items() if declared == group)
         inherited: list[str] = []
         unresolved: list[str] = []
         seen = {own}
@@ -1250,32 +1421,103 @@ class ResearchRegistry:
             seen.add(target)
             inherited.append(target)
             members.add(target)
-            declared, onward = recorded.get(target, ("", ""))
+            declared, onward, _ = recorded.get(target, ("", "", ""))
             if declared:
-                members.update(cid for cid, (group_id, _) in recorded.items()
+                members.update(cid for cid, (group_id, _, _) in recorded.items()
                                if group_id == declared)
             target = onward
         return SelectionScope(own, group, tuple(sorted(members)), tuple(inherited),
                               tuple(unresolved))
 
-    def _record_declared_governance(self, conn, contract) -> None:
-        """Write-once record of what the contract itself declares.
+    def _record_governance(self, conn, contract_id, group: str, inherit: str,
+                           spec_version: int, source: str) -> None:
+        """Write-once record of a contract's selection-group membership (#113).
 
-        ``INSERT OR IGNORE`` over a primary key, and the registry exposes no update or
-        delete path: a declared group cannot be silently re-homed.  This table deliberately
-        carries no triggers -- the migration family pins the pre-#100 trigger set exactly,
-        and additive tables are the only schema change that leaves it untouched.
+        ``group_source`` says *why* the row exists: ``declared`` (the contract's own v2
+        governance block) or ``policy`` (the signed venue policy mapped this legacy
+        contract into the domain's group).  ``INSERT OR IGNORE`` over a primary key, and
+        the registry exposes no update or delete path: a group cannot be silently
+        re-homed.  This table deliberately carries no triggers -- the migration family
+        pins the pre-#100 trigger set exactly, and additive tables/columns are the only
+        schema changes that leave it untouched.
         """
-        group, inherit = self._declared_governance(contract)
         if not group and not inherit:
             return
-        policy = getattr(contract, "governance", None)
         conn.execute(
             "INSERT OR IGNORE INTO contract_governance "
-            "(contract_id,selection_group_id,inherits_selection_from,spec_version,recorded_at) "
-            "VALUES (?,?,?,?,?)",
-            (str(contract.contract_id), group, inherit,
-             int(getattr(policy, "spec_version", 1) or 1), time.time()))
+            "(contract_id,selection_group_id,inherits_selection_from,spec_version,group_source,recorded_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (str(contract_id), str(group or ""), str(inherit or ""),
+             int(spec_version or 1), str(source or "declared"), time.time()))
+
+    def _recorded_policies(self, conn) -> dict[str, dict]:
+        """``contract_id -> persisted governance block`` for rows that carry one."""
+        if not _has_column(conn, "contracts", "policy"):
+            return {}
+        out: dict[str, dict] = {}
+        for contract_id, payload in conn.execute(
+                "SELECT contract_id, policy FROM contracts WHERE policy IS NOT NULL AND policy != ''"):
+            try:
+                parsed = json.loads(str(payload))
+            except ValueError:
+                continue
+            if isinstance(parsed, dict) and parsed:
+                out[str(contract_id)] = parsed
+        return out
+
+    def map_selection_groups(self, *, venue_policy=None, repo_root=None, dry_run: bool = False) -> dict:
+        """Map registered contracts without a scope row onto their policy group (#113).
+
+        Additive by construction: it only ``INSERT OR IGNORE``s into
+        ``contract_governance`` (a table added by the v2 migration), never touches
+        ``contracts``, ``trials`` or ``selection_attempts``, and never rewrites an
+        existing row.  A contract that declares its own group is recorded as
+        ``declared``; a legacy contract is recorded as ``policy`` from the signed venue
+        policy's ``(asset_class, cadence)`` mapping, which is how pre-existing trial
+        debt joins its domain's group.  A domain the policy does not map is *reported*
+        in ``unmapped`` with the domain named -- never guessed.
+
+        Pass ``dry_run=True`` to compute the report without writing.
+        """
+        policy = self._venue_policy(venue_policy, repo_root)
+        if policy is None:
+            raise ContractSelectionGroupError(
+                "mapping selection groups requires the signed venue policy: pass venue_policy "
+                "or repo_root (there is no default mapping)")
+        from warden_ops.venue_policy import SelectionGroupResolutionError, require_selection_group
+
+        mapped: list[dict] = []
+        already: list[str] = []
+        unmapped: list[dict] = []
+        with self._connect() as conn:
+            recorded = self._governance_rows(conn)
+            persisted = self._recorded_policies(conn)
+            rows = conn.execute(
+                "SELECT contract_id, asset_class, frequency FROM contracts ORDER BY contract_id").fetchall()
+            for raw_id, asset_class, frequency in rows:
+                contract_id = str(raw_id)
+                if contract_id in recorded:
+                    already.append(contract_id)
+                    continue
+                block = persisted.get(contract_id, {})
+                declared = str(block.get("selection_group_id") or "").strip()
+                if declared:
+                    group, source, spec_version = declared, "declared", int(block.get("spec_version") or 1)
+                    inherit = str(block.get("inherits_selection_from") or "").strip()
+                else:
+                    try:
+                        group = require_selection_group(policy, str(asset_class), str(frequency))
+                    except SelectionGroupResolutionError as exc:
+                        unmapped.append({"contract_id": contract_id, "asset_class": str(asset_class),
+                                         "frequency": str(frequency), "reason": str(exc)})
+                        continue
+                    source, spec_version, inherit = "policy", 1, ""
+                if not dry_run:
+                    self._record_governance(conn, contract_id, group, inherit, spec_version, source)
+                mapped.append({"contract_id": contract_id, "selection_group_id": group,
+                               "group_source": source, "spec_version": spec_version})
+        return {"policy_sha256": str(getattr(policy, "sha256", "")), "dry_run": bool(dry_run),
+                "mapped": mapped, "already_recorded": already, "unmapped": unmapped}
 
     def _artifact_timestamps(self, path) -> np.ndarray | None:
         """UTC nanoseconds from the trial's own artifact, or ``None`` when it has none.

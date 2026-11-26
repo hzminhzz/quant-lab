@@ -807,6 +807,34 @@ def test_cli_compile_publishes_and_reports_json(workspace, monkeypatch, capsys) 
     assert _tree(repo) == before
 
 
+def test_cli_compile_passes_allow_superset_and_no_caller_policy(workspace, monkeypatch, capsys) -> None:
+    """Review A5/A1: the flag reaches the compiler, and no policy object does."""
+    import warden.compile as compile_module
+    from warden.cli import main as cli_main
+
+    repo, lake = workspace
+    monkeypatch.chdir(repo)
+    seen: dict = {}
+
+    def capture(requirement, **kwargs):
+        seen.update(kwargs)
+        raise compile_module.CompileRefused("captured for the kwargs assertion")
+
+    monkeypatch.setattr(compile_module, "compile_data_requirement", capture)
+    code = cli_main(["data", "compile", "--requirement", json.dumps(_requirement()),
+                     "--lake-root", str(lake), "--allow-superset", "--json"])
+    assert code == 2
+    assert seen["allow_superset"] is True
+    assert seen["lake_root"] == str(lake)
+    # A1: the compile is never handed a policy object; it loads the signed one itself.
+    assert "policy" not in seen
+
+    seen.clear()
+    assert cli_main(["data", "compile", "--requirement", json.dumps(_requirement()),
+                     "--lake-root", str(lake), "--json"]) == 2
+    assert seen["allow_superset"] is False
+
+
 def test_cli_compile_refuses_an_override_before_writing(workspace, monkeypatch, capsys) -> None:
     from warden.cli import main as cli_main
 

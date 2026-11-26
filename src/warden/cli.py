@@ -1348,7 +1348,11 @@ def cmd_resolve_data(args: argparse.Namespace, runner: Any) -> int:
     from warden.resolve import RequirementSourceError, resolve_data_requirement
 
     try:
-        report = resolve_data_requirement(args.requirement, repo_root=Path(runner.repo_root))
+        report = resolve_data_requirement(
+            args.requirement,
+            repo_root=Path(runner.repo_root),
+            allow_superset=bool(getattr(args, "allow_superset", False)),
+        )
     except ValidationError as exc:
         print(f"REFUSED: not a valid declarative data requirement: {exc}", file=sys.stderr)
         print("WARDEN_RESOLVE_DATA_FAILED", file=sys.stderr)
@@ -1478,6 +1482,7 @@ def cmd_data_compile(args: argparse.Namespace, runner: Any) -> int:
             lake_root=getattr(args, "lake_root", None),
             parquet_reader=read_parquet_bytes,
             overrides=overrides,
+            allow_superset=bool(getattr(args, "allow_superset", False)),
         )
     except CompileNotRequired as exc:
         payload = {**exc.report.to_dict(), "compiled": False, "detail": str(exc)}
@@ -1633,6 +1638,9 @@ def build_parser() -> argparse.ArgumentParser:
     data_compile.add_argument("--requirement", required=True, metavar="FILE|JSON")
     data_compile.add_argument("--lake-root", default=None)
     data_compile.add_argument("--override", action="append", default=None, metavar="KEY=VALUE")
+    # A superset signed contract is a wider universe than the requirement declared, so it is
+    # only reused when the caller asks for it (review A5); the drop set is reported either way.
+    data_compile.add_argument("--allow-superset", action="store_true")
     data_compile.add_argument("--json", action="store_true")
     # ``warden promote-contract`` -- the human-only step that turns a compiled sandbox
     # artifact into a production candidate (#118).  It is on ``policy.APPROVAL``: the flag
@@ -1646,6 +1654,8 @@ def build_parser() -> argparse.ArgumentParser:
     # missing", before any strategy code is loaded.  It never opens the registry.
     resolve = s.add_parser("resolve-data")
     resolve.add_argument("--requirement", required=True, metavar="FILE|JSON")
+    # Opt in to a superset signed contract; without it a superset is reported, not reused.
+    resolve.add_argument("--allow-superset", action="store_true")
     for sub in s.choices.values():
         if "json" not in [a.dest for a in sub._actions]: sub.add_argument("--json", action="store_true")
     return p

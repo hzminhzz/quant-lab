@@ -1152,6 +1152,7 @@ def compile_data_requirement(
     lake_root: Path | str | None = None,
     overrides: Mapping[str, Any] | None = None,
     report: ResolutionReport | None = None,
+    allow_superset: bool = False,
 ) -> CompiledArtifact:
     """Compile one resolved requirement into a write-once fenced sandbox artifact.
 
@@ -1178,7 +1179,7 @@ def compile_data_requirement(
     _refuse_overrides(overrides)
 
     resolved = report or resolve_data_requirement(
-        req, repo_root=root, lake_root=lake_root
+        req, repo_root=root, lake_root=lake_root, allow_superset=allow_superset
     )
     if resolved.decision == DECISION_FAIL_CLOSED:
         raise CompileGap(resolved)

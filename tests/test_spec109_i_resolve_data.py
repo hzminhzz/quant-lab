@@ -453,9 +453,11 @@ def _repo(tmp_path: Path, name: str) -> Path:
     return repo
 
 
-def _resolve(repo: Path, requirement: DataRequirement, *, lake_root: Path | None, policy=None):
+def _resolve(repo: Path, requirement: DataRequirement, *, lake_root: Path | None, policy=None,
+             allow_superset: bool = False):
     return resolve_data_requirement(
-        requirement, repo_root=repo, lake_root=lake_root, policy=policy
+        requirement, repo_root=repo, lake_root=lake_root, policy=policy,
+        allow_superset=allow_superset,
     ).to_dict()
 
 
@@ -481,12 +483,50 @@ def test_an_exact_signed_match_is_reused(tmp_path: Path, monkeypatch: pytest.Mon
     assert payload["policy"]["trusted"] is True
 
 
+def test_a_superset_is_not_reused_without_an_explicit_opt_in(tmp_path: Path) -> None:
+    """A superset hands back a wider universe than the requirement declared.
+
+    Default: reported, never reused.  The smallest superset's drop set stays on the report,
+    so the caller sees exactly what it would be buying — including the case this rule
+    exists for, an ``fx`` requirement whose candidate basket carries a metal.
+    """
+    repo = _repo(tmp_path, "superset_opt_out")
+    _install_contract(repo, _contract("FX_METALS_1H_V1"), assets=("EURUSD", "XAUUSD"))
+    lake = _fx_lake(tmp_path / "lake")
+
+    payload = _resolve(repo, _requirement(symbols=("EURUSD",)), lake_root=lake)
+
+    assert payload["decision"] == "compile_required"
+    assert payload["reason"] == "superset_requires_opt_in"
+    assert payload["matched_contract"] is None
+    assert payload["available_symbols"] == ["EURUSD"]
+    assert payload["symbols_to_drop"] == ["XAUUSD"]
+    assert payload["rejected_candidates"] == [
+        {
+            "contract_id": "FX_METALS_1H_V1",
+            "reason": "superset_requires_opt_in: contract carries 2 symbols for a 1-symbol "
+            "requirement; re-resolve with allow_superset (--allow-superset) to reuse it and "
+            "drop the extras",
+            "symbols_to_drop": ["XAUUSD"],
+        }
+    ]
+
+    opted_in = _resolve(
+        repo, _requirement(symbols=("EURUSD",)), lake_root=lake, allow_superset=True
+    )
+    assert opted_in["decision"] == "reuse_signed"
+    assert opted_in["reason"] == "superset_signed_match"
+    assert opted_in["matched_contract"]["contract_id"] == "FX_METALS_1H_V1"
+    assert opted_in["symbols_to_drop"] == ["XAUUSD"]
+
+
 def test_a_superset_contract_is_reused_with_an_explicit_filter(tmp_path: Path) -> None:
     repo = _repo(tmp_path, "superset")
     _install_contract(repo, _contract("FX_MAJORS_1H_V1"), assets=("EURUSD", "GBPUSD", "USDJPY"))
     lake = _fx_lake(tmp_path / "lake")
 
-    payload = _resolve(repo, _requirement(symbols=("EURUSD",)), lake_root=lake)
+    payload = _resolve(repo, _requirement(symbols=("EURUSD",)), lake_root=lake,
+                       allow_superset=True)
 
     assert payload["decision"] == "reuse_signed"
     assert payload["reason"] == "superset_signed_match"
@@ -504,11 +544,26 @@ def test_the_smallest_superset_wins_and_the_choice_is_deterministic(
     _install_contract(repo, _contract("FX_TWO_1H_V1"), assets=("EURUSD", "GBPUSD"))
     lake = _fx_lake(tmp_path / "lake")
 
-    first = _resolve(repo, _requirement(), lake_root=lake)
-    second = _resolve(repo, _requirement(), lake_root=lake)
+    first = _resolve(repo, _requirement(), lake_root=lake, allow_superset=True)
+    second = _resolve(repo, _requirement(), lake_root=lake, allow_superset=True)
     assert first["matched_contract"]["contract_id"] == "FX_TWO_1H_V1"
     assert second["matched_contract"]["contract_id"] == "FX_TWO_1H_V1"
     assert [c["contract_id"] for c in first["rejected_candidates"]] == []
+
+
+def test_an_exact_match_beats_a_superset_even_when_the_superset_is_allowed(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path, "exact_wins")
+    _install_contract(repo, _contract("FX_TWO_1H_V1"), assets=("EURUSD", "GBPUSD"))
+    _install_contract(repo, _contract("FX_EURUSD_1H_V1"), assets=("EURUSD",))
+    lake = _fx_lake(tmp_path / "lake")
+
+    payload = _resolve(repo, _requirement(), lake_root=lake, allow_superset=True)
+
+    assert payload["matched_contract"]["contract_id"] == "FX_EURUSD_1H_V1"
+    assert payload["reason"] == "exact_signed_match"
+    assert payload["symbols_to_drop"] == []
 
 
 def test_a_contract_starting_after_min_start_is_never_silently_accepted(
@@ -916,6 +971,34 @@ def test_resolve_data_cli_reports_reuse_as_json(
     assert payload["policy"] == "allow"
     assert payload["value"]["decision"] == "reuse_signed"
     assert payload["value"]["matched_contract"]["contract_id"] == "FX_EURUSD_1H_V1"
+
+
+def test_resolve_data_cli_requires_allow_superset_to_reuse_a_wider_basket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Review A5: the flag is the opt-in, and the default names the drop set instead."""
+    repo = _repo(tmp_path, "cli_superset")
+    _install_contract(repo, _contract("FX_MAJORS_1H_V1"), assets=("EURUSD", "GBPUSD"))
+    lake = _fx_lake(tmp_path / "lake")
+    monkeypatch.setenv("ML4T_DATA_STORE", str(lake))
+    requirement = tmp_path / "requirement.json"
+    requirement.write_text(json.dumps(_requirement().model_dump(mode="json")), encoding="utf-8")
+    monkeypatch.chdir(repo)
+
+    assert cli_main(["resolve-data", "--requirement", str(requirement), "--json"]) == 0
+    payload = _cli_payload(capsys)
+    assert payload["value"]["decision"] == "compile_required"
+    assert payload["value"]["reason"] == "superset_requires_opt_in"
+    assert payload["value"]["symbols_to_drop"] == ["GBPUSD"]
+    assert payload["value"]["rejected_candidates"][0]["symbols_to_drop"] == ["GBPUSD"]
+
+    assert cli_main(
+        ["resolve-data", "--requirement", str(requirement), "--allow-superset", "--json"]
+    ) == 0
+    payload = _cli_payload(capsys)
+    assert payload["value"]["decision"] == "reuse_signed"
+    assert payload["value"]["matched_contract"]["contract_id"] == "FX_MAJORS_1H_V1"
+    assert payload["value"]["symbols_to_drop"] == ["GBPUSD"]
 
 
 def test_resolve_data_cli_accepts_inline_json_and_exits_zero_for_compile(

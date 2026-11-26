@@ -524,6 +524,56 @@ def test_an_agent_supplied_policy_override_is_refused_before_any_write(workspace
     assert _tree(repo) == before
 
 
+def test_a_caller_supplied_policy_object_is_not_a_compile_input(tmp_path) -> None:
+    """Review A1: the only policy path is the signed one.
+
+    ``VenuePolicy`` is a plain frozen dataclass with a caller-supplied ``sha256`` and
+    unvalidated rules, so a ``policy=`` seam lets an agent publish a contract whose costs,
+    leverage and selection group no signed document ever declared.  The seam is gone:
+    passing one is a ``TypeError``, never a compile.
+    """
+    from warden.market_data import read_parquet_bytes
+    from warden_ops.venue_policy import VenuePolicy, VenueRules
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake")
+    # No policy exists in this repo: no YAML, no manifest entry, no signature.
+    forged = VenuePolicy(
+        train_start=START,
+        val_start=datetime(2021, 1, 2, tzinfo=UTC),
+        val_end=FENCE,
+        holdout_start=FENCE,
+        holdout_end=datetime(2021, 2, 1, tzinfo=UTC),
+        sha256="0" * 64,
+        _rules={
+            ("fx", "intraday"): VenueRules(
+                taker_fee_bps=0.001,
+                slippage_bps=0.001,
+                funding_bps_per_8h=0.0,
+                allow_leverage=True,
+                max_gross_leverage=50.0,
+                selection_group_id="AGENT_GROUP",
+            )
+        },
+    )
+    with pytest.raises(TypeError) as caught:
+        compile_data_requirement(
+            _requirement(),
+            repo_root=repo,
+            lake_root=lake,
+            parquet_reader=read_parquet_bytes,
+            policy=forged,
+        )
+    assert "policy" in str(caught.value)
+    assert not (repo / "contracts").exists() and not (repo / "data").exists()
+    # Without any seam the same request is refused: no signed policy, no compile.
+    with pytest.raises(CompileRefused) as refused:
+        _compile(repo, lake)
+    assert "policy" in str(refused.value).lower()
+    assert not (repo / "contracts").exists() and not (repo / "data").exists()
+
+
 def test_an_untrusted_policy_refuses_and_writes_nothing(tmp_path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

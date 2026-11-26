@@ -1147,7 +1147,6 @@ def compile_data_requirement(
     repo_root: Path | str = ".",
     parquet_reader: Any,
     lake_root: Path | str | None = None,
-    policy: VenuePolicy | None = None,
     overrides: Mapping[str, Any] | None = None,
     report: ResolutionReport | None = None,
 ) -> CompiledArtifact:
@@ -1157,6 +1156,12 @@ def compile_data_requirement(
     read, then the policy is authenticated, then window/fence arithmetic is decided, then
     the readable partitions are chosen by name — and only after all of that is the first
     raw byte read or the first file created.
+
+    The *only* policy this accepts is the repository's signed one, loaded and digested by
+    :func:`_trusted_policy`.  There is deliberately no ``policy=`` parameter: a
+    ``VenuePolicy`` is a plain frozen dataclass with a caller-supplied ``sha256`` and
+    unvalidated rules, so a caller-supplied object would carry the signed policy's
+    authority without its HMAC, its manifest entry or its digest.
 
     Raises:
         CompileRefused: the request itself is refused (override, untrusted policy, input).
@@ -1170,7 +1175,7 @@ def compile_data_requirement(
     _refuse_overrides(overrides)
 
     resolved = report or resolve_data_requirement(
-        req, repo_root=root, lake_root=lake_root, policy=policy
+        req, repo_root=root, lake_root=lake_root
     )
     if resolved.decision == DECISION_FAIL_CLOSED:
         raise CompileGap(resolved)
@@ -1181,7 +1186,7 @@ def compile_data_requirement(
     if resolved.requirement != req:  # pragma: no cover - defensive
         raise CompileRefused("the resolution report describes a different requirement")
 
-    venue = policy or _trusted_policy(root, resolved)
+    venue = _trusted_policy(root, resolved)
     plan = _plan(req, resolved, venue, root)
 
     existing = _existing_artifact(root, plan)

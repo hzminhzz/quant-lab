@@ -31,6 +31,17 @@
 
 ---
 
+## ML4T lake store
+
+`warden data build` with a reviewed `ml4t_lake` source reads Hive Parquet from
+`ML4T_DATA_STORE`. Point it at the **store directory itself**, e.g.
+`export ML4T_DATA_STORE=/path/to/ml4t-data/.data/store`, and use the same value in
+`ml4t-data`. Use an absolute path for shells, scheduled runs, and worktrees
+that may start in different directories. If the variable is unset, Warden
+uses `../ml4t-data/.data/store` relative to the quant-lab checkout. A blank,
+missing, or non-directory override is an error, not a fallback. Existing
+pinned Warden artifacts and contracts are unchanged.
+
 ## Repository Architecture & Layout
 
 | Path | Role |

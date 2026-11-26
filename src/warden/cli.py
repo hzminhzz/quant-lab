@@ -1131,7 +1131,6 @@ def cmd_data_build(args: argparse.Namespace, runner: Any) -> int:
     if not check_worktree():
         print("WARDEN_DATA_BUILD_FAILED", file=sys.stderr)
         sys.exit(2)
-    from warden.market_data import read_parquet_bytes
     from warden_evidence.dataset_builder import (
         AdapterError,
         DatasetBuildError,
@@ -1169,11 +1168,12 @@ def cmd_data_build(args: argparse.Namespace, runner: Any) -> int:
         # ``pl.read_parquet`` (warden_ops.integrity.check_ast_boundaries).  Reading it here
         # would be the boundary violation this indirection exists to prevent.
         from warden.market_data import read_parquet_bytes
+        from warden_evidence.dataset_builder.adapters import Ml4tLakeAdapter
 
         outcome = build_dataset(
             spec,
             repo_root=repo_root,
-            source_root=repo_root,
+            source_root=None if spec.source.adapter == Ml4tLakeAdapter.name else repo_root,
             dataset_dir=dataset_dir,
             manifest_dir=manifest_dir,
             parquet_reader=read_parquet_bytes,

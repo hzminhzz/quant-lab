@@ -139,7 +139,12 @@ def test_all_36_legacy_contracts_keep_their_pinned_spec_hash() -> None:
         assert "governance" not in c.spec_hash_payload()
 
 
-def test_governance_carrier_never_enters_asdict_or_the_registry_schema() -> None:
+def test_governance_carrier_is_explicit_in_the_row_but_off_the_digest() -> None:
+    """#113: the carrier *is* a real field (``policy``) and *is* a registry column.
+
+    What still holds is the part that matters for replay: no governance key enters the
+    digest, so a resolved tier or group never moves a historical ``spec_hash``.
+    """
     contract = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     pinned = contract.spec_hash()
     attach_contract_policy(contract, ContractPolicy(evidence_tier="research_proxy", selection_group_id="G1"))

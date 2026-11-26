@@ -574,3 +574,34 @@ def _registry_repo(tmp_path: Path, name: str) -> Path:
     shutil.copyfile(REPO_ROOT / ARCHIVE_DIR / ARCHIVE_MAP_NAME, repo / ARCHIVE_DIR / ARCHIVE_MAP_NAME)
     generate_manifest(repo)
     return repo
+
+
+# ---------------------------------------------------------------------------
+# 4. a build may not overwrite a dataset any recorded contract pins
+# ---------------------------------------------------------------------------
+
+
+def test_pinned_dataset_paths_include_the_archive_namespace(tmp_path: Path) -> None:
+    """`warden data build` must not create a file an archived contract pins.
+
+    The archive is unexecutable for *new work*, but its datasets are historical
+    evidence; dropping archived contracts from the pinned-path inventory would let
+    a build overwrite a file that a recorded trial still points at.
+    """
+    from warden.cli import _pinned_dataset_paths
+
+    repo = tmp_path / "pins"
+    (repo / "contracts" / "archive").mkdir(parents=True)
+    (repo / "contracts" / "live_v1.yaml").write_text(
+        "contract_id: LIVE_V1\nexploratory_data_path: data/exploratory/live.parquet\n",
+        encoding="utf-8",
+    )
+    (repo / "contracts" / "archive" / "closed_v1.yaml").write_text(
+        "contract_id: CLOSED_V1\nexploratory_data_path: data/exploratory/closed.parquet\n",
+        encoding="utf-8",
+    )
+
+    pinned = _pinned_dataset_paths(repo)
+
+    assert pinned["data/exploratory/live.parquet"] == "LIVE_V1"
+    assert pinned["data/exploratory/closed.parquet"] == "CLOSED_V1"

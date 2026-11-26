@@ -402,6 +402,104 @@ def test_a_store_partition_that_straddles_the_fence_is_refused(tmp_path, monkeyp
     assert _tree(repo) == before
 
 
+def test_a_raw_row_at_or_after_the_fence_is_counted_and_refused(workspace) -> None:
+    """The raw-frame guard is the first fence proof: a partition *name* inside the window
+    is not proof of its rows.
+
+    ``day=03`` is a lawful input (its name ends exactly at the fence), but a real leak looks
+    like rows that reach past it.  The guard counts those rows and refuses before the gate
+    aggregates anything.
+    """
+    repo, lake = workspace
+    part = lake / "forex_minute_EURUSD" / "year=2021/month=01/day=03" / "part-0.parquet"
+    frame = pl.read_parquet(part)
+    last = frame.tail(1)
+    spilled = pl.concat(
+        [
+            last.with_columns(pl.col("timestamp") + timedelta(minutes=1)),  # exactly the fence
+            last.with_columns(pl.col("timestamp") + timedelta(minutes=6)),  # past it
+        ]
+    )
+    assert spilled["timestamp"].to_list() == [FENCE, FENCE + timedelta(minutes=5)]
+    pl.concat([frame, spilled]).write_parquet(part)
+
+    with pytest.raises(CompileFenceError) as caught:
+        _compile(repo, lake)
+    message = str(caught.value)
+    assert "2 raw input rows" in message
+    assert FENCE.isoformat() in message
+    # Refused before publication: no Parquet, no contract, no manifest.
+    assert not list((repo / "data" / "exploratory").rglob("*.parquet"))
+    assert not list((repo / "contracts" / "sandbox").glob("*.yaml"))
+    assert not list((repo / "contracts" / "sandbox" / "datasets").glob("*.json"))
+
+
+def test_a_published_bar_that_closes_after_the_fence_is_withdrawn(workspace, monkeypatch) -> None:
+    """Backstop proof for the post-aggregate fence check, including its withdrawal.
+
+    A lawful raw frame cannot reach this branch: the fence is required to sit on the bar
+    grid and buckets are left-closed and epoch-aligned, so the last bucket that starts
+    before the fence closes at or before it.  The builder seam is therefore replaced by one
+    that publishes exactly what a leak would publish — one Parquet, one manifest and a bar
+    *labelled at* the fence — and the compile must withdraw both files and refuse.
+    """
+    from types import SimpleNamespace
+
+    import warden.compile as compile_module
+
+    repo, lake = workspace
+    published: list[Path] = []
+
+    def leaking_build(spec, **kwargs):
+        parquet = Path(kwargs["repo_root"]) / kwargs["dataset_dir"] / f"{spec.dataset_id}.parquet"
+        manifest = (
+            Path(kwargs["repo_root"]) / kwargs["manifest_dir"] / f"{kwargs['manifest_name']}.json"
+        )
+        compile_module._create_exclusive(parquet, b"leaked-parquet-bytes")
+        compile_module._create_exclusive(
+            manifest,
+            json.dumps(
+                {
+                    "sha256": hashlib.sha256(b"leaked-parquet-bytes").hexdigest(),
+                    "spec_sha256": spec.spec_sha256(),
+                    "raw_inputs_merkle_sha256": "0" * 64,
+                    "dataset": {
+                        "last_bar": FENCE.isoformat(),
+                        "first_bar": START.isoformat(),
+                        "rows": 24,
+                        "assets": ["EURUSD"],
+                        "frequency": "1h",
+                        "price_basis": "ohlcv",
+                    },
+                    "sandbox": {
+                        "policy": {"sha256": "0" * 64, "selection_group_id": "TEST_FX_INTRADAY"},
+                        "fence": {"holdout_start": FENCE.isoformat()},
+                        "window": {"compiled_start_inclusive": START.isoformat()},
+                        "resampling": {"source_frequency": "1m"},
+                        "lake": {},
+                    },
+                }
+            ).encode("utf-8"),
+        )
+        published.extend([parquet, manifest])
+        return SimpleNamespace(
+            parquet_sha256=hashlib.sha256(b"leaked-parquet-bytes").hexdigest(),
+            rows=24,
+            first_bar=START.isoformat(),
+            last_bar=FENCE.isoformat(),
+        )
+
+    monkeypatch.setattr(compile_module, "build_dataset", leaking_build)
+    with pytest.raises(CompileFenceError) as caught:
+        _compile(repo, lake)
+    message = str(caught.value)
+    assert "closes at" in message and "after the holdout fence" in message
+    assert len(published) == 2
+    # The just-written evidence is withdrawn: a refused compile leaves no artifact behind.
+    assert [path.exists() for path in published] == [False, False]
+    assert not list((repo / "contracts" / "sandbox").glob("*.yaml"))
+
+
 def test_no_input_partition_at_or_after_the_fence_is_ever_opened(tmp_path, monkeypatch) -> None:
     """Partitions beyond the fence are excluded by name, before any byte is read."""
     repo = tmp_path / "repo"

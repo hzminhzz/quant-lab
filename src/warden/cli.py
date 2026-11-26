@@ -796,7 +796,9 @@ def _advance_one_spec(
                     load_lifecycle_registry(Path(".")).assert_open(contract.contract_id)
                 except ContractLifecycleBlocked as exc:
                     return _result("REVIEW_REQUIRED", state, f"Lifecycle gate: {exc}")
-                runner.registry.register_contract(contract)
+                runner.registry.register_contract(
+                    contract, repo_root=Path("."), policy_optional=True
+                )
                 runner.registry.register_hypothesis(hyp)
             except (ContractValidationError, FileNotFoundError, ValueError) as exc:
                 return _result("REVIEW_REQUIRED", state, f"Hypothesis registration failed: {exc}")
@@ -937,6 +939,43 @@ def _record_advance_triage(repo: Path, outcomes: list[dict[str, Any]]) -> int:
         )
         os.replace(pending, state_path)
     return new
+
+
+def _register_hypothesis_on_cli_path(
+    runner: _ExperimentRunnerType, contract: Any, hypothesis: Any, *, json_output: bool
+) -> int:
+    """Register a contract + hypothesis the way the live CLI does (#113 review A6).
+
+    The signed venue policy is authoritative when it is trusted: the contract's declared
+    ``selection_group_id`` must equal the policy's mapping for its ``(asset_class, cadence)``
+    domain, and an unmapped domain is refused rather than invented.  When no policy is
+    trusted (the state of this tree until a human installs one) registration keeps its
+    historical behaviour and the governance row records ``group_source="contract"``, so a
+    reader can tell a contract-declared group from a policy-mapped one.
+    """
+    from warden.contracts import canonical_json
+    from warden.registry import ContractSelectionGroupError
+    from warden_ops.venue_policy import SelectionGroupResolutionError
+
+    try:
+        runner.registry.register_contract(
+            contract, repo_root=Path("."), policy_optional=True
+        )
+    except (ContractSelectionGroupError, SelectionGroupResolutionError) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    runner.registry.register_hypothesis(hypothesis)
+    retro = hypothesis.is_retrospective_for(contract)
+    with runner.registry._connect() as conn:
+        st_row = conn.execute(
+            "SELECT status FROM hypotheses WHERE hypothesis_id=?", (hypothesis.hypothesis_id,)
+        ).fetchone()
+    status = st_row[0] if st_row else ("RETROSPECTIVE_REPLICATION_ONLY" if retro else "ACTIVE")
+    payload = {**hypothesis.__dict__, "retrospective_replication_only": retro, "status": status}
+    tag = f" [{status}]" if retro or status != "ACTIVE" else ""
+    print(canonical_json(payload) if json_output
+          else f"Registered hypothesis '{hypothesis.hypothesis_id}'{tag}")
+    return 0
 
 
 def cmd_advance(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
@@ -1763,18 +1802,9 @@ def main(argv: list[str] | None = None) -> int:
                         print(f"REFUSED: {exc}", file=sys.stderr)
                         code = 2
                     else:
-                        runner.registry.register_contract(contract)
-                        runner.registry.register_hypothesis(h)
-                        retro = h.is_retrospective_for(contract)
-                        with runner.registry._connect() as conn:
-                            st_row = conn.execute(
-                                "SELECT status FROM hypotheses WHERE hypothesis_id=?", (h.hypothesis_id,)
-                            ).fetchone()
-                        status = st_row[0] if st_row else ("RETROSPECTIVE_REPLICATION_ONLY" if retro else "ACTIVE")
-                        payload = {**h.__dict__, "retrospective_replication_only": retro, "status": status}
-                        tag = f" [{status}]" if retro or status != "ACTIVE" else ""
-                        print(canonical_json(payload) if args.json else f"Registered hypothesis '{h.hypothesis_id}'{tag}")
-                        code = 0
+                        code = _register_hypothesis_on_cli_path(
+                            runner, contract, h, json_output=bool(args.json)
+                        )
         else:
             if args.subcommand in {"status", "spec-status", "attempt-status", "verify-causality", "continue"}:
                 from warden_ops.readonly import ReadOnlyResearchRegistry

@@ -87,6 +87,9 @@ ARTIFACT_SCHEMA = "spec109.sandbox-artifact.v1"
 
 #: Keys that belong to the signed venue policy.  An agent-supplied value for any of them is
 #: refused *before* the first read: the policy is the evaluator's, not the researcher's.
+#: Only keys the policy actually carries belong here — ``min_expected_move_to_cost_ratio`` is
+#: a contract dataclass default the compiler never sets, so it is refused as a non-knob
+#: rather than described as policy-owned (review B2).
 POLICY_OWNED_KEYS = frozenset(
     {
         "taker_fee_bps",
@@ -94,7 +97,6 @@ POLICY_OWNED_KEYS = frozenset(
         "funding_bps_per_8h",
         "allow_leverage",
         "max_gross_leverage",
-        "min_expected_move_to_cost_ratio",
         "train_start",
         "val_start",
         "val_end",

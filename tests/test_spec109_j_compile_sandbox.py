@@ -33,6 +33,7 @@ import yaml
 
 from warden.compile import (
     ARTIFACT_CONTRACT,
+    POLICY_OWNED_KEYS,
     CompileFenceError,
     CompileGap,
     CompileRefused,
@@ -670,6 +671,29 @@ def test_a_caller_supplied_policy_object_is_not_a_compile_input(tmp_path) -> Non
         _compile(repo, lake)
     assert "policy" in str(refused.value).lower()
     assert not (repo / "contracts").exists() and not (repo / "data").exists()
+
+
+def test_a_research_mechanic_is_not_named_as_policy_owned(workspace) -> None:
+    """Review B2: ``POLICY_OWNED_KEYS`` names only what the policy actually owns.
+
+    ``min_expected_move_to_cost_ratio`` is a contract dataclass default (2.5) that the
+    compiler never sets and the signed policy has no field for, so listing it as
+    policy-owned was a false claim in the refusal message.  An override is still refused —
+    it is not a compile knob — and the compiled contract keeps the dataclass default.
+    """
+    from warden.contracts import load_contract
+
+    repo, lake = workspace
+    assert "min_expected_move_to_cost_ratio" not in POLICY_OWNED_KEYS
+    with pytest.raises(CompileRefused) as caught:
+        _compile(repo, lake, overrides={"min_expected_move_to_cost_ratio": 1.0})
+    message = str(caught.value)
+    assert "min_expected_move_to_cost_ratio" in message
+    assert "not compile knobs" in message
+    assert "belong to the signed venue policy" not in message
+
+    artifact = _compile(repo, lake)
+    assert load_contract(repo / artifact.contract_path).min_expected_move_to_cost_ratio == 2.5
 
 
 def test_an_untrusted_policy_refuses_and_writes_nothing(tmp_path, monkeypatch) -> None:

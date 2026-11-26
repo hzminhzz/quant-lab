@@ -115,6 +115,7 @@ EVIDENCE_CODES = frozenset(
         "tampered_parquet",
         "mismatched_pin",
         "mismatched_merkle",
+        "unconfined_raw_input",
         "stale_policy",
         "stale_fence",
         "fence_violated",
@@ -487,6 +488,40 @@ def _check_bytes(artifact: _Artifact) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _confined_lake_target(lake_root: Path, relative: str) -> Path:
+    """Resolve one recorded raw-input path, refusing anything that leaves the lake (review K3).
+
+    The path is a field of the agent-writable sandbox manifest, so it is not a licence to open
+    (or measure) an arbitrary file: an absolute path, a ``..`` segment or a symlink that
+    resolves outside the lake is refused *before* the target is statted, and the refusal names
+    the path alone — never a byte count.
+    """
+    candidate = Path(relative)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise _refuse(
+            "unconfined_raw_input",
+            f"raw input {relative!r} is not a relative path inside the lake; promotion never "
+            "opens a file outside the lake root",
+            path=relative,
+        )
+    try:
+        resolved_root = lake_root.resolve()
+        resolved = (lake_root / candidate).resolve()
+    except OSError as exc:
+        raise _refuse(
+            "unconfined_raw_input",
+            f"raw input {relative!r} cannot be resolved against the lake root: {exc}",
+            path=relative,
+        ) from exc
+    if not resolved.is_relative_to(resolved_root):
+        raise _refuse(
+            "unconfined_raw_input",
+            f"raw input {relative!r} resolves outside the lake root; promotion never opens it",
+            path=relative,
+        )
+    return resolved
+
+
 def _check_raw_inputs(artifact: _Artifact) -> None:
     lake = artifact.sandbox.get("lake") or {}
     root_text = str(lake.get("root") or "")
@@ -510,6 +545,7 @@ def _check_raw_inputs(artifact: _Artifact) -> None:
             f"{artifact.contract_id}'s manifest records no raw_inputs; the artifact has no "
             "raw-input provenance to re-prove",
         )
+    recorded_inputs = {str(item) for item in lake.get("input_files") or []}
     pairs: list[tuple[str, bytes]] = []
     for record in records:
         if not isinstance(record, dict) or not str(record.get("path") or "").strip():
@@ -517,7 +553,15 @@ def _check_raw_inputs(artifact: _Artifact) -> None:
                 "invalid_manifest", "a raw_inputs record carries no path; the Merkle tree is unbuildable"
             )
         relative = str(record["path"])
-        target = lake_root / relative
+        target = _confined_lake_target(lake_root, relative)
+        if relative not in recorded_inputs:
+            raise _refuse(
+                "lake_inputs",
+                f"raw input {relative!r} is not one of the input files the artifact records; the "
+                "compile's own list is the authority for what it read",
+                path=relative,
+                recorded=sorted(recorded_inputs),
+            )
         if not target.is_file():
             raise _refuse(
                 "mismatched_merkle",

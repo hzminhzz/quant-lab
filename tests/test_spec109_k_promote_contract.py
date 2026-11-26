@@ -980,3 +980,104 @@ def test_a_contract_that_claims_verified_provenance_is_refused(compiled, monkeyp
     monkeypatch.chdir(repo)
     _edit_contract(repo, artifact, data_provenance="verified_market")
     _assert_refusal(repo, capsys, artifact.contract_id, "claimed_provenance", 2)
+
+
+def _plant_holdout(repo: Path, artifact) -> tuple[Path, int]:
+    holdout = repo / "data" / "holdout" / f"{artifact.dataset_id}.parquet"
+    holdout.parent.mkdir(parents=True, exist_ok=True)
+    holdout.write_bytes(b"HOLDOUT-SECRET" * 100)
+    return holdout, holdout.stat().st_size
+
+
+def _refused_without_copying(repo: Path, capsys, artifact, code: str, exit_code: int) -> str:
+    """A refusal that leaves the tree alone except for what this test planted (no holdout root check)."""
+    before = _tree(repo)
+    assert _promote(repo, artifact.contract_id) == exit_code
+    captured = capsys.readouterr()
+    assert code in captured.err, captured.err
+    assert "WARDEN_PROMOTE_CONTRACT_FAILED" in captured.err
+    assert captured.out.strip() == ""
+    assert _tree(repo) == before
+    assert not (repo / "contracts" / f"{artifact.contract_id.lower()}.yaml").exists()
+    return captured.err
+
+
+def test_a_raw_input_that_escapes_the_lake_is_refused_without_a_size(
+    compiled, monkeypatch, capsys
+) -> None:
+    """probe3a: a manifest-supplied path is not a licence to open (or measure) any file."""
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    holdout, size = _plant_holdout(repo, artifact)
+    relative = f"../repo/data/holdout/{holdout.name}"
+
+    def escape(record):
+        record["raw_inputs"].append({"path": relative, "bytes": 1, "sha256": "0" * 64})
+
+    _edit_manifest(repo, artifact, escape)
+    detail = _refused_without_copying(repo, capsys, artifact, "unconfined_raw_input", 1)
+    assert relative in detail
+    assert f"{size} bytes" not in detail
+    assert str(size) not in detail
+
+
+def test_an_absolute_raw_input_path_is_refused(compiled, monkeypatch, capsys) -> None:
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    holdout, size = _plant_holdout(repo, artifact)
+
+    def absolute(record):
+        record["raw_inputs"].append(
+            {"path": str(holdout), "bytes": 1, "sha256": "0" * 64}
+        )
+
+    _edit_manifest(repo, artifact, absolute)
+    detail = _refused_without_copying(repo, capsys, artifact, "unconfined_raw_input", 1)
+    assert str(size) not in detail
+
+
+def test_a_consistent_traversal_record_is_still_refused(compiled, monkeypatch, capsys) -> None:
+    """probe3b: correct bytes and a recomputed Merkle root do not make an outside file an input."""
+    from warden_evidence.dataset_builder.merkle import merkle_sha256
+
+    repo, lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    holdout, _size = _plant_holdout(repo, artifact)
+    relative = f"../repo/data/holdout/{holdout.name}"
+    payload = holdout.read_bytes()
+
+    def consistent(record):
+        record["raw_inputs"].append(
+            {"path": relative, "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+        )
+        pairs = []
+        for item in record["raw_inputs"]:
+            target = lake_root / item["path"]
+            pairs.append((item["path"], target.read_bytes()))
+        record["raw_inputs_merkle_sha256"] = merkle_sha256(pairs)[0]
+
+    _edit_manifest(repo, artifact, consistent)
+    _refused_without_copying(repo, capsys, artifact, "unconfined_raw_input", 1)
+
+
+def test_a_raw_input_the_manifest_did_not_record_is_refused(compiled, monkeypatch, capsys) -> None:
+    """A file inside the lake is still not an input unless `sandbox.lake.input_files` names it."""
+    from warden_evidence.dataset_builder.merkle import merkle_sha256
+
+    repo, lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    sneaky = lake_root / "forex_minute_EURUSD" / "sneaky" / "part-0.parquet"
+    sneaky.parent.mkdir(parents=True, exist_ok=True)
+    sneaky.write_bytes((lake_root / artifact.lake["input_files"][0]).read_bytes())
+    payload = sneaky.read_bytes()
+    relative = sneaky.relative_to(lake_root).as_posix()
+
+    def extra_input(record):
+        record["raw_inputs"].append(
+            {"path": relative, "bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()}
+        )
+        pairs = [(item["path"], (lake_root / item["path"]).read_bytes()) for item in record["raw_inputs"]]
+        record["raw_inputs_merkle_sha256"] = merkle_sha256(pairs)[0]
+
+    _edit_manifest(repo, artifact, extra_input)
+    _assert_refusal(repo, capsys, artifact.contract_id, "lake_inputs", 1)

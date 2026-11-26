@@ -623,6 +623,26 @@ def _check_spec_identity(artifact: _Artifact) -> str:
                 manifest=spec_sha,
                 quality_gate_report=recorded_spec,
             )
+    # The compile recorded the digest of the contract document it built from these bytes
+    # (review K4).  Comparing it here binds *every* contract field to that compile, which the
+    # Parquet pin alone does not: editing `n_folds` keeps the pin and changes the contract.
+    compiled = str(artifact.sandbox.get("contract_sha256") or "")
+    actual = hashlib.sha256(artifact.contract_bytes).hexdigest()
+    if not _SHA256_HEX.fullmatch(compiled):
+        raise _refuse(
+            "invalid_manifest",
+            f"{artifact.contract_id}'s manifest carries no sandbox.contract_sha256; the contract "
+            "cannot be bound to the compile that produced it",
+            manifest="missing",
+        )
+    if compiled != actual:
+        raise _refuse(
+            "mismatched_identity",
+            f"the artifact was compiled with contract {compiled} but the contract document is "
+            f"{actual}: the contract was edited after the compile",
+            compiled=compiled,
+            actual=actual,
+        )
     spec_hash = str(artifact.contract.spec_hash() or "")
     if not spec_hash:
         raise _refuse(

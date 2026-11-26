@@ -1081,3 +1081,24 @@ def test_a_raw_input_the_manifest_did_not_record_is_refused(compiled, monkeypatc
 
     _edit_manifest(repo, artifact, extra_input)
     _assert_refusal(repo, capsys, artifact.contract_id, "lake_inputs", 1)
+
+
+def test_the_compiled_manifest_carries_the_compile_time_contract_digest(compiled) -> None:
+    """probe2: the compile computes `contract_sha256`; the manifest has to carry it."""
+    repo, _lake_root, artifact = compiled
+    record = json.loads((repo / artifact.manifest_path).read_text(encoding="utf-8"))
+    assert record["sandbox"]["contract_sha256"] == artifact.contract_sha256
+    assert artifact.contract_sha256 == hashlib.sha256(
+        (repo / artifact.contract_path).read_bytes()
+    ).hexdigest()
+
+
+def test_an_edited_contract_is_refused_against_the_compile_digest(compiled, monkeypatch, capsys) -> None:
+    """An edit to any field (not just the Parquet pin) is a different contract than the compile."""
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    _edit_contract(
+        repo, artifact, n_folds=9, embargo_bars=3, label_horizon_bars=5, execution_delay_bars=2
+    )
+    detail = _assert_refusal(repo, capsys, artifact.contract_id, "mismatched_identity", 1)
+    assert "contract" in detail.lower()

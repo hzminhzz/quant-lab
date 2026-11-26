@@ -229,9 +229,15 @@ ARTIFACT_CONTRACT: dict[str, Any] = {
         ),
         "sandbox.lake.catalog_identity": "lake catalogue provenance",
         "sandbox.lake.acceptance": "per-store acceptance identity from the catalogue",
+        "sandbox.contract_sha256": (
+            "SHA-256 of the compiled contract document; the contract pins this manifest's "
+            "Parquet digest, so it is built from that digest and recorded here — promotion "
+            "compares it to the bytes it copies, which binds every contract field to the "
+            "compile (not just the Parquet pin)"
+        ),
         "sandbox.contract_spec_hash": (
-            "derived: load the sandbox contract and call spec_hash() — the contract pins this "
-            "manifest's Parquet digest, so the digest cannot be a field of the manifest"
+            "derived: load the sandbox contract and call spec_hash() — the contract's own bytes "
+            "are pinned by sandbox.contract_sha256"
         ),
     },
     "promotion_requires": [
@@ -973,9 +979,10 @@ def _plan(
         "mechanics": dict(MECHANICS),
         "bars_per_year": contract.bars_per_year,
         "volume_semantics": volume_semantics,
-        # No ``contract_spec_hash`` here on purpose: the contract pins the digest of these very
-        # Parquet bytes, so its own digest is only knowable after the build.  A promoter loads
-        # the contract and derives ``spec_hash()`` itself (one authority, no second copy).
+        # ``contract_spec_hash`` stays derived from the contract document (one authority, no
+        # second copy).  ``contract_sha256`` is different: the contract's own bytes are built
+        # from the Parquet digest, so they are knowable only after the build and are added by
+        # the manifest factory — that is what binds every contract field to this compile.
     }
 
     fs_read = [(path.as_posix(), fs.read_bytes(path)) for path in input_paths]
@@ -1167,6 +1174,10 @@ def _existing_artifact(root: Path, plan: _Plan) -> CompiledArtifact | None:
             hashlib.sha256(_pinned_contract(plan, str(record.get("sha256")))[1]).hexdigest(),
             hashlib.sha256(contract.read_bytes()).hexdigest(),
         ),
+        "manifest_contract_sha256": (
+            hashlib.sha256(_pinned_contract(plan, str(record.get("sha256")))[1]).hexdigest(),
+            sandbox.get("contract_sha256"),
+        ),
     }
     mismatched = sorted(name for name, (found, recorded) in checks.items() if found != recorded)
     if mismatched:
@@ -1179,6 +1190,26 @@ def _existing_artifact(root: Path, plan: _Plan) -> CompiledArtifact | None:
             f"({canonical_json(details)}); write-once refuses to overwrite it"
         )
     return _artifact_from_record(plan, record, manifest_bytes, reused=True)
+
+
+def _sandbox_factory(plan: _Plan) -> Any:
+    """The manifest's ``sandbox`` block, closed over the published Parquet digest (#118).
+
+    A build computes the Parquet bytes first, so the contract's own digest — which is built
+    from that digest — is knowable exactly once and is recorded in the manifest that describes
+    the same bytes.  Promotion compares the two rather than trusting either.
+    """
+
+    def factory(parquet_sha256: str) -> dict[str, Any]:
+        contract_bytes = _pinned_contract(plan, parquet_sha256)[1]
+        return {
+            "sandbox": {
+                **plan.sandbox_block,
+                "contract_sha256": hashlib.sha256(contract_bytes).hexdigest(),
+            }
+        }
+
+    return factory
 
 
 def compile_data_requirement(
@@ -1257,7 +1288,7 @@ def compile_data_requirement(
         fs=LocalRawFileSystem(plan.lake_root),
         parquet_reader=parquet_reader,
         frame_guard=guard,
-        manifest_extra={"sandbox": plan.sandbox_block},
+        manifest_extra_factory=_sandbox_factory(plan),
         # The evaluator resolves a dataset manifest by contract id, so the artifact publishes
         # its manifest under the sandbox contract's id rather than the dataset id.
         manifest_name=plan.contract_id,

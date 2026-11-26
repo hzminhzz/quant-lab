@@ -852,6 +852,7 @@ def test_the_artifact_contract_names_every_field_promotion_must_validate() -> No
         "sandbox.fence",
         "sandbox.lake.catalog_identity",
         "sandbox.lake.acceptance",
+        "sandbox.contract_sha256",
         "sandbox.contract_spec_hash",
     ):
         assert key in required

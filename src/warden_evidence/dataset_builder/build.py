@@ -116,6 +116,7 @@ def build_dataset(
     parquet_reader: ParquetReader | None = None,
     frame_guard: Callable[[pl.DataFrame], None] | None = None,
     manifest_extra: dict[str, Any] | None = None,
+    manifest_extra_factory: Callable[[str], dict[str, Any]] | None = None,
     manifest_name: str | None = None,
 ) -> BuildOutcome:
     """Build one dataset from a parsed spec.
@@ -129,6 +130,10 @@ def build_dataset(
         adapter: explicit adapter (used by tests and by venue-specific adapters).
         fs: explicit raw filesystem (containment still applies per input).
         parquet_reader: reader for Parquet raw inputs; never imported by the builder.
+        manifest_extra: caller-owned manifest block, merged verbatim.
+        manifest_extra_factory: caller-owned block computed from the published Parquet digest —
+            the only way a caller can record a fact that depends on those exact bytes (spec
+            #118 pins the compiled contract's own digest this way).
     """
     root = Path(repo_root).resolve()
     if not root.is_dir():
@@ -189,6 +194,11 @@ def build_dataset(
 
     parquet_bytes = serialise_parquet(frame, spec)
     parquet_sha256 = hashlib.sha256(parquet_bytes).hexdigest()
+    extra = dict(manifest_extra or {})
+    if manifest_extra_factory is not None:
+        # The factory sees the digest of the bytes about to be published, so a caller can bind a
+        # document it derives from them (the compiled contract) into the manifest itself.
+        extra.update(manifest_extra_factory(parquet_sha256))
     closure = builder_code_closure_sha256()
     assets = sorted({str(value) for value in frame["asset"].unique().to_list()})
     first_bar = str(frame["timestamp"].min())
@@ -213,7 +223,7 @@ def build_dataset(
         # (the provenance gate, the exploratory fence) resolves the owner from this field, so
         # the two must agree.
         contract_id=published_name,
-        extra=manifest_extra,
+        extra=extra or None,
     )
     published = publish_once(
         dataset_path=dataset_path,

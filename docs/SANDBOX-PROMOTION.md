@@ -52,7 +52,7 @@ automatically — that is a human triage decision.
 
 Every promotion re-validates the compiled-artifact contract
 (`warden.compile.ARTIFACT_CONTRACT`) in the order it states. Each step raises one named
-reason; nothing is copied until all eight pass.
+reason; nothing is copied until every step passes.
 
 | # | Check | Named refusals |
 |---|---|---|

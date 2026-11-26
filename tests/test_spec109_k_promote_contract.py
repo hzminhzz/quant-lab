@@ -947,6 +947,23 @@ def test_a_falsified_last_bar_cannot_smuggle_a_bar_at_the_fence(
     assert "2021-01-04T00:00:00+00:00" in detail
 
 
+def test_a_promotion_without_a_parquet_reader_is_refused(compiled) -> None:
+    """The fail-closed default: no reader to derive the last bar from means no promotion."""
+    from warden.promote import PromotionRefused, promote_contract
+
+    repo, _lake_root, artifact = compiled
+    with pytest.raises(PromotionRefused) as caught:
+        promote_contract(
+            artifact.contract_id,
+            repo_root=repo,
+            confirmation_token=TOKEN,
+            operator="fixture-operator",
+        )
+    assert caught.value.code == "fence_unverified"
+    assert caught.value.exit_code == 1
+    assert not (repo / "contracts" / f"{artifact.contract_id.lower()}.yaml").exists()
+
+
 def test_a_manifest_that_declares_a_holdout_pin_is_refused(compiled, monkeypatch, capsys) -> None:
     """probe7: a compiled manifest has no holdout pin, so a declared one is outside the shape."""
     repo, _lake_root, artifact = compiled

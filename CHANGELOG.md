@@ -6,6 +6,37 @@ principal — or by an agent under explicit in-session delegation, recorded in a
 
 ## 2026-11-27
 
+### Spec #109 promotion-gate review fixes (#118)
+
+A second adversarial pass over `warden promote-contract` found that every fact the gate checked
+was a field in the agent-writable sandbox artifact. Fixed by re-deriving from bytes or refusing
+the shape:
+
+- **The fence is derived from the Parquet, not the manifest (K1).** `_check_fence` reads the
+  published file through the same reader `data fence` audits with; the manifest's `last_bar` is
+  only a cross-check and a disagreement refuses `fence_violated`, naming both timestamps. No
+  injected reader refuses `fence_unverified` rather than trusting the claim.
+- **A manifest carrying a holdout pin or a verified-provenance claim is refused (K2)** —
+  `holdout_declared` / `claimed_provenance`, exit 2 — because promotion removes the sandbox
+  namespace refusal that used to make holdout unreachable. The receipt now records `provenance`
+  and `holdout_pin_present` instead of a hardcoded `holdout_opened: false`.
+- **`raw_inputs` are confined to the lake (K3).** An absolute path, a `..` segment or a symlink
+  resolving outside `lake_root` refuses `unconfined_raw_input` before the target is statted and
+  without a byte count; a record the manifest did not list refuses `lake_inputs`. This closes a
+  size oracle over any readable file, including the sealed holdout root.
+- **The promoted contract is bound to its compile (K4).** `data compile` records
+  `sandbox.contract_sha256` and promotion compares it, so edited mechanics refuse
+  `mismatched_identity` instead of promoting with a silently different `spec_hash`.
+- **A re-promotion is decided before the evidence is re-read (K5)**, `.yml` included, so a
+  routine lake move cannot turn `already_promoted` into `mismatched_merkle`.
+- **The exploratory fence reads the production contract, not the sandbox copy (K6)**, matching
+  `contract_source`'s precedence; a conflicting same-id pair stays `ambiguous_owner`.
+- **Receipt and docs (K8):** compile-time `contract_sha256`, `provenance`, `holdout_pin_present`
+  and `repo_head`; `extra` can no longer override the honesty flags; `promotion_failed`
+  documented in `docs/EXIT-CODES.md`, and `docs/SANDBOX-PROMOTION.md` states what is *not* proved.
+- Tests now exercise the write path that previously had none: O_EXCL never overwrites, a lost
+  race rolls back in reverse, a self-qualifying manifest is refused (K7).
+
 ### Spec #109 review fixes (branch `feat/spec109-reviewfix`)
 
 Behaviour changes first, because two of them change a default:

@@ -945,3 +945,38 @@ def test_a_falsified_last_bar_cannot_smuggle_a_bar_at_the_fence(
     # Both values are named: the manifest's claim and the Parquet's own last bar.
     assert "2021-01-03T23:00:00+00:00" in detail
     assert "2021-01-04T00:00:00+00:00" in detail
+
+
+def test_a_manifest_that_declares_a_holdout_pin_is_refused(compiled, monkeypatch, capsys) -> None:
+    """probe7: a compiled manifest has no holdout pin, so a declared one is outside the shape."""
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+
+    def pin(record):
+        record["holdout_path"] = f"data/holdout/{artifact.dataset_id}.parquet"
+        record["holdout_sha256"] = "a" * 64
+
+    _edit_manifest(repo, artifact, pin)
+    detail = _assert_refusal(repo, capsys, artifact.contract_id, "holdout_declared", 2)
+    assert "holdout_sha256" in detail or "holdout_path" in detail
+
+
+def test_a_manifest_that_claims_verified_provenance_is_refused(compiled, monkeypatch, capsys) -> None:
+    """probe7: `provenance` is what holdout eligibility reads; a compile never claims one."""
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+
+    def claim(record):
+        record["provenance"] = "verified_market"
+        record["source"] = "agent-declared"
+
+    _edit_manifest(repo, artifact, claim)
+    _assert_refusal(repo, capsys, artifact.contract_id, "claimed_provenance", 2)
+
+
+def test_a_contract_that_claims_verified_provenance_is_refused(compiled, monkeypatch, capsys) -> None:
+    """The contract's own `data_provenance` is a second declaration, refused on its own."""
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    _edit_contract(repo, artifact, data_provenance="verified_market")
+    _assert_refusal(repo, capsys, artifact.contract_id, "claimed_provenance", 2)

@@ -99,6 +99,8 @@ REQUEST_CODES = frozenset(
         "half_promoted",
         "retired_contract",
         "wrong_namespace",
+        "holdout_declared",
+        "claimed_provenance",
     }
 )
 #: Refusals of the *evidence*: exit 1, like ``data compile``'s fence/write-once refusals.
@@ -194,6 +196,10 @@ class ContractPromotion:
     last_bar_close: str
     holdout_start: str
     holdout_end: str
+    #: The provenance the artifact declares (always ``unknown``: a compile never claims more).
+    provenance: str = "unknown"
+    #: Whether the artifact manifest carried a holdout pin (it never may; the fact is recorded).
+    holdout_pin_present: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -217,6 +223,8 @@ class ContractPromotion:
             "last_bar_close": self.last_bar_close,
             "holdout_start": self.holdout_start,
             "holdout_end": self.holdout_end,
+            "provenance": self.provenance,
+            "holdout_pin_present": self.holdout_pin_present,
             # Never eligibility: the bytes are unchanged and the origin is still unattested.
             "qualification_eligible": False,
             "holdout_opened": False,
@@ -392,6 +400,52 @@ def _locate(root: Path, contract_id: str) -> _Artifact:
         parquet_sha256=hashlib.sha256(parquet_bytes).hexdigest(),
         dataset_path_rel=expected_parquet,
     )
+
+
+# ---------------------------------------------------------------------------
+# step 1b. origin: the compiled shape declares no holdout pin and no provenance claim
+# ---------------------------------------------------------------------------
+
+
+def _check_origin(artifact: _Artifact) -> str:
+    """Refuse an artifact that declares a holdout pin or claims an origin (review K2).
+
+    This is the barrier the sandbox namespace used to supply for free: promotion makes the id
+    resolve as a production contract, where ``resolve_dataset(role="holdout")`` reads the
+    manifest pin and ``provenance == verified_market``.  Both are fields of the agent-writable
+    artifact, so promotion refuses the *shape* instead -- a compiled manifest carries neither
+    key (``compile`` never writes one) and freezes ``data_provenance="unknown"`` on the
+    contract.  A document that gains one of them is not the artifact that was compiled.
+    """
+    manifest = artifact.manifest
+    declared = sorted(
+        key
+        for key in ("holdout_path", "holdout_sha256")
+        if key in manifest or key in artifact.sandbox
+    )
+    holdout = manifest.get("holdout")
+    sealed = isinstance(holdout, dict) and holdout.get("sealed") is not False
+    if declared or sealed:
+        raise _refuse(
+            "holdout_declared",
+            f"{artifact.contract_id}'s manifest declares a holdout pin "
+            f"({', '.join(declared) or 'holdout.sealed'}); a compiled artifact never has one, and "
+            "promotion never carries a pin into the production namespace",
+            fields=declared,
+            sealed=sealed,
+        )
+    provenance = str(manifest.get("provenance") or "")
+    contract_provenance = str(getattr(artifact.contract, "data_provenance", "") or "")
+    if provenance != "unknown" or contract_provenance != "unknown":
+        raise _refuse(
+            "claimed_provenance",
+            f"the artifact claims provenance {provenance or '<missing>'!r} (contract "
+            f"{contract_provenance or '<missing>'!r}); a compiled artifact is "
+            "`provenance: unknown`, and promotion never turns a claim into market data",
+            manifest=provenance,
+            contract=contract_provenance,
+        )
+    return provenance
 
 
 # ---------------------------------------------------------------------------
@@ -1026,6 +1080,7 @@ def promote_contract(
     _authorize(confirmation_token)
     root = Path(repo_root)
     artifact = _locate(root, str(contract_id))
+    provenance = _check_origin(artifact)
     _check_bytes(artifact)
     _check_raw_inputs(artifact)
     spec_hash = _check_spec_identity(artifact)
@@ -1072,6 +1127,8 @@ def promote_contract(
             last_bar_close=last_close.isoformat(),
             holdout_start=contract.holdout_start.isoformat(),
             holdout_end=contract.holdout_end.isoformat(),
+            provenance=provenance,
+            holdout_pin_present=False,
         ),
     )
 

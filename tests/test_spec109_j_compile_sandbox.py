@@ -1039,6 +1039,103 @@ def test_two_sandbox_contracts_in_one_group_share_persisted_selection_debt(
 
 
 # ---------------------------------------------------------------------------
+# 7b. a compiled sandbox contract is sealed to its artifact (review A4)
+# ---------------------------------------------------------------------------
+
+
+def _edit_contract(path: Path, **fields) -> None:
+    """Rewrite one field of a compiled sandbox contract, exactly as an agent could."""
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    document.update(fields)
+    path.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
+
+
+def _contract_rows(repo: Path) -> int:
+    from warden.registry import ResearchRegistry
+
+    with ResearchRegistry(repo / "registry" / "registry.db")._connect() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM contracts").fetchone()[0])
+
+
+def test_a_sandbox_contract_with_edited_costs_never_registers(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Editing the YAML before the first registration is refused, not recorded.
+
+    The registry cannot catch this on its own: it records whatever document registers
+    first, so a compile-time field comparison against the artifact manifest is what closes
+    the gap.
+    """
+    from warden.cli import main as cli_main
+
+    repo, _lake_root, (artifact,) = _sandbox_workspace(
+        tmp_path, monkeypatch, baskets=(("EURUSD",),)
+    )
+    monkeypatch.chdir(repo)
+    _edit_contract(repo / artifact.contract_path, taker_fee_bps=0.001, slippage_bps=0.001)
+
+    hypothesis = _hypothesis_file(repo, artifact.contract_id, "HYP-TAMPER-COSTS")
+    assert cli_main(["register-hypothesis", str(hypothesis), "--json"]) == 2
+    refused = capsys.readouterr().err
+    assert "REFUSED" in refused
+    assert "taker_fee_bps" in refused and "slippage_bps" in refused
+    assert _contract_rows(repo) == 0
+
+
+def test_a_sandbox_contract_with_edited_leverage_is_refused_at_verify_and_advance(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """An edit after registration is refused too: verify and advance both exit 2."""
+    from warden.cli import main as cli_main
+
+    repo, _lake_root, (artifact,) = _sandbox_workspace(
+        tmp_path, monkeypatch, baskets=(("EURUSD",),)
+    )
+    monkeypatch.chdir(repo)
+    hypothesis = _hypothesis_file(repo, artifact.contract_id, "HYP-TAMPER-LEVERAGE")
+    assert cli_main(["register-hypothesis", str(hypothesis), "--json"]) == 0
+    capsys.readouterr()
+
+    _edit_contract(
+        repo / artifact.contract_path, allow_leverage=True, max_gross_leverage=1.0
+    )
+    spec = _experiment_spec(repo, artifact.contract_id, "HYP-TAMPER-LEVERAGE")
+    assert cli_main(["verify", str(spec), "--json"]) == 2
+    refused = capsys.readouterr()
+    assert "REFUSED" in refused.err
+    assert "allow_leverage" in refused.err and "max_gross_leverage" in refused.err
+
+    assert cli_main(["advance", str(spec), "--json"]) == 2
+    assert "REFUSED" in capsys.readouterr().err
+    # No trial was recorded under the edited contract.
+    from warden.registry import ResearchRegistry
+
+    with ResearchRegistry(repo / "registry" / "registry.db")._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0] == 0
+
+
+def test_an_honest_sandbox_artifact_passes_the_seal(workspace) -> None:
+    """Control: the seal accepts the bytes the compile published, unedited."""
+    from warden.contracts import load_contract
+    from warden.sandbox_seal import verify_sandbox_contract
+
+    repo, lake = workspace
+    artifact = _compile(repo, lake)
+    record = verify_sandbox_contract(repo, load_contract(repo / artifact.contract_path))
+    assert record["sandbox"]["contract_id"] == artifact.contract_id
+    assert record["sandbox"]["policy"]["rules"]["taker_fee_bps"] == 0.6
+    # A live (non-sandbox) contract is not this module's business.
+    assert verify_sandbox_contract(repo, load_contract(REPO_CONTRACT)) == {}
+
+
+# A contract document the repository ships, used only to prove the seal skips non-sandbox
+# contracts (it is never executed here).
+REPO_CONTRACT = (
+    Path(__file__).resolve().parents[1] / "contracts" / "crypto_perps_1h_v2.yaml"
+)
+
+
+# ---------------------------------------------------------------------------
 # 8. no holdout: qualify refuses a sandbox contract
 # ---------------------------------------------------------------------------
 

@@ -797,7 +797,7 @@ def _advance_one_spec(
                 except ContractLifecycleBlocked as exc:
                     return _result("REVIEW_REQUIRED", state, f"Lifecycle gate: {exc}")
                 runner.registry.register_contract(
-                    contract, repo_root=Path("."), policy_optional=True
+                    contract, repo_root=runner.repo_root, policy_optional=True
                 )
                 runner.registry.register_hypothesis(hyp)
             except (ContractValidationError, FileNotFoundError, ValueError) as exc:
@@ -1779,7 +1779,7 @@ def main(argv: list[str] | None = None) -> int:
             if not check_worktree():
                 code = 2
             else:
-                from warden.contracts import canonical_json, load_hypothesis
+                from warden.contracts import load_hypothesis
                 from warden.lifecycle import ContractLifecycleBlocked, load_lifecycle_registry
                 from warden.sandbox_seal import SandboxArtifactError
 

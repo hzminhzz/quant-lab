@@ -48,6 +48,7 @@ def test_the_built_wheel_imports_the_new_modules_outside_the_repo(tmp_path: Path
     build = subprocess.run(
         [uv, "build", "--wheel", "--out-dir", str(dist), "--offline"],
         cwd=REPO_ROOT,
+        check=False,
         capture_output=True,
         text=True,
         timeout=600,
@@ -60,6 +61,7 @@ def test_the_built_wheel_imports_the_new_modules_outside_the_repo(tmp_path: Path
     target = tmp_path / "site"
     install = subprocess.run(
         [uv, "pip", "install", "--no-deps", "--offline", "--target", str(target), str(wheels[0])],
+        check=False,
         capture_output=True,
         text=True,
         timeout=600,
@@ -81,6 +83,7 @@ def test_the_built_wheel_imports_the_new_modules_outside_the_repo(tmp_path: Path
         [sys.executable, "-I", "-c", code],
         cwd=str(tmp_path),
         env=env,
+        check=False,
         capture_output=True,
         text=True,
         timeout=300,

@@ -6,6 +6,58 @@ principal — or by an agent under explicit in-session delegation, recorded in a
 
 ## 2026-11-27
 
+### Spec #109 review fixes (branch `feat/spec109-reviewfix`)
+
+Behaviour changes first, because two of them change a default:
+
+- **Superset reuse is opt-in (A5).** `resolve_data_requirement(..., allow_superset=False)` no
+  longer returns a contract whose basket is a wider universe than the requirement declared:
+  the answer is `compile_required` with `reason="superset_requires_opt_in"`, one
+  `rejected_candidates` entry per candidate carrying its `symbols_to_drop`, and the smallest
+  candidate's drop set on the report. `warden resolve-data --allow-superset` and
+  `warden data compile --allow-superset` opt in; an exact match still wins either way. An
+  `fx` requirement can no longer be handed a basket containing a metal without saying so.
+  See `docs/DATA-REQUIREMENT.md`.
+- **The mandatory selection group is enforced on the live registration path (A6).**
+  `register-hypothesis` (and `advance`'s auto-registration) pass `repo_root` with
+  `policy_optional=True`: when a trusted venue policy is installed it is authoritative (a
+  contradicting declaration or an unmapped domain is refused, exit 2, naming both), and when
+  none is trusted registration keeps today's behaviour while
+  `contract_governance.group_source` records `contract` instead of a bare `declared`.
+  Registration is never refused merely because the policy is absent.
+
+Security and evidence:
+
+- **Removed `compile_data_requirement(policy=...)` (A1).** A caller-constructed
+  `VenuePolicy` (plain frozen dataclass, caller-supplied `sha256`) bypassed `load_venue_policy`
+  entirely. The only policy path is the signed one; the resolution report is re-derived under it.
+- **The recorded lookup checks the digest of whichever document it returns (A2).** A live
+  `contracts/<id>.yaml` for an archived id must match `archive_map.json`'s `sha256`, or the
+  lookup refuses naming both digests. `docs/CONTRACT-ARCHIVE.md` updated.
+- **A compiled sandbox contract is sealed to its artifact (A4).** New
+  `warden.sandbox_seal.verify_sandbox_contract` runs at `ExperimentRunner.resolve_contract` /
+  `resolve_active_contract` and compares the YAML to `contracts/sandbox/datasets/<ID>.json`
+  and the trusted policy (costs, funding, leverage, group, fences, mechanics, asset class,
+  cadence, execution mode, Parquet digest, exploratory path) plus the registry's recorded
+  `spec_hash` when a row exists. Register/verify/screen/backtest/advance refuse an edited
+  document with exit 2. No manifest schema change.
+- **The compiled window is reconciled with `val_start` (B3)** and **a fence that straddles a
+  lake partition drops that partition whole instead of refusing the compile (B8)** —
+  recorded in `sandbox.lake.excluded_partitions` with
+  `sandbox.fence.partition_policy = "exclude_straddling_partition"`; the post-aggregate
+  `last_bar + interval <= fence` proof is unchanged, and a fence whose exclusion leaves no
+  usable partition still refuses.
+
+Tests and docs:
+
+- New evidence for behaviour that had none: both post-aggregate fence lines (A3), the
+  rebalancer book-scale factor via a partial reduction (B1), the exit-code vocabulary
+  (`docs/EXIT-CODES.md` + one parametrised CLI test, B4), and packaging (a real
+  `uv build --wheel` + isolated `--target` import, B7).
+- `POLICY_OWNED_KEYS` no longer names `min_expected_move_to_cost_ratio`, which the policy
+  does not own (B2); the `qualify` sandbox refusal comment states what it guarantees (B5);
+  the governance-carrier test is renamed to the property that holds (B6).
+
 ### Unified contract schema and shared selection debt (#113, spec #109 lane F)
 
 - `EvaluationContract.policy` is now an explicit field instead of #94's `InitVar` carrier. It is

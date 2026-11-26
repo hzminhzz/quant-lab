@@ -15,15 +15,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from test_spec109_j_compile_sandbox import _requirement, _sandbox_workspace
 
-from test_spec109_j_compile_sandbox import (  # noqa: E402 - the lane's own fixtures
-    _hypothesis_file,
-    _requirement,
-    _sandbox_workspace,
-)
 from warden.cli import main as cli_main
-
-FENCE_OFF_GRID_TIMEOUT_MARKER = "WARDEN_DATA_COMPILE_FAILED"
 
 
 @pytest.fixture

@@ -64,6 +64,8 @@ pinned Warden artifacts and contracts are unchanged.
 | [`AGENTS.md`](./AGENTS.md) | Operating contract, four-way ownership, falsification funnel, CLI contracts, and agent-maintained status. |
 | [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) | Thesis intake procedure, verification table, and ledger rules. |
 | [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | Detailed pipeline map, coded Stage 0–3 gates, six-check audit, and registry vocabulary. |
+| [`docs/DATA-REQUIREMENT.md`](./docs/DATA-REQUIREMENT.md) | `warden resolve-data` / `data compile`: decisions, the superset opt-in (`--allow-superset`), and what each answer carries. |
+| [`docs/EXIT-CODES.md`](./docs/EXIT-CODES.md) | The one exit-code vocabulary (`0` success, `1` evidence refused, `2` request refused, `3` not satisfiable, `75` busy) and the documented `data build` exception. |
 | [`STAGE3_CAMPAIGN_PROMPT.md`](./STAGE3_CAMPAIGN_PROMPT.md) | Copy-paste brief for batching a strategy family through Stage 3. |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Dated summary of architectural changes and verification runs. |
 | [`docs/archive/README.md`](./docs/archive/README.md) | Historical RFC, bootstrap tickets, compatibility spec, handbook, and audit/approval trails. |

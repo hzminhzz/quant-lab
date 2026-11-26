@@ -139,10 +139,15 @@ class PromotionRefused(ValueError):
 
     @property
     def exit_code(self) -> int:
+        """``2`` for a refused request, ``1`` for refused evidence or a failed copy.
+
+        The vocabulary is ``docs/EXIT-CODES.md``: a request refusal is the caller's problem
+        (2); refused evidence (``EVIDENCE_CODES``) or a failed copy (``FAILURE_CODES``) is
+        the artifact's (1).  An unrecognised code lands on 1 as well, so a new refusal can
+        never look like a success or a request error.
+        """
         if self.code in REQUEST_CODES:
             return 2
-        if self.code in FAILURE_CODES:
-            return 1
         return 1
 
 

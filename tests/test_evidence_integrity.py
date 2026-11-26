@@ -16,7 +16,8 @@ import numpy as np
 import pytest
 
 from warden.codeid import _declared_dependencies, code_closure
-from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+from warden.contract_source import load_active_contract, load_recorded_contract
+from warden.contracts import ExperimentResult, HypothesisSpec
 from warden.qualify import qualify_candidate
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
@@ -54,7 +55,7 @@ def test_runtime_loaders_declare_code_dependencies() -> None:
 
 def test_register_contract_is_idempotent_and_immutable(tmp_path: Path) -> None:
     reg = ResearchRegistry(tmp_path / "reg.db")
-    contract = load_contract(ROOT / "contracts/crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(ROOT, "CRYPTO_PERPS_1H_V1")
     reg.register_contract(contract)
     reg.register_contract(contract)  # identical re-registration is a no-op (salvage re-run)
     changed = replace(contract, taker_fee_bps=contract.taker_fee_bps + 1.0)
@@ -65,7 +66,9 @@ def test_register_contract_is_idempotent_and_immutable(tmp_path: Path) -> None:
 def _qualify_setup(tmp_path: Path, strategy_module: str, code_sha: str):
     reg = ResearchRegistry(tmp_path / "reg.db")
     runner = ExperimentRunner(registry=reg, repo_root=ROOT)
-    contract = load_contract(ROOT / "contracts/crypto_perps_1h_v1.yaml")
+    # A live contract: qualification is new work, and #114 refuses an archived contract
+    # before any code-binding check runs (that refusal has its own test in lane G).
+    contract = load_active_contract(ROOT, "CRYPTO_PERPS_5M_V1")
     reg.register_contract(contract)
     hyp = HypothesisSpec("HYP-EV", contract.contract_id, "T", "rules_ts",
                          "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit")

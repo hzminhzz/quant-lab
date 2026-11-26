@@ -15,6 +15,7 @@ import numpy as np
 import polars as pl
 
 from warden.codeid import code_closure
+from warden.contract_source import load_active_contract, load_recorded_contract
 from warden.contracts import (
     ENGINE_SIMULATION_EPOCH,
     EvaluationContract,
@@ -22,7 +23,6 @@ from warden.contracts import (
     HypothesisSpec,
     Stage1Report,
     canonical_json,
-    load_contract,
 )
 from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.engine_sim import (
@@ -438,11 +438,17 @@ class ExperimentRunner:
         self._stage0_vol_cache: dict[tuple[str, tuple[str, ...], int], float] = {}
 
     def resolve_contract(self, contract_id: str) -> EvaluationContract:
-        cid = contract_id.lower()
-        for p in [self.repo_root / "contracts" / f"{cid}.yaml", self.repo_root / "contracts" / f"{cid}.yml"]:
-            if p.is_file():
-                return load_contract(p)
-        raise FileNotFoundError(f"Contract not found: '{contract_id}'")
+        """**Recorded** lookup: the same bytes a past trial was recorded against.
+
+        Live first, then the read-only archive (#114), so ``status``/``spec-status``
+        readback and any replay of an archived contract keep resolving.  This is *not*
+        authorization for new work: execution paths call :meth:`resolve_active_contract`.
+        """
+        return load_recorded_contract(self.repo_root, contract_id)
+
+    def resolve_active_contract(self, contract_id: str) -> EvaluationContract:
+        """**Active** lookup: refuses an archived contract, naming its archive location."""
+        return load_active_contract(self.repo_root, contract_id)
 
     def _prepare_and_check_stage0(
         self, contract, hyp, hyp_id, family, strat_module, params, trials_used,
@@ -525,7 +531,7 @@ class ExperimentRunner:
         spec = load_experiment_spec(exp_yaml_path)
         if not spec.hypothesis_id:
             raise ValueError("Experiment spec must declare hypothesis_id for screening")
-        contract = self.resolve_contract(spec.contract_id)
+        contract = self.resolve_active_contract(spec.contract_id)
         hyp_id, family = spec.hypothesis_id, spec.strategy_family
         params = spec.parameters
         # Live runs are always stamped with the active engine epoch.  Historical
@@ -806,7 +812,7 @@ class ExperimentRunner:
         spec = load_experiment_spec(exp_yaml_path)
         if not spec.hypothesis_id:
             raise ValueError("Experiment spec must declare hypothesis_id for backtesting")
-        contract = self.resolve_contract(spec.contract_id)
+        contract = self.resolve_active_contract(spec.contract_id)
         hyp_id, family = spec.hypothesis_id, spec.strategy_family
         strat_name = spec.strategy_name or Path(exp_yaml_path).stem
         model_type, params = spec.model_type, spec.parameters

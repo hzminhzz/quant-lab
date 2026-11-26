@@ -16,6 +16,7 @@ import polars as pl
 import pytest
 import yaml
 
+from warden.contract_source import load_recorded_contract, recorded_contract_path
 from warden.contracts import (
     ContractValidationError,
     EvaluationContract,
@@ -161,7 +162,7 @@ def test_quote_side_missing_bid_ask_fails_preflight_and_runner_before_registry_t
     from warden.contracts import validate_panel_feed_spec
 
     repo = _setup_isolated_repo(tmp_path, name="quote_repo")
-    base_contract = load_contract(REPO_ROOT / "contracts" / "fx_majors_1d_v1.yaml")
+    base_contract = load_recorded_contract(REPO_ROOT, "FX_MAJORS_1D_V1")
 
     # Panel lacks bid/ask (only OHLCV + null funding_rate)
     start = datetime(2024, 1, 1, tzinfo=UTC)
@@ -612,7 +613,7 @@ def test_write_contract_and_manifest_atomic_and_salvage_consolidation(tmp_path: 
     naive_panel = _make_clean_panel(assets=("EURUSD",), n_bars=5, with_funding=True).with_columns(
         pl.col("timestamp").dt.replace_time_zone(None)
     )
-    perp_contract = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    perp_contract = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     with pytest.raises(ContractValidationError, match="UTC-aware"):
         validate_panel_feed_spec(naive_panel, perp_contract)
 
@@ -639,7 +640,7 @@ def test_write_contract_and_manifest_atomic_and_salvage_consolidation(tmp_path: 
     iso_contracts.mkdir(parents=True, exist_ok=True)
     frozen_market_contract = iso_contracts / "crypto_perps_1h_v1.yaml"
     frozen_market_contract.write_text(
-        (REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml").read_text(encoding="utf-8"),
+        recorded_contract_path(REPO_ROOT, "CRYPTO_PERPS_1H_V1").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     frozen_before = frozen_market_contract.read_bytes()
@@ -657,7 +658,7 @@ def test_write_contract_and_manifest_atomic_and_salvage_consolidation(tmp_path: 
     draft_contracts = tmp_path / "iso_draft" / "contracts"
     draft_contracts.mkdir(parents=True, exist_ok=True)
     draft_doc = yaml.safe_load(
-        (REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml").read_text(encoding="utf-8")
+        recorded_contract_path(REPO_ROOT, "CRYPTO_PERPS_1H_V1").read_text(encoding="utf-8")
     )
     draft_doc["data_snapshot_sha256"] = ""
     draft_doc["data_provenance"] = "unknown"

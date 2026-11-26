@@ -9,6 +9,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from warden.contract_source import load_recorded_contract
 from warden.contracts import ContractValidationError, load_contract
 from warden.runner import (
     ExecutionDataError,
@@ -19,7 +20,7 @@ from warden.runner import (
 )
 
 INDEX = load_contract(Path("contracts/indices_1h_v2.yaml"))
-FX_QUOTE = load_contract(Path("contracts/fx_majors_15m_v1.yaml"))
+FX_QUOTE = load_recorded_contract(Path.cwd(), "FX_MAJORS_15M_V1")
 
 
 def _cfd_bars() -> pl.DataFrame:

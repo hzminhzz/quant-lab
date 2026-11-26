@@ -4,18 +4,18 @@ from pathlib import Path
 import pytest
 import yaml
 
+from warden.contract_source import load_recorded_contract
 from warden.contracts import (
     ContractValidationError,
     HypothesisSpec,
     Stage1Report,
-    load_contract,
     load_hypothesis,
 )
 
 
 @pytest.fixture
 def contract():
-    return load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    return load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
 
 
 def test_frozen_hash_and_economic_cost(contract):
@@ -25,7 +25,7 @@ def test_frozen_hash_and_economic_cost(contract):
     assert contract.total_one_way_cost_decimal() == pytest.approx(0.0006)
     with pytest.raises(FrozenInstanceError):
         contract.taker_fee_bps = 0
-    assert load_contract(Path("contracts/fx_majors_15m_v1.yaml")).execution_mode == "QUOTE_SIDE"
+    assert load_recorded_contract(Path.cwd(), "FX_MAJORS_15M_V1").execution_mode == "QUOTE_SIDE"
 
 
 @pytest.mark.parametrize("change", [

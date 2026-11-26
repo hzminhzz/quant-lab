@@ -67,18 +67,39 @@ class ContractLifecycleError(ValueError):
 
 
 class ContractLifecycleBlocked(ContractLifecycleError):
-    """A new hypothesis was declared on a contract the lifecycle document closes."""
+    """A new hypothesis was declared on a contract the lifecycle document closes.
 
-    def __init__(self, entry: LifecycleEntry) -> None:
+    Since #114 a contract can also be *archived*: the document names where its bytes and
+    dataset manifest now live, and registration refuses the id through this same error so
+    the refusal keeps one shape (``REFUSED: ...`` / ``REVIEW_REQUIRED``) whichever reason
+    closed the contract.
+    """
+
+    def __init__(self, entry: LifecycleEntry | None = None, *, contract_id: str = "", archived=None) -> None:
         self.entry = entry
+        self.archived = archived
+        if entry is None:
+            self.contract_id = str(contract_id)
+            archive_path = getattr(archived, "archive_path", "")
+            original_path = getattr(archived, "original_path", "")
+            super().__init__(
+                f"contract {self.contract_id} is archived read-only at {archive_path}"
+                f" (original {original_path}); an archived contract is not open for a new hypothesis"
+            )
+            return
+        self.contract_id = entry.contract_id
         successor = (
             f"; replacement is {entry.replacement_contract_id}"
             if entry.replacement_contract_id
             else "; no replacement is declared"
         )
-        super().__init__(
-            f"contract {entry.contract_id} is {entry.status}: {entry.reason}{successor}"
-        )
+        message = f"contract {entry.contract_id} is {entry.status}: {entry.reason}{successor}"
+        if archived is not None:
+            message += (
+                f"; its bytes are archived read-only at {archived.archive_path}"
+                f" (original {archived.original_path})"
+            )
+        super().__init__(message)
 
 
 @dataclass(frozen=True)
@@ -117,6 +138,9 @@ class LifecycleRegistry:
     legacy_scripts: tuple[dict[str, Any], ...] = ()
     #: ``"file"`` when a document was read, ``"absent"`` when none exists at ``path``.
     source: str = "file"
+    #: Repository the document was loaded from.  Used only to locate the read-only contract
+    #: archive (#114) when a registration gate refuses an archived id; never written.
+    repo_root: str = "."
 
     # -- lookups ---------------------------------------------------------------
     def entry(self, contract_id: str) -> LifecycleEntry | None:
@@ -129,10 +153,27 @@ class LifecycleRegistry:
         return str(item.reason)
 
     def assert_open(self, contract_id: str) -> None:
-        """Refuse a new hypothesis on a blocked contract."""
-        item = self.entry(contract_id)
+        """Refuse a new hypothesis on a blocked *or archived* contract.
+
+        The archive is authoritative on its own: a contract whose bytes live in
+        ``contracts/archive/`` is never open for a new hypothesis, even when the lifecycle
+        document that closed it is absent (a repository mid-cutover, or an isolated
+        fixture).  Both refusals raise :class:`ContractLifecycleBlocked` so the
+        registrars keep one handler.
+        """
+        cid = str(contract_id)
+        archived = self.archived_entry(cid)
+        item = self.entries.get(cid)
         if item is not None and item.blocking:
-            raise ContractLifecycleBlocked(item)
+            raise ContractLifecycleBlocked(item, archived=archived)
+        if archived is not None:
+            raise ContractLifecycleBlocked(None, contract_id=cid, archived=archived)
+
+    def archived_entry(self, contract_id: str):
+        """The archive mapping entry for ``contract_id``, or ``None`` (read-only consult)."""
+        from warden.contract_source import load_contract_archive  # local: no import cycle
+
+        return load_contract_archive(self.repo_root).entry(str(contract_id))
 
     def dsr_inheritance(self, contract_id: str) -> dict[str, str]:
         """The governance scope a v2 replacement must declare to inherit this contract.
@@ -270,7 +311,7 @@ def load_lifecycle_registry(
     except FileNotFoundError:
         if strict:
             raise _fail(f"lifecycle registry {target.as_posix()!r} is missing") from None
-        return LifecycleRegistry(path=target.as_posix(), entries={}, source="absent")
+        return LifecycleRegistry(path=target.as_posix(), entries={}, source="absent", repo_root=Path(repo_root).as_posix())
     except (OSError, UnicodeDecodeError) as exc:
         raise _fail(f"lifecycle registry {target.as_posix()!r} is unreadable: {exc}") from exc
     try:
@@ -312,4 +353,5 @@ def load_lifecycle_registry(
         entries=entries,
         legacy_scripts=_parse_scripts(document.get("legacy_scripts")),
         source="file",
+        repo_root=Path(repo_root).as_posix(),
     )

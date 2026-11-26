@@ -10,7 +10,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from warden.contracts import EvaluationContract, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import EvaluationContract
 from warden.leakage import (
     CrossAssetLeakageError,
     LookaheadLeakageError,
@@ -26,7 +27,7 @@ from warden.synthetic import generate_canonical_market_panel
 
 @pytest.fixture
 def test_dataset() -> tuple[pl.DataFrame, EvaluationContract]:
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     panel = generate_canonical_market_panel().filter(pl.col("timestamp") < contract.val_end)
     return panel, contract
 

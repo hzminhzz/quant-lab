@@ -7,7 +7,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import ExperimentResult, HypothesisSpec
 from warden.registry import (
     HypothesisBudgetExhaustedError,
     ResearchRegistry,
@@ -31,7 +32,7 @@ def result(run_id="RUN-1", hypothesis_id="HYP-1"):
 @pytest.fixture
 def registry(tmp_path):
     registry = ResearchRegistry(tmp_path / "registry.db")
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     registry.register_contract(contract)
     hyp = HypothesisSpec("HYP-1", contract.contract_id, "Breakout", "rules_ts",
                          "Forced liquidations create trend continuation",

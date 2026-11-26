@@ -29,6 +29,7 @@ from ml4t.backtest import Strategy
 from pydantic import ValidationError
 
 from warden.codeid import code_closure
+from warden.contract_source import all_contract_paths, load_recorded_contract
 from warden.contracts import (
     CURRENT_SPEC_VERSION,
     EVIDENCE_TIERS,
@@ -105,7 +106,7 @@ POLICY_CARRIER_FIELDS = frozenset({"policy"})
 def _legacy_documents() -> dict[str, dict]:
     return {
         Path(p).stem.upper(): yaml.safe_load(Path(p).read_text())
-        for p in sorted(REPO_ROOT.glob("contracts/*.yaml"))
+        for p in all_contract_paths(REPO_ROOT)
     }
 
 
@@ -128,18 +129,18 @@ def _write_yaml(path: Path, document: dict) -> Path:
 
 def test_all_36_legacy_contracts_keep_their_pinned_spec_hash() -> None:
     computed = {
-        c.contract_id: c.spec_hash() for c in (load_contract(p) for p in sorted(REPO_ROOT.glob("contracts/*.yaml")))
+        c.contract_id: c.spec_hash() for c in (load_contract(p) for p in all_contract_paths(REPO_ROOT))
     }
     assert len(computed) == 36
     assert computed == LEGACY_SPEC_HASHES
-    for c in (load_contract(p) for p in sorted(REPO_ROOT.glob("contracts/*.yaml"))):
+    for c in (load_contract(p) for p in all_contract_paths(REPO_ROOT)):
         assert c.governance.spec_version == 1
         assert c.governance.evidence_tier == "native_venue"
         assert "governance" not in c.spec_hash_payload()
 
 
 def test_governance_carrier_never_enters_asdict_or_the_registry_schema() -> None:
-    contract = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     pinned = contract.spec_hash()
     attach_contract_policy(contract, ContractPolicy(evidence_tier="research_proxy", selection_group_id="G1"))
     # v1 keeps its digest even though the resolved tier changed...
@@ -158,7 +159,7 @@ def test_governance_carrier_never_enters_asdict_or_the_registry_schema() -> None
 def test_frozen_contract_still_rejects_assignment_of_governance() -> None:
     from dataclasses import FrozenInstanceError
 
-    contract = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     with pytest.raises(FrozenInstanceError):
         contract.governance = ContractPolicy()  # type: ignore[misc]
 
@@ -310,7 +311,7 @@ def test_contract_policy_rejects_implicit_leverage_directly() -> None:
 
 def test_register_contract_is_idempotent_for_all_36_legacy_and_one_v2(tmp_path: Path) -> None:
     reg = ResearchRegistry(tmp_path / "scratch" / "registry.db")
-    contracts = [load_contract(p) for p in sorted(REPO_ROOT.glob("contracts/*.yaml"))]
+    contracts = [load_contract(p) for p in all_contract_paths(REPO_ROOT)]
     for contract in contracts:
         reg.register_contract(contract)
     for contract in contracts:  # second pass must be a no-op, never a refusal
@@ -404,7 +405,7 @@ def test_v2_contract_max_gross_leverage_is_enforced_in_both_directions() -> None
 
 
 def test_legacy_contract_keeps_its_historical_non_leveraged_limits() -> None:
-    legacy = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    legacy = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     assert resolve_execution_limits(legacy) == (False, 1.0)
     assert resolve_execution_limits(legacy, False, None) == (False, 1.0)
 
@@ -506,7 +507,7 @@ def test_copied_leveraged_contract_keeps_its_contract_owned_cap(tmp_path: Path) 
 def test_legacy_copy_keeps_authorised_replay_semantics(tmp_path: Path) -> None:
     """Live policy is contract-owned; a legacy v1 copy stays a recorded replay."""
     panel, ts, assets = _engine_panel()
-    legacy = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    legacy = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     copy = _copied(legacy, tmp_path / "trunc.parquet")
     assert copy.governance.spec_version == 1
     assert "governance" not in copy.spec_hash_payload()
@@ -751,7 +752,7 @@ def test_legacy_v1_strategy_replay_is_bit_identical_after_cap_enforcement(tmp_pa
     strategy-path audit existed; a v1 replay must keep producing those bytes.
     """
     panel, ts, assets = _engine_panel()
-    legacy = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    legacy = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     copy = _copied(legacy, tmp_path / "trunc.parquet")
     assert copy.governance.declares_governance is False
     assert resolve_execution_limits(copy, True, None) == (True, None)

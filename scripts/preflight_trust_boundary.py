@@ -29,6 +29,12 @@ PROTECTED_GLOBS = (
     # edit to either must be visible as protected-set drift here as well.
     "contracts/datasets/*.yaml",
     "contracts/datasets/*.yml",
+    # Read-only contract archive (#114): the archived contract documents, their dataset
+    # manifests and the mapping document are trusted inputs exactly like the live ones.
+    "contracts/archive/*.yaml",
+    "contracts/archive/*.yml",
+    "contracts/archive/*.json",
+    "contracts/archive/datasets/*.json",
 )
 PROTECTED_FILES = (
     # Contract lifecycle decisions (#106) are protected by exact path in

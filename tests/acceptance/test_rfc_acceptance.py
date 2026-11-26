@@ -15,7 +15,8 @@ import pytest
 
 from warden.cli import check_worktree, generate_manifest
 from warden.codeid import code_closure
-from warden.contracts import EvaluationContract, HypothesisSpec, load_contract
+from warden.contract_source import load_active_contract, load_recorded_contract
+from warden.contracts import EvaluationContract, HypothesisSpec
 from warden.gates import evaluate_stage0_feasibility
 from warden.leakage import (
     LookaheadLeakageError,
@@ -39,11 +40,11 @@ def test_1_bit_for_bit_reproducibility(tmp_path: Path) -> None:
 import numpy as np
 import polars as pl
 from pathlib import Path
-from warden.contracts import load_contract
+from warden.contract_source import load_active_contract, load_recorded_contract
 from warden.synthetic import generate_canonical_market_panel
 from strategies.baselines.cs_ridge_1h import generate_positions
 
-contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
 panel = generate_canonical_market_panel()
 out = generate_positions(panel, contract, ridge_alpha=10.0)
 np.save(Path("pos.npy"), out["positions"])
@@ -75,7 +76,7 @@ np.save(Path("pos.npy"), out["positions"])
 
 def test_2_causal_prefix_invariance() -> None:
     """Prefix-invariance verifier achieves 100% detection of planted lookahead bugs."""
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     panel = generate_canonical_market_panel().filter(pl.col("timestamp") < contract.val_end)
 
     class PlantedLookaheadShift:
@@ -131,7 +132,7 @@ def test_4_holdout_and_governance_isolation(tmp_path: Path) -> None:
     assert check_worktree(tamper_dir) is True
 
     # Tamper with contract
-    cfile = tamper_dir / "contracts" / "crypto_perps_1h_v1.yaml"
+    cfile = tamper_dir / "contracts" / "archive" / "crypto_perps_1h_v1.yaml"
     cfile.write_text(cfile.read_text() + "\n# TAMPER\n")
     assert check_worktree(tamper_dir) is False
 
@@ -139,7 +140,8 @@ def test_4_holdout_and_governance_isolation(tmp_path: Path) -> None:
     db_file = tmp_path / "isolation_reg.db"
     reg = ResearchRegistry(db_file)
     # C. One-shot holdout qualification gate
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    # Qualification is new work: a live contract, never an archived one (#114).
+    contract = load_active_contract(Path.cwd(), "CRYPTO_PERPS_5M_V1")
     reg.register_contract(contract)
     hyp = HypothesisSpec("HYP-QUAL-TEST", contract.contract_id, "T", "rules_ts", "Mechanism at least 20 chars", "Friction at least 20 chars", 8, "Crit")
     reg.register_hypothesis(hyp)
@@ -177,7 +179,7 @@ def test_4_holdout_and_governance_isolation(tmp_path: Path) -> None:
 
 def test_5_backtest_accounting_and_cost_floor_fidelity() -> None:
     """Analytical vs simulated fill price and fees match to 1e-8 precision."""
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     n_bars = 5
     # Buy 1 unit at bar 1 (delayed to bar 2), price moves 100 -> 110 (+10%), sell at bar 3
     positions = np.array([[0.0], [1.0], [1.0], [0.0], [0.0]])
@@ -208,7 +210,7 @@ def test_5_backtest_accounting_and_cost_floor_fidelity() -> None:
 
 def test_6_research_ergonomics_and_throughput_funnel_timing(tmp_path: Path) -> None:
     """Stage 0 < 100ms, Stage 1 cached screen < 2.0s, full vertical slice < 60s."""
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     hyp = HypothesisSpec("HYP-TIME-TEST", contract.contract_id, "Timing", "rules_ts", "Mechanism explaining 20 chars", "Friction explaining 20 chars", 8, "Crit")
 
     # 1. Stage 0 Feasibility Timing (< 100 ms)

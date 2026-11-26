@@ -37,6 +37,7 @@ import numpy as np
 import pytest
 
 import warden.registry as registry_module
+from warden.contract_source import load_recorded_contract
 from warden.contracts import (
     CURRENT_SPEC_VERSION,
     ContractPolicy,
@@ -45,7 +46,6 @@ from warden.contracts import (
     ExperimentResult,
     HypothesisSpec,
     attach_contract_policy,
-    load_contract,
 )
 from warden.registry import (
     SCHEMA_VERSION,
@@ -347,7 +347,7 @@ def test_shared_debt_survives_a_reopened_database(tmp_path: Path, venue_policy) 
 def test_legacy_contract_debt_joins_the_policy_group_without_moving_its_own_scope(
         tmp_path: Path, venue_policy) -> None:
     registry = _registry(tmp_path)
-    legacy = load_contract(REPO_ROOT / "contracts" / PINNED_LEGACY[0])
+    legacy = load_recorded_contract(REPO_ROOT, PINNED_LEGACY[1])
     assert legacy.contract_id == PINNED_LEGACY[1]
     assert legacy.spec_hash() == PINNED_LEGACY[2]
     assert legacy.selection_group_id == ""
@@ -464,7 +464,7 @@ def test_explicit_policy_field_is_projection_and_copy_safe(tmp_path: Path) -> No
 
 def test_v1_contract_digest_is_byte_identical_to_the_pinned_value(tmp_path: Path) -> None:
     """A real repository contract, digest pinned before #113."""
-    legacy = load_contract(REPO_ROOT / "contracts" / PINNED_LEGACY[0])
+    legacy = load_recorded_contract(REPO_ROOT, PINNED_LEGACY[1])
     assert legacy.spec_hash() == PINNED_LEGACY[2]
     assert legacy.policy is None
     assert "policy" not in legacy.spec_hash_payload()

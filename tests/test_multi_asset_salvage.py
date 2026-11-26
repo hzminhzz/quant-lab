@@ -10,6 +10,7 @@ import pytest
 
 API = runpy.run_path("scripts/salvage_multi_asset.py")
 normalize_panel = API["normalize_panel"]
+from warden.contract_source import load_recorded_contract, recorded_contract_path
 from warden.contracts import load_contract
 
 LIVE_DATA_ENV = "WARDEN_LIVE_DATA"
@@ -34,7 +35,7 @@ def _require_live_dataset(contract) -> Path:
 
 
 def test_fx_majors_exploratory_dataset():
-    contract_path = Path("contracts/fx_majors_15m_v1.yaml")
+    contract_path = recorded_contract_path(Path.cwd(), "FX_MAJORS_15M_V1")
     contract = load_contract(contract_path)
     assert contract.asset_class == "fx"
     assert contract.frequency == "15m"
@@ -56,7 +57,7 @@ def test_fx_majors_exploratory_dataset():
 
 
 def test_fx_majors_1m_exploratory_dataset():
-    contract_path = Path("contracts/fx_majors_1m_v1.yaml")
+    contract_path = recorded_contract_path(Path.cwd(), "FX_MAJORS_1M_V1")
     contract = load_contract(contract_path)
     assert contract.asset_class == "fx"
     assert contract.frequency == "1m"
@@ -122,7 +123,7 @@ def test_indices_1m_exploratory_dataset():
     assert (df["close"] > 0).all()
     assert df["timestamp"].max() < contract.holdout_start
 def test_metals_1m_exploratory_dataset():
-    contract_path = Path("contracts/metals_1m_v1.yaml")
+    contract_path = recorded_contract_path(Path.cwd(), "METALS_1M_V1")
     contract = load_contract(contract_path)
     assert contract.asset_class == "metals"
     assert contract.frequency == "1m"
@@ -305,8 +306,7 @@ def test_indices_domain_exploratory_datasets(freq, rows):
 
 @pytest.mark.parametrize("freq,rows", [("5m", 6290027), ("30m", 1051876), ("1h", 526720), ("4h", 136390), ("1d", 26576)])
 def test_fx_majors_domain_exploratory_datasets(freq, rows):
-    contract_path = Path(f"contracts/fx_majors_{freq}_v1.yaml")
-    contract = load_contract(contract_path)
+    contract = load_recorded_contract(Path.cwd(), f"FX_MAJORS_{freq.upper()}_V1")
     assert contract.asset_class == "fx"
     assert contract.frequency == freq
     exp_path = _require_live_dataset(contract)

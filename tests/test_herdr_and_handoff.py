@@ -15,6 +15,7 @@ import pytest
 
 from tests.conftest import write_fixture_checksums
 from warden.cli import check_worktree
+from warden.contract_source import load_recorded_contract, recorded_contract_path
 from warden.runner import ExperimentRunner
 
 
@@ -28,11 +29,11 @@ def _seed_run_ml_001_ledger(root: Path) -> Path:
     recorded legacy disposition of RUN-ML-001 (a synthetic run with no pinned market digest,
     quarantined as such), so the refusal is exercised on every checkout in any order.
     """
-    from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+    from warden.contracts import ExperimentResult, HypothesisSpec
     from warden.registry import ResearchRegistry
 
     reg = ResearchRegistry(root / "registry" / "registry.db")
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     reg.register_contract(contract)
     reg.register_hypothesis(
         HypothesisSpec(
@@ -132,7 +133,7 @@ def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001(
     # seeded evidence through the registry/returns fence -- never the checkout's ledger.
     work = cli_repo
     rel = "contracts/crypto_perps_1h_v1.yaml"
-    shutil.copy2(rel, work / rel)
+    shutil.copy2(recorded_contract_path(Path.cwd(), "CRYPTO_PERPS_1H_V1"), work / rel)
     write_fixture_checksums(work, "contracts/fixture.yaml", rel)
     seed_db = _seed_run_ml_001_ledger(work)
     with sqlite3.connect(seed_db) as conn:
@@ -165,7 +166,7 @@ def test_audit_check_planted_violation_fails_closed(tmp_path: Path, monkeypatch)
     from warden.registry import ResearchRegistry
 
     (tmp_path / "contracts").mkdir(parents=True, exist_ok=True)
-    shutil.copy2("contracts/crypto_perps_1h_v1.yaml", tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
+    shutil.copy2(recorded_contract_path(Path.cwd(), "CRYPTO_PERPS_1H_V1"), tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
     write_fixture_checksums(tmp_path, "contracts/crypto_perps_1h_v1.yaml")
     monkeypatch.chdir(tmp_path)
     fake_db = tmp_path / "reg.db"

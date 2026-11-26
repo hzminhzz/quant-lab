@@ -26,7 +26,8 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from warden import cli
-from warden.contracts import load_contract, utc
+from warden.contract_source import load_recorded_contract
+from warden.contracts import utc
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
 
@@ -106,7 +107,7 @@ def test_cmd_verify_contains_out_of_repo_strategy_module(tmp_path, monkeypatch, 
     above (this branch is pre-sign), so the assertion is about error containment only.
     """
     monkeypatch.setattr(cli, "check_worktree", lambda *args, **kwargs: True)
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     module = tmp_path / "outside_repo_strategy.py"
     module.write_text(
         "def required_symbols(params):\n"

@@ -32,6 +32,9 @@ from warden.contracts import ContractValidationError, load_contract
 DEFAULT_DATASET_DIR = "data/exploratory"
 DEFAULT_MANIFEST_DIR = "contracts/datasets"
 DEFAULT_CONTRACTS_DIR = "contracts"
+#: Read-only archive namespace (#114): archived contracts and their dataset manifests live
+#: here and must still be visible to the fence, or every archived file becomes UNOWNED.
+DEFAULT_ARCHIVE_DIR = "contracts/archive"
 HOLDOUT_ROOT = "data/holdout"
 
 #: ``state`` values. Only ``fenced`` passes; everything else is a refusal with a reason.
@@ -112,36 +115,48 @@ def _relative(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
-def _load_manifests(manifest_dir: Path) -> list[tuple[str, dict[str, Any]]]:
+def _load_manifests(manifest_dir: Path, archive_dir: Path | None = None) -> list[tuple[str, dict[str, Any]]]:
     out: list[tuple[str, dict[str, Any]]] = []
-    if not manifest_dir.is_dir():
-        return out
-    for path in sorted(manifest_dir.glob("*.json")):
-        if not path.is_file():
+    # An archived contract's dataset manifest is archived with it (#114).  Reading it here
+    # is what keeps its exploratory file *owned* instead of silently becoming UNOWNED.
+    dirs = [manifest_dir]
+    if archive_dir is not None:
+        dirs.append(archive_dir / manifest_dir.name)
+    for directory in dirs:
+        if not directory.is_dir():
             continue
-        try:
-            record = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise ExploratoryFenceError(f"{path.name}: manifest is not readable JSON: {exc}") from exc
-        if not isinstance(record, dict):
-            raise ExploratoryFenceError(f"{path.name}: manifest must be a JSON object")
-        out.append((path.name, record))
-    return out
-
-
-def _load_contracts(contracts_dir: Path) -> dict[str, Any]:
-    contracts: dict[str, Any] = {}
-    for pattern in ("*.yaml", "*.yml"):
-        for path in sorted(contracts_dir.glob(pattern)):
+        for path in sorted(directory.glob("*.json")):
             if not path.is_file():
                 continue
             try:
-                contract = load_contract(path)
-            except (ContractValidationError, OSError, ValueError):
-                # A contract document that does not parse is not silently skipped when it
-                # owns a file: the owning lookup reports ``owner_contract_missing``.
-                continue
-            contracts[str(contract.contract_id)] = contract
+                record = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                raise ExploratoryFenceError(f"{path.name}: manifest is not readable JSON: {exc}") from exc
+            if not isinstance(record, dict):
+                raise ExploratoryFenceError(f"{path.name}: manifest must be a JSON object")
+            out.append((path.name, record))
+    return out
+
+
+def _load_contracts(contracts_dir: Path, archive_dir: Path | None = None) -> dict[str, Any]:
+    contracts: dict[str, Any] = {}
+    # Archived contracts are loaded too (#114): a manifest may still name an archived
+    # contract, and "no contract document" is a fence failure, not a silent unownership.
+    dirs = [archive_dir, contracts_dir] if archive_dir is not None else [contracts_dir]
+    for directory in dirs:
+        if not directory.is_dir():
+            continue
+        for pattern in ("*.yaml", "*.yml"):
+            for path in sorted(directory.glob(pattern)):
+                if not path.is_file():
+                    continue
+                try:
+                    contract = load_contract(path)
+                except (ContractValidationError, OSError, ValueError):
+                    # A contract document that does not parse is not silently skipped when it
+                    # owns a file: the owning lookup reports ``owner_contract_missing``.
+                    continue
+                contracts[str(contract.contract_id)] = contract
     return contracts
 
 
@@ -161,6 +176,7 @@ def audit_exploratory_storage(
     dataset_dir: str = DEFAULT_DATASET_DIR,
     manifest_dir: str = DEFAULT_MANIFEST_DIR,
     contracts_dir: str = DEFAULT_CONTRACTS_DIR,
+    archive_dir: str = DEFAULT_ARCHIVE_DIR,
     parquet_reader: Callable[[bytes], Any],
 ) -> FenceReport:
     """Audit every Parquet file under ``dataset_dir`` against its manifest and the fence.
@@ -183,8 +199,8 @@ def audit_exploratory_storage(
     if not base.is_dir():
         raise ExploratoryFenceError(f"dataset dir {dataset_rel!r} does not exist")
 
-    manifests = _load_manifests(root / manifest_dir)
-    contracts = _load_contracts(root / contracts_dir)
+    manifests = _load_manifests(root / manifest_dir, root / archive_dir)
+    contracts = _load_contracts(root / contracts_dir, root / archive_dir)
     owners: dict[str, list[tuple[str, dict[str, Any]]]] = {}
     for name, record in manifests:
         declared = record.get("exploratory_path") or record.get("path")
@@ -238,7 +254,8 @@ def audit_exploratory_storage(
                 FenceFile(
                     relative,
                     NO_CONTRACT,
-                    f"manifest owner {contract_id!r} has no contract document under {contracts_dir}/",
+                    f"manifest owner {contract_id!r} has no contract document under {contracts_dir}/ "
+                    f"or {archive_dir}/",
                     contract_id,
                     name,
                     digest,

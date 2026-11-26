@@ -23,6 +23,13 @@ _PROTECTED_GLOBS = (
     "contracts/datasets/*.json",
     "contracts/datasets/*.yaml",
     "contracts/datasets/*.yml",
+    # Read-only contract archive (#114).  These bytes are the historical replay authority
+    # for closed contracts, so editing one must invalidate the worktree gate exactly like
+    # editing a live contract does; the mapping document is protected with them.
+    "contracts/archive/*.yaml",
+    "contracts/archive/*.yml",
+    "contracts/archive/*.json",
+    "contracts/archive/datasets/*.json",
 )
 _PROTECTED_FILES = (
     "AGENTS.md",

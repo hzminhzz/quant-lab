@@ -18,6 +18,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from warden.cli import main as cli_main
+from warden.contract_source import load_recorded_contract
 from warden.contracts import (
     DEFAULT_SIMULATION_EPOCH,
     ENGINE_SIMULATION_EPOCH,
@@ -97,7 +98,7 @@ def _seed_ledger(root: Path) -> Path:
     # The epoch falsifier asserts an inherited floor, so one must actually be recorded.
     reg.update_search_floor(indices.contract_id, 11.0, 0.4213)
 
-    crypto = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    crypto = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     reg.register_contract(crypto)
     rng = np.random.default_rng(4242)
     for i in range(2):
@@ -143,7 +144,7 @@ def _seed_ledger(root: Path) -> Path:
 
 
 def test_hypothesis_source_published_at_normalization_and_retrospective_cutoff() -> None:
-    contract = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     hyp_date = HypothesisSpec(
         "HYP-PUB-DATE",
         contract.contract_id,
@@ -332,7 +333,7 @@ def test_snapshot_falsifiers_flat_keff_and_epoch_transition(tmp_path: Path) -> N
     # Falsifier 1: 3 consecutive trials with 20 prior screens on a seeded ledger snapshot
     snap1 = _snapshot_sqlite(seed_db, tmp_path / "snap_non_ratchet.db")
     reg1 = ResearchRegistry(snap1)
-    contract = load_contract(REPO_ROOT / "contracts" / "crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(REPO_ROOT, "CRYPTO_PERPS_1H_V1")
     cid = "FALSIFY_FLAT_V1"
     from dataclasses import replace as dc_replace
 

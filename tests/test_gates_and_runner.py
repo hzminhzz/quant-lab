@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warden.contracts import load_contract
+from warden.contract_source import load_active_contract, load_recorded_contract
 from warden.gates import (
     compute_hac_tstat,
     evaluate_stage1_cross_sectional_ml,
@@ -70,7 +70,7 @@ def test_hac_tstat_and_family_gates() -> None:
 
 
 def test_simulate_positions_delay_and_signed_funding() -> None:
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     n_bars, n_assets = 10, 2
     positions = np.ones((n_bars, n_assets))
     returns = np.full((n_bars, n_assets), 0.01)
@@ -94,8 +94,9 @@ def test_linear_baseline_required_gate(tmp_path: Path) -> None:
     reg = ResearchRegistry(tmp_path / "reg.db")
     runner = ExperimentRunner(registry=reg, repo_root=Path("."), allow_legacy_replay=True)
 
-    # Contract & Hypothesis registration
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    # Contract & Hypothesis registration.  Screening is new work, so the contract must be
+    # live: #114 refuses an archived id before the linear-first gate could even fire.
+    contract = load_active_contract(Path.cwd(), "CRYPTO_PERPS_5M_V1")
     reg.register_contract(contract)
 
     from warden.contracts import HypothesisSpec

@@ -31,7 +31,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from warden.contracts import HypothesisSpec, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import HypothesisSpec
 from warden.registry import ResearchRegistry
 
 REPO = Path(__file__).resolve().parents[1]
@@ -161,7 +162,7 @@ def _contract_registry(tmp_path: Path) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
     db = tmp_path / "registry.db"
     reg = ResearchRegistry(db)
-    contract = load_contract(REPO / "contracts" / "crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(REPO, "CRYPTO_PERPS_1H_V1")
     reg.register_contract(contract)
     for hid in ("HYP-PASS", "HYP-REJECT", "HYP-INTERRUPTED", "HYP-PENDING"):
         reg.register_hypothesis(HypothesisSpec(

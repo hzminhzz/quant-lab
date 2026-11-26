@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from warden.contracts import load_contract
+from warden.contract_source import load_recorded_contract
 from warden.leakage import purged_walk_forward_splits
 from warden.strategy_loader import load_module_from_path
 
@@ -36,7 +36,7 @@ def _panel() -> pl.DataFrame:
 def test_ml_fold_purge_and_carry_forward_invariant_under_future_shocks(monkeypatch) -> None:
     panel = _panel()
     start = datetime(2025, 1, 1, tzinfo=UTC)
-    contract = replace(load_contract(Path("contracts/crypto_perps_1h_v1.yaml")),
+    contract = replace(load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1"),
                        train_start=start - timedelta(hours=1),
                        val_start=start + timedelta(hours=120),
                        val_end=start + timedelta(hours=380),

@@ -74,7 +74,9 @@ def qualify_candidate(
         if q_row:
             raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row[1]}'.")
 
-    contract = runner.resolve_contract(cid)
+    contract = runner.resolve_active_contract(cid)
+    # Active lookup, not the recorded one: an archived contract can never be qualified,
+    # and the refusal names its archive location (#114).
     # Evidence tier is contract-owned.  A synthetic tier can never be qualified on
     # a production holdout, so it is refused before any claim or read begins.
     governance = resolve_contract_governance(contract, runner.repo_root)

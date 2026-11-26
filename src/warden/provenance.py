@@ -15,6 +15,7 @@ import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from warden.contract_source import archived_contract
 from warden.contracts import (
     CURRENT_SPEC_VERSION,
     GOVERNANCE_KEYS,
@@ -163,7 +164,21 @@ def resolve_admission(
 
 
 def resolve_dataset(contract: EvaluationContract, repo_root: Path = Path("."), role: str = "exploratory") -> DatasetResolution:
-    """Resolve the contract's own dataset; verify declared provenance, digest and exact path."""
+    """Resolve the contract's own dataset; verify declared provenance, digest and exact path.
+
+    An **archived** contract id never resolves a dataset here (#114).  Archiving is the
+    end of the contract's executable life: the archive keeps the bytes and the recorded
+    digest for replay and audit, and any *active* data read is refused before a single
+    byte is opened.  The refusal names the archive location instead of degrading into
+    "missing dataset", which would look like a transient storage problem.
+    """
+    archived = archived_contract(repo_root, contract.contract_id)
+    if archived is not None:
+        raise DatasetProvenanceError(
+            f"contract {contract.contract_id} is archived read-only at {archived.archive_path}"
+            f" (original {archived.original_path}); no active {role} dataset is resolved for an "
+            "archived contract"
+        )
     rel = getattr(contract, f"{role}_data_path")
     manifest = Path(repo_root) / MANIFEST_DIR / f"{contract.contract_id}.json"
     record: dict | None = None

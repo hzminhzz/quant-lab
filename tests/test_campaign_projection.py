@@ -8,7 +8,8 @@ import yaml
 
 from scripts.campaign_projection import project
 from scripts.run_carver_daily_campaign import main as campaign_main
-from warden.contracts import HypothesisSpec, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import HypothesisSpec
 from warden.registry import ResearchRegistry
 
 
@@ -21,7 +22,7 @@ def _spec(tmp_path: Path, hid: str, cid: str = "CRYPTO_PERPS_1H_V1") -> Path:
 
 def _registry(tmp_path: Path) -> ResearchRegistry:
     reg = ResearchRegistry(tmp_path / "registry.db")
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     reg.register_contract(contract)
     for hid in ("HYP-PASS", "HYP-REJECT", "HYP-INTERRUPTED", "HYP-PENDING"):
         reg.register_hypothesis(HypothesisSpec(

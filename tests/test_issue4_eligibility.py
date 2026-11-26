@@ -12,12 +12,13 @@ import numpy as np
 import pytest
 
 from warden.cli import _build_state, cmd_audit_check, cmd_status
-from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+from warden.contract_source import load_recorded_contract, recorded_contract_path
+from warden.contracts import ExperimentResult, HypothesisSpec
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
 
 REPO = Path(".")
-CONTRACT = load_contract(REPO / "contracts" / "crypto_perps_1h_v1.yaml")
+CONTRACT = load_recorded_contract(REPO, "CRYPTO_PERPS_1H_V1")
 
 
 def _registry(tmp_path: Path) -> ResearchRegistry:
@@ -63,7 +64,7 @@ def test_run_ml_001_regression_case_is_never_effectively_approved(tmp_path: Path
 
     (tmp_path / "contracts").mkdir(parents=True, exist_ok=True)
     import shutil
-    shutil.copy2(REPO / "contracts" / "crypto_perps_1h_v1.yaml", tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
+    shutil.copy2(recorded_contract_path(REPO, "CRYPTO_PERPS_1H_V1"), tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
     runner = ExperimentRunner(registry=reg, repo_root=tmp_path)
     ret = cmd_audit_check(argparse.Namespace(run_id="RUN-ML-001", json=True), runner)
     assert ret == 1
@@ -127,7 +128,7 @@ def test_unrelated_contract_feature_record_cannot_approve_market_trial(tmp_path:
         conn.execute("INSERT INTO feature_sets VALUES ('fh','CRYPTO_PERPS_1H_V1','[]','0.2.0',1,'p',1.0)")
     (tmp_path / "contracts").mkdir(parents=True, exist_ok=True)
     import shutil
-    shutil.copy2(REPO / "contracts" / "crypto_perps_1h_v1.yaml", tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
+    shutil.copy2(recorded_contract_path(REPO, "CRYPTO_PERPS_1H_V1"), tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
     runner = ExperimentRunner(registry=reg, repo_root=tmp_path)
     assert cmd_audit_check(argparse.Namespace(run_id="RUN-MARKET", json=True), runner) == 1
     with reg._connect() as conn:

@@ -575,6 +575,11 @@ def _catalogue_provenance(
     return payload
 
 
+#: Public name for the catalogue reader a promotion re-checks (#118): a compile and a
+#: promotion must read lake provenance through one function, or two readers can disagree.
+catalogue_provenance = _catalogue_provenance
+
+
 # ---------------------------------------------------------------------------
 # the plan: everything decided before a file is created
 # ---------------------------------------------------------------------------

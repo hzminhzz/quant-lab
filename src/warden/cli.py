@@ -1010,6 +1010,9 @@ def _human_approved(args: argparse.Namespace, policy_key: str | None = None) -> 
         # ``data seal-holdout`` is a human-only gate: the flag states intent, and the
         # command itself still refuses to run without the confirmation token a human types.
         "data seal-holdout": "seal_holdout",
+        # ``promote-contract`` (#118): the flag states intent; the token inside the command is
+        # what the human types, exactly like ``qualify`` and ``data seal-holdout``.
+        "promote-contract": "human_confirm_promote",
     }
     if getattr(args, flags.get(key, ""), False):
         return True
@@ -1469,6 +1472,53 @@ def cmd_data_compile(args: argparse.Namespace, runner: Any) -> int:
     return 0
 
 
+def cmd_promote_contract(args: argparse.Namespace, runner: Any) -> int:
+    """``warden promote-contract``: a compiled sandbox artifact -> production candidate (#118).
+
+    Ordering is the contract: the worktree gate first (a tampered tree may not publish a
+    production contract), then the human gate (token, non-interactive refusal), then every
+    validation step of ``warden.compile.ARTIFACT_CONTRACT`` -- and only then the copy.  The
+    command never signs, never generates the manifest, never writes an admission attestation,
+    never opens the registry and never reads a holdout byte.
+    """
+    if not check_worktree():
+        print("WARDEN_PROMOTE_CONTRACT_FAILED", file=sys.stderr)
+        sys.exit(2)
+    from warden.promote import PromotionRefused, promote_contract
+
+    try:
+        promotion = promote_contract(
+            args.contract_id,
+            repo_root=Path(runner.repo_root),
+            confirmation_token=getattr(args, "human_confirm_promote", "") or "",
+            operator=getattr(args, "operator", None),
+        )
+    except PromotionRefused as exc:
+        print(f"Promotion refused: {exc}", file=sys.stderr)
+        if exc.detail:
+            print(f"  detail: {json.dumps(exc.detail, sort_keys=True)}", file=sys.stderr)
+        print("WARDEN_PROMOTE_CONTRACT_FAILED", file=sys.stderr)
+        return exc.exit_code
+    payload = promotion.to_dict()
+    if args.json:
+        print(json.dumps(envelope(True, payload, "warden.promote-contract", "allow")))
+    else:
+        print(f"Promoted '{payload['contract_id']}' into the production candidate set "
+              f"(bytes unchanged, group={payload['selection_group_id']}).")
+        print(f"  contract: {payload['target']['contract']}  <- {payload['source']['contract']}")
+        print(f"  manifest: {payload['target']['manifest']}  <- {payload['source']['manifest']}")
+        print(f"  receipt:  {payload['receipt_path']}")
+        print("NEXT (human): re-sign the protected inventory -- "
+              "`uv run warden generate-manifest --human-approve-manifest` -- before qualification. "
+              "This command did not sign or generate the manifest, did not attest admission and "
+              "read no holdout.")
+    if not check_worktree():
+        print("WARN: the protected inventory is now stale; only the human re-signs it.",
+              file=sys.stderr)
+    print("WARDEN_PROMOTE_CONTRACT_COMPLETE")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="warden", description="Deterministic quantitative research harness.")
     p.add_argument("--version", action="version", version=f"warden {__version__}")
@@ -1536,6 +1586,13 @@ def build_parser() -> argparse.ArgumentParser:
     data_compile.add_argument("--lake-root", default=None)
     data_compile.add_argument("--override", action="append", default=None, metavar="KEY=VALUE")
     data_compile.add_argument("--json", action="store_true")
+    # ``warden promote-contract`` -- the human-only step that turns a compiled sandbox
+    # artifact into a production candidate (#118).  It is on ``policy.APPROVAL``: the flag
+    # states intent and the token is what the human types.  Never signs, never attests.
+    promote = s.add_parser("promote-contract")
+    promote.add_argument("--contract-id", required=True, metavar="CONTRACT_ID")
+    promote.add_argument("--human-confirm-promote", default="", metavar="TOKEN")
+    promote.add_argument("--operator", default=None, metavar="NAME")
     # ``warden resolve-data`` -- read-only resolution of a declarative DataRequirement
     # (#116): the answer to "which active signed contract can run this, or what is
     # missing", before any strategy code is loaded.  It never opens the registry.
@@ -1605,13 +1662,15 @@ def main(argv: list[str] | None = None) -> int:
             code = 2
         elif decision.approval_required and not _human_approved(args, policy_key):
             print(f"REFUSED: {decision.reason}; pass the human-only flag for this command "
-                  "(--unseal-holdout/--human-confirm-unseal, --seal-holdout/--human-confirm-seal "
-                  "or --human-approve-manifest)", file=sys.stderr)
+                  "(--unseal-holdout/--human-confirm-unseal, --seal-holdout/--human-confirm-seal, "
+                  "--human-confirm-promote YES_PROMOTE or --human-approve-manifest)", file=sys.stderr)
             code = 2
-        elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data", "resolve-data"}:
+        elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data",
+                                 "resolve-data", "promote-contract"}:
             runner = SimpleNamespace(repo_root=Path("."))
             cmds = {"check-worktree": cmd_check_worktree, "generate-manifest": cmd_generate_manifest,
-                    "handoff": cmd_handoff, "resolve-data": cmd_resolve_data}
+                    "handoff": cmd_handoff, "resolve-data": cmd_resolve_data,
+                    "promote-contract": cmd_promote_contract}
             if args.subcommand == "data":
                 data_actions = {"build": cmd_data_build, "seal-holdout": cmd_data_seal_holdout,
                                 "fence": cmd_data_fence, "compile": cmd_data_compile}

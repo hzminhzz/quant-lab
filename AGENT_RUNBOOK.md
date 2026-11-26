@@ -28,6 +28,29 @@ Preflight exit codes: `0 proceed · 2 human must re-sign the manifest · 3 stop`
 
 Shortcut: steps 3–7 up to `audit-check` run idempotently via `uv run warden advance experiments/active/<spec>.yaml --json` (specs and hypotheses never move folders; SQLite `registry/registry.db` owns all state).
 
+## Promoting a compiled sandbox contract (human only, #118)
+
+When an exploratory artifact compiled by `warden data compile` should become a production
+**candidate**, the human — never an agent — runs:
+
+```bash
+uv run warden promote-contract --contract-id SANDBOX_<CLASS>_<FREQ>_<DIGEST> \
+  --human-confirm-promote YES_PROMOTE --json
+uv run warden generate-manifest --human-approve-manifest   # you must re-sign after it
+uv run warden check-worktree                              # expect rc=0
+```
+
+It re-validates the compiled artifact in the order `warden.compile.ARTIFACT_CONTRACT`
+states (paths → bytes → raw Merkle root → spec/contract identity → policy → fence → lake
+provenance → namespace), refuses atomically with a named reason (`not_authorized`,
+`tampered_parquet`, `mismatched_merkle`, `stale_policy`, `already_promoted`, …), copies the
+contract and dataset manifest with identical bytes, and writes
+`contracts/promotions/<CONTRACT_ID>.json`. It **never** signs, never generates the manifest,
+never writes an admission attestation and never opens a holdout — so a promoted contract is
+still `STAGED` and not market-eligible until you sign the inventory and attest admission.
+Refused under `WARDEN_NON_INTERACTIVE=1`. Full procedure, refusal matrix and exit codes:
+`docs/SANDBOX-PROMOTION.md`.
+
 Paste the verbatim command output into the handoff. A summarized number is not evidence.
 
 ## Rules that exist because they were already violated once

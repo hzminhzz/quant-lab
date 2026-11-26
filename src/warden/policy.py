@@ -28,8 +28,10 @@ ALLOWED = frozenset({
 })
 #: Commands a caller cannot run on their own authority.  ``data seal-holdout`` is on this
 #: list because it writes the protected holdout root and pins ``holdout.sealed``: no agent,
-#: cron job or MCP client may do that, whatever arguments it passes.
-APPROVAL = frozenset({"qualify", "generate-manifest", "data seal-holdout"})
+#: cron job or MCP client may do that, whatever arguments it passes.  ``promote-contract``
+#: joins them (#118): it copies a compiled sandbox artifact into the protected production
+#: namespace, which is a human decision about what the evaluator will see.
+APPROVAL = frozenset({"qualify", "generate-manifest", "data seal-holdout", "promote-contract"})
 
 
 @dataclass(frozen=True)

@@ -123,8 +123,14 @@ def _load_manifests(
     manifest_dir: Path,
     archive_dir: Path | None = None,
     sandbox_dir: Path | None = None,
-) -> list[tuple[str, dict[str, Any]]]:
-    out: list[tuple[str, dict[str, Any]]] = []
+) -> list[tuple[str, dict[str, Any], str]]:
+    """``[(file name, record, sha256 of the manifest bytes)]`` across every namespace.
+
+    The bytes digest is what lets the owner lookup tell a *promoted copy* (#118) from a
+    genuine conflict: a promotion copies the dataset manifest with identical bytes, so one
+    exploratory file can legitimately be declared twice by one artifact.
+    """
+    out: list[tuple[str, dict[str, Any], str]] = []
     # An archived contract's dataset manifest is archived with it (#114).  Reading it here
     # is what keeps its exploratory file *owned* instead of silently becoming UNOWNED.
     dirs = [manifest_dir]
@@ -139,13 +145,37 @@ def _load_manifests(
             if not path.is_file():
                 continue
             try:
-                record = json.loads(path.read_text(encoding="utf-8"))
+                raw = path.read_bytes()
+                record = json.loads(raw.decode("utf-8"))
             except (OSError, ValueError) as exc:
                 raise ExploratoryFenceError(f"{path.name}: manifest is not readable JSON: {exc}") from exc
             if not isinstance(record, dict):
                 raise ExploratoryFenceError(f"{path.name}: manifest must be a JSON object")
-            out.append((path.name, record))
+            out.append((path.name, record, hashlib.sha256(raw).hexdigest()))
     return out
+
+
+def _collapsed_owner(
+    candidates: list[tuple[str, dict[str, Any], str]],
+) -> tuple[str, dict[str, Any], str] | None:
+    """One owner for several byte-identical declarations of the same artifact.
+
+    A promotion (#118) copies a compiled sandbox dataset manifest into ``contracts/datasets``
+    with identical bytes, so the same exploratory file is declared by the sandbox record and
+    its production copy.  That is one owner, not an ambiguity: the records agree on the bytes,
+    the pin and the contract.  Anything else -- a different pin, a different contract id or a
+    different manifest document -- stays ``AMBIGUOUS``, which is the refusal that matters.
+    """
+    first = candidates[0]
+    for name, record, digest in candidates[1:]:
+        same_document = digest == first[2]
+        same_contract = str(record.get("contract_id") or "") == str(first[1].get("contract_id") or "")
+        same_pin = str(record.get("exploratory_sha256") or record.get("sha256") or "") == str(
+            first[1].get("exploratory_sha256") or first[1].get("sha256") or ""
+        )
+        if not (same_document and same_contract and same_pin):
+            return None
+    return first
 
 
 def _load_contracts(
@@ -218,11 +248,11 @@ def audit_exploratory_storage(
 
     manifests = _load_manifests(root / manifest_dir, root / archive_dir, root / sandbox_dir)
     contracts = _load_contracts(root / contracts_dir, root / archive_dir, root / sandbox_dir)
-    owners: dict[str, list[tuple[str, dict[str, Any]]]] = {}
-    for name, record in manifests:
+    owners: dict[str, list[tuple[str, dict[str, Any], str]]] = {}
+    for name, record, digest in manifests:
         declared = record.get("exploratory_path") or record.get("path")
         if isinstance(declared, str) and declared.strip():
-            owners.setdefault(declared.strip(), []).append((name, record))
+            owners.setdefault(declared.strip(), []).append((name, record, digest))
 
     files: list[FenceFile] = []
     seen: set[str] = set()
@@ -235,16 +265,23 @@ def audit_exploratory_storage(
         if not candidates:
             files.append(FenceFile(relative, UNOWNED, "no dataset manifest declares this exploratory file"))
             continue
+        mirrors = 0
         if len(candidates) > 1:
-            files.append(
-                FenceFile(
-                    relative,
-                    AMBIGUOUS,
-                    f"{len(candidates)} manifests declare this path: {sorted(name for name, _ in candidates)}",
+            collapsed = _collapsed_owner(candidates)
+            if collapsed is None:
+                files.append(
+                    FenceFile(
+                        relative,
+                        AMBIGUOUS,
+                        f"{len(candidates)} manifests declare this path: "
+                        f"{sorted(name for name, _, _ in candidates)}",
+                    )
                 )
-            )
-            continue
-        name, record = candidates[0]
+                continue
+            # One artifact, several namespaces: the sandbox record and its promoted copy.
+            mirrors = len(candidates) - 1
+            candidates = [collapsed]
+        name, record, _digest = candidates[0]
         contract_id = str(record.get("contract_id") or "")
         try:
             payload = path.read_bytes()
@@ -306,6 +343,11 @@ def audit_exploratory_storage(
             continue
         holdout_start = contract.holdout_start
         state, reason = FENCED, "last bar precedes holdout_start and the owner manifest pins the bytes"
+        if mirrors:
+            reason += (
+                f"; declared by {mirrors + 1} byte-identical manifests for {contract_id} "
+                "(a promoted copy owns the same bytes as its sandbox original)"
+            )
         if last >= holdout_start:
             state = BEYOND_HOLDOUT
             reason = (

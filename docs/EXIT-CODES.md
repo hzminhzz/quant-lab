@@ -22,6 +22,10 @@ existing code — agents and cron wrappers already branch on `2` versus `3`.
 - **`resolve-data` never returns 1**: it writes nothing, so it has no evidence to refuse.
 - **`data compile` returns 0 for "nothing to compile"**, because a reusable signed contract
   is a successful answer, not a refusal.
+- **`promote-contract` returns 1 for `promotion_failed`**: the three promotion writes are
+  `O_EXCL` and rolled back in reverse, so a copy that fails mid-sequence leaves nothing behind.
+  That is refused evidence (the artifact did not reach the production namespace), not a
+  request error.
 
 ## Where each code is produced
 
@@ -29,7 +33,7 @@ existing code — agents and cron wrappers already branch on `2` versus `3`.
 |---|---|---|---|---|
 | `resolve-data` | reuse or compile-required | — | invalid requirement, refused input | gap |
 | `data compile` | compiled / reused / nothing to compile | fence, write-once, quality gate | override, untrusted policy, invalid input | gap |
-| `promote-contract` | promoted | artifact evidence refused (tampered, mismatched, stale policy/fence) | human gate, unknown/archived/already-promoted contract | — |
+| `promote-contract` | promoted | artifact evidence refused (tampered, mismatched, stale policy/fence, unconfined raw input, unverifiable fence), or `promotion_failed` (the copy was rolled back) | human gate, unknown/archived/already-promoted contract, a declared holdout pin or provenance claim | — |
 | `verify` / `screen` / `backtest` | the gate ran | the gate refused | untrusted request or tampered sandbox contract | — |
 
 The pins live in `tests/test_spec109_exit_codes.py`: one parametrised CLI test asserts the

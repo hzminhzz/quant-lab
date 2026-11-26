@@ -6,7 +6,8 @@ A ``warden data compile`` artifact (#117) is exploratory evidence: it lives unde
 into a production *candidate*:
 
 1. it re-validates the compiled-artifact contract, in the order
-   :data:`warden.compile.ARTIFACT_CONTRACT` states — paths, bytes, raw-input Merkle root,
+   :data:`warden.compile.ARTIFACT_CONTRACT` states — the request (no production copy yet), the
+   compiled shape (no holdout pin, no provenance claim), paths, bytes, raw-input Merkle root,
    spec/contract identity, policy, fence, lake provenance, namespace — and refuses **before**
    it copies anything;
 2. every refusal is named (:class:`PromotionRefused` carries a stable ``code``), non-zero and
@@ -30,7 +31,10 @@ draws:
   ``warden.compile`` for the artifact schema and the catalogue provenance,
   ``warden_evidence.dataset_builder.merkle`` for the raw-input root, ``warden_ops.venue_policy``
   for the signed policy, ``warden.lifecycle`` for a retired id, ``warden.contract_source`` for
-  the namespaces.  Promotion compares, it never re-derives.
+  the namespaces.  Promotion compares.  The one fact it re-derives rather than compares is the
+  fence's last bar: the manifest holds a second copy of it, so the Parquet is read through the
+  same injected reader ``warden_evidence.exploratory_fence`` audits with, and the manifest
+  value is only the cross-check.
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -201,10 +206,18 @@ class ContractPromotion:
     provenance: str = "unknown"
     #: Whether the artifact manifest carried a holdout pin (it never may; the fact is recorded).
     holdout_pin_present: bool = False
+    #: The compile-time digest of the contract document (verified equal to the copied bytes).
+    contract_sha256: str = ""
+    #: The commit this promotion ran in: ``{"source": "git", "kind": "head", ...}``.
+    repo_head: dict[str, Any] = field(default_factory=dict)
+    #: Extra facts for a caller.  Expanded *first*, so it can never shadow a fact below.
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        # ``extra`` is expanded first on purpose: the facts below are what the receipt exists to
+        # state, so a caller-supplied block may add keys but never overwrite one of them.
         return {
+            **dict(self.extra),
             "schema": PROMOTION_SCHEMA,
             "contract_id": self.contract_id,
             "dataset_id": self.dataset_id,
@@ -224,8 +237,10 @@ class ContractPromotion:
             "last_bar_close": self.last_bar_close,
             "holdout_start": self.holdout_start,
             "holdout_end": self.holdout_end,
+            "contract_sha256": self.contract_sha256,
             "provenance": self.provenance,
             "holdout_pin_present": self.holdout_pin_present,
+            "repo_head": dict(self.repo_head),
             # Never eligibility: the bytes are unchanged and the origin is still unattested.
             "qualification_eligible": False,
             "holdout_opened": False,
@@ -236,7 +251,6 @@ class ContractPromotion:
                 "a human re-signs the protected inventory: "
                 "`uv run warden generate-manifest --human-approve-manifest`"
             ),
-            **dict(self.extra),
         }
 
 
@@ -1141,6 +1155,27 @@ def _publish(root: Path, artifact: _Artifact, receipt: ContractPromotion) -> Con
     return receipt
 
 
+def _repo_head(root: Path) -> dict[str, Any]:
+    """The commit this promotion ran in, recorded like every other evidence receipt.
+
+    A scratch fixture is not a git checkout, so "not available" is a recorded fact rather than
+    an absent key: ``value`` is ``""`` and ``available`` is ``False``.
+    """
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return {"source": "git", "kind": "head", "available": False, "value": ""}
+    head = completed.stdout.strip() if completed.returncode == 0 else ""
+    return {"source": "git", "kind": "head", "available": bool(head), "value": head}
+
+
 def promote_contract(
     contract_id: str,
     *,
@@ -1219,6 +1254,8 @@ def promote_contract(
             holdout_end=contract.holdout_end.isoformat(),
             provenance=provenance,
             holdout_pin_present=False,
+            contract_sha256=hashlib.sha256(artifact.contract_bytes).hexdigest(),
+            repo_head=_repo_head(root),
         ),
     )
 

@@ -1253,3 +1253,60 @@ def test_two_different_documents_for_one_contract_stay_ambiguous(compiled) -> No
     report = audit_exploratory_storage(repo, parquet_reader=read_parquet_bytes)
     assert not report.ok
     assert report.failures[0].state == AMBIGUOUS, report.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# 7. review K-fix: the receipt says what was decided, and cannot be told otherwise
+# ---------------------------------------------------------------------------
+
+
+def test_the_receipt_records_the_compile_time_contract_and_the_origin(
+    compiled, monkeypatch, capsys
+) -> None:
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    assert _promote(repo, artifact.contract_id) == 0
+    capsys.readouterr()
+
+    receipt = json.loads((repo / _production_paths(artifact.contract_id)[2]).read_text())
+    record = json.loads((repo / artifact.manifest_path).read_text(encoding="utf-8"))
+    assert receipt["contract_sha256"] == artifact.contract_sha256
+    assert receipt["contract_sha256"] == record["sandbox"]["contract_sha256"]
+    assert receipt["provenance"] == "unknown"
+    assert receipt["holdout_pin_present"] is False
+    assert receipt["repo_head"]["source"] == "git" and receipt["repo_head"]["kind"] == "head"
+    assert isinstance(receipt["repo_head"]["value"], str)
+
+
+def test_the_receipt_honesty_flags_cannot_be_overridden_by_a_caller() -> None:
+    """`extra` is expanded first: a future caller cannot flip the facts the receipt exists for."""
+    from warden.promote import ContractPromotion
+
+    payload = ContractPromotion(
+        contract_id="SANDBOX_FX_1H_X",
+        dataset_id="d",
+        promoted_at="2021-01-01T00:00:00+00:00",
+        operator="o",
+        source={},
+        target={"contract": "c", "manifest": "m"},
+        receipt_path="r",
+        digests={},
+        selection_group_id="G",
+        asset_class="fx",
+        frequency="1h",
+        first_bar="",
+        last_bar="",
+        last_bar_close="",
+        holdout_start="",
+        holdout_end="",
+        extra={
+            "manifest_signed": True,
+            "manifest_generated": True,
+            "holdout_opened": True,
+            "qualification_eligible": True,
+        },
+    ).to_dict()
+    assert payload["manifest_signed"] is False
+    assert payload["manifest_generated"] is False
+    assert payload["holdout_opened"] is False
+    assert payload["qualification_eligible"] is False

@@ -17,6 +17,9 @@ ALLOWED = frozenset({
     # inventory; it is agent-facing and file-write-once, never a human-only signing gate.
     # ``data fence`` is a read-only audit of the exploratory store (#106).
     "data", "data build", "data fence",
+    # ``resolve-data`` answers "which signed contract, or which gap" and writes nothing
+    # (#116): it is the read-only front half of ``data build``.
+    "resolve-data",
 })
 #: Commands a caller cannot run on their own authority.  ``data seal-holdout`` is on this
 #: list because it writes the protected holdout root and pins ``holdout.sealed``: no agent,

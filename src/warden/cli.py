@@ -1279,6 +1279,55 @@ def cmd_data_seal_holdout(args: argparse.Namespace, runner: Any) -> int:
     return 0
 
 
+def cmd_resolve_data(args: argparse.Namespace, runner: Any) -> int:
+    """``warden resolve-data``: answer *which data* before any strategy code runs (#116).
+
+    Read-only: it resolves an active signed contract or names the exact gap, and it
+    constructs no runner, so no registry is opened, no contract or dataset is written
+    and no holdout byte is read.  A gap exits 3 (distinct from 2, "the request itself
+    was refused") so a caller can tell "not satisfiable" from "not a valid requirement".
+    """
+    from pydantic import ValidationError
+
+    from warden.resolve import RequirementSourceError, resolve_data_requirement
+
+    try:
+        report = resolve_data_requirement(args.requirement, repo_root=Path(runner.repo_root))
+    except ValidationError as exc:
+        print(f"REFUSED: not a valid declarative data requirement: {exc}", file=sys.stderr)
+        print("WARDEN_RESOLVE_DATA_FAILED", file=sys.stderr)
+        return 2
+    except (RequirementSourceError, ValueError, OSError) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        print("WARDEN_RESOLVE_DATA_FAILED", file=sys.stderr)
+        return 2
+    payload = report.to_dict()
+    ok = report.ok
+    if args.json:
+        print(json.dumps(envelope(ok, payload, "warden.resolve-data", "allow" if ok else "deny")))
+    else:
+        print(f"Data requirement: {payload['requirement']['asset_class']} "
+              f"{payload['requirement']['frequency']} from {payload['requirement']['min_start']} "
+              f"-> {payload['decision']} ({payload['reason']})")
+        if report.matched_contract:
+            print(f"  contract: {report.matched_contract['contract_id']} "
+                  f"(group={report.selection_group_id or 'unknown'}, "
+                  f"symbols={', '.join(report.available_symbols)})")
+        else:
+            print(f"  symbols: {', '.join(report.available_symbols) or '-'} "
+                  f"missing={', '.join(report.missing_symbols) or '-'} "
+                  f"earliest={report.earliest_common_start or '-'}")
+            for candidate in report.rejected_candidates:
+                print(f"  rejected {candidate['contract_id']}: {candidate['reason']}", file=sys.stderr)
+        if report.gap:
+            print(f"  gap: {report.gap['detail']}", file=sys.stderr)
+    if not ok:
+        print("WARDEN_RESOLVE_DATA_FAILED", file=sys.stderr)
+        return 3
+    print("WARDEN_RESOLVE_DATA_COMPLETE", file=sys.stderr)
+    return 0
+
+
 def cmd_data_fence(args: argparse.Namespace, runner: Any) -> int:
     """``warden data fence``: read-only ownership + holdout-boundary audit (#106).
 
@@ -1384,6 +1433,11 @@ def build_parser() -> argparse.ArgumentParser:
     data_fence.add_argument("--manifest-dir", default="contracts/datasets")
     data_fence.add_argument("--contracts-dir", default="contracts")
     data_fence.add_argument("--json", action="store_true")
+    # ``warden resolve-data`` -- read-only resolution of a declarative DataRequirement
+    # (#116): the answer to "which active signed contract can run this, or what is
+    # missing", before any strategy code is loaded.  It never opens the registry.
+    resolve = s.add_parser("resolve-data")
+    resolve.add_argument("--requirement", required=True, metavar="FILE|JSON")
     for sub in s.choices.values():
         if "json" not in [a.dest for a in sub._actions]: sub.add_argument("--json", action="store_true")
     return p
@@ -1451,10 +1505,10 @@ def main(argv: list[str] | None = None) -> int:
                   "(--unseal-holdout/--human-confirm-unseal, --seal-holdout/--human-confirm-seal "
                   "or --human-approve-manifest)", file=sys.stderr)
             code = 2
-        elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data"}:
+        elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data", "resolve-data"}:
             runner = SimpleNamespace(repo_root=Path("."))
             cmds = {"check-worktree": cmd_check_worktree, "generate-manifest": cmd_generate_manifest,
-                    "handoff": cmd_handoff}
+                    "handoff": cmd_handoff, "resolve-data": cmd_resolve_data}
             if args.subcommand == "data":
                 data_actions = {"build": cmd_data_build, "seal-holdout": cmd_data_seal_holdout,
                                 "fence": cmd_data_fence}

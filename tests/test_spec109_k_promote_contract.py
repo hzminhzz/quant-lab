@@ -1102,3 +1102,38 @@ def test_an_edited_contract_is_refused_against_the_compile_digest(compiled, monk
     )
     detail = _assert_refusal(repo, capsys, artifact.contract_id, "mismatched_identity", 1)
     assert "contract" in detail.lower()
+
+
+def test_a_re_promotion_is_reported_before_the_evidence_is_reread(
+    compiled, monkeypatch, capsys
+) -> None:
+    """probe4: a moved lake must not turn `already_promoted` into `mismatched_merkle`."""
+    repo, lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    assert _promote(repo, artifact.contract_id) == 0
+    capsys.readouterr()
+    _sign_repo(repo, monkeypatch)  # the human re-signs; the request is what is left to judge
+    (lake_root / artifact.lake["input_files"][0]).unlink()
+
+    assert _promote(repo, artifact.contract_id) == 2
+    captured = capsys.readouterr()
+    assert "already_promoted" in captured.err
+    assert "mismatched_merkle" not in captured.err
+
+
+def test_a_receipt_from_an_earlier_promotion_is_reported_before_the_evidence(
+    compiled, monkeypatch, capsys
+) -> None:
+    """The receipt is the completion marker: its presence alone decides the request (M6)."""
+    repo, lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+    _receipt = repo / _production_paths(artifact.contract_id)[2]
+    _receipt.parent.mkdir(parents=True, exist_ok=True)
+    _receipt.write_bytes(b'{"schema": "an earlier promotion"}\n')
+    _sign_repo(repo, monkeypatch)
+    (lake_root / artifact.lake["input_files"][0]).unlink()
+
+    assert _promote(repo, artifact.contract_id) == 2
+    captured = capsys.readouterr()
+    assert "already_promoted" in captured.err
+    assert "mismatched_merkle" not in captured.err

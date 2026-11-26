@@ -287,8 +287,8 @@ def _refuse(code: str, message: str, **detail: Any) -> PromotionRefused:
     return PromotionRefused(code, message, detail=detail)
 
 
-def _locate(root: Path, contract_id: str) -> _Artifact:
-    """Resolve the sandbox contract + dataset manifest + Parquet, or refuse (step 1)."""
+def _resolve_sandbox_contract(root: Path, contract_id: str) -> tuple[str, Path]:
+    """The compiled sandbox contract document for the stated id, or a request refusal."""
     stated = str(contract_id or "").strip()
     if not stated:
         raise _refuse("unknown_contract", "no contract id was stated")
@@ -301,6 +301,50 @@ def _locate(root: Path, contract_id: str) -> _Artifact:
             "or a hand-written document",
             contract_id=stated,
         )
+    return stated, contract_path
+
+
+def _check_target_paths(root: Path, contract_id: str) -> None:
+    """Refuse an id that already has production files, before any evidence is re-read.
+
+    These are three ``is_file()`` calls with no dependency on the artifact (review K5).  They
+    used to be step 8, after the lake and policy reads, so a re-promotion after a routine lake
+    change reported ``mismatched_merkle`` (exit 1) instead of ``already_promoted`` (exit 2) —
+    the wrong diagnosis for an operator re-running the command.
+    """
+    stated = str(contract_id or "").strip()
+    stem = stated.lower()
+    for suffix in (".yaml", ".yml"):
+        live = root / CONTRACTS_DIR / f"{stem}{suffix}"
+        if live.is_file():
+            raise _refuse(
+                "already_promoted",
+                f"{live.relative_to(root).as_posix()} already exists: promotion is once per "
+                "contract id, and a production copy is never overwritten",
+                path=live.relative_to(root).as_posix(),
+            )
+    for spelling in dict.fromkeys((stated, stated.upper())):
+        receipt = root / RECEIPTS_DIR / f"{spelling}.json"
+        if receipt.is_file():
+            raise _refuse(
+                "already_promoted",
+                f"{receipt.relative_to(root).as_posix()} records an earlier promotion of "
+                f"{contract_id}",
+                path=receipt.relative_to(root).as_posix(),
+            )
+        target_manifest = root / DATASETS_DIR / f"{spelling}.json"
+        if target_manifest.is_file():
+            raise _refuse(
+                "half_promoted",
+                f"{target_manifest.relative_to(root).as_posix()} exists without its contract or "
+                "receipt: a stranded copy is refused, never completed",
+                path=target_manifest.relative_to(root).as_posix(),
+            )
+
+
+def _locate(root: Path, contract_id: str) -> _Artifact:
+    """Resolve the sandbox contract + dataset manifest + Parquet, or refuse (step 1)."""
+    stated, contract_path = _resolve_sandbox_contract(root, contract_id)
     try:
         contract = load_contract(contract_path)
     except (ContractValidationError, OSError, ValueError) as exc:
@@ -1031,6 +1075,7 @@ def _check_lake(artifact: _Artifact) -> None:
 
 
 def _check_namespace(root: Path, artifact: _Artifact) -> None:
+    """Still a compiled, non-qualifying sandbox artifact (the production paths are step 1)."""
     if str(artifact.sandbox.get("schema") or "") != ARTIFACT_SCHEMA:
         raise _refuse(
             "wrong_namespace",
@@ -1044,30 +1089,7 @@ def _check_namespace(root: Path, artifact: _Artifact) -> None:
             f"{artifact.contract_id} does not declare itself non-qualifying; a promotion never "
             "inherits an eligibility claim",
         )
-    live = root / CONTRACTS_DIR / f"{artifact.contract_id.lower()}.yaml"
-    if live.is_file():
-        raise _refuse(
-            "already_promoted",
-            f"{live.relative_to(root).as_posix()} already exists: promotion is once per contract "
-            "id, and a production copy is never overwritten",
-            path=live.relative_to(root).as_posix(),
-        )
-    receipt = root / RECEIPTS_DIR / f"{artifact.contract_id}.json"
-    if receipt.is_file():
-        raise _refuse(
-            "already_promoted",
-            f"{receipt.relative_to(root).as_posix()} records an earlier promotion of "
-            f"{artifact.contract_id}",
-            path=receipt.relative_to(root).as_posix(),
-        )
-    target_manifest = root / DATASETS_DIR / f"{artifact.contract_id}.json"
-    if target_manifest.is_file():
-        raise _refuse(
-            "half_promoted",
-            f"{target_manifest.relative_to(root).as_posix()} exists without its contract or "
-            "receipt: a stranded copy is refused, never completed",
-            path=target_manifest.relative_to(root).as_posix(),
-        )
+    # The production files an id must not already have were refused in step 1 (`_check_target_paths`).
     if not is_sandbox_contract(root, artifact.contract_id):
         raise _refuse(
             "wrong_namespace",
@@ -1143,7 +1165,11 @@ def promote_contract(
     """
     _authorize(confirmation_token)
     root = Path(repo_root)
-    artifact = _locate(root, str(contract_id))
+    # Step 1a: the request itself.  Resolving the compiled artifact and the three production
+    # paths are pure filesystem checks, so they run before any lake or policy read (review K5).
+    stated, _contract_path = _resolve_sandbox_contract(root, str(contract_id))
+    _check_target_paths(root, stated)
+    artifact = _locate(root, stated)
     provenance = _check_origin(artifact)
     _check_bytes(artifact)
     _check_raw_inputs(artifact)

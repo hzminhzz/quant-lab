@@ -257,6 +257,37 @@ def test_active_lookup_never_falls_back_to_a_live_copy(tmp_path: Path) -> None:
     assert load_recorded_contract(repo, "FX_MAJORS_1H_V1").contract_id == "FX_MAJORS_1H_V1"
 
 
+def test_recorded_lookup_refuses_a_live_copy_that_does_not_match_the_recorded_digest(
+    tmp_path: Path,
+) -> None:
+    """Review A2: the recorded digest is checked whichever document resolves.
+
+    A live ``contracts/<id>.yaml`` for an archived id used to win with its bytes unverified,
+    so the same id resolved to two different byte sets depending on the lookup — a 10x
+    looser cost floor replaying as if it were recorded evidence.
+    """
+    repo = _archive_repo(tmp_path, "decoy_digest")
+    archived = (repo / ARCHIVE_DIR / "fx_majors_1h_v1.yaml").read_text(encoding="utf-8")
+    decoy = archived.replace("taker_fee_bps: 0.2", "taker_fee_bps: 0.02")
+    assert decoy != archived
+    live = repo / "contracts" / "fx_majors_1h_v1.yaml"
+    live.write_text(decoy, encoding="utf-8")
+
+    recorded_sha = PRE_MOVE["FX_MAJORS_1H_V1"][3]
+    decoy_sha = hashlib.sha256(decoy.encode()).hexdigest()
+    with pytest.raises(ContractArchiveError) as caught:
+        load_recorded_contract(repo, "FX_MAJORS_1H_V1")
+    message = str(caught.value)
+    # The refusal names both digests and the document it refused, so an operator can tell
+    # a substituted live copy from a drifted archive.
+    assert recorded_sha[:12] in message and decoy_sha[:12] in message
+    assert "contracts/fx_majors_1h_v1.yaml" in message
+
+    # Control: with the decoy gone the recorded bytes still replay, at the recorded cost.
+    live.unlink()
+    assert load_recorded_contract(repo, "FX_MAJORS_1H_V1").taker_fee_bps == 0.2
+
+
 def test_recorded_lookup_replays_a_trial_recorded_against_an_archived_contract() -> None:
     runner = ExperimentRunner(repo_root=REPO_ROOT)
     for contract_id in ("FX_MAJORS_1D_V1", "CRYPTO_MAJORS_1H_V1"):

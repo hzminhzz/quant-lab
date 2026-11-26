@@ -40,6 +40,7 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -115,6 +116,7 @@ EVIDENCE_CODES = frozenset(
         "stale_policy",
         "stale_fence",
         "fence_violated",
+        "fence_unverified",
         "lake_provenance",
         "lake_inputs",
     }
@@ -166,6 +168,7 @@ class _Artifact:
     sandbox: dict[str, Any]
     dataset: dict[str, Any]
     parquet_path: Path
+    parquet_bytes: bytes
     parquet_sha256: str
     #: The repo-relative Parquet path the manifest declares (the refusal names it).
     dataset_path_rel: str
@@ -372,6 +375,7 @@ def _locate(root: Path, contract_id: str) -> _Artifact:
             f"the compiled dataset {expected_parquet} is missing; there is nothing to promote",
             parquet=expected_parquet,
         )
+    parquet_bytes = parquet_path.read_bytes()
     return _Artifact(
         contract_id=cid,
         dataset_id=dataset_id,
@@ -384,7 +388,8 @@ def _locate(root: Path, contract_id: str) -> _Artifact:
         sandbox=sandbox,
         dataset=dataset,
         parquet_path=parquet_path,
-        parquet_sha256=hashlib.sha256(parquet_path.read_bytes()).hexdigest(),
+        parquet_bytes=parquet_bytes,
+        parquet_sha256=hashlib.sha256(parquet_bytes).hexdigest(),
         dataset_path_rel=expected_parquet,
     )
 
@@ -666,7 +671,63 @@ def _check_policy(root: Path, artifact: _Artifact) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _check_fence(root: Path, artifact: _Artifact, policy: Any) -> datetime:
+def _derive_last_bar(artifact: _Artifact, parquet_reader: Callable[[bytes], Any] | None) -> datetime:
+    """The last bar label, read out of the published Parquet by the fence's own reader.
+
+    The manifest's ``dataset.last_bar`` is a second copy of a fact the bytes already carry.
+    Reading it through the very reader :func:`warden_evidence.exploratory_fence` uses keeps
+    one authority for "where does this file end"; a caller that supplies no reader is refused
+    rather than trusted.
+    """
+    if parquet_reader is None:
+        raise _refuse(
+            "fence_unverified",
+            f"no Parquet reader was injected, so the last bar of {artifact.dataset_path_rel} cannot "
+            "be derived from the published bytes; refusing rather than trusting the manifest's "
+            "dataset.last_bar",
+            parquet=artifact.dataset_path_rel,
+        )
+    try:
+        frame = parquet_reader(artifact.parquet_bytes)
+    except Exception as exc:
+        # An injected reader may raise anything; the only safe outcome is a refusal, and its
+        # reason is reported verbatim.
+        raise _refuse(
+            "fence_unverified",
+            f"the injected Parquet reader refused {artifact.dataset_path_rel}: {exc}",
+            parquet=artifact.dataset_path_rel,
+        ) from exc
+    if "timestamp" not in getattr(frame, "columns", ()):
+        raise _refuse(
+            "fence_unverified",
+            f"{artifact.dataset_path_rel} declares no 'timestamp' column, so its last bar cannot "
+            "be derived",
+            parquet=artifact.dataset_path_rel,
+        )
+    stamps = frame["timestamp"].drop_nulls().max()
+    if int(getattr(frame, "height", 0)) == 0 or stamps is None:
+        raise _refuse(
+            "fence_unverified",
+            f"{artifact.dataset_path_rel} carries no bar to fence",
+            parquet=artifact.dataset_path_rel,
+        )
+    if not isinstance(stamps, datetime) or stamps.tzinfo is None:
+        raise _refuse(
+            "fence_unverified",
+            f"{artifact.dataset_path_rel}'s last timestamp {stamps!r} carries no timezone; a "
+            "fence cannot compare a naive clock to holdout_start",
+            parquet=artifact.dataset_path_rel,
+        )
+    return stamps.astimezone(UTC)
+
+
+def _check_fence(
+    root: Path,
+    artifact: _Artifact,
+    policy: Any,
+    parquet_reader: Callable[[bytes], Any] | None,
+) -> tuple[datetime, datetime]:
+    """Return the derived ``(last_bar, last_bar_close)`` once the fence holds."""
     contract = artifact.contract
     block = artifact.sandbox.get("fence")
     if not isinstance(block, dict):
@@ -701,14 +762,25 @@ def _check_fence(root: Path, artifact: _Artifact, policy: Any) -> datetime:
             f"{contract.frequency} interval {int(interval.total_seconds())}s",
             field="bar_interval_seconds",
         )
-    last_bar = _timestamp(artifact.dataset.get("last_bar"))
+    # The fence is proved on the *published bytes*, not on a second copy of the same claim.
+    last_bar = _derive_last_bar(artifact, parquet_reader)
+    claimed = _timestamp(artifact.dataset.get("last_bar"))
+    if last_bar != claimed:
+        raise _refuse(
+            "fence_violated",
+            f"the manifest records dataset.last_bar {claimed.isoformat()} but "
+            f"{artifact.dataset_path_rel}'s own last bar is {last_bar.isoformat()}: the manifest's "
+            "copy of the fact is not the fence's",
+            manifest_last_bar=claimed.isoformat(),
+            parquet_last_bar=last_bar.isoformat(),
+        )
     last_close = last_bar + interval
     if last_close > contract.holdout_start:
         raise _refuse(
             "fence_violated",
-            f"the compiled last bar closes at {last_close.isoformat()}, after the holdout fence "
-            f"{contract.holdout_start.isoformat()}; the manifest's own "
-            "fence_satisfied flag is not trusted over the arithmetic",
+            f"the published last bar closes at {last_close.isoformat()}, after the holdout fence "
+            f"{contract.holdout_start.isoformat()}; the last bar is re-read from the Parquet and "
+            "the manifest's fence_satisfied flag is not trusted over the arithmetic",
             last_bar=last_bar.isoformat(),
             last_bar_close=last_close.isoformat(),
             holdout_start=contract.holdout_start.isoformat(),
@@ -735,7 +807,7 @@ def _check_fence(root: Path, artifact: _Artifact, policy: Any) -> datetime:
             f"the lifecycle document is unusable, so openness cannot be established: {exc}",
             contract_id=artifact.contract_id,
         ) from exc
-    return last_close
+    return last_bar, last_close
 
 
 # ---------------------------------------------------------------------------
@@ -936,12 +1008,17 @@ def promote_contract(
     confirmation_token: str = "",
     operator: str | None = None,
     now: datetime | None = None,
+    parquet_reader: Callable[[bytes], Any] | None = None,
 ) -> ContractPromotion:
     """Promote one compiled sandbox contract into the production candidate set.
 
     The order is the contract: the human gate, then every validation step of
     :data:`warden.compile.ARTIFACT_CONTRACT` in the order it states, and only then the copy.
     Nothing is copied, no registry is opened and no holdout byte is read on any path.
+
+    ``parquet_reader`` is the reader the exploratory fence already uses (``data fence``);
+    the fence is re-derived from the published bytes through it.  A caller that supplies no
+    reader is refused (``fence_unverified``) rather than trusted.
 
     Raises:
         PromotionRefused: for a named, atomic refusal (``code`` says which).
@@ -953,7 +1030,7 @@ def promote_contract(
     _check_raw_inputs(artifact)
     spec_hash = _check_spec_identity(artifact)
     policy = _check_policy(root, artifact)
-    last_close = _check_fence(root, artifact, policy)
+    last_bar, last_close = _check_fence(root, artifact, policy, parquet_reader)
     _check_lake(artifact)
     _check_namespace(root, artifact)
 
@@ -991,7 +1068,7 @@ def promote_contract(
             asset_class=str(contract.asset_class),
             frequency=str(contract.frequency),
             first_bar=str(artifact.dataset.get("first_bar") or ""),
-            last_bar=str(artifact.dataset.get("last_bar") or ""),
+            last_bar=last_bar.isoformat(),
             last_bar_close=last_close.isoformat(),
             holdout_start=contract.holdout_start.isoformat(),
             holdout_end=contract.holdout_end.isoformat(),

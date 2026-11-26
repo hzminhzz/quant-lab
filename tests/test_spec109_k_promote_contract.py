@@ -897,3 +897,51 @@ def test_the_fence_audit_still_owns_a_promoted_dataset(compiled, monkeypatch, ca
     report = audit_exploratory_storage(repo, parquet_reader=read_parquet_bytes)
     assert not report.ok
     assert report.failures[0].state == AMBIGUOUS
+
+
+# ---------------------------------------------------------------------------
+# 5. review K-fix: the gate re-derives its facts from the published bytes
+# ---------------------------------------------------------------------------
+
+
+def _re_pin_everything(repo: Path, artifact, digest: str) -> None:
+    """What a falsifier can do: re-pin the manifest and the contract to new Parquet bytes.
+
+    ``dataset.last_bar`` is deliberately left alone — the whole point of the attack is that the
+    manifest's copy of that fact is not re-derived by the gate.
+    """
+    contract_path = repo / artifact.contract_path
+    document = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
+    document["data_snapshot_sha256"] = digest
+    contract_path.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
+
+    manifest_path = repo / artifact.manifest_path
+    record = json.loads(manifest_path.read_text(encoding="utf-8"))
+    record["sha256"] = digest
+    record["sandbox"]["contract_sha256"] = hashlib.sha256(contract_path.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(record), encoding="utf-8")
+
+
+def test_a_falsified_last_bar_cannot_smuggle_a_bar_at_the_fence(
+    compiled, monkeypatch, capsys
+) -> None:
+    """probe1: the fence is derived from the Parquet, and the manifest is only a cross-check."""
+    repo, _lake_root, artifact = compiled
+    monkeypatch.chdir(repo)
+
+    path = repo / artifact.parquet_path
+    frame = pl.read_parquet(path)
+    extra = pl.DataFrame(
+        [{"timestamp": FENCE, "asset": "EURUSD", "open": 100.0, "high": 101.0, "low": 99.0,
+          "close": 100.5, "volume": 1.0, "observed_sub_bars": 60}]
+    ).select([pl.col(column).cast(frame.schema[column]) for column in frame.columns])
+    leaky = frame.vstack(extra)
+    leaky.write_parquet(path)
+    assert leaky["timestamp"].max() == FENCE
+    _re_pin_everything(repo, artifact, hashlib.sha256(path.read_bytes()).hexdigest())
+    assert json.loads((repo / artifact.manifest_path).read_text())["dataset"]["last_bar"] != str(FENCE)
+
+    detail = _assert_refusal(repo, capsys, artifact.contract_id, "fence_violated", 1)
+    # Both values are named: the manifest's claim and the Parquet's own last bar.
+    assert "2021-01-03T23:00:00+00:00" in detail
+    assert "2021-01-04T00:00:00+00:00" in detail

@@ -1576,6 +1576,9 @@ def cmd_promote_contract(args: argparse.Namespace, runner: Any) -> int:
     if not check_worktree():
         print("WARDEN_PROMOTE_CONTRACT_FAILED", file=sys.stderr)
         sys.exit(2)
+    # The same reader `data fence` audits with: the fence is re-derived from the bytes, never
+    # from the manifest's copy of the last bar.
+    from warden.market_data import read_parquet_bytes
     from warden.promote import PromotionRefused, promote_contract
 
     try:
@@ -1584,6 +1587,7 @@ def cmd_promote_contract(args: argparse.Namespace, runner: Any) -> int:
             repo_root=Path(runner.repo_root),
             confirmation_token=getattr(args, "human_confirm_promote", "") or "",
             operator=getattr(args, "operator", None),
+            parquet_reader=read_parquet_bytes,
         )
     except PromotionRefused as exc:
         print(f"Promotion refused: {exc}", file=sys.stderr)

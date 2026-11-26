@@ -12,7 +12,8 @@ therefore have to stay distinguishable and must never blur into each other:
 ``recorded``
     Historical replay — a trial that was recorded against a contract which has since been
     archived.  The same bytes still resolve: live first, then the archive, with the
-    mapping's recorded digest checked before the document is handed out.
+    mapping's recorded digest checked against whichever document is handed out — a live
+    copy of an archived id must match the recorded digest too, or the lookup is refused.
 
 The archive is a namespace plus one reviewed mapping document
 (``contracts/archive/archive_map.json``) recording original path -> archive path for the
@@ -28,9 +29,9 @@ Fail-closed rules, all of them deliberate:
   cannot point a resolver at an arbitrary file;
 * a mapping entry for a contract the lifecycle document keeps ``ACTIVE_V2`` is refused:
   the archive holds closed contracts only;
-* a resolved archived document whose bytes do not match the recorded ``sha256`` is
-  refused (this is what makes "same digest as before the move" a checked property rather
-  than a claim).
+* a resolved document whose bytes do not match the recorded ``sha256`` is refused — the
+  archived copy **and** a live copy of an archived id (this is what makes "same digest as
+  before the move" a checked property rather than a claim).
 
 This module has no writer for the mapping: regenerating it is a reviewed, human-signed
 edit like the lifecycle document.
@@ -338,20 +339,37 @@ def archived_contract(repo_root: Path | str, contract_id: str) -> ArchivedContra
     return load_contract_archive(repo_root).entry(str(contract_id))
 
 
-def _verify_archived_bytes(root: Path, entry: ArchivedContract) -> None:
-    """The recorded digest is checked before the document is handed out."""
-    if entry.sha256:
-        path = root / entry.archive_path
-        try:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError as exc:
-            raise _fail(f"archived contract {entry.contract_id} at {entry.archive_path} is unreadable: {exc}") from exc
-        if digest != entry.sha256:
-            raise _fail(
-                f"archived contract {entry.contract_id} at {entry.archive_path} does not match its "
-                f"recorded digest (recorded {entry.sha256[:12]}..., found {digest[:12]}...); "
-                "archived bytes are immutable"
-            )
+def _relative_text(root: Path, path: Path) -> str:
+    """A document path as an operator reads it: repo-relative when it is inside the repo."""
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:  # pragma: no cover - a root given relative to a different cwd
+        return path.as_posix()
+
+
+def _verify_recorded_bytes(root: Path, entry: ArchivedContract, path: Path) -> None:
+    """The recorded digest is checked against the exact bytes about to be handed out.
+
+    One function for both documents a recorded lookup may return: the archived copy and a
+    live ``contracts/<id>.yaml`` that still exists for an archived id.  A mapping entry with
+    no recorded ``sha256`` carries nothing to compare against and is not a digest claim.
+    """
+    if not entry.sha256:
+        return
+    try:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise _fail(
+            f"recorded contract {entry.contract_id} at {_relative_text(root, path)} is unreadable: {exc}"
+        ) from exc
+    if digest == entry.sha256:
+        return
+    raise _fail(
+        f"recorded contract {entry.contract_id} at {_relative_text(root, path)} does not match its "
+        f"recorded digest (recorded {entry.sha256[:12]}..., found {digest[:12]}...); the archived "
+        f"bytes at {entry.archive_path} are immutable, and a live copy of an archived id must match "
+        "them before a recorded lookup hands it out"
+    )
 
 
 def _active_path(root: Path, contract_id: str) -> Path | None:
@@ -426,11 +444,18 @@ def resolve_contract_source(
                 return ContractSource(cid, sandbox, SANDBOX)
         raise ContractNotFound(cid)
     active = _active_path(root, cid)
+    if entry is not None:
+        # A recorded id resolves to one byte set: whichever document wins, its bytes are
+        # compared to the mapping's digest before it is handed out.  A live copy of an
+        # archived id is therefore not a way to replay looser terms under a recorded hash.
+        if active is not None:
+            _verify_recorded_bytes(root, entry, active)
+            return ContractSource(cid, active, ACTIVE)
+        archived = root / entry.archive_path
+        _verify_recorded_bytes(root, entry, archived)
+        return ContractSource(cid, archived, ARCHIVE)
     if active is not None:
         return ContractSource(cid, active, ACTIVE)
-    if entry is not None:
-        _verify_archived_bytes(root, entry)
-        return ContractSource(cid, root / entry.archive_path, ARCHIVE)
     if allow_sandbox:
         sandbox = sandbox_contract_path(root, cid)
         if sandbox is not None:

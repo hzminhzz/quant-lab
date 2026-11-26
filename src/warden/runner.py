@@ -446,9 +446,13 @@ class ExperimentRunner:
 
         A compiled sandbox contract (#117) resolves too — registration, spec-status and the
         advance/audit paths read the same document the trial was recorded against, and
-        ``qualify`` is the one gate that refuses the namespace.
+        ``qualify`` is the one gate that refuses the namespace.  A sandbox document is
+        sealed to its artifact here (see :mod:`warden.sandbox_seal`), so an edited YAML is
+        refused instead of executed.
         """
-        return load_recorded_contract(self.repo_root, contract_id, allow_sandbox=True)
+        contract = load_recorded_contract(self.repo_root, contract_id, allow_sandbox=True)
+        self._seal_sandbox_contract(contract)
+        return contract
 
     def resolve_active_contract(self, contract_id: str) -> EvaluationContract:
         """**Active** lookup: refuses an archived contract, naming its archive location.
@@ -456,9 +460,33 @@ class ExperimentRunner:
         A compiled sandbox contract (#117) resolves here on purpose: it may run the ordinary
         pipeline (verify/screen/backtest/advance).  It is not *reusable* (the resolver reads
         only live contracts) and not *qualifiable* (``qualify`` refuses the namespace), so
-        resolving it cannot promote un-promoted evidence.
+        resolving it cannot promote un-promoted evidence.  Its bytes must still be the ones
+        it was compiled with: a sandbox contract is sealed to its artifact before it runs.
         """
-        return load_active_contract(self.repo_root, contract_id, allow_sandbox=True)
+        contract = load_active_contract(self.repo_root, contract_id, allow_sandbox=True)
+        self._seal_sandbox_contract(contract)
+        return contract
+
+    def _seal_sandbox_contract(self, contract: EvaluationContract) -> None:
+        """Refuse a sandbox contract whose document no longer matches its artifact (#117)."""
+        from warden.sandbox_seal import verify_sandbox_contract
+
+        verify_sandbox_contract(
+            self.repo_root,
+            contract,
+            registered_spec_hash=self._registered_spec_hash(contract.contract_id),
+        )
+
+    def _registered_spec_hash(self, contract_id: str) -> str | None:
+        """The contract digest this registry recorded, or ``None`` before first registration."""
+        try:
+            with self.registry._connect() as conn:
+                row = conn.execute(
+                    "SELECT spec_hash FROM contracts WHERE contract_id=?", (str(contract_id),)
+                ).fetchone()
+        except (OSError, sqlite3.Error):  # a projection with no contracts table yet
+            return None
+        return str(row[0]) if row and row[0] else None
 
     def _prepare_and_check_stage0(
         self, contract, hyp, hyp_id, family, strat_module, params, trials_used,

@@ -13,7 +13,7 @@ rewritten, and no lifecycle entry was deleted.
 | Function | Use | Archived id |
 |---|---|---|
 | `load_active_contract` / `resolve_active_contract` | new work: verify, screen, backtest, registration | refused, error names the archive path |
-| `load_recorded_contract` / `resolve_contract` | historical replay of a recorded trial | resolved from the archive, recorded digest checked |
+| `load_recorded_contract` / `resolve_contract` | historical replay of a recorded trial | resolved from the archive; the recorded digest is checked against whichever document is returned (a live copy of an archived id must match it too) |
 | `all_contract_paths` | enumerating every contract in the tree | included, active first |
 | `dataset_manifest_path` | the `contracts/datasets` manifest | falls back to the archive |
 
@@ -27,7 +27,8 @@ trial points at.
 Do not edit a file under `contracts/archive/`, and do not copy one back into
 `contracts/` to "restore" it: promotion is a reviewed edit plus a manifest re-sign, not a
 file move. A corrupt or digest-drifted archive document fails closed rather than reading
-as an empty archive.
+as an empty archive, and a live copy of an archived id is refused unless its bytes still
+match the recorded digest — so copying an edited document back does not replay it.
 
 The archive is covered by the worktree manifest (`warden check-worktree`) alongside the
 live contracts; the archive globs are in both `warden_ops.integrity` and

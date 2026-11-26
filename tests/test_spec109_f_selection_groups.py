@@ -341,7 +341,122 @@ def test_shared_debt_survives_a_reopened_database(tmp_path: Path, venue_policy) 
     assert reopened.selection_group_debt(sandbox)["shared_attempt_count"] == 2
 
 
-# ------------------------------------------------ 3. legacy debt joins the group, unrewritten
+# --------------------------------- 4. the live CLI registration path obeys the policy (A6)
+
+
+def _cli_registration_repo(
+    tmp_path: Path, name: str, contract: EvaluationContract, *, with_policy: bool
+) -> Path:
+    """A minimal signed repo the ``register-hypothesis`` CLI path can run in.
+
+    Only the protected inventory plus the contract and hypothesis are present: no market
+    data, no lifecycle document, no production registry.
+    """
+    import yaml
+
+    from warden_ops.integrity import generate_manifest
+
+    repo = tmp_path / name
+    for rel in (
+        "contracts/datasets",
+        "registry",
+        ".workspace/hypotheses",
+        "experiments/active",
+        "strategies/candidates",
+        "cache/features",
+        "src/warden",
+    ):
+        (repo / rel).mkdir(parents=True, exist_ok=True)
+    (repo / "AGENTS.md").write_text("# f113 fixture\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("[project]\nname='f113'\n", encoding="utf-8")
+    (repo / "uv.lock").write_text("version=1\n", encoding="utf-8")
+    (repo / "contracts" / f"{contract.contract_id.lower()}.yaml").write_text(
+        yaml.safe_dump(contract.to_dict()), encoding="utf-8"
+    )
+    if with_policy:
+        (repo / POLICY_REL).parent.mkdir(parents=True, exist_ok=True)
+        (repo / POLICY_REL).write_text(SYNTHETIC_POLICY, encoding="utf-8")
+    hypothesis = _hypothesis(f"HYP-{contract.contract_id}", contract.contract_id,
+                             "strategies/candidates/f113_cli.py")
+    (repo / ".workspace" / "hypotheses" / f"{hypothesis.hypothesis_id}.yaml").write_text(
+        yaml.safe_dump({name: getattr(hypothesis, name)
+                        for name in hypothesis.__dataclass_fields__}),
+        encoding="utf-8",
+    )
+    # The manifest is fixture-owned: one HMAC over the fixture key, never a production key.
+    content = generate_manifest(repo)
+    (repo / f"{MANIFEST_FILE}.sig").write_text(
+        hmac.digest(FIXTURE_KEY, content.encode(), "sha256").hex() + "\n", encoding="ascii"
+    )
+    return repo
+
+
+def _registered_group(repo: Path, contract_id: str) -> tuple[str, str] | None:
+    with ResearchRegistry(repo / "registry" / "registry.db")._connect() as conn:
+        row = conn.execute(
+            "SELECT selection_group_id, group_source FROM contract_governance "
+            "WHERE contract_id=?", (contract_id,)
+        ).fetchone()
+    return (str(row[0]), str(row[1])) if row else None
+
+
+def test_the_live_registration_path_refuses_a_group_that_contradicts_the_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A trusted policy is authoritative on ``register-hypothesis``, not just in the API."""
+    from warden.cli import main as cli_main
+
+    monkeypatch.setenv("WARDEN_HUMAN_SIGNING_KEY", FIXTURE_KEY.decode())
+    contract = _contract("F113_CLI_TYPO", group="F113_TYPO_GROUP",
+                         spec_version=CURRENT_SPEC_VERSION)
+    repo = _cli_registration_repo(tmp_path, "cli_typo", contract, with_policy=True)
+    monkeypatch.chdir(repo)
+
+    hyp = f".workspace/hypotheses/HYP-{contract.contract_id}.yaml"
+    assert cli_main(["register-hypothesis", hyp, "--json"]) == 2
+    refused = capsys.readouterr().err
+    assert "REFUSED" in refused
+    assert "F113_TYPO_GROUP" in refused and "F113_FX_INTRADAY" in refused
+    # Nothing was recorded: the invention never became a row and never got its own counter.
+    assert _registered_group(repo, contract.contract_id) is None
+
+
+def test_the_live_registration_path_refuses_an_unmapped_domain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from warden.cli import main as cli_main
+
+    monkeypatch.setenv("WARDEN_HUMAN_SIGNING_KEY", FIXTURE_KEY.decode())
+    contract = _contract("F113_CLI_METALS", asset_class="metals", group="F113_METALS",
+                         spec_version=CURRENT_SPEC_VERSION)
+    repo = _cli_registration_repo(tmp_path, "cli_metals", contract, with_policy=True)
+    monkeypatch.chdir(repo)
+
+    hyp = f".workspace/hypotheses/HYP-{contract.contract_id}.yaml"
+    assert cli_main(["register-hypothesis", hyp, "--json"]) == 2
+    refused = capsys.readouterr().err
+    assert "REFUSED" in refused and "'metals'" in refused
+    assert _registered_group(repo, contract.contract_id) is None
+
+
+def test_the_live_registration_path_registers_as_before_without_a_trusted_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No policy installed: today's behaviour, and the row says the group is the contract's."""
+    from warden.cli import main as cli_main
+
+    monkeypatch.setenv("WARDEN_HUMAN_SIGNING_KEY", FIXTURE_KEY.decode())
+    contract = _contract("F113_CLI_DECLARED", group="F113_DECLARED_GROUP",
+                         spec_version=CURRENT_SPEC_VERSION)
+    repo = _cli_registration_repo(tmp_path, "cli_no_policy", contract, with_policy=False)
+    monkeypatch.chdir(repo)
+
+    hyp = f".workspace/hypotheses/HYP-{contract.contract_id}.yaml"
+    assert cli_main(["register-hypothesis", hyp, "--json"]) == 0
+    capsys.readouterr()
+    assert _registered_group(repo, contract.contract_id) == ("F113_DECLARED_GROUP", "contract")
+
+
 
 
 def test_legacy_contract_debt_joins_the_policy_group_without_moving_its_own_scope(

@@ -87,6 +87,9 @@ ARTIFACT_SCHEMA = "spec109.sandbox-artifact.v1"
 
 #: Keys that belong to the signed venue policy.  An agent-supplied value for any of them is
 #: refused *before* the first read: the policy is the evaluator's, not the researcher's.
+#: Only keys the policy actually carries belong here — ``min_expected_move_to_cost_ratio`` is
+#: a contract dataclass default the compiler never sets, so it is refused as a non-knob
+#: rather than described as policy-owned (review B2).
 POLICY_OWNED_KEYS = frozenset(
     {
         "taker_fee_bps",
@@ -94,7 +97,6 @@ POLICY_OWNED_KEYS = frozenset(
         "funding_bps_per_8h",
         "allow_leverage",
         "max_gross_leverage",
-        "min_expected_move_to_cost_ratio",
         "train_start",
         "val_start",
         "val_end",
@@ -218,7 +220,13 @@ ARTIFACT_CONTRACT: dict[str, Any] = {
         "sandbox.policy.sha256": "digest of the signed venue policy injected",
         "sandbox.policy.rules": "the cost/leverage floors the contract was frozen with",
         "sandbox.policy.selection_group_id": "the policy-derived search-debt group",
-        "sandbox.fence": "holdout_start, the grid, the last bar close, and the fence state",
+        "sandbox.fence": (
+            "holdout_start, the grid, the last bar close, the fence state and "
+            "partition_policy (a straddling partition is excluded whole, never sliced)"
+        ),
+        "sandbox.lake.excluded_partitions": (
+            "partitions not read: before the window, at or after the fence, or straddling it"
+        ),
         "sandbox.lake.catalog_identity": "lake catalogue provenance",
         "sandbox.lake.acceptance": "per-store acceptance identity from the catalogue",
         "sandbox.contract_spec_hash": (
@@ -470,11 +478,15 @@ def _store_files(
     fence: datetime,
     declared_first: datetime | None,
     declared_last: datetime | None,
-) -> tuple[list[tuple[PurePosixPath, datetime]], list[str]]:
-    """``([(file, partition start)], excluded partitions)`` for one store.
+) -> tuple[list[tuple[PurePosixPath, datetime]], list[str], list[str]]:
+    """``([(file, partition start)], excluded partitions, fence-straddling partitions)``.
 
     Selection is by *name* first: a partition that begins before ``not_before`` is skipped
-    (a whole file is never sliced), one that ends after the fence is refused outright.
+    (a whole file is never sliced), and a partition that straddles the fence is **dropped
+    whole** — reading it would read holdout bytes, and slicing it is exactly the truncation
+    this compile refuses.  The drop is recorded, never silent (``sandbox.lake.
+    excluded_partitions`` plus ``sandbox.fence.partition_policy``), so a reviewer can see
+    the window a mid-month fence costs.
     """
     store = canonical_source_path(dataset_key, role="lake dataset key")
     if store.suffix == ".parquet":
@@ -491,17 +503,18 @@ def _store_files(
                 f"after the holdout fence {fence.isoformat()}: the partition straddles the fence"
             )
         if declared_last < not_before:
-            return [], [dataset_key]
+            return [], [dataset_key], []
         if declared_first < not_before:
             raise CompileFenceError(
                 f"single-file lake store {dataset_key!r} starts at {declared_first.isoformat()}, "
                 f"before the compiled window start {not_before.isoformat()}: a compile never "
                 "slices a raw file, and reading it whole would reach before the window"
             )
-        return [(store, declared_first)], []
+        return [(store, declared_first)], [], []
 
     readable: list[tuple[PurePosixPath, datetime]] = []
     excluded: list[str] = []
+    straddling: list[str] = []
     for base, values in _leaf_partitions(fs, store, {}):
         bounds = _partition_bounds(values)
         if bounds is None:
@@ -516,11 +529,11 @@ def _store_files(
             excluded.append(base.as_posix())
             continue
         if start < fence < end:
-            raise CompileFenceError(
-                f"lake partition {base.as_posix()!r} spans [{start.isoformat()}, {end.isoformat()}) "
-                f"and straddles the holdout fence {fence.isoformat()}: reading it would read "
-                "holdout bytes, and slicing it silently is the truncation this compile refuses"
-            )
+            # Straddles: dropped whole and recorded.  Nothing at or after the fence is read,
+            # so causality is unchanged; the cost is up to one partition of window.
+            excluded.append(base.as_posix())
+            straddling.append(base.as_posix())
+            continue
         names = fs.list_dir(base)
         files = sorted(
             name for name in names if name.endswith(".parquet") and not name.startswith((".", "_"))
@@ -529,7 +542,7 @@ def _store_files(
             excluded.append(base.as_posix())
             continue
         readable.extend((base / name, start) for name in files)
-    return readable, excluded
+    return readable, excluded, straddling
 
 
 def _catalogue_provenance(
@@ -642,6 +655,9 @@ This namespace does **not** qualify.  Enforced by Warden:
   so a Stage 3 verdict is `NON_PROMOTABLE`: observed market history, no attested origin.
 - Production wins a name clash: `contracts/<id>.yaml` is always resolved before
   `{SANDBOX_CONTRACTS_DIR}/<id>.yaml`.
+- A sandbox contract is **sealed to its artifact**: register, verify, screen, backtest and
+  advance re-check its costs, leverage, fences, mechanics and dataset pin against the
+  compile-time manifest and the signed policy, and refuse an edited document (exit 2).
 - `warden qualify` hard-refuses any contract resolved from this namespace.  Promotion into
   `contracts/` + `contracts/datasets/`, plus the human re-sign, is a separate step.
 - Each artifact is write-once: the Parquet digest, the raw-input Merkle root, the policy
@@ -705,7 +721,7 @@ def _plan(
         key = str(entry["dataset_key"])
         dataset_keys[symbol] = key
         declared_first, declared_last = _declared_span(lake_root, key)
-        readable, skipped = _store_files(
+        readable, skipped, straddled = _store_files(
             fs,
             key,
             not_before=requested_start,
@@ -714,6 +730,13 @@ def _plan(
             declared_last=declared_last,
         )
         if not readable:
+            if straddled:
+                raise CompileFenceError(
+                    f"lake store {key!r} has no usable partition inside "
+                    f"[{requested_start.isoformat()}, {fence.isoformat()}) after excluding the "
+                    f"partition(s) that straddle the holdout fence {fence.isoformat()}: "
+                    f"{straddled}; nothing is emitted rather than reading or slicing them"
+                )
             raise _no_inputs(key, requested_start, fence)
         per_symbol[symbol] = readable
         starts[symbol] = min(start for _, start in readable)
@@ -727,6 +750,19 @@ def _plan(
         raise CompileFenceError(
             f"the first readable partition starts at {window_start.isoformat()}, off the "
             f"{requirement.frequency} bar grid; a compile refuses to relabel a bar"
+        )
+    # The contract's dates come from the policy while the data starts at the first whole
+    # partition that every store carries, so the *achieved* start must be reconciled with
+    # ``val_start`` too — ``_window`` only compared the requested one.  A window that begins
+    # at or after ``val_start`` publishes an artifact with no training bar at all.
+    first_training_close = window_start + _interval(requirement.frequency)
+    if first_training_close > policy.val_start:
+        raise CompileRefused(
+            f"the compiled window starts at {window_start.isoformat()} (the first whole input "
+            f"partition at or after min_start {requirement.min_start.isoformat()}), and its "
+            f"first {requirement.frequency} bar closes at {first_training_close.isoformat()}, "
+            f"after the policy val_start {policy.val_start.isoformat()}: the artifact would "
+            "hold no training bar before validation"
         )
     inputs: list[PurePosixPath] = []
     for symbol, entries in per_symbol.items():
@@ -901,6 +937,10 @@ def _plan(
             "bar_interval_seconds": int(_interval(requirement.frequency).total_seconds()),
             "grid": "utc_left_closed_left_labelled",
             "rule": "every emitted bar closes at or before holdout_start",
+            # A lake partition that straddles the fence is dropped whole (never read, never
+            # sliced) and named in `lake.excluded_partitions`; a fence that would leave no
+            # usable partition refuses instead of emitting a partial window.
+            "partition_policy": "exclude_straddling_partition",
             # `dataset.last_bar' + `bar_interval_seconds' is the last bar's close: a promotion
             # re-derives it instead of trusting a second copy of the same fact.
             "fence_satisfied": True,
@@ -1147,9 +1187,9 @@ def compile_data_requirement(
     repo_root: Path | str = ".",
     parquet_reader: Any,
     lake_root: Path | str | None = None,
-    policy: VenuePolicy | None = None,
     overrides: Mapping[str, Any] | None = None,
     report: ResolutionReport | None = None,
+    allow_superset: bool = False,
 ) -> CompiledArtifact:
     """Compile one resolved requirement into a write-once fenced sandbox artifact.
 
@@ -1157,6 +1197,12 @@ def compile_data_requirement(
     read, then the policy is authenticated, then window/fence arithmetic is decided, then
     the readable partitions are chosen by name — and only after all of that is the first
     raw byte read or the first file created.
+
+    The *only* policy this accepts is the repository's signed one, loaded and digested by
+    :func:`_trusted_policy`.  There is deliberately no ``policy=`` parameter: a
+    ``VenuePolicy`` is a plain frozen dataclass with a caller-supplied ``sha256`` and
+    unvalidated rules, so a caller-supplied object would carry the signed policy's
+    authority without its HMAC, its manifest entry or its digest.
 
     Raises:
         CompileRefused: the request itself is refused (override, untrusted policy, input).
@@ -1170,7 +1216,7 @@ def compile_data_requirement(
     _refuse_overrides(overrides)
 
     resolved = report or resolve_data_requirement(
-        req, repo_root=root, lake_root=lake_root, policy=policy
+        req, repo_root=root, lake_root=lake_root, allow_superset=allow_superset
     )
     if resolved.decision == DECISION_FAIL_CLOSED:
         raise CompileGap(resolved)
@@ -1181,7 +1227,7 @@ def compile_data_requirement(
     if resolved.requirement != req:  # pragma: no cover - defensive
         raise CompileRefused("the resolution report describes a different requirement")
 
-    venue = policy or _trusted_policy(root, resolved)
+    venue = _trusted_policy(root, resolved)
     plan = _plan(req, resolved, venue, root)
 
     existing = _existing_artifact(root, plan)

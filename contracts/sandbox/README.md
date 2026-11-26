@@ -14,6 +14,9 @@ This namespace does **not** qualify.  Enforced by Warden:
   so a Stage 3 verdict is `NON_PROMOTABLE`: observed market history, no attested origin.
 - Production wins a name clash: `contracts/<id>.yaml` is always resolved before
   `contracts/sandbox/<id>.yaml`.
+- A sandbox contract is **sealed to its artifact**: register, verify, screen, backtest and
+  advance re-check its costs, leverage, fences, mechanics and dataset pin against the
+  compile-time manifest and the signed policy, and refuse an edited document (exit 2).
 - `warden qualify` hard-refuses any contract resolved from this namespace.  Promotion into
   `contracts/` + `contracts/datasets/`, plus the human re-sign, is a separate step.
 - Each artifact is write-once: the Parquet digest, the raw-input Merkle root, the policy

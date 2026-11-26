@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -33,6 +34,7 @@ import yaml
 
 from warden.compile import (
     ARTIFACT_CONTRACT,
+    POLICY_OWNED_KEYS,
     CompileFenceError,
     CompileGap,
     CompileRefused,
@@ -389,8 +391,14 @@ def test_a_fence_that_straddles_one_bar_is_refused_not_truncated(workspace, monk
     assert _tree(repo) == before
 
 
-def test_a_store_partition_that_straddles_the_fence_is_refused(tmp_path, monkeypatch) -> None:
-    """A monthly partition covering the fence cannot be sliced: the compile refuses."""
+def test_a_store_partition_that_straddles_the_fence_is_dropped_and_nothing_is_left(
+    tmp_path, monkeypatch
+) -> None:
+    """A monthly partition covering the fence is never sliced: dropped whole.
+
+    Here it is the only partition in the window, so dropping it leaves nothing to compile
+    and the refusal names the excluded partition (review B8).
+    """
     repo = tmp_path / "repo"
     repo.mkdir()
     lake = _lake(tmp_path / "lake", partitions=("year=2021/month=01",))
@@ -398,7 +406,174 @@ def test_a_store_partition_that_straddles_the_fence_is_refused(tmp_path, monkeyp
     before = _tree(repo)
     with pytest.raises(CompileFenceError) as caught:
         _compile(repo, lake)
-    assert "year=2021/month=01" in str(caught.value)
+    message = str(caught.value)
+    assert "year=2021/month=01" in message
+    assert "straddle" in message and "no usable partition" in message
+    assert _tree(repo) == before
+
+
+def test_a_mid_month_fence_excludes_the_straddling_partition_and_records_it(
+    tmp_path, monkeypatch
+) -> None:
+    """Review B8: a fence inside a month/daily partition now compiles, minus that partition.
+
+    Nothing at or after the fence is read (the partition is dropped by name), the exclusion
+    is recorded in the manifest, and the post-aggregate proof still holds: the last emitted
+    bar closes before the fence.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake", days=("01", "02", "03", "04"))
+    midpoint = datetime(2021, 1, 4, 12, tzinfo=UTC)
+    _policy(
+        repo,
+        monkeypatch,
+        POLICY.replace("holdout_start: '2021-01-04T00:00:00Z'",
+                       "holdout_start: '2021-01-04T12:00:00Z'"),
+    )
+
+    artifact = _compile(repo, lake)
+
+    manifest = json.loads((repo / artifact.manifest_path).read_text(encoding="utf-8"))
+    sandbox = manifest["sandbox"]
+    assert sandbox["fence"]["partition_policy"] == "exclude_straddling_partition"
+    excluded = sandbox["lake"]["excluded_partitions"]
+    assert any(path.endswith("day=04") for path in excluded)
+    # No byte of the straddling partition was read, and no bar is emitted from it.
+    assert all("day=04" not in record["path"] for record in manifest["raw_inputs"])
+    frame = pl.read_parquet(repo / artifact.parquet_path)
+    assert frame["timestamp"].max() == datetime(2021, 1, 3, 23, tzinfo=UTC)
+    assert _at(artifact.last_bar_close) < midpoint
+    assert _at(manifest["sandbox"]["window"]["compiled_start_inclusive"]) == START
+    # The window is the whole pre-fence data: only the straddling day is missing.
+    assert frame["timestamp"].min() == START
+
+
+def test_a_raw_row_at_or_after_the_fence_is_counted_and_refused(workspace) -> None:
+    """The raw-frame guard is the first fence proof: a partition *name* inside the window
+    is not proof of its rows.
+
+    ``day=03`` is a lawful input (its name ends exactly at the fence), but a real leak looks
+    like rows that reach past it.  The guard counts those rows and refuses before the gate
+    aggregates anything.
+    """
+    repo, lake = workspace
+    part = lake / "forex_minute_EURUSD" / "year=2021/month=01/day=03" / "part-0.parquet"
+    frame = pl.read_parquet(part)
+    last = frame.tail(1)
+    spilled = pl.concat(
+        [
+            last.with_columns(pl.col("timestamp") + timedelta(minutes=1)),  # exactly the fence
+            last.with_columns(pl.col("timestamp") + timedelta(minutes=6)),  # past it
+        ]
+    )
+    assert spilled["timestamp"].to_list() == [FENCE, FENCE + timedelta(minutes=5)]
+    pl.concat([frame, spilled]).write_parquet(part)
+
+    with pytest.raises(CompileFenceError) as caught:
+        _compile(repo, lake)
+    message = str(caught.value)
+    assert "2 raw input rows" in message
+    assert FENCE.isoformat() in message
+    # Refused before publication: no Parquet, no contract, no manifest.
+    assert not list((repo / "data" / "exploratory").rglob("*.parquet"))
+    assert not list((repo / "contracts" / "sandbox").glob("*.yaml"))
+    assert not list((repo / "contracts" / "sandbox" / "datasets").glob("*.json"))
+
+
+def test_a_published_bar_that_closes_after_the_fence_is_withdrawn(workspace, monkeypatch) -> None:
+    """Backstop proof for the post-aggregate fence check, including its withdrawal.
+
+    A lawful raw frame cannot reach this branch: the fence is required to sit on the bar
+    grid and buckets are left-closed and epoch-aligned, so the last bucket that starts
+    before the fence closes at or before it.  The builder seam is therefore replaced by one
+    that publishes exactly what a leak would publish — one Parquet, one manifest and a bar
+    *labelled at* the fence — and the compile must withdraw both files and refuse.
+    """
+    from types import SimpleNamespace
+
+    import warden.compile as compile_module
+
+    repo, lake = workspace
+    published: list[Path] = []
+
+    def leaking_build(spec, **kwargs):
+        parquet = Path(kwargs["repo_root"]) / kwargs["dataset_dir"] / f"{spec.dataset_id}.parquet"
+        manifest = (
+            Path(kwargs["repo_root"]) / kwargs["manifest_dir"] / f"{kwargs['manifest_name']}.json"
+        )
+        compile_module._create_exclusive(parquet, b"leaked-parquet-bytes")
+        compile_module._create_exclusive(
+            manifest,
+            json.dumps(
+                {
+                    "sha256": hashlib.sha256(b"leaked-parquet-bytes").hexdigest(),
+                    "spec_sha256": spec.spec_sha256(),
+                    "raw_inputs_merkle_sha256": "0" * 64,
+                    "dataset": {
+                        "last_bar": FENCE.isoformat(),
+                        "first_bar": START.isoformat(),
+                        "rows": 24,
+                        "assets": ["EURUSD"],
+                        "frequency": "1h",
+                        "price_basis": "ohlcv",
+                    },
+                    "sandbox": {
+                        "policy": {"sha256": "0" * 64, "selection_group_id": "TEST_FX_INTRADAY"},
+                        "fence": {"holdout_start": FENCE.isoformat()},
+                        "window": {"compiled_start_inclusive": START.isoformat()},
+                        "resampling": {"source_frequency": "1m"},
+                        "lake": {},
+                    },
+                }
+            ).encode("utf-8"),
+        )
+        published.extend([parquet, manifest])
+        return SimpleNamespace(
+            parquet_sha256=hashlib.sha256(b"leaked-parquet-bytes").hexdigest(),
+            rows=24,
+            first_bar=START.isoformat(),
+            last_bar=FENCE.isoformat(),
+        )
+
+    monkeypatch.setattr(compile_module, "build_dataset", leaking_build)
+    with pytest.raises(CompileFenceError) as caught:
+        _compile(repo, lake)
+    message = str(caught.value)
+    assert "closes at" in message and "after the holdout fence" in message
+    assert len(published) == 2
+    # The just-written evidence is withdrawn: a refused compile leaves no artifact behind.
+    assert [path.exists() for path in published] == [False, False]
+    assert not list((repo / "contracts" / "sandbox").glob("*.yaml"))
+
+
+def test_a_window_that_leaves_no_training_bar_before_val_start_is_refused(
+    tmp_path, monkeypatch
+) -> None:
+    """Review B3: the *achieved* window start is reconciled with ``val_start``.
+
+    The policy's ``val_start`` is checked against the requested ``min_start`` before any
+    read, but not against the window the store can actually serve.  Here the earliest
+    partition is missing (a stale ``.metadata`` record still declares a first bar on
+    2021-01-01), so the compiled window would begin at 2021-01-02 — exactly ``val_start``,
+    with no training bar at all.
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake")
+    shutil.rmtree(lake / "forex_minute_EURUSD" / "year=2021" / "month=01" / "day=01")
+    metadata = json.loads(
+        (lake / ".metadata" / "forex_minute_EURUSD.json").read_text(encoding="utf-8")
+    )
+    assert metadata["first_timestamp"].startswith("2021-01-01")  # stale, and unknowable here
+    _policy(repo, monkeypatch)
+    before = _tree(repo)
+
+    with pytest.raises(CompileRefused) as caught:
+        _compile(repo, lake)
+    message = str(caught.value)
+    assert "2021-01-02T00:00:00+00:00" in message
+    assert "val_start" in message and "no training bar" in message
     assert _tree(repo) == before
 
 
@@ -522,6 +697,79 @@ def test_an_agent_supplied_policy_override_is_refused_before_any_write(workspace
     assert key in str(caught.value)
     assert "signed venue policy" in str(caught.value)
     assert _tree(repo) == before
+
+
+def test_a_caller_supplied_policy_object_is_not_a_compile_input(tmp_path) -> None:
+    """Review A1: the only policy path is the signed one.
+
+    ``VenuePolicy`` is a plain frozen dataclass with a caller-supplied ``sha256`` and
+    unvalidated rules, so a ``policy=`` seam lets an agent publish a contract whose costs,
+    leverage and selection group no signed document ever declared.  The seam is gone:
+    passing one is a ``TypeError``, never a compile.
+    """
+    from warden.market_data import read_parquet_bytes
+    from warden_ops.venue_policy import VenuePolicy, VenueRules
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake")
+    # No policy exists in this repo: no YAML, no manifest entry, no signature.
+    forged = VenuePolicy(
+        train_start=START,
+        val_start=datetime(2021, 1, 2, tzinfo=UTC),
+        val_end=FENCE,
+        holdout_start=FENCE,
+        holdout_end=datetime(2021, 2, 1, tzinfo=UTC),
+        sha256="0" * 64,
+        _rules={
+            ("fx", "intraday"): VenueRules(
+                taker_fee_bps=0.001,
+                slippage_bps=0.001,
+                funding_bps_per_8h=0.0,
+                allow_leverage=True,
+                max_gross_leverage=50.0,
+                selection_group_id="AGENT_GROUP",
+            )
+        },
+    )
+    with pytest.raises(TypeError) as caught:
+        compile_data_requirement(
+            _requirement(),
+            repo_root=repo,
+            lake_root=lake,
+            parquet_reader=read_parquet_bytes,
+            policy=forged,
+        )
+    assert "policy" in str(caught.value)
+    assert not (repo / "contracts").exists() and not (repo / "data").exists()
+    # Without any seam the same request is refused: no signed policy, no compile.
+    with pytest.raises(CompileRefused) as refused:
+        _compile(repo, lake)
+    assert "policy" in str(refused.value).lower()
+    assert not (repo / "contracts").exists() and not (repo / "data").exists()
+
+
+def test_a_research_mechanic_is_not_named_as_policy_owned(workspace) -> None:
+    """Review B2: ``POLICY_OWNED_KEYS`` names only what the policy actually owns.
+
+    ``min_expected_move_to_cost_ratio`` is a contract dataclass default (2.5) that the
+    compiler never sets and the signed policy has no field for, so listing it as
+    policy-owned was a false claim in the refusal message.  An override is still refused —
+    it is not a compile knob — and the compiled contract keeps the dataclass default.
+    """
+    from warden.contracts import load_contract
+
+    repo, lake = workspace
+    assert "min_expected_move_to_cost_ratio" not in POLICY_OWNED_KEYS
+    with pytest.raises(CompileRefused) as caught:
+        _compile(repo, lake, overrides={"min_expected_move_to_cost_ratio": 1.0})
+    message = str(caught.value)
+    assert "min_expected_move_to_cost_ratio" in message
+    assert "not compile knobs" in message
+    assert "belong to the signed venue policy" not in message
+
+    artifact = _compile(repo, lake)
+    assert load_contract(repo / artifact.contract_path).min_expected_move_to_cost_ratio == 2.5
 
 
 def test_an_untrusted_policy_refuses_and_writes_nothing(tmp_path, monkeypatch) -> None:
@@ -657,6 +905,34 @@ def test_cli_compile_publishes_and_reports_json(workspace, monkeypatch, capsys) 
                      "--lake-root", str(lake), "--json"]) == 0
     assert _last_json(capsys)["value"]["reused"] is True
     assert _tree(repo) == before
+
+
+def test_cli_compile_passes_allow_superset_and_no_caller_policy(workspace, monkeypatch, capsys) -> None:
+    """Review A5/A1: the flag reaches the compiler, and no policy object does."""
+    import warden.compile as compile_module
+    from warden.cli import main as cli_main
+
+    repo, lake = workspace
+    monkeypatch.chdir(repo)
+    seen: dict = {}
+
+    def capture(requirement, **kwargs):
+        seen.update(kwargs)
+        raise compile_module.CompileRefused("captured for the kwargs assertion")
+
+    monkeypatch.setattr(compile_module, "compile_data_requirement", capture)
+    code = cli_main(["data", "compile", "--requirement", json.dumps(_requirement()),
+                     "--lake-root", str(lake), "--allow-superset", "--json"])
+    assert code == 2
+    assert seen["allow_superset"] is True
+    assert seen["lake_root"] == str(lake)
+    # A1: the compile is never handed a policy object; it loads the signed one itself.
+    assert "policy" not in seen
+
+    seen.clear()
+    assert cli_main(["data", "compile", "--requirement", json.dumps(_requirement()),
+                     "--lake-root", str(lake), "--json"]) == 2
+    assert seen["allow_superset"] is False
 
 
 def test_cli_compile_refuses_an_override_before_writing(workspace, monkeypatch, capsys) -> None:
@@ -888,6 +1164,103 @@ def test_two_sandbox_contracts_in_one_group_share_persisted_selection_debt(
         load_active_contract(repo, second.contract_id, allow_sandbox=True),
         simulation_epoch=ENGINE_SIMULATION_EPOCH,
     )["shared_attempt_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# 7b. a compiled sandbox contract is sealed to its artifact (review A4)
+# ---------------------------------------------------------------------------
+
+
+def _edit_contract(path: Path, **fields) -> None:
+    """Rewrite one field of a compiled sandbox contract, exactly as an agent could."""
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    document.update(fields)
+    path.write_text(yaml.safe_dump(document, sort_keys=True), encoding="utf-8")
+
+
+def _contract_rows(repo: Path) -> int:
+    from warden.registry import ResearchRegistry
+
+    with ResearchRegistry(repo / "registry" / "registry.db")._connect() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM contracts").fetchone()[0])
+
+
+def test_a_sandbox_contract_with_edited_costs_never_registers(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """Editing the YAML before the first registration is refused, not recorded.
+
+    The registry cannot catch this on its own: it records whatever document registers
+    first, so a compile-time field comparison against the artifact manifest is what closes
+    the gap.
+    """
+    from warden.cli import main as cli_main
+
+    repo, _lake_root, (artifact,) = _sandbox_workspace(
+        tmp_path, monkeypatch, baskets=(("EURUSD",),)
+    )
+    monkeypatch.chdir(repo)
+    _edit_contract(repo / artifact.contract_path, taker_fee_bps=0.001, slippage_bps=0.001)
+
+    hypothesis = _hypothesis_file(repo, artifact.contract_id, "HYP-TAMPER-COSTS")
+    assert cli_main(["register-hypothesis", str(hypothesis), "--json"]) == 2
+    refused = capsys.readouterr().err
+    assert "REFUSED" in refused
+    assert "taker_fee_bps" in refused and "slippage_bps" in refused
+    assert _contract_rows(repo) == 0
+
+
+def test_a_sandbox_contract_with_edited_leverage_is_refused_at_verify_and_advance(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """An edit after registration is refused too: verify and advance both exit 2."""
+    from warden.cli import main as cli_main
+
+    repo, _lake_root, (artifact,) = _sandbox_workspace(
+        tmp_path, monkeypatch, baskets=(("EURUSD",),)
+    )
+    monkeypatch.chdir(repo)
+    hypothesis = _hypothesis_file(repo, artifact.contract_id, "HYP-TAMPER-LEVERAGE")
+    assert cli_main(["register-hypothesis", str(hypothesis), "--json"]) == 0
+    capsys.readouterr()
+
+    _edit_contract(
+        repo / artifact.contract_path, allow_leverage=True, max_gross_leverage=1.0
+    )
+    spec = _experiment_spec(repo, artifact.contract_id, "HYP-TAMPER-LEVERAGE")
+    assert cli_main(["verify", str(spec), "--json"]) == 2
+    refused = capsys.readouterr()
+    assert "REFUSED" in refused.err
+    assert "allow_leverage" in refused.err and "max_gross_leverage" in refused.err
+
+    assert cli_main(["advance", str(spec), "--json"]) == 2
+    assert "REFUSED" in capsys.readouterr().err
+    # No trial was recorded under the edited contract.
+    from warden.registry import ResearchRegistry
+
+    with ResearchRegistry(repo / "registry" / "registry.db")._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0] == 0
+
+
+def test_an_honest_sandbox_artifact_passes_the_seal(workspace) -> None:
+    """Control: the seal accepts the bytes the compile published, unedited."""
+    from warden.contracts import load_contract
+    from warden.sandbox_seal import verify_sandbox_contract
+
+    repo, lake = workspace
+    artifact = _compile(repo, lake)
+    record = verify_sandbox_contract(repo, load_contract(repo / artifact.contract_path))
+    assert record["sandbox"]["contract_id"] == artifact.contract_id
+    assert record["sandbox"]["policy"]["rules"]["taker_fee_bps"] == 0.6
+    # A live (non-sandbox) contract is not this module's business.
+    assert verify_sandbox_contract(repo, load_contract(REPO_CONTRACT)) == {}
+
+
+# A contract document the repository ships, used only to prove the seal skips non-sandbox
+# contracts (it is never executed here).
+REPO_CONTRACT = (
+    Path(__file__).resolve().parents[1] / "contracts" / "crypto_perps_1h_v2.yaml"
+)
 
 
 # ---------------------------------------------------------------------------

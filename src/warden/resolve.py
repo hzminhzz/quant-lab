@@ -624,8 +624,17 @@ def resolve_data_requirement(
     repo_root: Path | str = ".",
     lake_root: Path | str | None = None,
     policy: VenuePolicy | None = None,
+    allow_superset: bool = False,
 ) -> ResolutionReport:
     """Resolve one requirement against active signed contracts and the lake.
+
+    ``allow_superset=False`` (the default) reuses a signed contract only when its declared
+    basket is *exactly* the required symbols.  A superset candidate is reported — the
+    contract, the extra symbols and the drop set — but it never counts as ``reuse_signed``:
+    a strategy would otherwise run on a wider universe than it declared (and an ``fx``
+    thesis could silently receive a basket that includes a metal).  Pass
+    ``allow_superset=True`` to accept the smallest such contract; the drop set stays in the
+    report so the caller still narrows its panel.
 
     Read-only by construction: it opens contracts, their dataset manifests and the
     lake catalogue/metadata, and returns a report.  It never constructs the registry,
@@ -710,25 +719,47 @@ def resolve_data_requirement(
 
     if eligible:
         eligible.sort(key=lambda c: (len(c["symbols"]) - len(required), c["contract_id"]))
-        chosen = eligible[0]
-        exact = sorted(chosen["symbols"]) == sorted(required)
-        return ResolutionReport(
-            requirement=req,
-            decision=DECISION_REUSE_SIGNED,
-            reason="exact_signed_match" if exact else "superset_signed_match",
-            lake=lake_payload,
-            policy=policy_document,
-            selection_group_id=group,
-            selection_group_source="policy" if group else "none",
-            resample=resample,
-            matched_contract=chosen,
-            available_symbols=tuple(chosen["symbols"]),
-            missing_symbols=(),
-            symbols_to_drop=tuple(sorted(set(chosen["symbols"]) - set(required))),
-            earliest_common_start=chosen["first_bar"],
-            shortfall_start=None,
-            rejected_candidates=tuple(rejected),
-        )
+        exact_matches = [c for c in eligible if sorted(c["symbols"]) == sorted(required)]
+        supersets = [c for c in eligible if sorted(c["symbols"]) != sorted(required)]
+        if exact_matches or allow_superset:
+            chosen = (exact_matches or supersets)[0]
+            exact = bool(exact_matches)
+            return ResolutionReport(
+                requirement=req,
+                decision=DECISION_REUSE_SIGNED,
+                reason="exact_signed_match" if exact else "superset_signed_match",
+                lake=lake_payload,
+                policy=policy_document,
+                selection_group_id=group,
+                selection_group_source="policy" if group else "none",
+                resample=resample,
+                matched_contract=chosen,
+                available_symbols=tuple(chosen["symbols"]),
+                missing_symbols=(),
+                symbols_to_drop=tuple(sorted(set(chosen["symbols"]) - set(required))),
+                earliest_common_start=chosen["first_bar"],
+                shortfall_start=None,
+                rejected_candidates=tuple(rejected),
+            )
+        # A superset is a *wider universe than declared*, so it is not reuse until the caller
+        # asks for it.  Each candidate is reported with its drop set, and the smallest one's
+        # drop set stays on the report, so opting in later is one flag and no re-derivation.
+        for candidate in supersets:
+            rejected.append(
+                {
+                    "contract_id": candidate["contract_id"],
+                    "reason": (
+                        f"superset_requires_opt_in: contract carries "
+                        f"{len(candidate['symbols'])} symbols for a {len(required)}-symbol "
+                        "requirement; re-resolve with allow_superset (--allow-superset) to "
+                        "reuse it and drop the extras"
+                    ),
+                    "symbols_to_drop": sorted(set(candidate["symbols"]) - set(required)),
+                }
+            )
+        superset_drop = tuple(sorted(set(supersets[0]["symbols"]) - set(required)))
+    else:
+        superset_drop = ()
 
     missing = tuple(sorted(s for s in required if s not in lake.symbols))
     if not lake.available:
@@ -757,7 +788,7 @@ def resolve_data_requirement(
     return ResolutionReport(
         requirement=req,
         decision=DECISION_COMPILE_REQUIRED,
-        reason="no_matching_contract",
+        reason="superset_requires_opt_in" if superset_drop else "no_matching_contract",
         lake=lake_payload,
         policy=policy_document,
         selection_group_id=group,
@@ -766,7 +797,7 @@ def resolve_data_requirement(
         matched_contract=None,
         available_symbols=required,
         missing_symbols=(),
-        symbols_to_drop=(),
+        symbols_to_drop=superset_drop,
         earliest_common_start=common_start,
         shortfall_start=None,
         rejected_candidates=tuple(rejected),

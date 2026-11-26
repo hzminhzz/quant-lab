@@ -44,9 +44,11 @@ def qualify_candidate(
     from warden.contract_source import is_sandbox_contract
 
     reg = runner.registry
-    # Namespace refusal first: a compiled sandbox artifact (#117) never reaches a holdout
-    # claim, an eligibility verdict or a 500-line replay.  Promotion into ``contracts/`` and
-    # the human re-sign are a separate, human-only step; this gate stays shut until then.
+    # The namespace refusal's only ledger act is one read of the run's contract id — there
+    # is no other way to learn which namespace a run belongs to.  Everything *after* that
+    # read is what it guarantees: no holdout claim, no eligibility verdict, no holdout stat
+    # and no replay.  Promotion into ``contracts/`` and the human re-sign are a separate,
+    # human-only step; this gate stays shut until then.
     with reg._connect() as conn:
         sandbox_row = conn.execute(
             "SELECT contract_id FROM trials WHERE run_id = ?", (run_id,)

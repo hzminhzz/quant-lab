@@ -681,16 +681,27 @@ class ResearchRegistry:
     # -- registration -------------------------------------------------------
 
     @staticmethod
-    def _venue_policy(venue_policy=None, repo_root=None):
-        """Resolve the policy object a registration must obey (``None`` = pre-#113 path)."""
+    def _venue_policy(venue_policy=None, repo_root=None, *, optional: bool = False):
+        """Resolve the policy object a registration must obey (``None`` = pre-#113 path).
+
+        ``optional`` is the live-registration posture: the CLI path must not refuse a
+        registration merely because no policy is installed yet, so an untrusted repo policy
+        becomes ``None`` and registration keeps its historical behaviour.  Every other
+        caller keeps the fail-closed error.
+        """
         if venue_policy is not None and repo_root is not None:
             raise ValueError("pass venue_policy or repo_root, not both")
         if venue_policy is not None:
             return venue_policy
         if repo_root is not None:
-            from warden_ops.venue_policy import load_venue_policy
+            from warden_ops.venue_policy import VenuePolicyError, load_venue_policy
 
-            return load_venue_policy(Path(repo_root))
+            try:
+                return load_venue_policy(Path(repo_root))
+            except VenuePolicyError:
+                if optional:
+                    return None
+                raise
         return None
 
     @staticmethod
@@ -703,12 +714,15 @@ class ResearchRegistry:
             cadence = ""
         return f"asset class {contract.asset_class!r}{cadence} (frequency {contract.frequency!r})"
 
-    def _selection_group_for(self, contract, policy, *, require_new: bool) -> tuple[str, str]:
+    def _selection_group_for(
+        self, contract, policy, *, require_new: bool, declared_source: str = "declared"
+    ) -> tuple[str, str]:
         """``(group, source)`` a registration must record; fails closed (#113).
 
-        ``source`` is ``"declared"`` (the contract's own v2 governance block, or an
-        unpolicy-mapped legacy contract's absence of one) or ``"policy"`` (the signed
-        venue policy's mandatory mapping).  When a policy is supplied the policy is
+        ``source`` is ``declared_source`` (the contract's own v2 governance block, or an
+        unpolicy-mapped legacy contract's absence of one), ``"contract"`` on the live
+        registration path when no policy is trusted, or ``"policy"`` (the signed venue
+        policy's mandatory mapping).  When a policy is supplied the policy is
         authoritative: an unmapped domain is refused with the domain named, and a
         declaration that contradicts it is refused rather than re-homed.
         """
@@ -738,9 +752,11 @@ class ResearchRegistry:
             raise ContractSelectionGroupError(
                 f"{contract.contract_id} declares no selection_group_id for {self._domain(contract)} "
                 "and no venue policy was supplied to derive one")
-        return declared, ("declared" if declared else "")
+        return declared, (declared_source if declared else "")
 
-    def register_contract(self, contract, *, venue_policy=None, repo_root=None) -> dict:
+    def register_contract(
+        self, contract, *, venue_policy=None, repo_root=None, policy_optional: bool = False
+    ) -> dict:
         """Register a contract idempotently, recording its selection group (#113).
 
         Pass ``venue_policy`` (a :class:`warden_ops.venue_policy.VenuePolicy`) or
@@ -751,12 +767,24 @@ class ResearchRegistry:
         v2 contract keeps its own mandatory declaration.  New contracts belong on
         :meth:`register_new_contract`, which requires the policy.
 
+        ``policy_optional=True`` is the live-registration posture for the CLI path: the
+        policy at ``repo_root`` is used when it is trusted, and an absent/untrusted one
+        falls back to the contract's own declaration (recorded as
+        ``group_source="contract"``) instead of refusing the registration.  It is *not*
+        a way to skip the policy once one is installed — a trusted policy is always
+        authoritative, so a contradicting or unmapped domain is still refused.
+
         Returns the recorded registration (``contract_id``, ``spec_hash``,
         ``selection_group_id``, ``inherits_selection_from``, ``group_source``,
         ``created``).
         """
-        return self._register_contract(contract, self._venue_policy(venue_policy, repo_root),
-                                       require_new=False)
+        policy = self._venue_policy(venue_policy, repo_root, optional=policy_optional)
+        return self._register_contract(
+            contract,
+            policy,
+            require_new=False,
+            declared_source="contract" if policy_optional and policy is None else "declared",
+        )
 
     def register_new_contract(self, contract, *, venue_policy=None, repo_root=None) -> dict:
         """Register a *new* contract under the signed venue policy's sole authority.
@@ -769,8 +797,12 @@ class ResearchRegistry:
         return self._register_contract(contract, self._venue_policy(venue_policy, repo_root),
                                        require_new=True)
 
-    def _register_contract(self, contract, policy, *, require_new: bool) -> dict:
-        group, source = self._selection_group_for(contract, policy, require_new=require_new)
+    def _register_contract(
+        self, contract, policy, *, require_new: bool, declared_source: str = "declared"
+    ) -> dict:
+        group, source = self._selection_group_for(
+            contract, policy, require_new=require_new, declared_source=declared_source
+        )
         inherit = contract.governance.inherits_selection_from
         spec_version = contract.governance.spec_version
         with self._connect() as conn:

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "observation": "after final engineering verification; before source integration",
+  "before_head": "b1322ff996b0e31dfd6ac8576f59f1dd063e557b",
+  "after_head": "b1322ff996b0e31dfd6ac8576f59f1dd063e557b",
+  "changed_fields": [],
+  "source_files": 1368,
+  "source_sha256": "cfaa5e51fdbc71d95187e7245fdd55c9dd06b0f58c182f3293270b347a300208",
+  "evidence_files": 76,
+  "evidence_sha256": "aeed3515d4b86a0ac8c2653fdeee1f977d6f30e5f78ef3fb5c299783c3e5b161",
+  "ledger_schema_before": 2,
+  "ledger_schema_after": 2,
+  "old_table_count": 17,
+  "source_worktree_status_unchanged": true,
+  "ledger_rows_columns_digests_unchanged": true,
+  "physical_db_and_nonempty_wal_unchanged": true,
+  "data_tree_scanned": false,
+  "private_baseline": ".workspace/evidence/ac-live-before.json",
+  "limitations": "No sealed-file probe was performed. Non-access is enforced by scope and fixture tests; no sealed hash is claimed."
+}

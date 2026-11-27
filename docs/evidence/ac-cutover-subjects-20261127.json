@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "recommendation": "DEFER_PRODUCTION_CUTOVER",
+  "source_commit": "fd19e911764bf86ae733c9111f05861f3c67c27c",
+  "release_id": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+  "installation": {
+    "schema_version": 1,
+    "release_id": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+    "status": "BLOCKED_CAPABILITY; environment binding is incomplete",
+    "purpose": "Provision independently controlled decision, verification and activation owners without changing current scientific authority",
+    "principal_channel": null,
+    "protected_executor": null,
+    "trusted_baseline_identity": null,
+    "required_boundaries": [
+      "Principal-facing UI authenticates the decision outside coding identity and binds the exact packet and selected effects",
+      "Verifier, required check baseline, signing keys, revocation and grant state cannot be changed or impersonated by the coding credential",
+      "Protected executor owns runtime identity, writer quiescence, compatible activation and observable halt",
+      "Preserve the current HMAC/integrity chain; an unsigned candidate is not a replacement live manifest",
+      "Stateless workers have no canonical ledger, home, key, credential or sealed-data mounts",
+      "The trusted Warden owner retains its application trust model; assess stronger aggregate resource and hostile-code enforcement before installation"
+    ],
+    "proposed_check_families": [
+      "exact candidate inventory",
+      "existing governance and PIT regressions",
+      "principal forgery/expiry/revocation refusal",
+      "trusted verifier baseline",
+      "activation identity and schema health",
+      "compatible rollback or observed halt",
+      "worker permissions and resource receipts",
+      "all-table migration preservation"
+    ],
+    "binding_rule": "A separately authenticated owner must supply exact channel/executor/baseline identities. Any such change creates a new packet; this unbound installation subject is not executable."
+  },
+  "migration": {
+    "schema_version": 1,
+    "release_id": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+    "ledger": "/home/quant/dev/quant-lab/registry/registry.db",
+    "from_schema": 2,
+    "to_schema": 10,
+    "rehearsal_backup_sha256": "2f2c868bd4174cc70c35231984ccd00de03773936781b5142de46e7b617ef25e",
+    "evidence": "docs/evidence/ac-migration-20261127.json",
+    "preexisting_tables_preserved": 17,
+    "new_tables": 20,
+    "additive_columns": [
+      "contracts.policy",
+      "contract_governance.group_source"
+    ],
+    "expected_counts": {
+      "hypotheses": 153,
+      "trials": 75,
+      "selection_attempts": 244,
+      "screen_receipts": 119,
+      "attempt_receipts": 75,
+      "qualifications": 6,
+      "holdout_claims": 6,
+      "contracts": 20
+    },
+    "preconditions": [
+      "Independent protected executor and exact migration effect approval",
+      "Observed current executable and ledger ownership",
+      "Quiesce all schema-2/8 writers and new admissions",
+      "Fresh WAL-consistent backup and exact all-table comparison against this evidence; changed source requires new rehearsal and packet",
+      "Preserve original local-only contract files and references"
+    ],
+    "preserved_unknowns": {
+      "legacy_exposures": 6,
+      "scope_attestations": 0,
+      "frozen_batches": 0,
+      "unresolved_local_only_contracts": [
+        "FX_MAJORS_1D_V3",
+        "INDICES_1D_V2"
+      ],
+      "trials_on_unresolved_contracts": 0
+    },
+    "rollback": "Before commit, canonical transaction failure preserves the prior database. After migration or any new accrued history, never restore an older ledger. Use compatible authorized code or halt affected operations.",
+    "grants_history_attestation": false,
+    "grants_scientific_admission": false
+  },
+  "activation": {
+    "schema_version": 1,
+    "release_id": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+    "previous_authorized_release": null,
+    "previous_runtime_status": "UNKNOWN",
+    "accepted_ledger_range": [
+      10,
+      10
+    ],
+    "compatible_rollback_release": null,
+    "preconditions": [
+      "Exact release admission decision",
+      "Separately approved installation and migration effects",
+      "Independently pinned verifier and protected inventory attestation",
+      "Observed prior runtime identity and health",
+      "Production A23 wrong-subject/expiry/revocation negative tests through installed UI with zero principal CLI commands"
+    ],
+    "health_checks": [
+      "Read-only runtime identity equals candidate ID",
+      "Ledger schema equals 10 and preserved historical evidence matches",
+      "Policy, grant and revocation identities are observed independently",
+      "Existing scientific gates remain fail-closed",
+      "No new research, sealed reads or orders used as health probes"
+    ],
+    "failure": "Halt affected operations and retain accrued ledger state when no compatible authorized rollback exists."
+  },
+  "excluded_effects": [
+    "policy delegation",
+    "history attestation",
+    "contract promotion",
+    "frozen batch approval",
+    "sealed holdout access",
+    "capital or trading"
+  ],
+  "capability_evidence": {
+    "principal_channel": "UNAVAILABLE",
+    "independent_verifier_and_revocation": "UNAVAILABLE",
+    "protected_installer": "UNAVAILABLE",
+    "stateless_linux_compartment": "VERIFIED in disposable Bubblewrap fixtures",
+    "same_account_privilege_is_independence": false
+  },
+  "automatic_approval_review": {
+    "blocked_action": "Print detailed historical holdout-exposure record_json from the scratch migration snapshot",
+    "reason": "Unnecessary disclosure of protected exposure metadata under the sealed-holdout restriction",
+    "safe_alternative": "Only aggregate counts and preservation digests are published; detailed scope reconciliation remains protected."
+  }
+}

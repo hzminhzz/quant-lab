@@ -342,7 +342,7 @@ def test_v7_upgrade_preserves_legacy_repeated_exposures(tiny_repo):
         before_qual = conn.execute("SELECT * FROM qualifications").fetchall()
     ResearchRegistry(f.registry.db_path)
     with sqlite3.connect(f.registry.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
         assert conn.execute("SELECT * FROM holdout_claims").fetchall() == before_claim
         assert conn.execute("SELECT * FROM qualifications").fetchall() == before_qual
         assert conn.execute("SELECT exposure_id,source FROM holdout_exposures ORDER BY exposure_id").fetchall() == [

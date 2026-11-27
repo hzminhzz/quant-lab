@@ -270,6 +270,110 @@ class ReadOnlyResearchRegistry(ResearchRegistry):
         except sqlite3.Error:
             return []
 
+
+    def read_control_snapshot(self, *, hypothesis_id=None, after="", limit=10) -> dict:
+        """One bounded read transaction; absent tables/columns are explicitly unknown.
+
+        Revision is a hash of this projection, not an authorization or a promise
+        that omitted history has not changed. Admission revalidates its own inputs.
+        """
+        from warden_ops.control_contracts import digest
+
+        fixed = ("hypotheses", "trials", "selection_attempts", "screen_receipts",
+                 "attempt_receipts", "candidate_admissions", "holdout_claims", "control_jobs")
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            schema = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            counts = {t: conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                      if t in tables else None for t in fixed}
+            columns = {r[1] for r in conn.execute("PRAGMA table_info(hypotheses)")}
+            selected = [c for c in HYPOTHESIS_FIELDS if c in columns]
+            rows = []
+            if "hypothesis_id" in columns:
+                tail, params = ("WHERE hypothesis_id=?", [hypothesis_id]) if hypothesis_id else (
+                    "WHERE hypothesis_id>?", [after])
+                rows = [dict(r) for r in conn.execute(
+                    f"SELECT {','.join(selected)} FROM hypotheses {tail} ORDER BY hypothesis_id LIMIT ?",
+                    (*params, limit + 1))]
+            pending = {}
+            for table in ("screen_receipts", "attempt_receipts"):
+                cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                pending[table] = (conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE state!='FINALIZED'").fetchone()[0]
+                    if "state" in cols else None)
+            jobs = None
+            if {"control_jobs", "control_job_events"} <= tables:
+                jobs = {r["state"]: r["n"] for r in conn.execute(
+                    "SELECT e.state, COUNT(*) AS n FROM control_jobs j JOIN control_job_events e "
+                    "ON e.sequence=(SELECT MAX(sequence) FROM control_job_events WHERE job_id=j.job_id) GROUP BY e.state")}
+            for row in rows:
+                clipped = []
+                for key, value in row.items():
+                    if key != "hypothesis_id" and isinstance(value, str) and len(value) > 512:
+                        row[key] = value[:512]
+                        clipped.append(key)
+                if clipped:
+                    row["truncated_fields"] = clipped
+            accounting = {"candidate": None, "lineage": None, "selection_debt": None,
+                          "exposure": "UNKNOWN"}
+            if hypothesis_id and rows and schema >= 8:
+                try:
+                    from warden.registry import LINEAGE_CAP, PER_HYPOTHESIS_CAP
+                    lineage, members = self._lineage(conn, hypothesis_id)
+                    usage = {h: self._candidate_usage(conn, h) for h in members}
+                    accounting["candidate"] = {**usage[hypothesis_id], "cap": PER_HYPOTHESIS_CAP}
+                    accounting["lineage"] = {"id": lineage, "used": sum(u["used"] for u in usage.values()),
+                                             "cap": LINEAGE_CAP, "members_count": len(members)}
+                    contract_id = rows[0].get("contract_id")
+                    floor = conn.execute(
+                        "SELECT max_keff_gate,max_noise FROM contract_search_state WHERE contract_id=?",
+                        (contract_id,)).fetchone()
+                    accounting["selection_debt"] = {
+                        "contract_id": contract_id, "stored_floor": dict(floor) if floor else None,
+                        "scope": "contract floor only; group-wide admission remains authoritative"}
+                    claim = conn.execute("SELECT state FROM holdout_claims WHERE lineage_id=?",
+                                         (lineage,)).fetchone()
+                    accounting["exposure"] = claim[0] if claim else "NO_RECORDED_CLAIM_SCOPE_UNVERIFIED"
+                except (sqlite3.Error, ValueError, KeyError) as exc:
+                    accounting["error"] = str(exc)[:300]
+        more = len(rows) > limit
+        result = {"status": "AVAILABLE", "schema_version": schema, "counts": counts,
+                  "hypotheses": rows[:limit], "pending": pending, "accounting": accounting,
+                  "job_states": jobs,
+                  "missing_fields": sorted(set(HYPOTHESIS_FIELDS) - columns),
+                  "complete": not more, "next_cursor": rows[limit - 1]["hypothesis_id"] if more else None,
+                  "pagination": "live keyset; refresh first page after concurrent changes",
+                  "evidence_verified": False}
+        result["revision"] = digest(result)
+        result["revision_kind"] = "bounded projection; not an admission precondition"
+        return result
+
+    def read_finding_records(self) -> dict:
+        """All outcome metadata in one snapshot, without return arrays/artifact I/O."""
+        records, missing = [], []
+        projections = {
+            "trials": ("run_id", "hypothesis_id", "contract_id", "strategy_module",
+                       "config_hash", "stage_reached", "verdict", "created_at"),
+            "selection_attempts": ("attempt_id", "hypothesis_id", "contract_id", "strategy_module",
+                                   "stage", "outcome", "created_at"),
+        }
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            for table, wanted in projections.items():
+                present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                fields = [key for key in wanted if key in present]
+                if wanted[0] not in fields or "hypothesis_id" not in fields:
+                    missing.append(table)
+                    continue
+                for row in conn.execute(f"SELECT {','.join(fields)} FROM {table} ORDER BY {wanted[0]}"):
+                    record = dict(row)
+                    record["source_table"] = table
+                    record["evidence_id"] = record.pop(wanted[0])
+                    records.append(record)
+                missing.extend(f"{table}.{key}" for key in wanted if key not in fields)
+        return {"records": records, "missing_fields": missing}
+
     # --- counts ----------------------------------------------------------
 
     def _count(self, sql: str, params: tuple) -> int | None:

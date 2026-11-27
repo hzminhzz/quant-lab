@@ -331,7 +331,7 @@ def test_v6_review_migration_preserves_rows_without_fabricating_novelty(tiny_rep
         conn.execute("PRAGMA user_version=6")
     migrated = ResearchRegistry(f.registry.db_path)
     with sqlite3.connect(f.registry.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
         assert conn.execute("SELECT * FROM conformance_reviews").fetchall() == before
         assert conn.execute("SELECT count(*) FROM hypothesis_terminal").fetchone()[0] == 0
     runner = ExperimentRunner(registry=migrated, repo_root=f.repo)

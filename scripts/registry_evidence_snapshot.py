@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 TABLES = ("hypotheses", "trials", "selection_attempts", "qualifications", "audit_evidence", "trial_dispositions")
@@ -22,26 +23,29 @@ def counts(conn: sqlite3.Connection) -> dict[str, int]:
             for name in TABLES if name in known}
 
 
-def backup_readonly(source: Path, destination: Path) -> dict:
+def backup_readonly(source: Path, destination: Path, *, allow_snapshot_name=False) -> dict:
     source, destination = source.resolve(strict=True), destination.resolve()
     if source == destination or destination.exists() or destination.is_relative_to(source.parent):
         raise ValueError("Snapshot must be a new file outside the live registry directory")
-    if not source.is_file() or source.name != "registry.db":
+    if not source.is_file() or (source.name != "registry.db" and not allow_snapshot_name):
         raise ValueError("Only an existing registry.db is accepted as a source")
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     os.close(fd)
     try:
-        with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as upstream, sqlite3.connect(destination) as copy:
+        with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as upstream, closing(sqlite3.connect(destination)) as copy:
             upstream.execute("PRAGMA query_only=ON")
+            upstream.execute("BEGIN")
             before = counts(upstream)
-            upstream.backup(copy)
+            upstream.backup(copy, pages=256)
             after = counts(copy)
             integrity = copy.execute("PRAGMA integrity_check").fetchone()[0]
         if before != after or integrity != "ok":
             raise ValueError(f"SQLite snapshot not equivalent: counts={before} vs {after}, integrity={integrity}")
+        with destination.open("rb") as handle:
+            sha256 = hashlib.file_digest(handle, "sha256").hexdigest()
         return {"source": str(source), "snapshot": str(destination), "counts": after,
-                "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(), "integrity": integrity,
+                "sha256": sha256, "integrity": integrity,
                 "opened_source_read_only": True}
     except BaseException:
         destination.unlink(missing_ok=True)

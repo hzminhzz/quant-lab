@@ -1,0 +1,76 @@
+{
+  "authority_integrated": false,
+  "blocker": "independent authenticated principal UI and protected verifier/installer absent",
+  "packet": {
+    "consequences": [
+      "Source candidate is unsigned; this request creates no release or live authority",
+      "Migration adds canonical schema 10 while preserving every pre-existing row and column",
+      "Release, installation, migration and activation each require their own approved effect",
+      "Unknown legacy exposures and unresolved local-only contracts retain their existing restrictions"
+    ],
+    "created_at": 1795774647.4746234,
+    "effects": [
+      {
+        "kind": "release",
+        "subject_sha256": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c"
+      },
+      {
+        "kind": "installation",
+        "subject_sha256": "c0d3046513d484d40b235b09b024f0049c7ed449980c2f2daaec70328d9e4c28"
+      },
+      {
+        "kind": "migration",
+        "subject_sha256": "dac854bdc5499aeab2d3d85a79e471a28b49363d44ed314f63af20d68f93b68b"
+      },
+      {
+        "kind": "activation",
+        "subject_sha256": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c"
+      }
+    ],
+    "evidence": [
+      "docs/evidence/ac-bytes-20261127.json sha256:11bb66f086f96797df05df9117acec9786f31bb77f9b6a3dd25e10ba7cb44dc8",
+      "docs/evidence/ac-contracts-20261127.json sha256:c2b39390ddef246cc9b941c61eff2de3d5f8931325c5316465da599c604b6e93",
+      "docs/evidence/ac-cutover-subjects-20261127.json sha256:46a65d96c4dead57bad67f8b68481a87cb73f6e532a09fec3e53b2792910cd14",
+      "docs/evidence/ac-migration-20261127.json sha256:6a0b9da8db16461d582f610382e1706143a4381e0d09094efe647df2dbf70f41",
+      "docs/evidence/ac-observation-20261127.json sha256:e2a6943086d03be6e21087a7c36bb648bb83829e5baf0ec5082377a525f06034",
+      "docs/evidence/ac-observation-reviewed-20261127.json sha256:839d8d4a9ec0f334e427723de3bcefe5cc0a82669f3ca04d382758d07a20b9be",
+      "docs/evidence/ac-preservation-20261127.json sha256:5ff8681f0978b83533c1d9d93af8bf465d8939961deebc54eecb16b68b1e51d8",
+      "docs/evidence/ac-release-20261127.json sha256:4f48411b809092adbd348c2afdad6f240035ad0cf3a0d9b3295da32d356838b1",
+      "docs/evidence/ac-verification-20261127.json sha256:d3c2ea402ee87af2d02d3395a3ac860229e90296a853f01e7a2c54d745039cc6"
+    ],
+    "expires_at": 1795861047.4746234,
+    "limitations": [
+      "A23 blocked: no installed independently authenticated principal channel",
+      "Protected verifier, revocation and installer identities unavailable; installation subject is non-executable until rebound",
+      "No compatible authorized rollback candidate or observed active release is known",
+      "Detailed exposure metadata disclosure was rejected by automatic approval review; aggregate preservation only",
+      "No scientific conformance, history attestation, contract promotion, batch approval, sealed access or trading authority is supplied",
+      "Full suite includes 42 skips and 1 expected failure; fixture authority is not production integration"
+    ],
+    "packet_sha256": "97e351d46fb411fef8c25d1db30c2268aa983bc81d030d5e7ad27f84c884e4e8",
+    "rollback": "Before commit, canonical transaction failure preserves the prior database. After migration or any new accrued history, never restore an older ledger. Use compatible authorized code or halt affected operations.",
+    "schema_version": 1
+  },
+  "packet_sha256": "97e351d46fb411fef8c25d1db30c2268aa983bc81d030d5e7ad27f84c884e4e8",
+  "principal_cli_commands": 0,
+  "required_capabilities": [
+    "principal-authenticated exact packet decision",
+    "verifier and revocation state outside coding control",
+    "separately protected executor"
+  ],
+  "status": "BLOCKED_CAPABILITY",
+  "recommendation": "DEFER_PRODUCTION_CUTOVER",
+  "source_commit": "fd19e911764bf86ae733c9111f05861f3c67c27c",
+  "release_id": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+  "evidence_sha256": {
+    "docs/evidence/ac-bytes-20261127.json": "11bb66f086f96797df05df9117acec9786f31bb77f9b6a3dd25e10ba7cb44dc8",
+    "docs/evidence/ac-contracts-20261127.json": "c2b39390ddef246cc9b941c61eff2de3d5f8931325c5316465da599c604b6e93",
+    "docs/evidence/ac-cutover-subjects-20261127.json": "46a65d96c4dead57bad67f8b68481a87cb73f6e532a09fec3e53b2792910cd14",
+    "docs/evidence/ac-migration-20261127.json": "6a0b9da8db16461d582f610382e1706143a4381e0d09094efe647df2dbf70f41",
+    "docs/evidence/ac-observation-20261127.json": "e2a6943086d03be6e21087a7c36bb648bb83829e5baf0ec5082377a525f06034",
+    "docs/evidence/ac-observation-reviewed-20261127.json": "839d8d4a9ec0f334e427723de3bcefe5cc0a82669f3ca04d382758d07a20b9be",
+    "docs/evidence/ac-preservation-20261127.json": "5ff8681f0978b83533c1d9d93af8bf465d8939961deebc54eecb16b68b1e51d8",
+    "docs/evidence/ac-release-20261127.json": "4f48411b809092adbd348c2afdad6f240035ad0cf3a0d9b3295da32d356838b1",
+    "docs/evidence/ac-verification-20261127.json": "d3c2ea402ee87af2d02d3395a3ac860229e90296a853f01e7a2c54d745039cc6"
+  }
+}

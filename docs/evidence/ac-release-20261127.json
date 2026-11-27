@@ -1,0 +1,20 @@
+{
+  "authorized": false,
+  "dependency_lock_sha256": "4ec2ad5bbb6dd00ebebc1c917e7c8af52cd9b7847c02135a4be19c36a7487ddd",
+  "file_count": 729,
+  "ledger_max": 10,
+  "ledger_min": 10,
+  "mandatory_lesson_metadata_present": true,
+  "manifest_sha256": "b02fa83f1d8a02917d7deabd3cc7fff24f77f4acd8d8b40aa04e4362302452b5",
+  "path": "/home/quant/.devspace/artifacts/quant-lab/ac-20261127/1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+  "release_id": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+  "reproducible_second_build": true,
+  "rollback_release": null,
+  "source": {
+    "commit": "fd19e911764bf86ae733c9111f05861f3c67c27c",
+    "dirty": false,
+    "patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "tree": "7a03dd13b7f53c403de07b95d0d039db3fc04590"
+  },
+  "verified": true
+}

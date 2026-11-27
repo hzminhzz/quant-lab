@@ -1,5 +1,18 @@
 # T20 / #106 — contract lifecycle, exploratory fence and cutover runbook
 
+## Scope and successor release plan
+
+This records T20's implementation and host obligations; its commands and fixture
+results are not evidence that a live cutover occurred. For the proposed coherent
+agent-operated release/migration path, use [ARCHITECTURE.md](ARCHITECTURE.md) and
+[AGENT-CONTROL-PLAN.md](AGENT-CONTROL-PLAN.md). The agent prepares exact artifacts
+and evidence; the principal makes protected decisions through an authenticated
+available channel. That target integration is not yet implemented.
+
+Retain the obligations below in any new cutover packet. Release admission,
+production migration, dataset/origin attestation and holdout authorization are
+separate effects. No target document or green fixture substitutes for them.
+
 Local implementation is complete and exercised on synthetic fixtures. **Nothing in this
 document has been executed against production data.** The remaining rows are host steps
 that need a principal, real vendor exports, the operator-held HMAC key, and a signed

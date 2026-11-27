@@ -1,120 +1,124 @@
-"""Rehearse additive Warden evidence migration exclusively on a disposable SQLite copy."""
+"""WAL-consistent additive migration rehearsal over every existing table/column.
 
+Only a new disposable snapshot is migrated. Historical rows, indexes and triggers
+must survive exactly; new schema/rows are inventoried, never silently accepted as
+a production migration or an authorization.
+"""
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-import shutil
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from warden.registry import ResearchRegistry
 
-LEGACY = ("contracts", "hypotheses", "trials", "selection_attempts", "qualifications",
-          "audit_evidence", "audit_reports", "trial_dispositions", "trial_quarantine",
-          "contract_search_state", "feature_sets")
-ADDITIVE = ("attempt_receipts", "holdout_claims", "screen_receipts", "spec_causality")
+if __package__:
+    from scripts.registry_evidence_snapshot import backup_readonly
+else:  # Retain the original `python scripts/rehearse_state_machine_migration.py` entry point.
+    from registry_evidence_snapshot import backup_readonly
 
 
-def _ro_present_tables(path: Path, tables: tuple[str, ...]) -> tuple[sqlite3.Connection, set[str]]:
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-    names = {
-        r[0]
-        for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        if r[0] in set(tables)
-    }
-    return conn, names
+def _quote(name):
+    return '"' + name.replace('"', '""') + '"'
 
 
-def _table_columns(path: Path, tables: tuple[str, ...]) -> dict[str, list[str] | None]:
-    output: dict[str, list[str] | None] = {}
-    conn, present = _ro_present_tables(path, tables)
-    with conn:
-        for name in tables:
-            output[name] = (
-                [r[1] for r in conn.execute(f"PRAGMA table_info({name})").fetchall()]
-                if name in present
-                else None
-            )
-    return output
-
-
-def table_hashes(
-    path: Path,
-    tables: tuple[str, ...],
-    columns_by_table: dict[str, list[str] | None] | None = None,
-) -> dict[str, dict]:
-    output = {}
-    conn, present = _ro_present_tables(path, tables)
-    with conn:
-        for name in tables:
-            if name not in present:
-                output[name] = {"count": None, "sha256": None}
+def _read_state(path, columns_by_table=None):
+    """One fixed snapshot of all user tables; handles BLOBs and WITHOUT ROWID."""
+    tables = {}
+    with closing(sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        objects = {(kind, name): sql for kind, name, sql in conn.execute(
+            "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name")}
+        for kind, name in objects:
+            if kind != "table":
                 continue
-            cols = columns_by_table.get(name) if columns_by_table else None
-            select_expr = ", ".join(cols) if cols else "*"
-            sha = hashlib.sha256()
-            count = 0
-            for row in conn.execute(f"SELECT {select_expr} FROM {name} ORDER BY rowid"):
-                sha.update(json.dumps(row, ensure_ascii=True, default=str, separators=(",", ":")).encode())
+            columns = [list(row) for row in conn.execute(f"PRAGMA table_info({_quote(name)})")]
+            names = columns_by_table.get(name, []) if columns_by_table else [row[1] for row in columns]
+            if not names:
+                continue
+            selected = ",".join(_quote(col) for col in names)
+            sha, count = hashlib.sha256(), 0
+            for row in conn.execute(f"SELECT {selected} FROM {_quote(name)} ORDER BY {selected}"):
+                encoded = [{"blob": value.hex()} if isinstance(value, bytes) else value for value in row]
+                sha.update(json.dumps(encoded, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode())
                 sha.update(b"\n")
                 count += 1
-            output[name] = {"count": count, "sha256": sha.hexdigest()}
-    return output
+            tables[name] = {"columns": columns, "count": count, "sha256": sha.hexdigest()}
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
+    return {"version": version, "tables": tables, "objects": objects, "integrity": integrity}
+
+
+def _physical(path):
+    result = {}
+    for file in (path, path.with_name(path.name + "-wal")):
+        # SQLite may materialize an empty WAL on a read-only snapshot open.
+        # It carries no committed evidence; non-empty WAL bytes remain exact.
+        if file.is_file() and (file == path or file.stat().st_size):
+            with file.open("rb") as handle:
+                result[file.name] = hashlib.file_digest(handle, "sha256").hexdigest()
+    return result
 
 
 def rehearse(source: Path, destination: Path) -> dict:
     source, destination = source.resolve(strict=True), destination.resolve()
     if source == destination or destination.exists() or destination.is_relative_to(source.parent):
         raise ValueError("Rehearsal must use a new independent path")
-    old_file_hash = hashlib.sha256(source.read_bytes()).hexdigest()
-    orig_cols = _table_columns(source, LEGACY)
-    original = table_hashes(source, LEGACY)
-    destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    shutil.copyfile(source, destination)
-    destination.chmod(0o600)
+    original_physical = _physical(source)
+    backup = backup_readonly(source, destination, allow_snapshot_name=True)
     try:
+        original = _read_state(destination)
+        old_columns = {name: [row[1] for row in value["columns"]] for name, value in original["tables"].items()}
         ResearchRegistry(destination)
-        migrated_cols = _table_columns(destination, LEGACY)
-        for name in LEGACY:
-            if orig_cols[name] is not None and (
-                migrated_cols[name] is None or migrated_cols[name][:len(orig_cols[name])] != orig_cols[name]
-            ):
-                raise ValueError(f"Non-additive column change on legacy table {name}")
-        migrated = table_hashes(destination, LEGACY, columns_by_table=orig_cols)
-        if original != migrated:
-            raise ValueError(f"Migration mutated legacy authority: {[k for k in LEGACY if original[k] != migrated[k]]}")
-        first_legacy_full = table_hashes(destination, LEGACY)
-        first_additive = table_hashes(destination, ADDITIVE)
+        migrated = _read_state(destination)
+        projected = _read_state(destination, old_columns)
+        for name, old in original["tables"].items():
+            current = projected["tables"].get(name)
+            if current is None or current["columns"][:len(old["columns"])] != old["columns"]:
+                raise ValueError(f"Non-additive column change on existing table {name}")
+            if current["count"] != old["count"] or current["sha256"] != old["sha256"]:
+                raise ValueError(f"Migration mutated existing authority: {name}")
+        for key, sql in original["objects"].items():
+            if key[0] != "table" and migrated["objects"].get(key) != sql:
+                raise ValueError(f"Migration changed existing schema object: {key}")
         ResearchRegistry(destination)
-        if (
-            table_hashes(destination, LEGACY, columns_by_table=orig_cols) != original
-            or table_hashes(destination, LEGACY) != first_legacy_full
-            or table_hashes(destination, ADDITIVE) != first_additive
-        ):
+        if migrated != _read_state(destination):
             raise ValueError("Migration is not idempotent")
-        with sqlite3.connect(destination) as conn:
-            if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise ValueError("Migrated fixture integrity failed")
-        if hashlib.sha256(source.read_bytes()).hexdigest() != old_file_hash:
-            raise ValueError("Source changed during migration rehearsal")
+        if migrated["integrity"] != "ok":
+            raise ValueError("Migrated fixture integrity failed")
+        if _physical(source) != original_physical:
+            raise ValueError("Source database/WAL changed during rehearsal; refresh snapshot")
+        added = sorted(migrated["tables"].keys() - original["tables"].keys())
         added_columns = {
-            k: migrated_cols[k][len(orig_cols[k]):]
-            for k in LEGACY
-            if orig_cols[k] is not None and migrated_cols[k] is not None and len(migrated_cols[k]) > len(orig_cols[k])
+            name: [row[1] for row in migrated["tables"][name]["columns"][len(old["columns"]):]]
+            for name, old in original["tables"].items()
+            if len(migrated["tables"][name]["columns"]) > len(old["columns"])
         }
-        return {"source_sha256": old_file_hash, "legacy_unchanged": True,
-                "idempotent": True, "rollback_source": str(source), "migrated_fixture": str(destination),
-                "original_counts": {k: v["count"] for k, v in original.items()},
-                "added_counts": {k: v["count"] for k, v in first_additive.items()},
-                "added_columns": added_columns}
+        return {
+            "source_sha256": original_physical[source.name], "source_physical": original_physical,
+            "backup": backup, "source_schema": original["version"], "target_schema": migrated["version"],
+            "legacy_unchanged": True, "all_existing_tables_unchanged": True,
+            "idempotent": True, "source_unchanged": True, "integrity": migrated["integrity"],
+            "rollback_source": str(source), "migrated_fixture": str(destination),
+            "rollback_warning": "snapshot is evidence, never permission to rewind newly accrued history",
+            "original_counts": {name: value["count"] for name, value in original["tables"].items()},
+            "original_tables": original["tables"],
+            "new_tables": {name: migrated["tables"][name] for name in added},
+            "added_counts": {name: migrated["tables"][name]["count"] for name in added},
+            "added_columns": added_columns,
+        }
     except BaseException:
-        destination.unlink(missing_ok=True)
+        for path in (destination, destination.with_name(destination.name + "-wal"),
+                     destination.with_name(destination.name + "-shm")):
+            path.unlink(missing_ok=True)
         raise
 
 
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--destination", type=Path, required=True)

@@ -14,7 +14,16 @@ from typing import TypedDict
 
 import numpy as np
 
-from warden import exposure, incremental, novelty, research_intent, robustness, terminal
+from warden import (
+    control_requests,
+    exposure,
+    incremental,
+    job_state,
+    novelty,
+    research_intent,
+    robustness,
+    terminal,
+)
 from warden.candidate_admission import CandidateIdentity
 from warden.codeid import code_closure
 from warden.contracts import (
@@ -189,7 +198,7 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 10
 """Current ``PRAGMA user_version`` of the registry schema.
 
 ``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
@@ -212,6 +221,8 @@ outcomes; historical trial/selection rows remain unchanged.
 ``6`` (#124) adds immutable research intents, review evidence and candidate bindings.
 ``7`` (#126) adds immutable terminal hypothesis dispositions.
 ``8`` (#127) adds frozen holdout batches, exposure history, and one-shot read/results.
+``9`` (AC-03) adds immutable request-to-domain receipt mappings; no historical rewrite.
+``10`` (AC-07) adds immutable operational job/resource events; no scientific state copy.
 A newer schema is
 refused instead of guessed at.
 
@@ -289,7 +300,7 @@ _DDL_SCRIPT = f"""
                     SELECT RAISE(ABORT, 'Governance violation: rejected hypothesis cannot be reactivated')
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
-""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL + terminal.TERMINAL_DDL + exposure.EXPOSURE_DDL
+""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL + terminal.TERMINAL_DDL + exposure.EXPOSURE_DDL + control_requests.CONTROL_DDL + job_state.JOB_DDL
 
 
 class ScreenStatusView(TypedDict):
@@ -392,6 +403,28 @@ class ResearchRegistry:
                 self._migrate(conn)
                 self.schema_version = SCHEMA_VERSION
             self._reconcile_legacy(conn)
+
+    def control_dependencies(self, hypothesis_id):
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            return control_requests.dependencies(conn, hypothesis_id)
+
+    def control_request(self, request_id):
+        if self.schema_version < 9:
+            return None
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            return control_requests.read(conn, request_id)
+
+    def start_control_request(self, request_id, fingerprint, plan, actor):
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            return control_requests.insert(conn, request_id, fingerprint, plan, actor)
+
+    def record_control_error(self, request_id, reason):
+        with self._connect() as conn:
+            conn.execute("INSERT OR IGNORE INTO control_request_errors VALUES (?,?,?)",
+                         (request_id, str(reason)[:2000], time.time()))
 
     def _refuse_newer_schema(self) -> None:
         if self.schema_version > SCHEMA_VERSION:
@@ -1263,6 +1296,7 @@ class ResearchRegistry:
                             VALUES (?,?,?,?,?,'RESERVED',?,?)""",
                          (key, hypothesis_id, contract_id, normalise_module(strategy_module),
                           canonical_json(parameters or {}), data_sha256, time.time()))
+            control_requests.bind(conn, getattr(self, "control_request_id", None), "screen", key)
         return key
 
     def _screen_receipt_for_spec(self, conn, hypothesis_id, contract_id, strategy_module, parameters):
@@ -1588,6 +1622,7 @@ class ResearchRegistry:
                             (run_id,hypothesis_id,contract_id,trial_number,state,reserved_at)
                             VALUES (?,?,?,?,?,?)""",
                          (run_id, hypothesis_id, row[3], number, "RESERVED", time.time()))
+            control_requests.bind(conn, getattr(self, "control_request_id", None), "trial", run_id)
             attempts[run_id] = number
             conn.execute("UPDATE hypotheses SET trials_used=trials_used+1,attempts_json=? WHERE hypothesis_id=?",
                          (canonical_json(attempts), hypothesis_id))

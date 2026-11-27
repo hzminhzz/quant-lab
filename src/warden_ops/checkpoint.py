@@ -44,41 +44,44 @@ def _contract_pins(repo_root: Path) -> dict[str, str]:
     return pins
 
 
-def _build_state(repo_root: Path, ticket: str | None, notes: str) -> dict:
+def _build_state(repo_root: Path, ticket: str | None, notes: str, registry_path=None) -> dict:
     """Typed, replayable checkpoint: evidence with timestamps, tool trace, explicit gates."""
     from warden.cli import WORKTREE_OK, check_worktree
-    from warden.registry import ResearchRegistry
+    from warden_ops.control import Control
+    from warden_ops.readonly import open_readonly
     now = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=repo_root, text=True).strip()
-    registry = ResearchRegistry(repo_root / "registry" / "registry.db")
-    with registry._connect() as conn:
-        n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
-        n_hyp = conn.execute("SELECT COUNT(*) FROM hypotheses").fetchone()[0]
+    path = registry_path or repo_root / "registry" / "registry.db"
+    registry = open_readonly(path)
+    counts = registry.read_evidence_counts() if registry else {"trials": None, "hypotheses": None}
+    n_trials, n_hyp = counts["trials"], counts["hypotheses"]
     pins = _contract_pins(repo_root)
-    with registry._connect() as conn:
-        candidates = [r[0] for r in conn.execute(
-            "SELECT run_id FROM trials WHERE verdict='CANDIDATE_FOR_QUALIFICATION'")]
-    eligibility = {r: registry.effective_eligibility(r) for r in candidates}
+    situation = Control(repo_root, registry_path=path).handle(
+        {"schema_version": 1, "operation": "observe", "objective": ticket or ""})["value"]
     trace = [
         {"op": "git_head", "expect": head},
-        {"op": "registry_count", "table": "trials", "expect": str(n_trials)},
+        *([{"op": "registry_count", "table": "trials", "expect": str(n_trials)}]
+          if n_trials is not None else []),
         {"op": "worktree_check", "expect": WORKTREE_OK},
     ]
     return {
         "schema": 1, "created_at": now, "ticket": ticket or "N/A", "notes": notes,
+        "situation": situation,
         "evidence": [
             {"source": "git", "kind": "head", "value": head, "observed_at": now},
             {"source": "registry.db", "kind": "trials", "value": n_trials, "observed_at": now},
             {"source": "registry.db", "kind": "hypotheses", "value": n_hyp, "observed_at": now},
             {"source": "contracts", "kind": "pinned_snapshot_sha256", "value": pins, "observed_at": now},
         {"source": "registry.db", "kind": "effective_eligibility",
-         "value": {r: {"eligible": e["eligible"], "reason": e["reason"], "provenance": e["data_provenance"]}
-                   for r, e in eligibility.items()}, "observed_at": now},
+         "value": {"status": "NOT_EVALUATED", "eligible": None,
+                   "reason": "handoff reads metadata; refresh artifact eligibility on demand"}, "observed_at": now},
             {"source": "audit", "kind": "toolcalls", "value": audit_fingerprint(repo_root / AUDIT_LOG), "observed_at": now},
         ],
         "tool_trace": trace,
         "quality_gates": {"worktree_integrity": check_worktree(repo_root), "contracts_pinned": all(pins.values()),
-                          "eligibility_surface_reachable": all("reason" in e for e in eligibility.values())},
+                          "ledger_metadata_reachable": n_trials is not None and n_hyp is not None,
+                          "eligibility_surface_reachable": registry is not None and
+                          callable(getattr(registry, "effective_eligibility", None))},
     }
 
 
@@ -88,7 +91,8 @@ def _checkpoint_id(state: dict) -> str:
 
 
 def cmd_handoff(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    state = _build_state(runner.repo_root, args.ticket, args.notes)
+    state = _build_state(runner.repo_root, args.ticket, args.notes,
+                         getattr(getattr(runner, "registry", None), "db_path", None))
     state["checkpoint_id"] = _checkpoint_id(state)
     current = runner.repo_root / STATE_FILE
     current.parent.mkdir(parents=True, exist_ok=True)

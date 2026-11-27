@@ -6,10 +6,11 @@
 
 ## New Coding Agent Quickstart
 
-1. **Read the authoritative docs in order:**
-   - [`AGENTS.md`](./AGENTS.md) — Operating contract, ownership boundaries, falsification funnel, and retired surfaces.
-   - [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) — Step-by-step thesis intake procedure and ledger rules.
-   - [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) — Stage gates, audit criteria, and registry vocabulary.
+1. **Read the operating contract, then follow the task map:**
+   - [`AGENTS.md`](./AGENTS.md) — Current ownership, invariants and authority.
+   - [`CONTEXT-MAP.md`](./CONTEXT-MAP.md) — Task-specific routes to procedures, domain owners and evidence.
+   - [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) — Current thesis intake and approval procedure.
+   - For system design or implementation, read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), then its linked contracts and plan. [`Agent control operations`](./docs/AGENT-CONTROL-OPERATIONS.md) separates implemented source from installed capabilities.
 2. **Inspect the workspace & environment before editing:**
    ```bash
    uv run --frozen warden check-worktree
@@ -20,14 +21,15 @@
    - Templates: `.workspace/templates/hypothesis.md` and `.workspace/templates/experiment.yaml`
    - `CausalModelStrategy` baselines: `strategies/baselines/causal_ridge_1h.py`, `strategies/baselines/causal_linear_portfolio_1h.py`, `strategies/baselines/causal_ipca_1h.py`
    - `CausalRulesStrategy` template: `strategies/candidates/causal_rules_drawdown_template.py`
-4. **Run the falsification funnel with one idempotent command (never bypass `warden`):**
-   - Put the hypothesis at `.workspace/hypotheses/<ID>.md` and experiment spec at `experiments/active/<spec>.yaml` (both stay in place permanently; lifecycle state lives solely in `registry/registry.db`).
+4. **Progress eligible work through Warden after prospective approval:**
+   - Follow #109/RG-05–07 in [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md): resolve data, register and approve complete intent before candidate implementation, then record independent conformance/novelty for the exact candidate.
+   - Put the hypothesis at `.workspace/hypotheses/<ID>.md` and experiment spec at `experiments/active/<spec>.yaml` (both stay in place permanently; scientific lifecycle state lives in `registry/registry.db`).
    ```bash
    uv run --frozen warden advance experiments/active/<spec>.yaml --json
    # Batch all pending specs (cron / unattended runner):
    uv run --frozen warden advance --pending --json
    ```
-   `warden advance` idempotently registers the hypothesis, checks `research_outcome_memory`, runs `verify` → `screen` → `backtest` → `audit-check`, and is a clean no-op once terminal. Individual stage commands (`register-hypothesis`, `verify`, `screen`, `backtest`, `audit-check`) remain available for step-by-step control.
+   `warden advance` checks lifecycle/outcome memory and progresses eligible work through `verify` → `screen` → `backtest` → `audit-check`. It does not approve intent or conformance, replay a rejected screen, refund an interrupted attempt, or unseal a holdout. Inspect existing receipts before retrying an uncertain result. Individual native commands remain available; the principal receives decisions through chat, while the agent handles authorized execution.
 
 ---
 
@@ -67,10 +69,18 @@ pinned Warden artifacts and contracts are unchanged.
 | :--- | :--- |
 | [`AGENTS.md`](./AGENTS.md) | Operating contract, four-way ownership, falsification funnel, CLI contracts, and agent-maintained status. |
 | [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) | Thesis intake procedure, verification table, and ledger rules. |
-| [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | Detailed pipeline map, coded Stage 0–3 gates, six-check audit, and registry vocabulary. |
+| [`CONTEXT-MAP.md`](./CONTEXT-MAP.md) | Task routing, domain ownership and current-vs-target truth rules. |
+| [`CONTEXT.md`](./CONTEXT.md) | Canonical domain meanings; candidate, lineage, selection debt, exposure and authority stay distinct. |
+| [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | Current #109/RG-01–09 progression and pointers to exact evaluator rules. |
+| [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Target evidence-driven control system and immutable release authority. |
+| [`docs/AGENT-CONTROL-CONTRACTS.md`](./docs/AGENT-CONTROL-CONTRACTS.md) | Approved situation/action/receipt, authority, recovery and knowledge contracts. |
+| [`docs/AGENT-CONTROL-PLAN.md`](./docs/AGENT-CONTROL-PLAN.md) | Dependency-ordered delivery, behavioral acceptance, resource measurements and cutover gates. |
+| [`docs/AGENT-CONTROL-OPERATIONS.md`](./docs/AGENT-CONTROL-OPERATIONS.md) | Implemented typed control, durable jobs, findings and release protocols; production boundaries and recovery. |
+| [`docs/AGENT-CONTROL-ACCEPTANCE-20261127.md`](./docs/AGENT-CONTROL-ACCEPTANCE-20261127.md) | Exact frozen source, A01–A25 evidence, full-suite omissions, measurements and preservation. |
+| [`docs/AGENT-CONTROL-CUTOVER-20261127.md`](./docs/AGENT-CONTROL-CUTOVER-20261127.md) | One consolidated blocked AC-10 decision; exact subjects and independent authority prerequisites. |
 | [`docs/DATA-REQUIREMENT.md`](./docs/DATA-REQUIREMENT.md) | `warden resolve-data` / `data compile`: decisions, the superset opt-in (`--allow-superset`), and what each answer carries. |
 | [`docs/EXIT-CODES.md`](./docs/EXIT-CODES.md) | The one exit-code vocabulary (`0` success, `1` evidence refused, `2` request refused, `3` not satisfiable, `75` busy) and the documented `data build` exception. |
-| [`STAGE3_CAMPAIGN_PROMPT.md`](./STAGE3_CAMPAIGN_PROMPT.md) | Copy-paste brief for batching a strategy family through Stage 3. |
+| [`STAGE3_CAMPAIGN_PROMPT.md`](./STAGE3_CAMPAIGN_PROMPT.md) | Objective brief for direct autonomous execution, early stopping and evidence-based continuation. |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Dated summary of architectural changes and verification runs. |
 | [`docs/archive/README.md`](./docs/archive/README.md) | Historical RFC, bootstrap tickets, compatibility spec, handbook, and audit/approval trails. |
 

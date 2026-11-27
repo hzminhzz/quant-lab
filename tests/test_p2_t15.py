@@ -176,6 +176,9 @@ def _wal_legacy_snapshot(tmp_path: Path, seed_db: Path) -> Path:
         conn.execute("DROP TABLE robustness_plans")
         conn.execute("DROP TABLE candidate_operations")
         conn.execute("DROP TABLE candidate_admissions")
+        for name in ("control_request_links", "control_request_errors", "control_requests",
+                     "control_job_events", "control_jobs", "control_resource_policy"):
+            conn.execute(f"DROP TABLE {name}")
         conn.execute("PRAGMA user_version=0")
         conn.execute(
             "CREATE TABLE IF NOT EXISTS causality_evidence (evidence_id TEXT PRIMARY KEY,"

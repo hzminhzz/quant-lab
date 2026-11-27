@@ -107,7 +107,8 @@ def test_mcp_cli_share_single_writer_and_read_only_status(fixture_root: Path, mo
 
 def test_stdio_json_rpc_exposes_only_reviewed_tools() -> None:
     listed = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-    assert {x["name"] for x in listed["result"]["tools"]} == {"warden_status", "warden_exec"}
+    assert {x["name"] for x in listed["result"]["tools"]} == {"warden_status", "warden_exec", "warden_control"}
+    assert all(x["inputSchema"]["type"] == "object" for x in listed["result"]["tools"])
     refused = _handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                        "params": {"name": "warden_exec", "arguments": {"command": "qualify"}}})
     assert refused["result"]["isError"] is True

@@ -1704,11 +1704,28 @@ def cmd_research_intent(args, runner) -> int:
     return 0
 
 
+def cmd_control(args, runner) -> int:
+    from warden_ops.control import Control
+
+    control = Control(runner.repo_root)
+    try:
+        if len(args.request.encode()) > 131072:
+            raise ValueError("control request exceeds 128 KiB")
+        payload = json.loads(args.request)
+        result = control.handle(payload)
+    except (ValueError, TypeError) as exc:
+        result = control.refuse("TECHNICAL_PRE_ADMISSION", str(exc))
+    print(json.dumps(result))
+    return 0 if result["ok"] else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="warden", description="Deterministic quantitative research harness.")
     p.add_argument("--version", action="version", version=f"warden {__version__}")
     s = p.add_subparsers(dest="subcommand")
     s.add_parser("status")
+    control = s.add_parser("control")
+    control.add_argument("--request", default='{"schema_version":1,"operation":"observe"}')
     s.add_parser("check-worktree")
     gm = s.add_parser("generate-manifest")
     gm.add_argument("--human-approve-manifest", action="store_true")
@@ -1883,11 +1900,11 @@ def main(argv: list[str] | None = None) -> int:
                   "--human-confirm-promote YES_PROMOTE, --human-confirm YES_APPROVE_INTENT/YES_RECORD_REVIEW/YES_CLOSE_HYPOTHESIS, or --human-approve-manifest)", file=sys.stderr)
             code = 2
         elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data",
-                                 "resolve-data", "promote-contract"}:
+                                 "resolve-data", "promote-contract", "control"}:
             runner = SimpleNamespace(repo_root=Path("."))
             cmds = {"check-worktree": cmd_check_worktree, "generate-manifest": cmd_generate_manifest,
                     "handoff": cmd_handoff, "resolve-data": cmd_resolve_data,
-                    "promote-contract": cmd_promote_contract}
+                    "promote-contract": cmd_promote_contract, "control": cmd_control}
             if args.subcommand == "data":
                 data_actions = {"build": cmd_data_build, "seal-holdout": cmd_data_seal_holdout,
                                 "fence": cmd_data_fence, "compile": cmd_data_compile}

@@ -1,0 +1,202 @@
+[
+  {
+    "contract_id": "AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1",
+    "counts": {
+      "hypotheses": 5,
+      "selection_attempts": 5,
+      "standalone_screens": 5,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "AUTO_INDICES_1H_V2_H24_E24_F5_S10_V1",
+    "counts": {
+      "hypotheses": 3,
+      "selection_attempts": 3,
+      "standalone_screens": 3,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "AUTO_INDICES_30M_V1_H24_E24_F5_S10_V1",
+    "counts": {
+      "hypotheses": 3,
+      "selection_attempts": 3,
+      "standalone_screens": 3,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "CRYPTO_MAJORS_1H_V1",
+    "counts": {
+      "hypotheses": 12,
+      "selection_attempts": 15,
+      "standalone_screens": 9,
+      "trials": 9
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "CRYPTO_PERPS_1H_V1",
+    "counts": {
+      "hypotheses": 4,
+      "selection_attempts": 52,
+      "standalone_screens": 0,
+      "trials": 7
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "CRYPTO_PERPS_1H_V2",
+    "counts": {
+      "hypotheses": 5,
+      "selection_attempts": 5,
+      "standalone_screens": 5,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "CRYPTO_PERPS_4H_V1",
+    "counts": {
+      "hypotheses": 1,
+      "selection_attempts": 1,
+      "standalone_screens": 1,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+    "counts": {
+      "hypotheses": 52,
+      "selection_attempts": 43,
+      "standalone_screens": 41,
+      "trials": 11
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "FX_MAJORS_1D_V1",
+    "counts": {
+      "hypotheses": 5,
+      "selection_attempts": 0,
+      "standalone_screens": 0,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "FX_MAJORS_1D_V2",
+    "counts": {
+      "hypotheses": 6,
+      "selection_attempts": 15,
+      "standalone_screens": 1,
+      "trials": 5
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "FX_MAJORS_1D_V3",
+    "counts": {
+      "hypotheses": 2,
+      "selection_attempts": 2,
+      "standalone_screens": 2,
+      "trials": 0
+    },
+    "status": "UNRESOLVED"
+  },
+  {
+    "contract_id": "INDICES_1D_V1",
+    "counts": {
+      "hypotheses": 5,
+      "selection_attempts": 8,
+      "standalone_screens": 2,
+      "trials": 10
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "INDICES_1D_V2",
+    "counts": {
+      "hypotheses": 1,
+      "selection_attempts": 1,
+      "standalone_screens": 1,
+      "trials": 0
+    },
+    "status": "UNRESOLVED"
+  },
+  {
+    "contract_id": "INDICES_1H_V1",
+    "counts": {
+      "hypotheses": 1,
+      "selection_attempts": 0,
+      "standalone_screens": 0,
+      "trials": 4
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "INDICES_1H_V2",
+    "counts": {
+      "hypotheses": 5,
+      "selection_attempts": 30,
+      "standalone_screens": 9,
+      "trials": 12
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "MULTI_ASSET_1D_V1",
+    "counts": {
+      "hypotheses": 22,
+      "selection_attempts": 38,
+      "standalone_screens": 21,
+      "trials": 15
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "MULTI_ASSET_1H_V1",
+    "counts": {
+      "hypotheses": 21,
+      "selection_attempts": 23,
+      "standalone_screens": 20,
+      "trials": 2
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "MULTI_ASSET_30M_V1",
+    "counts": {
+      "hypotheses": 0,
+      "selection_attempts": 0,
+      "standalone_screens": 0,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "MULTI_ASSET_4H_V1",
+    "counts": {
+      "hypotheses": 0,
+      "selection_attempts": 0,
+      "standalone_screens": 0,
+      "trials": 0
+    },
+    "status": "MATCH"
+  },
+  {
+    "contract_id": "MULTI_ASSET_5M_V1",
+    "counts": {
+      "hypotheses": 0,
+      "selection_attempts": 0,
+      "standalone_screens": 0,
+      "trials": 0
+    },
+    "status": "MATCH"
+  }
+]

@@ -195,13 +195,16 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(tiny_repo):
     with sqlite3.connect(reg.db_path) as conn:
         artifact = fixture.registry.db_path.parent / "returns" / fixture.contract.contract_id / f"{result.run_id}.parquet"
         artifact_sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        conn.execute("DROP TABLE robustness_outcomes")
+        conn.execute("DROP TABLE robustness_receipts")
+        conn.execute("DROP TABLE robustness_plans")
         conn.execute("DROP TABLE candidate_operations")
         conn.execute("DROP TABLE candidate_admissions")
         conn.execute("PRAGMA user_version=3")
         before = {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables}
     migrated = ResearchRegistry(reg.db_path)
     with sqlite3.connect(reg.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables} == before
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == artifact_sha

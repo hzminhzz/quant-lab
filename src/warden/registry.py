@@ -14,6 +14,7 @@ from typing import TypedDict
 
 import numpy as np
 
+from warden import robustness
 from warden.candidate_admission import CandidateIdentity
 from warden.codeid import code_closure
 from warden.contracts import (
@@ -27,6 +28,7 @@ from warden.contracts import (
     utc,
     valid_id,
 )
+from warden.selection_accounting import project_selection
 
 BLOCKING = frozenset({
     "QUARANTINED_SYNTHETIC",
@@ -187,7 +189,7 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 """Current ``PRAGMA user_version`` of the registry schema.
 
 ``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
@@ -205,7 +207,9 @@ carrier, now a real field) and ``contract_governance.group_source`` (``declared`
 Historical rows are not rebound to a candidate without frozen code/config evidence.
 A previous evaluator refuses v4; rollback to v3 requires a pre-admission snapshot,
 not merely a version flip that would discard candidate-budget enforcement.
-A newer schema is refused instead of guessed at.
+``5`` (#123) adds immutable frozen robustness plans, scenario receipts and
+outcomes; historical trial/selection rows remain unchanged. A newer schema is
+refused instead of guessed at.
 
 Down-path: v3 is data-only to undo. A v2 build refuses to open a v3 registry (it is
 newer than the build), so rolling back means ``PRAGMA user_version=2``; both added
@@ -281,7 +285,7 @@ _DDL_SCRIPT = f"""
                     SELECT RAISE(ABORT, 'Governance violation: rejected hypothesis cannot be reactivated')
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
-"""
+""" + robustness.ROBUSTNESS_DDL
 
 
 class ScreenStatusView(TypedDict):
@@ -983,7 +987,9 @@ class ResearchRegistry:
             (hypothesis_id,),
         ).fetchone()[0]
         legacy_grids = conn.execute(
-            "SELECT COUNT(*) FROM selection_attempts WHERE hypothesis_id=? AND kind='param_grid'",
+            "SELECT COUNT(*) FROM selection_attempts a WHERE hypothesis_id=? AND kind='param_grid'"
+            + (" AND NOT EXISTS (SELECT 1 FROM robustness_outcomes o WHERE o.attempt_id=a.attempt_id)"
+               if _has_column(conn, "robustness_outcomes", "attempt_id") else ""),
             (hypothesis_id,),
         ).fetchone()[0]
         frozen = conn.execute(
@@ -999,6 +1005,7 @@ class ResearchRegistry:
     def candidate_budget(self, hypothesis_id):
         """Read-only budget projection, separate from full-trial counters and DSR."""
         with self._connect() as conn:
+            conn.execute("BEGIN")
             root, members = self._lineage(conn, hypothesis_id)
             usage = {hyp: self._candidate_usage(conn, hyp) for hyp in members}
         return {
@@ -1044,7 +1051,7 @@ class ResearchRegistry:
         with self._connect() as conn:
             self._require_candidate_budget(conn, hypothesis_id)
 
-    def _link_candidate(self, conn, candidate, kind, operation_id):
+    def _link_candidate(self, conn, candidate, kind, operation_id, robustness_plan=None):
         """Reserve one frozen candidate and an exclusive operation in the caller's transaction."""
         if not isinstance(candidate, CandidateIdentity):
             raise TypeError("Missing frozen candidate identity")
@@ -1112,6 +1119,7 @@ class ResearchRegistry:
                 (candidate.candidate_id, hyp_id, candidate.contract_id, candidate.strategy_module,
                  candidate.code_content_sha256, candidate.payload, time.time()),
             )
+        robustness.bind_plan(conn, candidate.candidate_id, robustness_plan, existing=existing is not None)
         conn.execute(
             "INSERT INTO candidate_operations(candidate_id,kind,operation_id) VALUES (?,?,?)",
             (candidate.candidate_id, kind, operation_id),
@@ -1137,7 +1145,7 @@ class ResearchRegistry:
         ]).encode()).hexdigest()[:32]
 
     def reserve_screen(self, hypothesis_id, contract_id, strategy_module, parameters, data_sha256="",
-                       *, candidate: CandidateIdentity | None = None) -> str:
+                       *, candidate: CandidateIdentity | None = None, robustness_plan=None) -> str:
         """Atomically admit a selectable screen and its durable operation receipt."""
         legacy_key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
         key = candidate.candidate_id if candidate else legacy_key
@@ -1162,7 +1170,7 @@ class ResearchRegistry:
                     hypothesis_id, contract_id, normalise_module(strategy_module),
                     canonical_json(parameters or {}), data_sha256):
                     raise ValueError("Screen does not match frozen candidate identity")
-                self._link_candidate(conn, candidate, "screen", key)
+                self._link_candidate(conn, candidate, "screen", key, robustness_plan)
             conn.execute("""INSERT INTO screen_receipts
                             (screen_key,hypothesis_id,contract_id,strategy_module,parameters_json,state,data_sha256,reserved_at)
                             VALUES (?,?,?,?,?,'RESERVED',?,?)""",
@@ -1451,7 +1459,7 @@ class ResearchRegistry:
             "verdict": row[5], "stage_reached": row[6], "created_at": row[7],
         }
 
-    def register_trial_start(self, hypothesis_id, run_id, *, candidate: CandidateIdentity | None = None):
+    def register_trial_start(self, hypothesis_id, run_id, *, candidate: CandidateIdentity | None = None, robustness_plan=None):
         """Reserve an exclusive full operation, sharing a frozen screened candidate's slot."""
         valid_id(run_id)
         if candidate is None:
@@ -1474,7 +1482,7 @@ class ResearchRegistry:
             else:
                 if candidate.hypothesis_id != hypothesis_id or candidate.contract_id != row[3]:
                     raise ValueError("Trial does not match frozen candidate identity")
-                self._link_candidate(conn, candidate, "trial", run_id)
+                self._link_candidate(conn, candidate, "trial", run_id, robustness_plan)
             number = int(row[0]) + 1
             conn.execute("""INSERT INTO attempt_receipts
                             (run_id,hypothesis_id,contract_id,trial_number,state,reserved_at)
@@ -1485,9 +1493,24 @@ class ResearchRegistry:
                          (canonical_json(attempts), hypothesis_id))
             return number
 
+    def reserve_robustness(self, run_id, scenario_key):
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            return robustness.reserve_scenario(conn, run_id, scenario_key)
+
+    def finalize_robustness(self, scenario_id, metrics, *, returns=None, timestamps=None):
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            robustness.finalize_scenario(conn, scenario_id, metrics, returns, timestamps)
+
+    def robustness_status(self, run_id):
+        with self._connect() as conn:
+            return robustness.scenario_status(conn, run_id)
+
     def reconcile_attempt(self, run_id: str, *, confirm_interrupted: bool = False) -> dict:
         """Never rerun science: project receipt validity and optional durable review state."""
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE" if confirm_interrupted else "BEGIN")
             receipt = conn.execute("SELECT * FROM attempt_receipts WHERE run_id=?", (run_id,)).fetchone()
             if receipt is None:
                 return {"run_id": run_id, "state": "UNKNOWN", "reason": "no reservation", "eligible": False}
@@ -1495,7 +1518,25 @@ class ResearchRegistry:
                 conn.execute("UPDATE attempt_receipts SET state='INTERRUPTED_REVIEW',reason=? WHERE run_id=? AND state='RESERVED'",
                              ("interrupted before committed final result", run_id))
                 receipt = conn.execute("SELECT * FROM attempt_receipts WHERE run_id=?", (run_id,)).fetchone()
-            trial = conn.execute("SELECT returns_parquet_path,returns_sha256,verdict FROM trials WHERE run_id=?", (run_id,)).fetchone()
+            trial = conn.execute("SELECT returns_parquet_path,returns_sha256,verdict,stage_reached FROM trials WHERE run_id=?", (run_id,)).fetchone()
+            if confirm_interrupted and (receipt["state"] == "INTERRUPTED_REVIEW"
+                                        or (trial and trial[2] == "FAILED")):
+                robustness.interrupt_scenarios(conn, run_id)
+            scenarios = robustness.scenario_status(conn, run_id)
+            scenario_error = ""
+            if (receipt["state"] == "FINALIZED" and trial and trial[3] == "STAGE_3_STRESS"
+                    and _has_column(conn, "robustness_plans", "plan_json")):
+                # Completed historical v4 trials need not acquire invented scenario receipts.
+                bound = conn.execute(
+                    "SELECT p.candidate_id FROM robustness_plans p JOIN candidate_operations o "
+                    "ON o.candidate_id=p.candidate_id WHERE o.kind='trial' AND o.operation_id=?",
+                    (run_id,),
+                ).fetchone()
+                if bound:
+                    try:
+                        robustness.require_complete(conn, run_id, bound[0])
+                    except ValueError as exc:
+                        scenario_error = str(exc)
         state, reason = receipt["state"], receipt["reason"] or ""
         if state == "FINALIZED" and trial is None:
             state, reason = "EVIDENCE_DRIFT", "finalized receipt has no immutable trial"
@@ -1505,14 +1546,17 @@ class ResearchRegistry:
                 state, reason = "EVIDENCE_DRIFT", "Parquet receipt missing or digest mismatched"
         elif state == "RESERVED":
             reason = "result uncommitted; reconcile after writer exits, never auto retry"
+        if state == "FINALIZED" and scenario_error:
+            state, reason = "EVIDENCE_DRIFT", scenario_error
         return {"run_id": run_id, "state": state, "reason": reason, "eligible": state == "FINALIZED",
                 "verdict": trial[2] if trial else None,
-                "artifact_sha256": receipt["artifact_sha256"] or ""}
+                "artifact_sha256": receipt["artifact_sha256"] or "", "robustness": scenarios}
 
     def record_selection_attempt(self, *, hypothesis_id, contract_id, kind, stage, outcome,
                                  strategy_family="", strategy_module="", config_hash="", parameters=None,
                                  data_provenance="unknown", returns=None, diagnostics=None, run_id="",
-                                 screen_key=None, simulation_epoch: str = DEFAULT_SIMULATION_EPOCH):
+                                 screen_key=None, simulation_epoch: str = DEFAULT_SIMULATION_EPOCH,
+                                 scenario_id=None, timestamps=None):
         """Persist one validation-consuming configuration. Repeats are counted, never merged."""
         epoch = _normalize_epoch(simulation_epoch)
         base = hashlib.sha256(canonical_json([hypothesis_id, contract_id, kind, stage, outcome, config_hash,
@@ -1521,6 +1565,14 @@ class ResearchRegistry:
         if vector is not None and (vector.ndim != 1 or len(vector) == 0 or not np.isfinite(vector).all()):
             vector = None
         payload = canonical_json(vector.tolist()) if vector is not None else ""
+        diagnostics = dict(diagnostics or {})
+        if timestamps is not None and vector is not None:
+            from warden_evidence.selection_alignment import utc_ns
+
+            clock = utc_ns(timestamps)
+            if len(clock) != len(vector):
+                raise ValueError("Selection evidence clock and returns differ")
+            diagnostics["selection_timestamps_ns"] = clock.tolist()
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if screen_key is not None:
@@ -1553,6 +1605,9 @@ class ResearchRegistry:
                                        (attempt_id, time.time(), screen_key, hypothesis_id, contract_id)).rowcount
                 if updated != 1:
                     raise ScreenAlreadyAttemptedError("No matching exclusive Stage 1 reservation to finalize")
+            if scenario_id is not None:
+                robustness.finalize_scenario(
+                    conn, scenario_id, diagnostics, returns, timestamps, attempt_id=attempt_id)
         return attempt_id
 
     @staticmethod
@@ -1564,24 +1619,20 @@ class ResearchRegistry:
         return " AND 1=0", ()
 
     def validation_attempt_count(self, contract_id, simulation_epoch: str | None = None):
+        """Raw admitted operations, including unresolved receipts; not the DSR candidate count."""
+        epoch = _normalize_epoch(simulation_epoch) if simulation_epoch is not None else None
         with self._connect() as conn:
-            if simulation_epoch is None:
-                trials = conn.execute("SELECT COUNT(*) FROM trials WHERE contract_id=?", (contract_id,)).fetchone()[0]
-                screens = conn.execute("SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?",
-                                       (contract_id,)).fetchone()[0]
-                return int(trials + screens)
-            epoch = _normalize_epoch(simulation_epoch)
-            t_clause, t_params = self._epoch_clause(conn, "trials", epoch)
-            s_clause, s_params = self._epoch_clause(conn, "selection_attempts", epoch)
-            trials = conn.execute(
-                f"SELECT COUNT(*) FROM trials WHERE contract_id=?{t_clause}",
-                (contract_id, *t_params),
-            ).fetchone()[0]
-            screens = conn.execute(
-                f"SELECT COUNT(*) FROM selection_attempts WHERE contract_id=?{s_clause}",
-                (contract_id, *s_params),
-            ).fetchone()[0]
-        return int(trials + screens)
+            conn.execute("BEGIN")
+            return project_selection(conn, contract_id, epoch).raw_operations
+
+    def selection_attempt_count(self, contract_id, simulation_epoch: str | None = None,
+                                *, exclude_candidate_id=""):
+        """Selectable identities plus conservative unbound historical debt."""
+        epoch = _normalize_epoch(simulation_epoch) if simulation_epoch is not None else None
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            return project_selection(conn, contract_id, epoch,
+                                     exclude_candidate_id=exclude_candidate_id).selection_count
 
     # -- selection scope ----------------------------------------------------
 
@@ -1631,20 +1682,20 @@ class ResearchRegistry:
 
     def selection_group_debt(self, contract, *,
                              simulation_epoch: str = DEFAULT_SIMULATION_EPOCH) -> dict:
-        """Persisted trial/search-debt count for the whole selection group (#113).
-
-        Read-only: sums ``validation_attempt_count`` over every member of the
-        contract's scope, so two contract ids in one group -- including one whose
-        membership was derived from the venue policy -- report a single shared
-        count instead of one each.
-        """
+        """Statistical search debt and raw operation counts on one group snapshot."""
         epoch = _normalize_epoch(simulation_epoch)
         scope = self.selection_scope(contract)
-        per_contract = {member: self.validation_attempt_count(member, simulation_epoch=epoch)
-                        for member in scope.members}
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            projections = {member: project_selection(conn, member, epoch)
+                           for member in scope.members}
+        per_selection = {member: p.selection_count for member, p in projections.items()}
+        per_operation = {member: p.raw_operations for member, p in projections.items()}
         return {"contract_id": str(contract.contract_id), "selection_group_id": scope.group_id,
-                "scope": list(scope.members), "per_contract": per_contract,
-                "shared_attempt_count": int(sum(per_contract.values())),
+                "scope": list(scope.members), "per_contract": per_selection,
+                "shared_attempt_count": int(sum(per_selection.values())),
+                "per_contract_raw_operations": per_operation,
+                "shared_raw_operation_count": int(sum(per_operation.values())),
                 "simulation_epoch": epoch}
 
     def selection_scope(self, contract) -> SelectionScope:
@@ -1811,9 +1862,14 @@ class ResearchRegistry:
         except (ReturnArtifactError, OSError):
             return None
 
-    def _selection_rows(self, members: tuple[str, ...], epoch: str):
+    def _selection_rows(self, members: tuple[str, ...], epoch: str, *, exclude_candidate_id=''):
         marks = ",".join("?" * len(members))
         with self._connect() as conn:
+            conn.execute("BEGIN")
+            projections = [project_selection(conn, cid, epoch, exclude_candidate_id=exclude_candidate_id)
+                           for cid in members]
+            trial_ids = set().union(*(p.trial_ids for p in projections))
+            attempt_ids = set().union(*(p.attempt_ids for p in projections))
             t_clause, t_params = self._epoch_clause(conn, "trials", epoch)
             s_clause, s_params = self._epoch_clause(conn, "selection_attempts", epoch)
             rows = conn.execute(
@@ -1821,18 +1877,24 @@ class ResearchRegistry:
                 f"FROM trials WHERE contract_id IN ({marks}){t_clause} ORDER BY created_at,run_id",
                 (*members, *t_params)).fetchall()
             attempts = conn.execute(
-                "SELECT attempt_id,contract_id,returns_json FROM selection_attempts "
+                "SELECT attempt_id,contract_id,returns_json,diagnostics_json,returns_sha256 FROM selection_attempts "
                 f"WHERE contract_id IN ({marks}) AND returns_observed=1 "
                 "AND (kind='param_grid' OR (kind='standalone_screen' AND strategy_family IN ('rules_ts', 'meta_overlay')))"
                 f"{s_clause} ORDER BY created_at,attempt_id",
                 (*members, *s_params)).fetchall()
-        return rows, attempts
+        return (
+            [r for r in rows if r[0] in trial_ids],
+            [r for r in attempts if r[0] in attempt_ids],
+            sum(p.selection_count for p in projections), sum(p.raw_operations for p in projections),
+        )
 
-    def _selection_streams(self, scope: SelectionScope, epoch: str) -> tuple[list, list[dict]]:
+    def _selection_streams(self, scope: SelectionScope, epoch: str, *, exclude_candidate_id=""):
+
         """Every vectorised selection stream in scope, plus the explicit debt register."""
         from warden_evidence.selection_alignment import ReturnStream
 
-        rows, attempts = self._selection_rows(scope.members, epoch)
+        rows, attempts, selection_count, raw_operations = self._selection_rows(
+            scope.members, epoch, exclude_candidate_id=exclude_candidate_id)
         streams: list[ReturnStream] = []
         excluded: list[dict] = []
         for run_id, contract_id, r_json, stage, path in rows:
@@ -1854,7 +1916,7 @@ class ResearchRegistry:
                 stream_id=str(run_id), returns=arr, timestamps_ns=stamps,
                 contract_id=str(contract_id), origin="trial",
                 required=own, legacy_positional=own))
-        for attempt_id, contract_id, r_json in attempts:
+        for attempt_id, contract_id, r_json, diagnostics_json, returns_sha256 in attempts:
             if not r_json or r_json == "[]":
                 excluded.append({"attempt_id": attempt_id, "reason": "no observed return stream"})
                 continue
@@ -1863,14 +1925,19 @@ class ResearchRegistry:
                 excluded.append({"attempt_id": attempt_id,
                                  "reason": "zero-variance or non-finite selection_attempt stream"})
                 continue
-            # Selection attempts store a vector only: they have no artifact and therefore
-            # no clock.  They stay positional evidence for their own contract and debt
-            # everywhere else.
+            if returns_sha256 and hashlib.sha256(r_json.encode()).hexdigest() != returns_sha256:
+                excluded.append({"attempt_id": attempt_id, "reason": "selection return digest mismatch"})
+                continue
+            clock = json.loads(diagnostics_json or "{}").get("selection_timestamps_ns")
+            stamps = np.asarray(clock, dtype=np.int64) if clock is not None else None
+            if stamps is not None and (stamps.shape != arr.shape or np.any(np.diff(stamps) <= 0)):
+                excluded.append({"attempt_id": attempt_id, "reason": "invalid recorded selection clock"})
+                continue
             streams.append(ReturnStream(
-                stream_id=str(attempt_id), returns=arr, timestamps_ns=None,
+                stream_id=str(attempt_id), returns=arr, timestamps_ns=stamps,
                 contract_id=str(contract_id), origin="attempt", required=False,
-                legacy_positional=str(contract_id) == scope.contract_id))
-        return streams, excluded
+                legacy_positional=stamps is None and str(contract_id) == scope.contract_id))
+        return streams, excluded, selection_count, raw_operations
 
     def selection_history(
         self,
@@ -1881,6 +1948,7 @@ class ResearchRegistry:
         timestamps=None,
         candidate_returns=None,
         contract=None,
+        exclude_candidate_id="",
     ):
         """Observed return streams plus explicit accounting of unvectorised attempts.
 
@@ -1906,7 +1974,8 @@ class ResearchRegistry:
                 f"contract '{contract.contract_id}' does not match contract_id '{contract_id}'")
         scope = (self.selection_scope(contract) if contract is not None
                  else SelectionScope(str(contract_id), "", (str(contract_id),), (), ()))
-        streams, excluded = self._selection_streams(scope, epoch)
+        streams, excluded, raw, raw_operations = self._selection_streams(
+            scope, epoch, exclude_candidate_id=exclude_candidate_id)
 
         candidate = (np.asarray(candidate_returns, dtype=float) if candidate_returns is not None
                      else np.zeros(int(expected_len), dtype=float))
@@ -1917,10 +1986,9 @@ class ResearchRegistry:
                 "Unaligned selection history", "Unaligned selection history")) from exc
         aligned_streams = [aligned.matrix[:, index] for index in range(aligned.matrix.shape[1])]
         excluded.extend(item.to_dict() for item in aligned.excluded)
-        raw = sum(self.validation_attempt_count(member, simulation_epoch=epoch)
-                  for member in scope.members)
         return {
             "streams": aligned_streams,
+            "raw_operation_count": raw_operations,
             "excluded": excluded,
             "raw_attempt_count": raw,
             # Everything counted but not vectorised, including legacy streams whose clock
@@ -1952,7 +2020,7 @@ class ResearchRegistry:
 
         epoch = _normalize_epoch(simulation_epoch)
         scope = self.selection_scope(contract)
-        streams, excluded = self._selection_streams(scope, epoch)
+        streams, excluded, _, _ = self._selection_streams(scope, epoch)
         vector = (np.asarray(candidate_returns, dtype=float) if candidate_returns is not None
                   else np.zeros(int(expected_len if expected_len is not None else len(timestamps)),
                                 dtype=float))
@@ -2108,6 +2176,12 @@ class ResearchRegistry:
                 or identity["simulation_epoch"] != result.simulation_epoch
             ):
                 raise ValueError("Trial evidence does not match frozen candidate")
+            if identity is not None and result.stage_reached == "STAGE_3_STRESS":
+                candidate_id = conn.execute(
+                    "SELECT candidate_id FROM candidate_operations WHERE kind='trial' AND operation_id=?",
+                    (result.run_id,),
+                ).fetchone()[0]
+                robustness.require_complete(conn, result.run_id, candidate_id)
             observed = len(returns) > 0
             returns_sha256 = ""
             if observed:

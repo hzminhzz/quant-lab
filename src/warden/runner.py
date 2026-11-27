@@ -79,6 +79,7 @@ from warden.protocols import (
 )
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
+from warden.robustness import build_robustness_plan
 from warden.schemas import load_experiment_spec
 from warden_evidence.selection_alignment import project_onto_grid, utc_ns
 
@@ -643,11 +644,13 @@ class ExperimentRunner:
         # this is byte-identical to contract.bars_per_year.
         bpy = market.bars_per_year
         self._check_carry_declaration(family, strat_mod, strat_module)
+        robustness_plan, _ = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
         candidate = freeze_candidate(
             self.repo_root, spec, contract, dataset, effective_params, code_sha, simulation_epoch,
             legacy_replay=self.allow_legacy_replay)
         screen_key = self.registry.reserve_screen(
-            hyp_id, contract.contract_id, strat_module, params, dataset.sha256, candidate=candidate)
+            hyp_id, contract.contract_id, strat_module, params, dataset.sha256, candidate=candidate,
+            robustness_plan=robustness_plan)
         carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
         if family == "carry_rv":
             carry_series = _carry_rv_stage1_series(
@@ -680,7 +683,7 @@ class ExperimentRunner:
                 parameters=params,
                 data_provenance=dataset.provenance,
                 returns=None,
-                diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key,
                 simulation_epoch=simulation_epoch,
             )
@@ -709,7 +712,7 @@ class ExperimentRunner:
                     parameters=params,
                     data_provenance=dataset.provenance,
                     returns=None,
-                    diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                    diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                     screen_key=screen_key,
                     simulation_epoch=simulation_epoch,
                 )
@@ -754,8 +757,8 @@ class ExperimentRunner:
                 strategy_module=strat_module,
                 parameters=params,
                 data_provenance=dataset.provenance,
-                returns=sim1.net_returns,
-                diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=sim1.net_returns, timestamps=ts[v_slice],
+                diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key,
                 simulation_epoch=simulation_epoch,
             )
@@ -787,7 +790,7 @@ class ExperimentRunner:
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=sim1.net_returns, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=sim1.net_returns, timestamps=ts[v_slice], diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         if protocol == "causal_model":
@@ -817,7 +820,7 @@ class ExperimentRunner:
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=ic_series, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=ic_series, diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         if family != "rules_ts":
@@ -836,7 +839,7 @@ class ExperimentRunner:
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=sim_model.net_returns, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=sim_model.net_returns, timestamps=ts[v_slice], diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
@@ -854,7 +857,7 @@ class ExperimentRunner:
             hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
             stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
             strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-            returns=sim1["net_returns"], diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+            returns=sim1["net_returns"], timestamps=ts[v_slice], diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
             screen_key=screen_key, simulation_epoch=simulation_epoch)
         return report
 
@@ -924,7 +927,8 @@ class ExperimentRunner:
         # is a parse refusal, never a consumed trial.  The requirement itself is
         # evaluated at Stage 3, where the neighbor sharpes exist.
         params_model_report = validate_strategy_params(strat_mod, params)
-        neighbor_grid = classify_numeric_neighbors(spec.param_grid, params_model_report)
+        robustness_plan, fixed_grid = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
+        neighbor_grid = classify_numeric_neighbors(fixed_grid, params_model_report)
 
         dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
             contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch)
@@ -961,7 +965,8 @@ class ExperimentRunner:
         candidate = freeze_candidate(
             self.repo_root, spec, contract, dataset, effective_params, code_sha, simulation_epoch,
             legacy_replay=self.allow_legacy_replay)
-        trial_num = self.registry.register_trial_start(hyp_id, run_id, candidate=candidate)
+        trial_num = self.registry.register_trial_start(
+            hyp_id, run_id, candidate=candidate, robustness_plan=robustness_plan)
         provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha,
                          "simulation_epoch": simulation_epoch}
         data_sha = dataset.sha256
@@ -1057,11 +1062,6 @@ class ExperimentRunner:
                         mean_ic=mean_ic, ic_hac_t=ic_hac_t,
                     )
 
-            sr_1p5 = analytical_1p5x_sharpe(
-                sim1.backtest_result,
-                bpy,
-                val_ts=ts[v_slice],
-            )
             net_ret, gross_ret, turnover = sim1.net_returns, sim1.gross_returns, sim1.turnover
             # The series that is recorded, aligned and deflated lives on the selection clock
             # decided above; the Engine's own gate statistics keep the tape they ran on.  A
@@ -1117,20 +1117,34 @@ class ExperimentRunner:
                         metrics=m, returns_vec=selection_net, returns_timestamps=validation_ts,
                     )
 
+            scenario = self.registry.reserve_robustness(run_id, "cost_1p5")
+            sr_1p5 = analytical_1p5x_sharpe(
+                sim1.backtest_result,
+                bpy,
+                val_ts=ts[v_slice],
+            )
+            self.registry.finalize_robustness(scenario, {"net_sharpe": sr_1p5})
+            scenario = self.registry.reserve_robustness(run_id, "cost_2x")
             sim2 = kernel.reprice(
                 sim1, strat_mod, panel_df, ts, assets, contract, v_slice, params,
                 policy=policy_dict, cost_multiplier=2.0,
             )
+            sr2 = annualised_sharpe(sim2.net_returns, bpy)
+            self.registry.finalize_robustness(
+                scenario, {"net_sharpe": sr2}, returns=sim2.net_returns, timestamps=ts[v_slice])
+            scenario = self.registry.reserve_robustness(run_id, "latency_plus1")
             sim_d = kernel.reprice(
                 sim1, strat_mod, panel_df, ts, assets, contract, v_slice, params,
                 policy=policy_dict, delay_offset=1,
             )
-            sr2 = annualised_sharpe(sim2.net_returns, bpy)
             srd = annualised_sharpe(sim_d.net_returns, bpy)
+            self.registry.finalize_robustness(
+                scenario, {"net_sharpe": srd}, returns=sim_d.net_returns, timestamps=ts[v_slice])
 
-            ngrid, n_sr = list(spec.param_grid), []
+            ngrid, n_sr = fixed_grid, []
             grid_returns_list: list[np.ndarray] = [net_ret]
-            for grid_params in ngrid:
+            for index, grid_params in enumerate(ngrid):
+                scenario = self.registry.reserve_robustness(run_id, f"neighbor:{index}")
                 grid_sim = kernel.run(
                     strat_mod,
                     panel_df,
@@ -1145,14 +1159,15 @@ class ExperimentRunner:
                 )
                 grid_returns_list.append(grid_sim.net_returns)
                 n_sr.append(annualised_sharpe(grid_sim.net_returns, bpy))
-                # Grid configurations consume validation evidence: count them, never silently.
+                # Fixed neighbors are raw operations; never use them to select a winner.
                 self.registry.record_selection_attempt(
                     hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="param_grid",
                     stage="STAGE_3_STRESS", outcome="GRID", strategy_family=family,
                     strategy_module=strat_module_str, parameters=grid_params,
                     config_hash=hashlib.sha256(canonical_json(grid_params).encode()).hexdigest()[:12],
                     data_provenance=dataset.provenance, returns=grid_sim.net_returns,
-                    diagnostics={"net_sharpe": n_sr[-1]}, simulation_epoch=simulation_epoch)
+                    diagnostics={"net_sharpe": n_sr[-1]}, simulation_epoch=simulation_epoch,
+                    run_id=run_id, scenario_id=scenario, timestamps=ts[v_slice])
             # Only *distinct, genuine, numeric* configurations are neighbor
             # evidence.  Duplicates, entries that restate the effective baseline
             # and non-numeric edits stay executed and recorded (their selection
@@ -1191,7 +1206,8 @@ class ExperimentRunner:
 
             hist = self.registry.selection_history(
                 contract.contract_id, len(validation_ts), simulation_epoch=simulation_epoch,
-                timestamps=validation_ts, candidate_returns=selection_net, contract=contract)
+                timestamps=validation_ts, candidate_returns=selection_net, contract=contract,
+                exclude_candidate_id=candidate.candidate_id)
             alignment = hist["alignment"]
             n_attempts = hist["raw_attempt_count"] + 1
             # A UTC-day panel compounds the candidate onto the shared daily index, so the DSR
@@ -1234,6 +1250,7 @@ class ExperimentRunner:
                                                             "k_eff_gate", "noise_floor_applied", "correction_policy",
                                                             "non_promotable_reason")},
                                   "simulation_epoch": simulation_epoch,
+                                  "raw_operation_count": hist["raw_operation_count"],
                                   "alignment": alignment,
                                   "bars_per_year_used": float(bars_for_dsr),
                                   "selection_clock": {
@@ -1374,7 +1391,7 @@ class ExperimentRunner:
         returns_timestamps: list | None = None,
     ) -> ExperimentResult:
         n_attempts = (
-            self.registry.validation_attempt_count(contract_id, simulation_epoch=simulation_epoch) + 1
+            self.registry.selection_attempt_count(contract_id, simulation_epoch=simulation_epoch)
         )
         diag = {
             "dataset": dataset,
@@ -1431,9 +1448,9 @@ class ExperimentRunner:
 
     def _note_failure(self, contract, hyp_id, family, strat_module, params, dataset, stage, exc,
                       simulation_epoch: str = ENGINE_SIMULATION_EPOCH):
-        """Record validation-consuming failures that never reach a trial row."""
+        """Record technical pre-admission refusals, never a candidate outcome."""
         self.registry.record_selection_attempt(
-            hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="failed_reservation", stage=stage,
+            hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="technical_preflight", stage=stage,
             outcome="ERROR", strategy_family=family, strategy_module=strat_module, parameters=params,
             data_provenance=(dataset or {}).get("provenance", "unknown"), diagnostics={"error": str(exc)},
             simulation_epoch=simulation_epoch)

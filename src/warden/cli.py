@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import re
+import sqlite3
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -350,6 +351,8 @@ def cmd_screen(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
         ValueError,
         RuntimeError,
         KeyError,
+        OSError,
+        sqlite3.Error,
         pl.exceptions.PolarsError,
     ) as exc:
         print(f"Screen failed: {exc}", file=sys.stderr)
@@ -383,7 +386,7 @@ def cmd_backtest(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int
     except SandboxArtifactError as exc:
         print(f"REFUSED: {exc}\nWARDEN_RUN_FAILED", file=sys.stderr)
         return 2
-    except (ValueError, RuntimeError, KeyError, FileNotFoundError) as exc:
+    except (ValueError, RuntimeError, KeyError, OSError, sqlite3.Error) as exc:
         print(f"Backtest failed: {exc}\nWARDEN_RUN_FAILED", file=sys.stderr)
         return 1
 
@@ -702,6 +705,17 @@ def _advance_one_spec(
                 f"Hypothesis {hyp_id} non-runnable or budget exhausted "
                 f"(status={state['hypothesis_status']}, trials_used={state.get('hypothesis_trials_used')})",
             )
+        ledger = status_registry or runner.registry
+        if state["state"] == "NEW" and getattr(ledger, "schema_version", 0) >= 4:
+            try:
+                budget = ledger.candidate_budget(hyp_id)
+            except (ValueError, sqlite3.Error) as exc:
+                return _result("REVIEW_REQUIRED", state, f"Candidate budget unavailable: {exc}")
+            if (budget["used"] >= budget["hypothesis_cap"]
+                    or budget["lineage_used"] >= budget["lineage_cap"]):
+                return _result("SKIP_TERMINAL", state,
+                               f"Candidate budget exhausted: {budget['used']}/{budget['hypothesis_cap']}, "
+                               f"lineage {budget['lineage_used']}/{budget['lineage_cap']}")
         return None
 
     def _legacy_frozen(state: dict[str, Any]) -> dict[str, Any] | None:

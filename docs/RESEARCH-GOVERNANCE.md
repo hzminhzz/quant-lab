@@ -83,3 +83,54 @@ pending explicit principal ratification before manifest signing or merge.
   chargeable, never a free slot. RG-04 owns complete accounting of grid/stress
   execution and scheduler/diagnostic outcome paths. This slice does not claim
   the entire governance program is complete.
+
+## RG-04: durable operation and search accounting (#123)
+
+Schema v5 extends the existing transactional registry with write-once
+robustness plans, scenario reservations and scenario outcomes. The runner freezes
+the plan before the first scored screen or full trial. Changing it after
+admission is refused. A historical v4 admission lacking a frozen plan requires
+review before it can advance. No existing evidence is rewritten.
+
+- Screen, full evaluation, 1.5x analytical cost, 2x simulated cost, +1-bar latency,
+  and each fixed neighbor have durable admission before execution. Stage 3
+  cannot finalize without all planned scenarios. Engine scenario evidence
+  includes an explicit UTC clock, returns, metrics and a digest. The analytical
+  cost scenario records its derived statistic. Neighbor rows and scenario
+  outcomes finalize atomically. Failed finalization exposes no successful
+  performance report; interruption retains the charged identity.
+- The evaluator owns the mandatory cost/latency plan. For fixed neighbors,
+  only declared numeric baseline axes may change, with no data-universe
+  change, at most two distinct alternative values per axis and no more than
+  twice the number of changed axes in distinct configurations. Duplicate
+  evaluations remain raw operations. This cardinality restriction is an
+  implementation choice, not a scientific definition of a local perturbation:
+  no numerical distance bound has been approved. Wider or structural sweeps
+  must use separately admitted candidates. Choosing a tested neighbor as a
+  subsequent baseline costs a candidate slot; it cannot inherit qualification.
+- Raw operation count includes incomplete reservations and fixed scenarios.
+  The statistical selection count treats a prospectively frozen screen/full
+  candidate as one search identity, using the completed full return tape in
+  preference to the screen, not whichever has better performance. Fixed
+  scenarios add no independent search identity. Historical pre-v5 outcome rows
+  retain their former selection debt and unknown-epoch unresolved receipts are
+  conservatively charged in each queried epoch. Stored inherited floors are
+  preserved. New data/Stage 0 technical refusals are recorded separately, without
+  claiming a scored attempt. The scheduler checks registered candidate budgets
+  before new work; transactional admission remains authoritative.
+- The unregistered outcome-producing commands af30_book_report,
+  xs_panel_diagnostics, xs_residual_momentum_diag and xs_residual_reversal_1h_diag
+  are retired; use the registered Warden evaluation path instead. Historical
+  implementations remain in Git. Shadow engine parity replay/scaling is limited
+  to synthetic engineering fixtures with matching dataset digests. Read-only
+  diagnostics over recorded evidence and technical causal checks remain
+  available.
+- Boundary: this governs supported Warden entry points, not arbitrary Python,
+  shell, or same-UID filesystem/SQLite access. A user who can modify protected
+  code or invoke the internal numerical kernel directly is outside this trust
+  boundary. This is not an operating-system sandbox. Manifest approval, the
+  principal's legacy-mapping ratification, further research-intent/benchmark
+  gates and independent conformance remain prerequisites to deployment.
+
+Only scratch synthetic fixtures are used for this slice's scientific execution
+tests; no production registry migration, manifest signing, or live holdout access.

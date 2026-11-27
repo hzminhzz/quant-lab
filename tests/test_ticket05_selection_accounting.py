@@ -252,6 +252,12 @@ def test_dsr_non_ratchet_does_not_readd_unvectorized_penalty() -> None:
 
 def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) -> None:
     fixture = tiny_repo()
+    import yaml
+
+    frozen = yaml.safe_load(fixture.spec.read_text())
+    frozen["parameters"] = {"lookback_bars": 4}
+    frozen["param_grid"] = [{"lookback_bars": 3}, {"lookback_bars": 6}]
+    fixture.spec.write_text(yaml.safe_dump(frozen))
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     runner.run_stage1_screen(fixture.spec)
 
@@ -267,16 +273,15 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) ->
         simulation_epoch=ENGINE_SIMULATION_EPOCH,
     )
 
-    spec = fixture.spec.read_text() + "param_grid:\n- {lookback_bars: 3}\n- {lookback_bars: 6}\n"
-    fixture.spec.write_text(spec)
     res = runner.run_spec(fixture.spec)
     diag = json.loads(res.diagnostics_json)
     sel = diag["selection"]
-    # 1 screen (rules_ts) + 1 ml screen (unvectorized IC) + 2 param_grid + 1 candidate = 5 total
-    assert res.total_trials_n == 5
-    assert sel["raw_attempt_count"] == 5
-    # streams_used includes: rules_ts screen + 2 param_grid + candidate = 4
-    assert sel["streams_used"] == 4
+    # One frozen candidate (screen/full), one historical unbound ML screen.
+    # Two fixed neighbors and three fixed stresses remain raw evidence, not independent search.
+    assert res.total_trials_n == 2
+    assert sel["raw_attempt_count"] == 2
+    assert sel["raw_operation_count"] == 8
+    assert sel["streams_used"] == 1
     assert sel["unvectorized_attempts"] == 1
 
 

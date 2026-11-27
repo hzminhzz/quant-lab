@@ -1143,6 +1143,7 @@ def generate_positions(panel_df, contract, **kwargs):
         label_horizon_bars=1,
     )
     spec_cfg = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    spec_cfg["parameters"] = {"weight": 0.5}  # Freeze the legacy default explicitly.
     spec_cfg["param_grid"] = [{"weight": 0.4}, {"weight": 0.6}]
     spec_path.write_text(yaml.safe_dump(spec_cfg), encoding="utf-8")
 

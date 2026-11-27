@@ -39,6 +39,12 @@ def _hyp(hyp_id, family="rules_ts", module="", parent=None):
 
 def test_screens_grids_and_failed_reservations_are_all_counted(tiny_repo) -> None:
     fixture = tiny_repo()
+    import yaml
+
+    frozen = yaml.safe_load(fixture.spec.read_text())
+    frozen["parameters"] = {"lookback_bars": 4}
+    frozen["param_grid"] = [{"lookback_bars": 3}, {"lookback_bars": 6}]
+    fixture.spec.write_text(yaml.safe_dump(frozen))
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     runner.run_stage1_screen(fixture.spec)                     # standalone screen -> one attempt
     with fixture.registry._connect() as conn:
@@ -46,14 +52,12 @@ def test_screens_grids_and_failed_reservations_are_all_counted(tiny_repo) -> Non
         row = conn.execute("SELECT kind, returns_observed, returns_json FROM selection_attempts").fetchone()
     assert row[0] == "standalone_screen" and row[1] == 1 and row[2] not in ("", "[]")
 
-    spec = fixture.spec.read_text() + "param_grid:\n- {lookback_bars: 3}\n- {lookback_bars: 6}\n"
-    fixture.spec.write_text(spec)
     runner.run_spec(fixture.spec)
     with fixture.registry._connect() as conn:
         kinds = [r[0] for r in conn.execute("SELECT kind FROM selection_attempts ORDER BY created_at")]
         assert kinds.count("param_grid") == 2
         raw = runner.registry.validation_attempt_count(fixture.contract.contract_id)
-    assert raw == 4  # 1 trial + 1 screen + 2 grid configurations
+    assert raw == 7  # 1 trial + 1 screen + 2 neighbors + 3 fixed cost/latency scenarios
 
     # A reservation that dies before any result is still an attempt, with no fake zero returns.
     broken = tiny_repo(module_source="def generate_positions(*a, **k):\n    raise RuntimeError('boom')\n",

@@ -160,6 +160,9 @@ def _wal_legacy_snapshot(tmp_path: Path, seed_db: Path) -> Path:
         src.backup(dst)
     with sqlite3.connect(snap) as conn:
         assert str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal"
+        conn.execute("DROP TABLE robustness_outcomes")
+        conn.execute("DROP TABLE robustness_receipts")
+        conn.execute("DROP TABLE robustness_plans")
         conn.execute("DROP TABLE candidate_operations")
         conn.execute("DROP TABLE candidate_admissions")
         conn.execute("PRAGMA user_version=0")

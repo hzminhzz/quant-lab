@@ -22,7 +22,7 @@ def digest(value: object) -> str:
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
 
 
 class Resources(StrictModel):
@@ -98,6 +98,17 @@ class Act(StrictModel):
     plan: ActionPlan
 
 
+class Enqueue(Act):
+    operation: Literal["enqueue"]
+    objective: str = Field(min_length=1, max_length=1000)
+
+
+class JobStatus(StrictModel):
+    schema_version: Literal[1]
+    operation: Literal["job-status", "cancel-job"]
+    job_id: Identifier
+
+
 class Receipt(StrictModel):
     schema_version: Literal[1]
     operation: Literal["receipt"]
@@ -111,7 +122,7 @@ class Reconcile(StrictModel):
     mode: Literal["mark_interrupted"]
 
 
-Request = Annotated[Observe | Inspect | Prepare | Act | Receipt | Reconcile,
+Request = Annotated[Observe | Inspect | Prepare | Act | Receipt | Reconcile | Enqueue | JobStatus,
                     Field(discriminator="operation")]
 REQUEST = TypeAdapter(Request)
 
@@ -161,6 +172,12 @@ def capabilities() -> dict:
          "screen_receipts and selection_attempts", True),
         ("backtest", "warden.runner.ExperimentRunner.run_spec", True, "existing Warden admission",
          "attempt_receipts and trials", True),
+        ("enqueue", "warden_ops.jobs.JobQueue", False, "existing Warden admission rechecked on dispatch",
+         "durable objective; no scientific reservation until dispatch", True),
+        ("job-status", "warden_ops.jobs.JobQueue", False, "authorized metadata",
+         "durable fenced progress and resource receipt", True),
+        ("cancel-job", "warden_ops.jobs.JobQueue", False, "operational cancellation",
+         "retain admitted or uncertain science; release capacity only after observed exit", True),
         ("receipt", "warden.registry.ResearchRegistry", False, "authorized metadata",
          "original domain receipt", True),
         ("reconcile", "warden.registry.ResearchRegistry", True, "explicit interrupted disposition",

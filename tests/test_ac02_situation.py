@@ -68,6 +68,22 @@ def test_cli_and_mcp_observe_share_the_same_application(cli_repo, monkeypatch, c
     assert reply["result"]["isError"] is False
 
 
+def test_long_hypothesis_details_do_not_stall_pagination(tmp_path):
+    db = tmp_path / "registry.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("CREATE TABLE hypotheses(hypothesis_id TEXT,title TEXT)")
+        conn.executemany("INSERT INTO hypotheses VALUES (?,?)", [("HYP-A", "a" * 20000), ("HYP-B", "b" * 20000)])
+    control = Control(tmp_path, registry_path=db)
+    result = control.handle({"schema_version": 1, "operation": "observe", "limit": 1})
+    assert result["ok"]
+    ledger = result["value"]["ledger"]
+    assert len(ledger["hypotheses"]) == 1
+    assert ledger["next_cursor"] == "HYP-A"
+    assert ledger["hypotheses"][0]["truncated_fields"] == ["title"]
+    second = control.handle({"schema_version": 1, "operation": "observe", "limit": 1, "cursor": "HYP-A"})
+    assert second["value"]["ledger"]["hypotheses"][0]["hypothesis_id"] == "HYP-B"
+
+
 def test_handoff_does_not_initialize_or_migrate_a_legacy_ledger(cli_repo):
     db = cli_repo / "registry/registry.db"
     with sqlite3.connect(db) as conn:

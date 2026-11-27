@@ -10,6 +10,7 @@ from warden.codeid import code_closure
 from warden.lease import mutation_lease
 from warden.registry import ResearchRegistry
 from warden.schemas import load_experiment_spec
+from warden_ops.control import current_registry
 from warden_ops.control_contracts import ActionPlan, Result, Revision, digest
 from warden_ops.integrity import check_worktree, protected_manifest_entries
 
@@ -86,6 +87,7 @@ def receipt(control, request_id):
                               remedy="repair the fault and prepare a new request; original has no domain link")
     uncertain = state != "FINALIZED"
     value = {k: v for k, v in record.items() if k not in {"plan", "fingerprint", "actor"}}
+    value["artifact_bytes_reverified"] = False
     return Result(ok=not uncertain, status="UNCERTAIN" if uncertain else "COMPLETE",
                   observed_at=time.time(), request_id=request_id, recorded_verdict=verdict,
                   current_eligibility="INELIGIBLE" if verdict in {"REJECT", "REJECTED_EARLY", "FAILED"} else "UNKNOWN",
@@ -120,7 +122,7 @@ def act(control, request):
                                   request_id=request.request_id)
         if not check_worktree(control.root):
             return control.refuse("INTEGRITY_INCIDENT", "worktree integrity failed; source development is not runtime authority")
-        registry = ResearchRegistry(control.registry_path)
+        registry = current_registry(control.registry_path, writable=True)
         registry.start_control_request(request.request_id, fingerprint, fields, actor)
         registry.control_request_id = request.request_id
         from warden.runner import ExperimentRunner
@@ -138,7 +140,7 @@ def act(control, request):
 
 def reconcile(control, request):
     with mutation_lease(control.registry_path):
-        registry = ResearchRegistry(control.registry_path)
+        registry = current_registry(control.registry_path, writable=True)
         record = registry.control_request(request.request_id)
         if not record:
             return control.refuse("TECHNICAL_PRE_ADMISSION", "unknown request")

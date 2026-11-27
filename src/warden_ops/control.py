@@ -35,6 +35,15 @@ def checkout_view(root: Path) -> dict:
             "identity_scope": "tracked diff and untracked names; untracked bytes not attested"}
 
 
+def current_registry(path, *, writable=False):
+    """Control effects require an explicitly migrated, already existing ledger."""
+    from warden.registry import SCHEMA_VERSION, ResearchRegistry
+    view = ResearchRegistry(path, readonly=True)
+    if view.schema_version != SCHEMA_VERSION:
+        raise ValueError(f"separately authorized ledger migration required: {view.schema_version} -> {SCHEMA_VERSION}")
+    return ResearchRegistry(path) if writable else view
+
+
 class Control:
     def __init__(self, root: Path, *, registry_path: Path | None = None, runtime_probe=None):
         self.root = Path(root).resolve()
@@ -67,6 +76,9 @@ class Control:
             blockers.append("ledger facts missing or unavailable; no new science authorized by this view")
         if any(v is None or v > 0 for v in ledger.get("pending", {}).values()):
             blockers.append("pending or unknown operations: inspect receipts before retry")
+        if any((ledger.get("job_states") or {}).get(s, 0) for s in
+               ("RUNNING", "CANCEL_REQUESTED", "STOP_REQUESTED", "EXPIRED_UNKNOWN")):
+            blockers.append("active or uncertain job resources retained; inspect job-status")
         if ledger.get("accounting", {}).get("error"):
             blockers.append("accounting requires reconciliation")
         runtime = {"status": "UNKNOWN", "reason": "no installed trusted runtime observer",
@@ -122,6 +134,28 @@ class Control:
         if request.operation == "inspect" and request.view == "capabilities":
             return Result(ok=True, status="OK", observed_at=time.time(),
                           value=capabilities()).model_dump(mode="json")
+        if request.operation == "inspect" and request.view == "findings":
+            from warden_ops.findings import inspect_findings
+            return inspect_findings(self, request)
+        if request.operation in {"enqueue", "job-status", "cancel-job"}:
+            from warden_ops.jobs import JobQueue
+            try:
+                readonly = request.operation == "job-status"
+                registry = current_registry(self.registry_path, writable=not readonly)
+                queue = JobQueue(registry)
+                if request.operation == "enqueue":
+                    payload = {"schema_version": 1, "operation": "act", "request_id": request.request_id,
+                               "plan": request.plan.model_dump(mode="json")}
+                    value = queue.submit(request.request_id, payload, objective=request.objective,
+                                         resources=request.plan.resources)
+                elif request.operation == "cancel-job":
+                    value = queue.cancel(request.job_id)
+                else:
+                    value = queue.status(request.job_id)
+                return Result(ok=True, status="OK", observed_at=time.time(), value=value,
+                              next_actions=["job-status", "receipt"]).model_dump(mode="json")
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                return self.refuse("TECHNICAL_PRE_ADMISSION", str(exc))
         if request.operation in {"prepare", "act", "receipt", "reconcile"}:
             from warden.lease import MutationBusy
             from warden_ops import control_actions

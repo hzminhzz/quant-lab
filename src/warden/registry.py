@@ -18,6 +18,7 @@ from warden import (
     control_requests,
     exposure,
     incremental,
+    job_state,
     novelty,
     research_intent,
     robustness,
@@ -197,7 +198,7 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 """Current ``PRAGMA user_version`` of the registry schema.
 
 ``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
@@ -221,6 +222,7 @@ outcomes; historical trial/selection rows remain unchanged.
 ``7`` (#126) adds immutable terminal hypothesis dispositions.
 ``8`` (#127) adds frozen holdout batches, exposure history, and one-shot read/results.
 ``9`` (AC-03) adds immutable request-to-domain receipt mappings; no historical rewrite.
+``10`` (AC-07) adds immutable operational job/resource events; no scientific state copy.
 A newer schema is
 refused instead of guessed at.
 
@@ -298,7 +300,7 @@ _DDL_SCRIPT = f"""
                     SELECT RAISE(ABORT, 'Governance violation: rejected hypothesis cannot be reactivated')
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
-""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL + terminal.TERMINAL_DDL + exposure.EXPOSURE_DDL + control_requests.CONTROL_DDL
+""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL + terminal.TERMINAL_DDL + exposure.EXPOSURE_DDL + control_requests.CONTROL_DDL + job_state.JOB_DDL
 
 
 class ScreenStatusView(TypedDict):

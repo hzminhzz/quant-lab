@@ -280,7 +280,7 @@ class ReadOnlyResearchRegistry(ResearchRegistry):
         from warden_ops.control_contracts import digest
 
         fixed = ("hypotheses", "trials", "selection_attempts", "screen_receipts",
-                 "attempt_receipts", "candidate_admissions", "holdout_claims")
+                 "attempt_receipts", "candidate_admissions", "holdout_claims", "control_jobs")
         with self._connect() as conn:
             conn.execute("BEGIN")
             tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -302,6 +302,19 @@ class ReadOnlyResearchRegistry(ResearchRegistry):
                 pending[table] = (conn.execute(
                     f"SELECT COUNT(*) FROM {table} WHERE state!='FINALIZED'").fetchone()[0]
                     if "state" in cols else None)
+            jobs = None
+            if {"control_jobs", "control_job_events"} <= tables:
+                jobs = {r["state"]: r["n"] for r in conn.execute(
+                    "SELECT e.state, COUNT(*) AS n FROM control_jobs j JOIN control_job_events e "
+                    "ON e.sequence=(SELECT MAX(sequence) FROM control_job_events WHERE job_id=j.job_id) GROUP BY e.state")}
+            for row in rows:
+                clipped = []
+                for key, value in row.items():
+                    if key != "hypothesis_id" and isinstance(value, str) and len(value) > 512:
+                        row[key] = value[:512]
+                        clipped.append(key)
+                if clipped:
+                    row["truncated_fields"] = clipped
             accounting = {"candidate": None, "lineage": None, "selection_debt": None,
                           "exposure": "UNKNOWN"}
             if hypothesis_id and rows and schema >= 8:
@@ -327,6 +340,7 @@ class ReadOnlyResearchRegistry(ResearchRegistry):
         more = len(rows) > limit
         result = {"status": "AVAILABLE", "schema_version": schema, "counts": counts,
                   "hypotheses": rows[:limit], "pending": pending, "accounting": accounting,
+                  "job_states": jobs,
                   "missing_fields": sorted(set(HYPOTHESIS_FIELDS) - columns),
                   "complete": not more, "next_cursor": rows[limit - 1]["hypothesis_id"] if more else None,
                   "pagination": "live keyset; refresh first page after concurrent changes",
@@ -334,6 +348,31 @@ class ReadOnlyResearchRegistry(ResearchRegistry):
         result["revision"] = digest(result)
         result["revision_kind"] = "bounded projection; not an admission precondition"
         return result
+
+    def read_finding_records(self) -> dict:
+        """All outcome metadata in one snapshot, without return arrays/artifact I/O."""
+        records, missing = [], []
+        projections = {
+            "trials": ("run_id", "hypothesis_id", "contract_id", "strategy_module",
+                       "config_hash", "stage_reached", "verdict", "created_at"),
+            "selection_attempts": ("attempt_id", "hypothesis_id", "contract_id", "strategy_module",
+                                   "stage", "outcome", "created_at"),
+        }
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            for table, wanted in projections.items():
+                present = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                fields = [key for key in wanted if key in present]
+                if wanted[0] not in fields or "hypothesis_id" not in fields:
+                    missing.append(table)
+                    continue
+                for row in conn.execute(f"SELECT {','.join(fields)} FROM {table} ORDER BY {wanted[0]}"):
+                    record = dict(row)
+                    record["source_table"] = table
+                    record["evidence_id"] = record.pop(wanted[0])
+                    records.append(record)
+                missing.extend(f"{table}.{key}" for key in wanted if key not in fields)
+        return {"records": records, "missing_fields": missing}
 
     # --- counts ----------------------------------------------------------
 

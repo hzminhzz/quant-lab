@@ -385,7 +385,7 @@ def test_v5_migration_preserves_historical_trial_and_receipt(tiny_repo):
         conn.execute("PRAGMA user_version=5")
     migrated = ResearchRegistry(f.registry.db_path)
     with sqlite3.connect(migrated.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 10
         for table, rows in snapshots.items():
             assert conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() == rows
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == before

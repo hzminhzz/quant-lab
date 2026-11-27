@@ -649,9 +649,9 @@ def test_additive_migration_adds_columns_without_rewriting_rows(tmp_path: Path) 
     assert "policy" not in before["columns"]
 
     registry = ResearchRegistry(db)
-    assert registry.schema_version == SCHEMA_VERSION == 6
+    assert registry.schema_version == SCHEMA_VERSION == 7
     with registry._connect() as conn:
-        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 6
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 7
         columns = {r[1]: r[2] for r in conn.execute("PRAGMA table_info(contracts)")}
         governance = {r[1]: r[2] for r in conn.execute("PRAGMA table_info(contract_governance)")}
         row = conn.execute("SELECT * FROM contracts").fetchone()

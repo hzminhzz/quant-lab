@@ -590,6 +590,9 @@ class ExperimentRunner:
     def _require_intent(self, spec, contract):
         from warden.research_intent import benchmark_binding, require_resolution
 
+        closure = self.registry.terminal_status(spec.hypothesis_id)
+        if closure:
+            raise ValueError(f"Terminal hypothesis {closure['status']}: {closure['reason']}")
         document = self.registry.require_research_intent(
             spec.hypothesis_id, spec.research_intent_sha256, contract.contract_id)
         require_resolution(self.repo_root, contract, document)
@@ -646,14 +649,16 @@ class ExperimentRunner:
 
     def describe_candidate_intent(self, path):
         spec, candidate, plan = self.describe_review_candidate(path)
-        return self.registry.describe_candidate_intent(candidate, plan, spec.research_intent_sha256)
+        return self.registry.describe_candidate_intent(candidate, plan, spec.research_intent_sha256,
+                                                       repo_root=self.repo_root)
 
     def record_conformance_review(self, path, review, principal):
         from warden.research_intent import Review
 
         spec, candidate, plan = self.describe_review_candidate(path)
         return self.registry.record_conformance_review(
-            candidate, plan, spec.research_intent_sha256, Review.model_validate(review), principal)
+            candidate, plan, spec.research_intent_sha256, Review.model_validate(review), principal,
+            repo_root=self.repo_root)
 
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
         # Frozen typed spec first: an unknown or policy-injecting key raises
@@ -734,7 +739,7 @@ class ExperimentRunner:
             raise ValueError("Reviewed candidate changed during preparation")
         screen_key = self.registry.reserve_screen(
             hyp_id, contract.contract_id, strat_module, params, dataset.sha256, candidate=candidate,
-            robustness_plan=robustness_plan, intent_sha=spec.research_intent_sha256)
+            robustness_plan=robustness_plan, intent_sha=spec.research_intent_sha256, repo_root=self.repo_root)
         carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
         if family == "carry_rv":
             carry_series = _carry_rv_stage1_series(
@@ -1055,7 +1060,7 @@ class ExperimentRunner:
             raise ValueError("Reviewed candidate changed during preparation")
         trial_num = self.registry.register_trial_start(
             hyp_id, run_id, candidate=candidate, robustness_plan=robustness_plan,
-            intent_sha=spec.research_intent_sha256)
+            intent_sha=spec.research_intent_sha256, repo_root=self.repo_root)
         provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha,
                          "simulation_epoch": simulation_epoch}
         data_sha = dataset.sha256

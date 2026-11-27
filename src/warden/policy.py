@@ -31,7 +31,7 @@ ALLOWED = frozenset({
 #: cron job or MCP client may do that, whatever arguments it passes.  ``promote-contract``
 #: joins them (#118): it copies a compiled sandbox artifact into the protected production
 #: namespace, which is a human decision about what the evaluator will see.
-APPROVAL = frozenset({"qualify", "generate-manifest", "data seal-holdout", "promote-contract", "approve-research-intent", "record-conformance"})
+APPROVAL = frozenset({"qualify", "generate-manifest", "data seal-holdout", "promote-contract", "approve-research-intent", "record-conformance", "close-hypothesis"})
 
 
 @dataclass(frozen=True)

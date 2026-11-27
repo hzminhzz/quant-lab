@@ -190,6 +190,9 @@ def test_v4_migration_does_not_erase_recorded_selection_debt(pre_rg05_policy, ti
     assert f.registry.selection_attempt_count(cid) == 1
     # Emulate a v4 ledger, whose screen and trial had separate search debt.
     with sqlite3.connect(f.registry.db_path) as conn:
+        for name in ("terminal_hypothesis_no_reactivate", "terminal_hypothesis_no_delete"):
+            conn.execute(f"DROP TRIGGER {name}")
+        conn.execute("DROP TABLE hypothesis_terminal")
         for name in ("approved_hypothesis_no_change", "approved_hypothesis_no_delete"):
             conn.execute(f"DROP TRIGGER {name}")
         for name in ("candidate_intent_bindings", "conformance_reviews", "research_intents"):

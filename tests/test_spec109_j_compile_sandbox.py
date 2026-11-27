@@ -1112,10 +1112,14 @@ def test_a_sandbox_contract_registers_verifies_and_advances(
     document = yaml.safe_load(spec.read_text())
     document["research_intent_sha256"] = sha
     spec.write_text(yaml.safe_dump(document))
+    from tests.conftest import novelty_fixture_review, write_novelty_fixture
+
+    write_novelty_fixture(repo)
     binding = runner.describe_candidate_intent(spec)
     runner.record_conformance_review(spec, {
         "binding_sha256": binding["binding_sha256"], "verdict": "PASS",
         "reviewer": "fixture-reviewer", "evidence": "Synthetic sandbox review",
+        "novelty": novelty_fixture_review(binding),
     }, "fixture-principal")
     assert cli_main(["verify", str(spec), "--json"]) == 0
     verified = _last_json(capsys)

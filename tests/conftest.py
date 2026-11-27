@@ -187,3 +187,42 @@ def pre_rg05_policy(tmp_path, monkeypatch):
     monkeypatch.setattr(research_intent, "require_review", require_review)
     monkeypatch.setattr(research_intent, "bind_review", bind_review)
     monkeypatch.setattr(research_intent, "require_qualification_conformance", qualify)
+
+
+def write_novelty_fixture(repo: Path):
+    """Synthetic, explicitly empty memory sources for prospective governance tests."""
+    from warden.novelty import LESSONS
+    from warden_ops.research_outcome_memory import INDEX
+
+    lessons = repo / LESSONS
+    if not lessons.exists():
+        lessons.parent.mkdir(parents=True, exist_ok=True)
+        lessons.write_text("# Synthetic fixture lessons\nNo prior lessons in this fixture.\n")
+    index = repo / INDEX
+    if not index.exists():
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text(json.dumps({
+            "schema_version": 1,
+            "source_refs": [{"pr": 40, "commit": "abc1234"}],
+            "outcomes": [], "original_unattempted": [],
+        }))
+
+
+def novelty_fixture_review(binding):
+    """Test-only principal attestation; explicit relations from fixture identities."""
+    memory = binding["prior_memory"]
+    return {
+        "snapshot_sha256": memory["snapshot_sha256"],
+        "lessons_disposition": "Synthetic lessons inspected for fixture.",
+        "search_disposition": "Synthetic catalog and indexed outcomes inspected.",
+        "relationships": {
+            hid: {
+                "relation": "RELATED" if hid in memory["must_share_lineage"] else "DISTINCT",
+                "mechanism": "Synthetic fixture comparison of mechanism",
+                "signal": "Synthetic fixture signal comparison",
+                "universe": "Synthetic fixture universe comparison",
+                "outcome_disposition": "Retain all fixture prior evidence",
+            }
+            for hid in memory["required_relationships"]
+        },
+    }

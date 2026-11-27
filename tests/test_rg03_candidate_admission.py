@@ -195,6 +195,9 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(pre_rg05_pol
     with sqlite3.connect(reg.db_path) as conn:
         artifact = fixture.registry.db_path.parent / "returns" / fixture.contract.contract_id / f"{result.run_id}.parquet"
         artifact_sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        for name in ("terminal_hypothesis_no_reactivate", "terminal_hypothesis_no_delete"):
+            conn.execute(f"DROP TRIGGER {name}")
+        conn.execute("DROP TABLE hypothesis_terminal")
         for name in ("approved_hypothesis_no_change", "approved_hypothesis_no_delete"):
             conn.execute(f"DROP TRIGGER {name}")
         for name in ("candidate_intent_bindings", "conformance_reviews", "research_intents"):
@@ -208,7 +211,7 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(pre_rg05_pol
         before = {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables}
     migrated = ResearchRegistry(reg.db_path)
     with sqlite3.connect(reg.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables} == before
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == artifact_sha

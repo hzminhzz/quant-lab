@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from warden.codeid import code_closure
 from warden.contracts import HypothesisSpec, canonical_json
+from warden.novelty import NoveltyReview
 from warden.resolve import DataRequirement, resolve_data_requirement
 from warden.schemas import load_experiment_spec
 
@@ -106,6 +107,7 @@ class Review(BaseModel):
     evidence: str = Field(min_length=1)
     revision: str | None = None
     predecessor_candidate_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    novelty: NoveltyReview | None = None
 
     @model_validator(mode="after")
     def validate_review(self):
@@ -322,7 +324,7 @@ def binding(conn, candidate, robustness_plan, intent_sha):
     return {**value, "binding_sha256": digest(value)}
 
 
-def record_review(conn, candidate, robustness_plan, intent_sha, review, principal):
+def record_review(conn, candidate, robustness_plan, intent_sha, review, principal, *, prior_memory=None):
     principal = _principal(principal)
     document = require_intent(conn, candidate.hypothesis_id, intent_sha, candidate.contract_id)
     frozen = binding(conn, candidate, robustness_plan, intent_sha)
@@ -333,6 +335,8 @@ def record_review(conn, candidate, robustness_plan, intent_sha, review, principa
     if review.revision and review.revision not in document["plan"]["allowed_revisions"]:
         raise ValueError("Material revision is outside the approved research intent")
     payload = {**review.model_dump(mode="json"), "binding": frozen, "approved_by": principal}
+    if prior_memory is not None:
+        payload["prior_memory"] = prior_memory
     review_id = digest(payload)
     old = conn.execute("SELECT review_json FROM conformance_reviews WHERE review_id=?", (review_id,)).fetchone()
     if old:
@@ -407,6 +411,13 @@ def bind_review(conn, candidate_id, intent_link):
 
 def require_qualification_conformance(registry, run_id, contract, code_sha, root):
     candidate, intent = registry.require_trial_conformance(run_id)
+    from warden.novelty import require_admission
+
+    with registry._connect() as conn:
+        link = conn.execute("SELECT review_id FROM candidate_intent_bindings WHERE candidate_id=?",
+                            (candidate.candidate_id,)).fetchone()
+        require_admission(conn, candidate, registry._novelty_members(conn, candidate),
+                          root, link[0], existing=True)
     if (candidate.contract_hash != contract.spec_hash()
             or candidate.dataset_sha256 != contract.data_snapshot_sha256
             or candidate.strategy_code_sha256 != code_sha):

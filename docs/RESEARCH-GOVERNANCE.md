@@ -295,3 +295,106 @@ No new schema migration: RG-06 extends the frozen RG-04 operation plan and
 evidence payload under registry v6. Existing absolute and historical evidence
 remain readable. Verification uses only scratch synthetic fixtures. No
 production registry writes, manifest signing, or scientific qualification.
+
+## RG-07: prior evidence, economic novelty and terminal dispositions (#126)
+
+RG-07 adds prospective novelty enforcement at the existing candidate-admission
+transaction. The authoritative ledger is still the Warden SQLite registry;
+the packaged research-outcome-memory index remains a read-only source of
+off-branch evidence. No semantic classifier, vector database or memory
+service is introduced.
+
+### Review before admission
+
+Run `warden describe-candidate experiment.yaml --json` after registering the
+approved research intent. In addition to the RG-05 binding, the output now
+contains `prior_memory`: a versioned snapshot of the lessons file identity
+and headings, branch-result index and provenance, canonical hypothesis
+catalog, approved theses and data requirements, prior outcome and decision
+references, terminal dispositions, and deterministic relationship hints.
+
+Read `.workspace/memory/LESSONS.md` and the cited evidence; compare the
+mechanism, signal construction and universe against prior work. The
+independent reviewer and principal must attest the disposition in the
+existing conformance review YAML. Example for a related prior hypothesis:
+
+```yaml
+novelty:
+  snapshot_sha256: <prior_memory.snapshot_sha256 from describe-candidate>
+  lessons_disposition: Retain the prior cost and turnover falsification lesson.
+  search_disposition: Reviewed the canonical catalog and branch outcome index.
+  relationships:
+    HYP-PRIOR:
+      relation: RELATED
+      mechanism: Same liquidity provision mechanism as the registered parent.
+      signal: Adds a frozen participation filter rather than a new mechanism.
+      universe: Same instruments, with an explicitly documented contract change.
+      outcome_disposition: Prior negative evidence remains applicable and charged.
+```
+
+The full review also contains the existing RG-05 fields. For a genuinely
+new idea, relationships can be empty only if there are no mandatory hints or
+reviewer-identified related ideas. Each indicated relationship must have an
+explicit RELATED or DISTINCT disposition and substantive explanations on all
+three dimensions and prior outcomes. UNRESOLVED never authorizes admission.
+Exact declared parent/module/content aliases must share the existing lineage;
+a reviewer identifying another economic relationship must use the registered
+parent lineage as well. Exact matching normalized mechanism or thesis text
+is a review hint, not proof of economic equivalence. Human review remains
+responsible for identifying non-obvious relationships.
+
+New admissions validate the actual code/config/data identity and reviewed
+memory snapshot inside the SQLite reservation transaction. Exact executable
+duplicates on the same contract, dataset and epoch are denied even when
+renamed; historical trial duplicates with a matching recorded closure are
+also refused. Missing/malformed sources and stale snapshots fail closed.
+Branch exact outcomes remain locked; branch-related outcomes with no
+canonical evidence reconciliation cannot reset lineage debt. The branch
+index is retained unchanged. A frozen screened candidate can advance using
+its original review, but newly discovered related branch outcomes block
+replay. The review snapshot is part of the append-only conformance record
+referenced by candidate admission. It includes prior outcome references,
+not newly computed candidate performance.
+
+This is a conservative, principal-attested application boundary, not a
+claim of automated economic equivalence, completeness of unrecorded research,
+or OS-level reviewer authentication. A newly recorded unrelated catalog or
+outcome change may require re-describing and refreshing an unadmitted review.
+Historical v6 review and outcome bytes remain readable. A pre-RG07 approval
+without prospective novelty cannot authorize new scoring; obtain a new
+review before first admission, or review the already-admitted historical
+evidence without silently rebinding it.
+
+### Terminal research disposition
+
+Use the interactive principal-only command (unavailable to noninteractive
+schedulers):
+
+```bash
+warden close-hypothesis HYP-ID --status EARLY_STOPPED \
+  --reason "The principal elects to stop without spending the remaining budget." \
+  --principal PRINCIPAL --human-confirm YES_CLOSE_HYPOTHESIS --json
+```
+
+Supported statuses: REJECTED (requires negative scientific evidence),
+INCONCLUSIVE (recorded inconclusive/failed/interrupted evidence),
+EXHAUSTED (budget spent and no advanceable candidate), and EARLY_STOPPED
+(principal discretion, including before scoring). Terminal records include
+attribution, reason, budget/lineage snapshot and immutable evidence
+references. A principal must reconcile a reserved writer/robustness operation
+before closure. No slot is refunded, no trial rewritten, and no terminal
+hypothesis can be reactivated. A related new hypothesis still inherits its
+lineage usage. Governed candidates at an exhausted cap with no pending or
+advanceable candidate automatically receive EXHAUSTED evidence; a successful
+screen may still advance. Historical statuses and qualification rows remain
+unchanged. Closed hypotheses cannot score or newly claim holdout.
+
+`spec-status`, `advance` and the packaged outcome inventory expose terminal
+status and reason. The existing branch index remains authoritative for its
+unreconciled branch evidence, not an automatic import into SQLite.
+
+Registry v7 is an additive migration (one terminal table and immutable
+triggers). No historic review, trial, return, qualification or selection
+debt is rewritten. All verification here uses synthetic scratch ledgers;
+no production database migration, approval signing, market scoring or
+holdout exposure is authorized.

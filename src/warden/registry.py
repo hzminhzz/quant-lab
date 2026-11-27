@@ -14,7 +14,7 @@ from typing import TypedDict
 
 import numpy as np
 
-from warden import incremental, research_intent, robustness
+from warden import incremental, novelty, research_intent, robustness, terminal
 from warden.candidate_admission import CandidateIdentity
 from warden.codeid import code_closure
 from warden.contracts import (
@@ -189,7 +189,7 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 """Current ``PRAGMA user_version`` of the registry schema.
 
 ``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
@@ -210,6 +210,7 @@ not merely a version flip that would discard candidate-budget enforcement.
 ``5`` (#123) adds immutable frozen robustness plans, scenario receipts and
 outcomes; historical trial/selection rows remain unchanged.
 ``6`` (#124) adds immutable research intents, review evidence and candidate bindings.
+``7`` (#126) adds immutable terminal hypothesis dispositions.
 A newer schema is
 refused instead of guessed at.
 
@@ -287,7 +288,7 @@ _DDL_SCRIPT = f"""
                     SELECT RAISE(ABORT, 'Governance violation: rejected hypothesis cannot be reactivated')
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
-""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL
+""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL + terminal.TERMINAL_DDL
 
 
 class ScreenStatusView(TypedDict):
@@ -319,6 +320,7 @@ class SpecStatusView(TypedDict, total=False):
     verdict: str | None
     screen: ScreenStatusView
     evidence_verified: bool
+    terminal: dict
 
 
 class HoldoutClaimView(TypedDict):
@@ -539,6 +541,10 @@ class ResearchRegistry:
         if not lineage_id or not run_id:
             raise ValueError("lineage_id and run_id must be nonempty")
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            hyp = conn.execute("SELECT hypothesis_id FROM trials WHERE run_id=?", (run_id,)).fetchone()
+            if hyp and terminal.read(conn, hyp[0]):
+                raise ValueError("Terminal hypothesis cannot claim holdout")
             try:
                 conn.execute("INSERT INTO holdout_claims (lineage_id,run_id,state,claimed_at) VALUES (?,?,?,?)",
                              (lineage_id, run_id, "CLAIMED", time.time()))
@@ -584,6 +590,7 @@ class ResearchRegistry:
                 return {"run_id": run_id, "eligible": False, "reason": "unknown run_id",
                         "historical_verdict": None, "data_provenance": "unknown", "dispositions": []}
             trial = dict(t)
+            closure = terminal.read(conn, trial["hypothesis_id"])
             dispositions = [dict(r) for r in conn.execute(
                 "SELECT disposition,reason,attributed_to,created_at FROM trial_dispositions WHERE run_id=? ORDER BY created_at",
                 (run_id,))]
@@ -610,6 +617,7 @@ class ResearchRegistry:
             provenance = "synthetic"
         receipt = self.reconcile_attempt(run_id)
         checks = [
+            (closure is None, f"terminal hypothesis: {closure['status']}: {closure['reason']}" if closure else ""),
             (not is_retrospective, "RETROSPECTIVE_REPLICATION_ONLY: source_published_at >= contract.val_start"),
             (not blocking, f"blocking disposition(s): {', '.join(sorted(set(blocking)))}" if blocking else ""),
             (provenance == MARKET, f"provenance '{provenance}' is not verified market data"),
@@ -878,15 +886,39 @@ class ResearchRegistry:
         with self._connect() as conn:
             return research_intent.require_intent(conn, hypothesis_id, intent_sha, contract_id)
 
-    def describe_candidate_intent(self, candidate, robustness_plan, intent_sha):
-        with self._connect() as conn:
-            return research_intent.binding(conn, candidate, robustness_plan, intent_sha)
+    def _novelty_members(self, conn, candidate):
+        return self._lineage(conn, candidate.hypothesis_id, module=candidate.strategy_module,
+                             code_content_sha256=candidate.code_content_sha256)[1]
 
-    def record_conformance_review(self, candidate, robustness_plan, intent_sha, review, principal):
+    def describe_candidate_intent(self, candidate, robustness_plan, intent_sha, *, repo_root=Path(".")):
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            frozen = research_intent.binding(conn, candidate, robustness_plan, intent_sha)
+            novelty.exact_duplicates(conn, candidate)
+            memory = novelty.snapshot(conn, candidate, self._novelty_members(conn, candidate), repo_root)
+            return {**frozen, "prior_memory": memory}
+
+    def record_conformance_review(self, candidate, robustness_plan, intent_sha, review, principal, *,
+                                  repo_root=Path(".")):
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
+            memory = None
+            if review.verdict == "PASS":
+                novelty.exact_duplicates(conn, candidate)
+                members = self._novelty_members(conn, candidate)
+                memory = novelty.snapshot(conn, candidate, members, repo_root)
+                novelty.validate_review(review.novelty, memory, members, candidate)
             return research_intent.record_review(
-                conn, candidate, robustness_plan, intent_sha, review, principal)
+                conn, candidate, robustness_plan, intent_sha, review, principal, prior_memory=memory)
+
+    def terminal_status(self, hypothesis_id):
+        with self._connect() as conn:
+            return terminal.read(conn, hypothesis_id)
+
+    def close_hypothesis(self, hypothesis_id, status, reason, principal):
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            return terminal.close(self, conn, hypothesis_id, status, reason, principal)
 
     def require_candidate_conformance(self, candidate, robustness_plan, intent_sha):
         with self._connect() as conn:
@@ -1052,7 +1084,9 @@ class ResearchRegistry:
         if row is None:
             raise ValueError("Unknown hypothesis")
         if row[0] not in RUNNABLE_HYPOTHESIS_STATUSES:
-            raise HypothesisBudgetExhaustedError(hypothesis_id)
+            closure = terminal.read(conn, hypothesis_id)
+            raise HypothesisBudgetExhaustedError(
+                f"{hypothesis_id}: {closure['status']}: {closure['reason']}" if closure else hypothesis_id)
         root, members = self._lineage(
             conn, hypothesis_id, module=candidate.strategy_module if candidate else module,
             code_content_sha256=candidate.code_content_sha256 if candidate else "",
@@ -1075,14 +1109,16 @@ class ResearchRegistry:
         with self._connect() as conn:
             row = conn.execute("SELECT trials_used FROM hypotheses WHERE hypothesis_id=?",
                                (hypothesis_id,)).fetchone()
-            if row is not None and row[0] >= PER_HYPOTHESIS_CAP:
+            if (row is not None and row[0] >= PER_HYPOTHESIS_CAP
+                    and not conn.execute("SELECT 1 FROM research_intents WHERE hypothesis_id=?",
+                                         (hypothesis_id,)).fetchone()):
                 conn.execute("UPDATE hypotheses SET status='REJECTED' WHERE hypothesis_id=? "
                              "AND status IN ('ACTIVE','RETROSPECTIVE_REPLICATION_ONLY')",
                              (hypothesis_id,))
         with self._connect() as conn:
             self._require_candidate_budget(conn, hypothesis_id)
 
-    def _link_candidate(self, conn, candidate, kind, operation_id, robustness_plan=None, intent_sha=None):
+    def _link_candidate(self, conn, candidate, kind, operation_id, robustness_plan=None, intent_sha=None, repo_root=Path(".")):
         """Reserve one frozen candidate and an exclusive operation in the caller's transaction."""
         if not isinstance(candidate, CandidateIdentity):
             raise TypeError("Missing frozen candidate identity")
@@ -1108,6 +1144,9 @@ class ResearchRegistry:
         ).fetchone()
         if existing and existing[0] != candidate.payload:
             raise ValueError("Candidate identity collision")
+        if intent_link is not None:
+            novelty.require_admission(conn, candidate, self._novelty_members(conn, candidate),
+                                      repo_root, intent_link[1], existing=bool(existing))
         # Old screen/trial rows lacking a bound candidate cannot be joined to a
         # current executable. Identical legacy spec keys require explicit review.
         if existing is None:
@@ -1179,7 +1218,8 @@ class ResearchRegistry:
         ]).encode()).hexdigest()[:32]
 
     def reserve_screen(self, hypothesis_id, contract_id, strategy_module, parameters, data_sha256="",
-                       *, candidate: CandidateIdentity | None = None, robustness_plan=None, intent_sha=None) -> str:
+                       *, candidate: CandidateIdentity | None = None, robustness_plan=None, intent_sha=None,
+                       repo_root=Path(".")) -> str:
         """Atomically admit a selectable screen and its durable operation receipt."""
         legacy_key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
         key = candidate.candidate_id if candidate else legacy_key
@@ -1206,7 +1246,7 @@ class ResearchRegistry:
                     hypothesis_id, contract_id, normalise_module(strategy_module),
                     canonical_json(parameters or {}), data_sha256):
                     raise ValueError("Screen does not match frozen candidate identity")
-                self._link_candidate(conn, candidate, "screen", key, robustness_plan, intent_sha)
+                self._link_candidate(conn, candidate, "screen", key, robustness_plan, intent_sha, repo_root)
             conn.execute("""INSERT INTO screen_receipts
                             (screen_key,hypothesis_id,contract_id,strategy_module,parameters_json,state,data_sha256,reserved_at)
                             VALUES (?,?,?,?,?,'RESERVED',?,?)""",
@@ -1319,6 +1359,11 @@ class ResearchRegistry:
             "receipt_state": None,
             "screen": screen,
         }
+        closure = self.terminal_status(hypothesis_id)
+        if closure:
+            return {**base, "hypothesis_status": closure["status"],
+                    "state": "HYPOTHESIS_TERMINAL", "reason": closure["reason"],
+                    "terminal": closure, "run_id": None}
         if pending:
             return {
                 **base,
@@ -1434,6 +1479,11 @@ class ResearchRegistry:
             "run_id": None,
             "verdict": None,
         }
+        closure = self.terminal_status(hypothesis_id)
+        if closure:
+            return {**base, "hypothesis_status": closure["status"],
+                    "state": "HYPOTHESIS_TERMINAL", "reason": closure["reason"],
+                    "terminal": closure}
         if pending:
             return {**base, "state": "REQUIRES_RECONCILIATION",
                     "reason": f"trial {pending[0]} is {pending[1]}",
@@ -1495,7 +1545,8 @@ class ResearchRegistry:
             "verdict": row[5], "stage_reached": row[6], "created_at": row[7],
         }
 
-    def register_trial_start(self, hypothesis_id, run_id, *, candidate: CandidateIdentity | None = None, robustness_plan=None, intent_sha=None):
+    def register_trial_start(self, hypothesis_id, run_id, *, candidate: CandidateIdentity | None = None,
+                             robustness_plan=None, intent_sha=None, repo_root=Path(".")):
         """Reserve an exclusive full operation, sharing a frozen screened candidate's slot."""
         valid_id(run_id)
         if candidate is None:
@@ -1520,7 +1571,7 @@ class ResearchRegistry:
             else:
                 if candidate.hypothesis_id != hypothesis_id or candidate.contract_id != row[3]:
                     raise ValueError("Trial does not match frozen candidate identity")
-                self._link_candidate(conn, candidate, "trial", run_id, robustness_plan, intent_sha)
+                self._link_candidate(conn, candidate, "trial", run_id, robustness_plan, intent_sha, repo_root)
             number = int(row[0]) + 1
             conn.execute("""INSERT INTO attempt_receipts
                             (run_id,hypothesis_id,contract_id,trial_number,state,reserved_at)
@@ -1677,6 +1728,8 @@ class ResearchRegistry:
                                        (attempt_id, time.time(), screen_key, hypothesis_id, contract_id)).rowcount
                 if updated != 1:
                     raise ScreenAlreadyAttemptedError("No matching exclusive Stage 1 reservation to finalize")
+            if screen_key is not None:
+                terminal.maybe_exhaust(self, conn, hypothesis_id)
             if scenario_id is not None:
                 robustness.finalize_scenario(
                     conn, scenario_id, diagnostics, returns, timestamps, attempt_id=attempt_id)
@@ -2293,3 +2346,4 @@ class ResearchRegistry:
                                     result.run_id, result.hypothesis_id, trial_number)).rowcount
             if updated != 1:
                 raise ValueError("Missing or mismatched durable attempt receipt")
+            terminal.maybe_exhaust(self, conn, result.hypothesis_id)

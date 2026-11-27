@@ -136,10 +136,13 @@ def inventory(registry: Path = REGISTRY, index: Path = INDEX) -> dict:
     )
     overlaps = [r["hypothesis_id"] for r in known_outcomes
                 if any(h["hypothesis_id"] == r["hypothesis_id"] for h in hypotheses)]
+    terminal_hypotheses = [closure for h in hypotheses
+                           if (closure := ledger.terminal_status(h["hypothesis_id"])) is not None]
     return {
         "source": str(registry),
         "registry": counts,
         "hypothesis_workflow_status": status_counts,
+        **({"terminal_hypotheses": terminal_hypotheses} if terminal_hypotheses else {}),
         "without_any_trial": len(no_trial),
         "without_stage3": len(no_stage3),
         "stage1_rejected_without_stage3": len(stage1_reject_no_stage3),

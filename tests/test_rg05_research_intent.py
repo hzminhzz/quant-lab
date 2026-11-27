@@ -20,6 +20,9 @@ def test_unapproved_intent_refused_before_scored_screen(tiny_repo):
 
 
 def approve(fixture, *, incremental=False, benchmark_source=None, **plan_overrides):
+    from tests.conftest import write_novelty_fixture
+
+    write_novelty_fixture(fixture.repo)
     manifest = fixture.repo / f"contracts/datasets/{fixture.contract.contract_id}.json"
     payload = json.loads(manifest.read_text())
     payload.update(price_basis="ohlcv_funding", dataset={
@@ -59,9 +62,12 @@ def approve(fixture, *, incremental=False, benchmark_source=None, **plan_overrid
 
 
 def review(runner, fixture, verdict="PASS", **kwargs):
+    from tests.conftest import novelty_fixture_review
+
     binding = runner.describe_candidate_intent(fixture.spec)
     document = {"binding_sha256": binding["binding_sha256"], "verdict": verdict,
                 "reviewer": "independent-reviewer", "evidence": "Synthetic review fixture",
+                "novelty": novelty_fixture_review(binding),
                 **kwargs}
     return runner.record_conformance_review(fixture.spec, document, "principal"), binding
 
@@ -206,7 +212,7 @@ def test_reviewed_revisions_still_obey_atomic_candidate_budget(tiny_repo):
             return fixture.registry.reserve_screen(
                 candidate.hypothesis_id, candidate.contract_id, candidate.strategy_module,
                 spec.parameters, candidate.dataset_sha256, candidate=candidate,
-                robustness_plan=plan, intent_sha=sha)
+                robustness_plan=plan, intent_sha=sha, repo_root=fixture.repo)
         except HypothesisBudgetExhaustedError:
             return None
 
@@ -241,12 +247,16 @@ def test_unbound_low_level_reservation_cannot_bypass_approved_intent(tiny_repo):
     with pytest.raises(ValueError, match="Independent conformance review required"):
         fixture.registry.reserve_screen(
             candidate.hypothesis_id, candidate.contract_id, candidate.strategy_module,
-            {}, candidate.dataset_sha256, candidate=candidate, robustness_plan=plan, intent_sha=sha)
+            {}, candidate.dataset_sha256, candidate=candidate, robustness_plan=plan, intent_sha=sha, repo_root=fixture.repo)
     assert fixture.registry.candidate_budget("HYP-TINY")["used"] == 0
 
 
 def test_governed_cli_human_approval_and_review(tiny_repo, monkeypatch, capsys):
-    from tests.conftest import write_fixture_checksums
+    from tests.conftest import (
+        novelty_fixture_review,
+        write_fixture_checksums,
+        write_novelty_fixture,
+    )
     from warden.cli import main
     from warden.registry import ResearchRegistry
 
@@ -275,6 +285,7 @@ def test_governed_cli_human_approval_and_review(tiny_repo, monkeypatch, capsys):
     with sqlite3.connect(fixture.registry.db_path) as src, sqlite3.connect(db) as dst:
         src.backup(dst)
     monkeypatch.chdir(repo)
+    write_novelty_fixture(repo)
     command = ["approve-research-intent", "HYP-TINY", str(plan_path), "--principal", "principal",
                "--human-confirm", "YES_APPROVE_INTENT", "--json"]
     monkeypatch.setenv("WARDEN_NON_INTERACTIVE", "1")
@@ -296,6 +307,7 @@ def test_governed_cli_human_approval_and_review(tiny_repo, monkeypatch, capsys):
     review_path.write_text(yaml.safe_dump({
         "binding_sha256": binding["binding_sha256"], "verdict": "PASS",
         "reviewer": "independent", "evidence": "Synthetic CLI test review",
+        "novelty": novelty_fixture_review(binding),
     }))
     review_cmd = ["record-conformance", str(fixture.spec), str(review_path), "--principal", "principal",
                   "--human-confirm", "YES_RECORD_REVIEW", "--json"]
@@ -354,6 +366,9 @@ def test_v5_migration_preserves_historical_trial_and_receipt(tiny_repo):
         before = hashlib.sha256(artifact.read_bytes()).hexdigest()
         tables = ("hypotheses", "trials", "attempt_receipts", "selection_attempts")
         snapshots = {t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall() for t in tables}
+        for name in ("terminal_hypothesis_no_reactivate", "terminal_hypothesis_no_delete"):
+            conn.execute(f"DROP TRIGGER {name}")
+        conn.execute("DROP TABLE hypothesis_terminal")
         for trigger in ("approved_hypothesis_no_change", "approved_hypothesis_no_delete"):
             conn.execute(f"DROP TRIGGER {trigger}")
         for table in ("candidate_intent_bindings", "conformance_reviews", "research_intents"):
@@ -361,7 +376,7 @@ def test_v5_migration_preserves_historical_trial_and_receipt(tiny_repo):
         conn.execute("PRAGMA user_version=5")
     migrated = ResearchRegistry(f.registry.db_path)
     with sqlite3.connect(migrated.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
         for table, rows in snapshots.items():
             assert conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() == rows
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == before

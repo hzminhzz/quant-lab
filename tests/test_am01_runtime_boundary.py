@@ -31,6 +31,9 @@ def test_development_cli_refuses_linked_stale_ledger_before_migration(tmp_path, 
 
 def test_fixture_marker_does_not_exempt_git_checkout(tmp_path, monkeypatch, capsys):
     (tmp_path / ".git").mkdir()
+    source = tmp_path / "src/warden"
+    source.mkdir(parents=True)
+    (source / "registry.py").touch()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("WARDEN_TEST_FIXTURE_ROOT", str(tmp_path))
     assert main(["register-hypothesis", "absent.md", "--json"]) == 2

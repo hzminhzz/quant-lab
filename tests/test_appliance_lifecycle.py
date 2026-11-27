@@ -334,7 +334,7 @@ def test_verification_ignores_inherited_test_selection(installed, monkeypatch):
     monkeypatch.setenv("PYTEST_ADDOPTS", "-k fixture")
     verified = appliance.verify(release)
     assert verified["ok"]
-    assert verified["suite"]["tests"] == 2
+    assert verified["suite"]["tests"] == original["suite"]["tests"] == 3
     assert xml.read_bytes() == original_bytes  # A new verification must retain the old evidence.
 
 

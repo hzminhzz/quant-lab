@@ -43,9 +43,9 @@ def require_mutation_context(root: Path, db_path: Path) -> None:
                             and db.is_relative_to(root)
                             and not any((root / name).is_symlink()
                                         for name in ("registry", "data", "cache", ".workspace")))
-        if (db.resolve() != db
-                or any((owner / ".git").exists() or (owner / ".git").is_symlink() for owner in owners)
-                or (copied_source and not isolated_fixture)):
+        source_checkout = copied_source and any(
+            (owner / ".git").exists() or (owner / ".git").is_symlink() for owner in owners)
+        if db.resolve() != db or source_checkout or (copied_source and not isolated_fixture):
             raise ValueError("operational mutations require the installed appliance; use an isolated scratch fixture")
     if db.is_file():
         schema = ResearchRegistry(db, readonly=True).schema_version

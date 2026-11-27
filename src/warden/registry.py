@@ -14,7 +14,7 @@ from typing import TypedDict
 
 import numpy as np
 
-from warden import research_intent, robustness
+from warden import incremental, research_intent, robustness
 from warden.candidate_admission import CandidateIdentity
 from warden.codeid import code_closure
 from warden.contracts import (
@@ -1541,6 +1541,40 @@ class ResearchRegistry:
             conn.execute("BEGIN IMMEDIATE")
             robustness.finalize_scenario(conn, scenario_id, metrics, returns, timestamps)
 
+    def finalize_benchmark(self, scenario_id, contract, panel_sha, execution_policy,
+                           candidate_returns, benchmark_returns, timestamps, benchmark_causality):
+        """Compute and commit paired evidence from the reserved benchmark leg."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT r.run_id,c.identity_json,i.intent_sha256 "
+                "FROM robustness_receipts r JOIN candidate_admissions c ON c.candidate_id=r.candidate_id "
+                "JOIN candidate_intent_bindings l ON l.candidate_id=c.candidate_id "
+                "JOIN research_intents i ON i.intent_sha256=l.intent_sha256 "
+                "WHERE r.scenario_id=? AND r.scenario_key='benchmark'", (scenario_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("Missing admitted benchmark operation")
+            run_id, identity, intent_sha = row
+            candidate = CandidateIdentity(**json.loads(identity))
+            intent = research_intent.require_intent(
+                conn, candidate.hypothesis_id, intent_sha, candidate.contract_id)
+            robustness._parent(conn, run_id)
+            if conn.execute("SELECT 1 FROM robustness_outcomes WHERE scenario_id=?", (scenario_id,)).fetchone():
+                raise ValueError("Benchmark already finalized; never replay")
+            if (contract.contract_id != candidate.contract_id
+                    or contract.spec_hash() != candidate.contract_hash):
+                raise ValueError("Benchmark contract differs from admitted candidate")
+            report = incremental.evaluate_pair(
+                root=self.db_path.parent / "returns", run_id=run_id, candidate=candidate,
+                intent=intent, contract=contract, panel_sha=panel_sha,
+                execution_policy=execution_policy, candidate_returns=candidate_returns,
+                benchmark_returns=benchmark_returns, timestamps=timestamps,
+                benchmark_causality=benchmark_causality)
+            robustness.finalize_scenario(
+                conn, scenario_id, {"incremental_comparison": report}, paired=True)
+            return report
+
     def robustness_status(self, run_id):
         with self._connect() as conn:
             return robustness.scenario_status(conn, run_id)
@@ -2220,6 +2254,11 @@ class ResearchRegistry:
                     (result.run_id,),
                 ).fetchone()[0]
                 robustness.require_complete(conn, result.run_id, candidate_id)
+                paired = incremental.require_trial_pair(
+                    conn, self.db_path.parent / "returns", result.run_id,
+                    verdict=result.verdict, returns=returns, timestamps=stamps_ns)
+                if paired is not None and (diagnostics or {}).get("incremental_comparison") != paired:
+                    raise ValueError("Trial diagnostics differ from immutable comparative evidence")
             observed = len(returns) > 0
             returns_sha256 = ""
             if observed:

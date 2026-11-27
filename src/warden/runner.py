@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from warden import incremental
 from warden.candidate_admission import freeze_candidate
 from warden.codeid import code_closure
 from warden.contract_source import load_active_contract, load_recorded_contract
@@ -635,6 +636,8 @@ class ExperimentRunner:
         validate_strategy_params(mod, spec.parameters)
         effective = resolve_effective_params(mod, protocol, spec.parameters)
         plan, _ = build_robustness_plan(mod, protocol, spec.parameters, spec.param_grid)
+        plan = incremental.extend_plan(plan, intent)
+        incremental.prepare_benchmark(self.repo_root, contract, intent, effective)
         candidate, dataset = self._freeze_review_candidate(spec, contract, effective)
         from warden.research_intent import require_dataset_resolution
 
@@ -716,6 +719,8 @@ class ExperimentRunner:
             contract=contract,
         )
         robustness_plan, _ = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
+        robustness_plan = incremental.extend_plan(robustness_plan, intent)
+        incremental.prepare_benchmark(self.repo_root, contract, intent, effective_params)
         candidate, approved_dataset = self._reviewed_candidate_for_run(
             spec, contract, effective_params, robustness_plan, intent)
         dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
@@ -1008,6 +1013,8 @@ class ExperimentRunner:
         # evaluated at Stage 3, where the neighbor sharpes exist.
         params_model_report = validate_strategy_params(strat_mod, params)
         robustness_plan, fixed_grid = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
+        robustness_plan = incremental.extend_plan(robustness_plan, intent)
+        benchmark = incremental.prepare_benchmark(self.repo_root, contract, intent, effective_params)
         neighbor_grid = classify_numeric_neighbors(fixed_grid, params_model_report)
 
         candidate, approved_dataset = self._reviewed_candidate_for_run(
@@ -1198,6 +1205,25 @@ class ExperimentRunner:
                         },
                         metrics=m, returns_vec=selection_net, returns_timestamps=validation_ts,
                     )
+
+            comparison = None
+            if benchmark is not None:
+                from warden.evaluation import panel_digest
+                from warden.research_intent import benchmark_binding
+
+                scenario = self.registry.reserve_robustness(run_id, incremental.SCENARIO)
+                benchmark_tape, benchmark_proof = incremental.execute_benchmark(
+                    benchmark, panel_df, ts, assets, contract, v_slice)
+                if (benchmark_tape.val_slice != sim1.val_slice
+                        or benchmark_tape.session != sim1.session):
+                    raise ValueError("Candidate and benchmark execution clocks differ")
+                if (benchmark_binding(self.repo_root, intent["benchmark"]["spec_path"],
+                                      contract.contract_id) != intent["benchmark"]
+                        or code_closure(self.repo_root, strat_module_str)[0] != code_sha):
+                    raise ValueError("Frozen paired strategy closure changed during execution")
+                comparison = self.registry.finalize_benchmark(
+                    scenario, contract, panel_digest(panel_df), policy_dict,
+                    net_ret, benchmark_tape.net_returns, panel_validation_ts, benchmark_proof)
 
             scenario = self.registry.reserve_robustness(run_id, "cost_1p5")
             sr_1p5 = analytical_1p5x_sharpe(
@@ -1420,6 +1446,10 @@ class ExperimentRunner:
                 failed_gates.append("stage1_meta_overlay")
             if family == "cross_sectional_ml" and (ic_hac_t is None or not (ic_hac_t >= IC_T_FLOOR)):
                 failed_gates.append("ic_hac")
+            if comparison is not None:
+                diag["incremental_comparison"] = comparison
+                if comparison["status"] != "PASS":
+                    failed_gates.append("incremental_comparison")
             diag["failed_gates"] = failed_gates
             statistical = len(failed_gates) == 0
             if retrospective:

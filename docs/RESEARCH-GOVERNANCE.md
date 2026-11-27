@@ -188,8 +188,9 @@ allowed_revisions:
 
 Incremental intent requires `purpose: incremental` and a `benchmark_spec`
 path under `experiments/`. Its declared config and strategy closure are
-fingerprinted at approval and checked before scoring. The paired outcome gate
-remains RG-06; incremental qualification is refused until that gate exists.
+fingerprinted at approval and checked before scoring. RG-06 adds the frozen
+comparative development gate below; incremental holdout execution remains
+blocked until RG-08 provides the approved paired batch.
 
 Review YAML requires the exact `binding_sha256` returned by describe-candidate,
 `verdict` (PASS, REFUSED, or JUDGE_UNAVAILABLE), `reviewer` (required for
@@ -223,3 +224,74 @@ advance, and compiled-sandbox integration exercise the real approval boundary
 with synthetic fixture review evidence. No production review, manifest signing,
 live registry migration, holdout access, or scientific qualification was
 performed by this implementation.
+
+## RG-06: benchmark-relative qualification (#125)
+
+The principal approved the comparative policy on 2026-11-27. For an
+incremental intent, Warden freezes the policy and the benchmark fingerprint
+together in the existing immutable RG-05 document. Absolute plans retain their
+existing digest and behavior. An older incremental intent without this
+comparative policy cannot be retroactively upgraded; register a related
+hypothesis under the normal lineage budget.
+
+### Frozen decision rule
+
+- Primary statistic: candidate annualized after-cost daily Sharpe minus
+  benchmark annualized after-cost daily Sharpe. Material improvement is +0.25.
+- Observation unit: eligible UTC calendar dates (Warden's daily clock), formed
+  by compounding the complete matched raw bar tapes. Empty market dates are
+  not invented, zero-return eligible dates are retained. UTC dates are not a
+  claim of exchange-local overnight session equivalence. Annualization is fixed
+  at 365 for crypto perpetuals and 252 for other contracts.
+- Minimum 120 daily observations and 20 non-overlapping blocks of data.
+  Paired circular block bootstrap, default five days, 20,000 draws, seed 731.
+  A longer block requires a nonempty preregistered justification.
+- One-sided alpha 0.05, Bonferroni over the six permitted lineage candidates,
+  even when fewer have been evaluated. RG-02's symmetric percentile interval
+  is calculated at confidence 1 - 2 * (0.05 / 6); its lower tail is the
+  one-sided adjusted bound. PASS requires the lower bound strictly above
+  +0.25. An upper bound at/below +0.25 is REJECT; unresolved, inadequate or
+  degenerate comparisons are INCONCLUSIVE. This is approximate dependence-aware
+  bootstrap inference, not a proof of power or program-wide error control.
+- Absolute Stage 1-3, selection-group DSR, robustness, audit, provenance and
+  causal gates are unchanged. A comparative PASS is necessary but not sufficient.
+
+Use the RG-05 operator sequence with these plan fields:
+
+```yaml
+purpose: incremental
+benchmark_spec: experiments/benchmarks/reference.yaml
+comparative_block_length: 5
+# comparative_block_reason: required for a block longer than five days
+```
+
+The comparator is fixed, not a second search candidate: no parameter grid,
+no alternative universe, no benchmark switching. Both legs use the same
+eligible panel and evaluation slice, contract costs, delay, nominal initial
+capital and risk limits. No ex-post volatility rescaling is performed.
+Benchmark code must implement an active causal protocol and pass the existing
+prefix checks. Separate kernel instances prevent cache collisions across
+strategy modules.
+
+The existing RG-04 operation ledger admits the benchmark before execution;
+its finalized evidence binds both raw return Parquet tapes, exact clocks,
+code/config and basis digests, causal evidence, settings and comparison.
+The benchmark operation adds one raw operation, not a second selectable
+candidate. Stage 3 cannot finalize without the planned paired evidence.
+The published candidate return tape must agree with the comparative leg
+(on the existing selection grid, where structural zero projection is allowed).
+The comparison itself never intersects or pads the two eligible clocks.
+Missing/corrupted artifacts fail reconciliation. Interrupted reservations
+remain spent and cannot be replayed.
+
+A non-PASS adds `incremental_comparison` to failed gates and cannot qualify.
+The production holdout path additionally requires a finalized comparative
+development PASS, then refuses before any holdout claim until RG-08 (#127)
+provides the human-approved frozen paired batch. The development decision
+policy is immutable and must be reused by that batch. No new holdout exposure
+or data acquisition is authorized here.
+
+No new schema migration: RG-06 extends the frozen RG-04 operation plan and
+evidence payload under registry v6. Existing absolute and historical evidence
+remain readable. Verification uses only scratch synthetic fixtures. No
+production registry writes, manifest signing, or scientific qualification.

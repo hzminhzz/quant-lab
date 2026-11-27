@@ -19,6 +19,7 @@ import numpy as np
 import polars as pl
 
 from warden_evidence.return_artifacts import ReturnArtifactError, read_return_stream
+from warden_evidence.selection_alignment import NS_PER_DAY, compound_by_utc_day
 
 
 class ComparisonError(ValueError):
@@ -175,6 +176,14 @@ def compare_return_artifacts(
     clock = _clock(expected_timestamps_ns)
     c = _read_tape(candidate, returns_root, clock)
     b = _read_tape(benchmark, returns_root, clock)
+    raw_clock_sha256 = sha256(clock.astype("<i8").tobytes()).hexdigest()
+    n_bars = len(clock)
+    if candidate.basis.observation_unit == "utc_day":
+        days, c = compound_by_utc_day(clock, c)
+        benchmark_days, b = compound_by_utc_day(clock, b)
+        if not np.array_equal(days, benchmark_days):
+            raise ComparisonError("daily comparison clocks differ")
+        clock = days * NS_PER_DAY
     n = len(clock)
     annualisation = candidate.basis.periods_per_year
     c_sr, b_sr = _sharpe(c, annualisation), _sharpe(b, annualisation)
@@ -189,6 +198,8 @@ def compare_return_artifacts(
         "benchmark": benchmark.identity(),
         "basis": asdict(candidate.basis),
         "clock_sha256": sha256(clock.astype("<i8").tobytes()).hexdigest(),
+        "raw_clock_sha256": raw_clock_sha256,
+        "n_bars": n_bars,
         "n_observations": n,
         "candidate_zero_returns": int(np.count_nonzero(c == 0)),
         "benchmark_zero_returns": int(np.count_nonzero(b == 0)),

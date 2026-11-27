@@ -111,6 +111,12 @@ def bind_plan(conn, candidate_id: str, plan: dict | None, *, existing: bool) -> 
     if any(plan.get(key) != value for key, value in required.items()):
         raise ValueError("Fixed cost and latency scenarios are evaluator-owned")
     extras = set(plan) - set(required)
+    if "benchmark" in extras:
+        benchmark = plan["benchmark"]
+        if (set(benchmark) != {"kind", "benchmark", "comparison_policy"}
+                or benchmark["kind"] != "benchmark"):
+            raise ValueError("Invalid frozen benchmark plan")
+        extras.remove("benchmark")
     if extras != {f"neighbor:{i}" for i in range(len(extras))} or any(
         set(plan[key]) != {"kind", "parameters"}
         or plan[key]["kind"] != "neighbor"
@@ -167,7 +173,7 @@ def reserve_scenario(conn, run_id, scenario_key):
     return scenario_id
 
 
-def finalize_scenario(conn, scenario_id, metrics, returns=None, timestamps=None, *, attempt_id=""):
+def finalize_scenario(conn, scenario_id, metrics, returns=None, timestamps=None, *, attempt_id="", paired=False):
     row = conn.execute(
         "SELECT run_id,candidate_id,scenario_key,scenario_json FROM robustness_receipts WHERE scenario_id=?",
         (scenario_id,),
@@ -213,10 +219,14 @@ def finalize_scenario(conn, scenario_id, metrics, returns=None, timestamps=None,
             raise ValueError("Neighbor evidence differs from frozen scenario")
     elif attempt_id:
         raise ValueError("Only neighbor evidence links a legacy-format grid row")
-    if plan[row[2]].get("method") != "analytical" and values is None:
-        raise ValueError("Engine scenario requires timestamped returns")
-    if "net_sharpe" not in metrics or not math.isfinite(float(metrics["net_sharpe"])):
-        raise ValueError("Robustness evidence requires finite Sharpe")
+    if plan[row[2]]["kind"] == "benchmark":
+        if not paired or set(metrics) != {"incremental_comparison"} or values is not None:
+            raise ValueError("Benchmark requires governed paired artifact finalization")
+    else:
+        if plan[row[2]].get("method") != "analytical" and values is None:
+            raise ValueError("Engine scenario requires timestamped returns")
+        if "net_sharpe" not in metrics or not math.isfinite(float(metrics["net_sharpe"])):
+            raise ValueError("Robustness evidence requires finite Sharpe")
     payload = canonical_json({
         "scenario": json.loads(row[3]), "metrics": metrics,
         "returns": values, "timestamps_ns": clock, "attempt_id": attempt_id,
@@ -243,6 +253,16 @@ def scenario_status(conn, run_id):
         if state == "FINALIZED" and actual_state != "EVIDENCE_DRIFT":
             decoded = json.loads(evidence)
             if decoded.get("scenario") != json.loads(spec) or decoded.get("attempt_id") != (attempt_id or ""):
+                actual_state = "EVIDENCE_DRIFT"
+        if state == "FINALIZED" and key == "benchmark" and actual_state != "EVIDENCE_DRIFT":
+            from pathlib import Path
+
+            from warden.incremental import verify_artifacts
+
+            try:
+                root = Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent / "returns"
+                verify_artifacts(decoded["metrics"]["incremental_comparison"], root)
+            except (OSError, ValueError, KeyError):
                 actual_state = "EVIDENCE_DRIFT"
         if state == "FINALIZED" and attempt_id and actual_state != "EVIDENCE_DRIFT":
             attempt = conn.execute(

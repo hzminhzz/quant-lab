@@ -19,19 +19,19 @@ def test_unapproved_intent_refused_before_scored_screen(tiny_repo):
         assert conn.execute("SELECT count(*) FROM selection_attempts").fetchone()[0] == 0
 
 
-def approve(fixture, *, incremental=False):
+def approve(fixture, *, incremental=False, benchmark_source=None, **plan_overrides):
     manifest = fixture.repo / f"contracts/datasets/{fixture.contract.contract_id}.json"
     payload = json.loads(manifest.read_text())
     payload.update(price_basis="ohlcv_funding", dataset={
-        "assets": ["AAA", "BBB"], "first_bar": "2025-01-01T00:00:00Z",
-        "last_bar": "2025-01-01T23:00:00Z",
+        "assets": ["AAA", "BBB"], "first_bar": fixture.panel["timestamp"].min().isoformat(),
+        "last_bar": fixture.panel["timestamp"].max().isoformat(),
     })
     manifest.write_text(json.dumps(payload))
     spec = yaml.safe_load(fixture.spec.read_text())
     plan = {
         "author": "strategy-author", "thesis": "Inventory pressure predicts continuation", "strategy_module": spec["strategy_module"],
         "data_requirement": {"asset_class": "crypto_perps", "symbols": ["AAA", "BBB"],
-                             "frequency": "1h", "min_start": "2025-01-01T00:00:00Z",
+                             "frequency": fixture.contract.frequency, "min_start": "2025-01-01T00:00:00Z",
                              "price_basis": "ohlcv_funding", "execution_mode": "NEXT_BAR"},
         "purpose": "incremental" if incremental else "absolute",
         "evaluation_criteria": "Reject below contract gates and positive after-cost edge",
@@ -41,11 +41,15 @@ def approve(fixture, *, incremental=False):
         benchmark = fixture.repo / "experiments/benchmarks/benchmark.yaml"
         benchmark.parent.mkdir(parents=True, exist_ok=True)
         module = fixture.repo / "strategies/benchmark.py"
-        module.write_bytes((fixture.repo / "strategies/flat.py").read_bytes())
+        if benchmark_source is None:
+            module.write_bytes((fixture.repo / spec["strategy_module"]).read_bytes())
+        else:
+            module.write_text(benchmark_source)
         doc = yaml.safe_load(fixture.spec.read_text())
         doc["strategy_module"] = "strategies/benchmark.py"
         benchmark.write_text(yaml.safe_dump(doc))
         plan["benchmark_spec"] = "experiments/benchmarks/benchmark.yaml"
+    plan.update(plan_overrides)
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     sha = runner.approve_research_intent(spec["hypothesis_id"], plan, "principal")
     spec = yaml.safe_load(fixture.spec.read_text())

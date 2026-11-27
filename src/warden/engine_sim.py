@@ -40,6 +40,8 @@ from warden.gates import annualised_sharpe, per_bar_sharpe
 
 logger = logging.getLogger(__name__)
 
+ENGINE_INITIAL_CASH = 1_000_000.0
+
 
 class ExecutionDataError(ValueError):
     """Required execution prices are absent; Warden never guesses another price basis."""
@@ -744,7 +746,7 @@ def run_engine_strategy(
     *,
     cost_multiplier: float = 1.0,
     delay_offset: int = 0,
-    initial_cash: float = 1_000_000.0,
+    initial_cash: float = ENGINE_INITIAL_CASH,
     allow_leverage: bool = False,
     allow_short_selling: bool = True,
     max_gross_leverage: float | None = None,
@@ -826,7 +828,7 @@ def run_engine_simulation(
     *,
     cost_multiplier: float = 1.0,
     delay_offset: int = 0,
-    initial_cash: float = 1_000_000.0,
+    initial_cash: float = ENGINE_INITIAL_CASH,
     allow_leverage: bool = False,
     allow_short_selling: bool = True,
     max_gross_leverage: float | None = None,
@@ -927,7 +929,7 @@ def analytical_1p5x_sharpe(
     *,
     val_ts: Sequence[Any] | None = None,
     start_idx: int = 0,
-    initial_cash: float = 1_000_000.0,
+    initial_cash: float = ENGINE_INITIAL_CASH,
 ) -> float:
     """Compute 1.5x cost-stressed annualised Sharpe analytically from baseline fills.
 

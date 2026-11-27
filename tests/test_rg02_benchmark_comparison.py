@@ -165,3 +165,27 @@ def test_sample_adequacy_requires_enough_blocks(pair):
     assert result["status"] == "INCONCLUSIVE"
     assert result["sample_adequate"] is False
     assert result["bootstrap_samples_completed"] == 0
+
+
+def test_utc_daily_compounding_uses_complete_raw_grid_and_retains_flat_days(pair):
+    _, clock, c, b, tape, _ = pair
+    day_ns = 86_400_000_000_000
+    daily_clock = (clock // day_ns) * day_ns
+    raw_clock = (daily_clock[:, None] + np.array([0, day_ns // 2])).ravel()
+    c_bars = np.column_stack((c, c / 2))
+    b_bars = np.column_stack((b, b / 2))
+    basis = replace(tape("basis", c).basis, observation_unit="utc_day")
+    candidate = tape("candidate-raw", c_bars.ravel(), raw_clock, basis)
+    benchmark = tape("benchmark-raw", b_bars.ravel(), raw_clock, basis)
+    result = compare(pair, candidate, benchmark, expected_timestamps_ns=raw_clock)
+    c_daily = np.prod(1 + c_bars, axis=1) - 1
+    b_daily = np.prod(1 + b_bars, axis=1) - 1
+    expected = np.sqrt(252) * (
+        c_daily.mean() / c_daily.std(ddof=1) - b_daily.mean() / b_daily.std(ddof=1))
+    assert result["delta_sharpe"] == pytest.approx(expected)
+    assert result["n_bars"] == 240
+    assert result["n_observations"] == 120
+    assert result["candidate_zero_returns"] == result["benchmark_zero_returns"] == 24
+    missing = tape("missing-bar", b_bars.ravel()[1:], raw_clock[1:], basis)
+    with pytest.raises(ComparisonError, match="complete eligible clock"):
+        compare(pair, candidate, missing, expected_timestamps_ns=raw_clock)

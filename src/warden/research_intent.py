@@ -77,6 +77,8 @@ class IntentPlan(BaseModel):
     evaluation_criteria: str = Field(min_length=1)
     allowed_revisions: dict[str, str] = Field(default_factory=dict)
     benchmark_spec: str | None = None
+    comparative_block_length: int = Field(default=5, strict=True, ge=5)
+    comparative_block_reason: str | None = None
 
     @model_validator(mode="after")
     def validate_plan(self):
@@ -86,6 +88,12 @@ class IntentPlan(BaseModel):
             raise ValueError("allowed revisions require named, substantive rules")
         if (self.purpose == "incremental") != bool(self.benchmark_spec):
             raise ValueError("incremental intent requires exactly one frozen benchmark specification")
+        from warden.incremental import approved_policy
+
+        if self.purpose == "incremental":
+            approved_policy(self.comparative_block_length, self.comparative_block_reason)
+        elif self.comparative_block_length != 5 or self.comparative_block_reason is not None:
+            raise ValueError("Comparative settings require incremental intent")
         return self
 
 
@@ -177,11 +185,22 @@ def resolve_plan(root, contract, plan):
                       "selection_group_id": report.selection_group_id or contract.selection_group_id}
     resolution["manifest_sha256"] = file_sha256(manifest_path_for(contract.contract_id, root))
     resolution["dataset_path"] = contract.exploratory_data_path
-    return {
-        "schema_version": 1, "policy": REVIEW_POLICY, "plan": plan.model_dump(mode="json"),
+    from warden.incremental import approved_policy
+
+    plan_payload = plan.model_dump(mode="json")
+    document = {
+        "schema_version": 1, "policy": REVIEW_POLICY, "plan": plan_payload,
         "resolution": resolution,
         "benchmark": benchmark_binding(root, plan.benchmark_spec, contract.contract_id),
     }
+    if plan.purpose == "incremental":
+        document["comparison_policy"] = approved_policy(
+            plan.comparative_block_length, plan.comparative_block_reason)
+    else:
+        # Preserve the digest and idempotent approval of pre-RG06 absolute plans.
+        plan_payload.pop("comparative_block_length")
+        plan_payload.pop("comparative_block_reason")
+    return document
 
 
 def require_resolution(root, contract, document):
@@ -272,6 +291,9 @@ def require_intent(conn, hypothesis_id, intent_sha, contract_id=None):
                              (document["resolution"]["contract_id"],)).fetchone()
         if not group or group[0] != group_id:
             raise ValueError("research intent selection group drift")
+    from warden.incremental import require_policy
+
+    require_policy(document)
     return document
 
 
@@ -279,6 +301,9 @@ def binding(conn, candidate, robustness_plan, intent_sha):
     from warden.robustness import base_plan
 
     document = require_intent(conn, candidate.hypothesis_id, intent_sha, candidate.contract_id)
+    from warden.incremental import require_plan
+
+    require_plan(robustness_plan, document)
     resolution = document["resolution"]
     if (candidate.contract_hash != resolution["spec_hash"]
             or candidate.dataset_sha256 != resolution["dataset_sha256"]
@@ -390,4 +415,9 @@ def require_qualification_conformance(registry, run_id, contract, code_sha, root
     if benchmark_binding(root, intent["plan"]["benchmark_spec"], contract.contract_id) != intent["benchmark"]:
         raise ValueError("Frozen research intent benchmark fingerprint changed")
     if intent["plan"]["purpose"] == "incremental":
-        raise ValueError("Incremental qualification requires governed paired evidence (RG-06)")
+        from warden.incremental import require_trial_pair
+
+        with registry._connect() as conn:
+            require_trial_pair(conn, registry.db_path.parent / "returns", run_id,
+                               verdict="CANDIDATE_FOR_QUALIFICATION")
+        raise ValueError("Incremental holdout requires the approved frozen paired batch (RG-08)")

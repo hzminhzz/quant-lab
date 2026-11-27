@@ -103,11 +103,11 @@ def tiny_repo(tmp_path: Path):
 
     def build(provenance: str = "verified_market", module_source: str = FLAT_MODULE,
               module_name: str = "flat", contract_overrides: dict | None = None,
-              n_bars: int = 24) -> SimpleNamespace:
+              n_bars: int = 24, panel_override: pl.DataFrame | None = None) -> SimpleNamespace:
         builds["n"] += 1
         root = tmp_path / f"case{builds['n']}"
         repo = root / "repo"
-        panel = tiny_panel(n_bars)
+        panel = tiny_panel(n_bars) if panel_override is None else panel_override
         data_path = repo / "data" / "exploratory" / "tiny.parquet"
         data_path.parent.mkdir(parents=True, exist_ok=True)
         panel.write_parquet(data_path)

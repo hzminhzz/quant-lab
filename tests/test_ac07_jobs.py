@@ -49,7 +49,7 @@ def test_cancel_expiry_and_late_completion_keep_unknown_effects(tmp_path):
     q.cancel("job-one")
     with pytest.raises(ValueError, match="fenced"):
         q.finish("job-one", claim["fence"], receipt={"status": "COMPLETE"}, usage={})
-    q.confirm_stopped("job-one", claim["fence"], receipt={"status": "UNCERTAIN"})
+    q.confirm_stopped("job-one", claim["fence"], receipt={"status": "UNCERTAIN"}, process_exited=True)
     assert q.status("job-one")["state"] == "STOPPED_REVIEW"
     assert q.claim("job-one")["claimed"] is False
     q.submit("job-two", {"fixture": "two"}, objective="finish evidence",

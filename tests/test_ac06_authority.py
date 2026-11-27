@@ -87,6 +87,25 @@ def test_scoped_grant_allows_docs_but_never_candidate_verifier_changes(cli_repo,
         authority.admit(untrusted["path"], grant_id=grant_id, previous_path=old["path"])
 
 
+@pytest.mark.parametrize("relative", ["docs/research-outcomes/index.json", "docs/conf.py",
+                                     "docs/research-outcomes/ledger.md", "docs/AGENTS.md",
+                                     "docs/executable.md"])
+def test_documentation_grant_never_covers_machine_read_policy_or_code(cli_repo, tmp_path, relative):
+    root, old, _executor, authority, _calls = fixture(cli_repo, tmp_path)
+    grant = {"schema_version": 1, "recipient": "release-authority", "baseline": "b" * 64,
+             "classes": ["documentation"], "effects": ["release"], "expires_at": 1400.}
+    packet, proof = approval([Effect(kind="policy", subject_sha256=digest(grant))])
+    grant_id = authority.register_grant(grant, packet=packet, proof=proof)
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("untrusted machine-read content")
+    if relative == "docs/executable.md":
+        path.chmod(0o755)
+    new = build_candidate(root, tmp_path / "builds", ledger_min=8, ledger_max=9)
+    with pytest.raises(ValueError, match="scope"):
+        authority.admit(new["path"], grant_id=grant_id, previous_path=old["path"])
+
+
 def test_lost_activation_reply_is_observed_without_repeating_effect(cli_repo, tmp_path, monkeypatch):
     root, old, executor, authority, _calls = fixture(cli_repo, tmp_path)
     (root / "src/warden/example.py").write_text("VALUE = 2\n")

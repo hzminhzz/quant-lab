@@ -63,9 +63,11 @@ resource policy. The default reservation ceiling is 4 CPUs, 8 GiB RAM and 16 GiB
 logical I/O. Jobs reserve distinct available CPUs. The process supervisor applies
 CPU affinity, per-process address-space/CPU/file-size limits, wall time, sampled
 tree RSS/I/O limits, and cancellation checks. Thread-pool environment limits are
-explicit. Cancellation, expiry and missing heartbeats retain resource reservations
-until the trusted supervisor verifies process exit. No lease expiry grants a new
-scientific attempt.
+explicit, and CPU affinity is applied before the child command can fork.
+Cancellation, expiry and missing heartbeats retain resource reservations until
+the trusted supervisor verifies the owned process group has stopped. Parent exit
+alone is insufficient; surviving children are terminated, and unconfirmed exit
+keeps capacity held. No lease expiry grants a new scientific attempt.
 
 Resource receipts state what was measured. Per-process wait4 cost is combined with
 descendant samples; process-tree CPU and logical I/O are lower bounds. Sampled RSS
@@ -111,7 +113,8 @@ approval and capital allocation remain separately scoped effects.
 
 `ReleaseAuthority` is a protocol/library for an independently installed owner.
 Its verifier and required-check baseline are supplied by that owner, never by
-candidate code. Standing grants are currently restricted to documentation changes.
+candidate code. Standing grants are restricted to non-executable Markdown
+documentation; machine-read research outcomes and agent instructions are excluded.
 Every protected class needs an exact decision. Activation rechecks identity/schema,
 records intent before an effect and observes the result. Failed recovery requests
 a halt; an unverified halt remains explicitly uncertain. Incompatible old binaries

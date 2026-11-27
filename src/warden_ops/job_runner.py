@@ -52,13 +52,16 @@ def run_job(root, registry_path, job_id):
         result = run_bounded(command, cwd=root, env=env, output=output, limits=limits, heartbeat=heartbeat,
                              cpu_ids=claim["details"]["cpu_ids"])
     except (OSError, ValueError) as exc:
-        # No child survives run_bounded; a launch/setup failure cannot refund an admission.
-        result = {"state": "FAILED", "usage": {}, "reason": str(exc)[:300]}
+        # Setup/launch failures have no child; unverified exit is returned explicitly.
+        # Neither outcome refunds any existing scientific admission.
+        result = {"state": "FAILED", "usage": {}, "process_exited": True, "reason": str(exc)[:300]}
     receipt = Control(root, registry_path=registry_path).handle(
         {"schema_version": 1, "operation": "receipt", "request_id": claim["payload"]["request_id"]})
     receipt["supervisor"] = {k: v for k, v in result.items() if k != "usage"}
-    if result["state"] != "FINISHED" or queue.status(job_id)["state"] != "RUNNING":
-        return queue.confirm_stopped(job_id, fence, receipt=receipt, usage=result["usage"])
+    if (result["state"] != "FINISHED" or result.get("process_exited") is not True
+            or queue.status(job_id)["state"] != "RUNNING"):
+        return queue.confirm_stopped(job_id, fence, receipt=receipt, usage=result["usage"],
+                                     process_exited=result.get("process_exited") is True)
     return queue.finish(job_id, fence, receipt=receipt, usage=result["usage"])
 
 

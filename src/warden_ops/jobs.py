@@ -173,14 +173,19 @@ class JobQueue:
                 self._event(conn, job, "EXPIRED_UNKNOWN", current["fence"], current["details"])
             return self._status(conn, job)
 
-    def confirm_stopped(self, job, fence, *, receipt, usage=None):
-        """Trusted owner calls only after observing process exit; never refunds science."""
+    def confirm_stopped(self, job, fence, *, receipt, process_exited, usage=None):
+        """Record the observed stop; unknown process exit retains all reservations."""
         with self.registry._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             current = self._status(conn, job)
             self._fence(current, fence, running=False)
             if current["state"] not in _HELD:
                 raise ValueError("job already terminal")
-            self._event(conn, job, "STOPPED_REVIEW", fence, {"receipt": receipt,
-                        "usage": self._usage(usage or {}), "reason": "worker stopped; retain any scientific charge or uncertainty"})
+            confirmed = process_exited is True
+            state = "STOPPED_REVIEW" if confirmed else (
+                "CANCEL_REQUESTED" if current["state"] == "RUNNING" else current["state"])
+            self._event(conn, job, state, fence, {**current["details"], "receipt": receipt,
+                        "usage": self._usage(usage or {}), "reason":
+                        "worker stopped; retain scientific charge or uncertainty" if confirmed else
+                        "process exit unverified; resources and scientific state remain held"})
             return self._status(conn, job)

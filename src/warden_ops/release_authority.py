@@ -31,7 +31,15 @@ def classify(previous, candidate):
     if any(previous[key] != candidate[key] for key in ("ledger_min", "ledger_max", "dependency_lock_sha256")):
         return "protected_runtime"
     paths = sorted(name for name in old.keys() | new.keys() if old.get(name) != new.get(name))
-    if paths and all(name.startswith("docs/") or name == "README.md" for name in paths):
+    def plain_document(name):
+        # Machine-read evidence, executable content and agent instructions are
+        # protected even when their author places them beneath docs/.
+        return ((name == "README.md" or (name.startswith("docs/") and Path(name).suffix == ".md"))
+                and not name.startswith("docs/research-outcomes/")
+                and Path(name).name not in {"AGENTS.md", "CLAUDE.md"}
+                and not any(entry.get("executable", False) for entry in (old.get(name, {}), new.get(name, {}))))
+
+    if paths and all(plain_document(name) for name in paths):
         return "documentation"
     if any(name.startswith(("tests/", ".github/")) for name in paths):
         return "verification"

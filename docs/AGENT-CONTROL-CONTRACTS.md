@@ -1,9 +1,11 @@
 # Agent control contracts
 
-Status: **TARGET CONTRACTS — not implemented**. Revision 2026-11-27.
-Read [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and the control loop.
-Names below describe the proposed interface; they are **not available CLI commands**.
-Implementation must advertise actual capabilities before a caller uses them.
+Status: **APPROVED CONTRACTS — engineering source implemented; authority integration blocked**.
+Revision 2026-11-27. Read [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and
+[AGENT-CONTROL-OPERATIONS.md](AGENT-CONTROL-OPERATIONS.md) for the implemented
+CLI/MCP vocabulary, capability discovery and explicit installation limitations.
+The contracts below remain acceptance requirements; protocol fixtures do not attest
+an installed principal channel or authorize production effects.
 
 ## 1. One interface, several bounded operations
 

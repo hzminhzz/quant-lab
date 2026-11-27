@@ -1,6 +1,8 @@
 # Agent control implementation plan
 
-Status: **DESIGN COMPLETE FOR REVIEW; IMPLEMENTATION NOT STARTED**.
+Status: **APPROVED PLAN — engineering source implemented; final acceptance in progress**.
+Actual interfaces and integration boundaries are recorded in
+[AGENT-CONTROL-OPERATIONS.md](AGENT-CONTROL-OPERATIONS.md).
 Revision 2026-11-27. AC identifiers below identify delivery slices, not GitHub issue numbers.
 The [issue projection](AGENT-CONTROL-ISSUES.md) maps each slice to a milestone ticket.
 This plan does not change the acceptance scope or completion status of #109/#119.
@@ -109,7 +111,10 @@ guaranteed resource/time bound; keep a durable resume record.
 | AC-09 | Prove integrated compatibility and rehearse production transition | AC-06, AC-07, AC-08 | Snapshot/rehearsal tools, CLI/runner/MCP, protected runtime | Full adversarial matrix, exact preservation evidence, resource measurements and reviewable cutover packet |
 | AC-10 | Perform the separately authorized production transition | AC-09 plus exact principal decisions and installed capabilities | Authorized runtime and canonical state | Observed live identities/health, preserved accrued history, signed scope where required; no implied holdout/trading authorization |
 
-All implementation rows are **NOT STARTED** in this documentation revision.
+AC-01–09 engineering source, fixtures and measurements are implemented. The exact
+acceptance results are separate evidence: AC-05/06 authority integration and A23
+remain blocked by unavailable independent capabilities; AC-10 has no production
+authorization. The requirements in this table are unchanged.
 
 The first useful release is AC-01/02: a truthful read interface and restart packet.
 The manifest-friction path is AC-04/05/06; it does not wait for a new research-memory

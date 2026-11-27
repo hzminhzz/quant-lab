@@ -133,8 +133,9 @@ They are not a second supported release path.
    Runtime noninteractive guards remain enabled. Receipts retain exact XML/log hashes,
    dependency identity, failures, skips and expected failures.
 5. Use `warden appliance pause-writers --home HOME`. Timers are disabled and stopped so the
-   pause survives restart; prior enablement is recorded. An already running service
-   must finish naturally. Inspect quiescence. No service is killed to manufacture a clean state.
+   pause survives restart; prior enablement and unit definitions are recorded. If systemd's
+   disable operation removes an external unit link, the same byte-checked definition is linked
+   back without enabling or starting it. An already running service must finish naturally. Inspect quiescence. No service is killed to manufacture a clean state.
 6. Use `warden appliance transition --home HOME --release RELEASE_ID --request-id STABLE_ID`.
    Both writer locks must be free. The command takes a fresh WAL snapshot, rehearses and proves
    preservation/idempotence, persists intent, performs the canonical additive migration, switches

@@ -545,6 +545,7 @@ def test_engine_entry_points_are_only_called_from_the_kernel() -> None:
 
 
 def test_screen_and_backtest_execute_through_the_kernel(
+    pre_rg05_policy,
     tiny_repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fixture = tiny_repo()

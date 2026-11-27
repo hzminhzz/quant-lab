@@ -148,6 +148,12 @@ def test_installed_advance_without_pythonpath(tiny_repo) -> None:
         module_rel="strategies/tiny.py",
     )
     (repo / "strategies" / "tiny.py").write_text(FLAT_MODULE, encoding="utf-8")
+    # Installed subprocess uses the real RG-05 gate; no in-process policy double.
+    from tests.test_rg05_research_intent import approve, review
+
+    fx.spec = spec_path
+    runner, _, _ = approve(fx)
+    review(runner, fx)
     write_fixture_checksums(
         repo, "contracts/tiny_v1.yaml", f"contracts/datasets/{fx.contract.contract_id}.json",
     )
@@ -166,7 +172,7 @@ def test_installed_advance_without_pythonpath(tiny_repo) -> None:
     assert json.loads(result.stdout)["value"]["action"] == "STAGE1_REJECTED"
 
 
-def test_advance_full_progression_and_idempotent_rerun(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_advance_full_progression_and_idempotent_rerun(pre_rg05_policy, tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
     _fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-001", module_code=PASS_RULES_MODULE)
     monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
 
@@ -344,6 +350,7 @@ def test_advance_cli_busy_returns_75(tiny_repo) -> None:
 
 
 def test_advance_pending_skips_legacy_and_blocked_without_moving_files(
+    pre_rg05_policy,
     tiny_repo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-005")

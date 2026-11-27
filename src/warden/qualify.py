@@ -132,6 +132,9 @@ def qualify_candidate(
         proof = reg.causal_proof_for_run(run_id, runner.repo_root)
         if not proof["verified"]:
             raise PermissionError(f"Production qualification requires run-bound causal proof: {proof['reason']}")
+    from warden.research_intent import require_qualification_conformance
+
+    require_qualification_conformance(reg, run_id, contract, code_sha, runner.repo_root)
     h_path = holdout_override_path or (runner.repo_root / contract.holdout_data_path)
     if not h_path.is_file():
         raise FileNotFoundError(f"Holdout dataset not found at '{h_path}'.")

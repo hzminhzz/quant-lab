@@ -249,7 +249,7 @@ def _cli_stage(stage: str, spec: Path) -> tuple[int, str]:
     return code, out.getvalue()
 
 
-def test_tiny_repo_session_matches_cli_handlers_stage_by_stage(tiny_repo, tmp_path: Path,
+def test_tiny_repo_session_matches_cli_handlers_stage_by_stage(pre_rg05_policy, tiny_repo, tmp_path: Path,
                                                               monkeypatch) -> None:
     case = tiny_repo(module_source=TINY_MODULE, module_name="tiny_momentum")
     repo = case.repo

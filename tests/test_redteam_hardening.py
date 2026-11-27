@@ -203,7 +203,7 @@ def test_zero_and_negative_validation_sharpe_cannot_be_qualified(tmp_path: Path,
         qualify_candidate("RUN-ZERO", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout_p)
 
 
-def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(tmp_path: Path, qualifiable_contract, synthetic_panel) -> None:
+def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(pre_rg05_policy, tmp_path: Path, qualifiable_contract, synthetic_panel) -> None:
     """Unsealing a root hypothesis must lock all child and grandchild hypotheses in that lineage."""
     reg = ResearchRegistry(tmp_path / "reg.db")
     runner = ExperimentRunner(registry=reg, repo_root=Path("."))

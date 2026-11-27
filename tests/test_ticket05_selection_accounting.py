@@ -250,7 +250,7 @@ def test_dsr_non_ratchet_does_not_readd_unvectorized_penalty() -> None:
     assert r3["k_eff_gate"] == pytest.approx(11.0)
 
 
-def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) -> None:
+def test_param_grid_and_rules_ts_screens_align_into_effective_rank(pre_rg05_policy, tiny_repo) -> None:
     fixture = tiny_repo()
     import yaml
 
@@ -285,7 +285,7 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) ->
     assert sel["unvectorized_attempts"] == 1
 
 
-def test_simulation_epoch_isolation_and_same_epoch_alignment(tiny_repo) -> None:
+def test_simulation_epoch_isolation_and_same_epoch_alignment(pre_rg05_policy, tiny_repo) -> None:
     fixture = tiny_repo(n_bars=24)  # fence-compatible: ends before the fixture holdout_start
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     r_live = runner.run_spec(fixture.spec)
@@ -453,6 +453,7 @@ def test_snapshot_falsifiers_flat_keff_and_epoch_transition(tmp_path: Path) -> N
 
 
 def test_source_published_at_retrospective_tagging_and_qualification_block(
+    pre_rg05_policy,
     tiny_repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     strong_module = """

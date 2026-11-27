@@ -131,7 +131,7 @@ def test_purge_covers_execution_delay_when_it_exceeds_embargo():
     assert any(train_idx[-1] + delay + horizon >= test_idx[0] for train_idx, test_idx in uncorrected)
 
 
-def test_declared_prelag_is_rejected_as_double_latency(tiny_repo):
+def test_declared_prelag_is_rejected_as_double_latency(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo(module_source="""
 import numpy as np
 

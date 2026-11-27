@@ -29,7 +29,7 @@ ExperimentRunner: Any = None
 MANIFEST_FILE = ".warden_manifest.sha256"
 WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and AST boundaries intact."
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
-MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "approve-research-intent", "record-conformance", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
 # ``advance`` mutates one spec at a time, so it takes the lease per spec instead of
 # holding it across a ``--pending`` batch (issue #101).
 BATCH_LEASED_COMMANDS = MUTATING_COMMANDS - {"advance"}
@@ -1105,6 +1105,9 @@ def cmd_qualify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
 def _human_approved(args: argparse.Namespace, policy_key: str | None = None) -> bool:
     """Human-only gates need their explicit flag, or the human-held signing key."""
     key = policy_key or args.subcommand
+    if key in {"approve-research-intent", "record-conformance"}:
+        expected = "YES_APPROVE_INTENT" if key == "approve-research-intent" else "YES_RECORD_REVIEW"
+        return os.environ.get("WARDEN_NON_INTERACTIVE") != "1" and args.human_confirm == expected
     flags = {
         "qualify": "unseal_holdout",
         "generate-manifest": "human_approve_manifest",
@@ -1629,6 +1632,40 @@ def cmd_promote_contract(args: argparse.Namespace, runner: Any) -> int:
     return 0
 
 
+def cmd_research_intent(args, runner) -> int:
+    """Principal-attested approval and metadata-only candidate identity."""
+    import yaml
+
+    from warden.contracts import canonical_json
+
+    cmd = args.subcommand
+    if not _check_repo_worktree(runner.repo_root):
+        return 2
+    if cmd != "describe-candidate":
+        expected = ("YES_APPROVE_INTENT" if cmd == "approve-research-intent"
+                    else "YES_RECORD_REVIEW")
+        if (os.environ.get("WARDEN_NON_INTERACTIVE") == "1"
+                or args.human_confirm != expected):
+            print(f"REFUSED: interactive principal confirmation {expected} required", file=sys.stderr)
+            return 2
+    try:
+        if cmd == "approve-research-intent":
+            plan = yaml.safe_load(Path(args.plan).read_text(encoding="utf-8"))
+            sha = runner.approve_research_intent(args.hypothesis_id, plan, args.principal)
+            payload = {"hypothesis_id": args.hypothesis_id, "research_intent_sha256": sha}
+        elif cmd == "record-conformance":
+            review = yaml.safe_load(Path(args.review).read_text(encoding="utf-8"))
+            review_id = runner.record_conformance_review(Path(args.spec_yaml), review, args.principal)
+            payload = {"review_id": review_id}
+        else:
+            payload = runner.describe_candidate_intent(Path(args.spec_yaml))
+    except (ValueError, OSError, RuntimeError, sqlite3.Error, yaml.YAMLError) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    print(canonical_json(payload))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="warden", description="Deterministic quantitative research harness.")
     p.add_argument("--version", action="version", version=f"warden {__version__}")
@@ -1638,6 +1675,17 @@ def build_parser() -> argparse.ArgumentParser:
     gm = s.add_parser("generate-manifest")
     gm.add_argument("--human-approve-manifest", action="store_true")
     s.add_parser("register-hypothesis").add_argument("path")
+    intent = s.add_parser("approve-research-intent")
+    intent.add_argument("hypothesis_id")
+    intent.add_argument("plan")
+    intent.add_argument("--principal", required=True)
+    intent.add_argument("--human-confirm", required=True)
+    review = s.add_parser("record-conformance")
+    review.add_argument("spec_yaml")
+    review.add_argument("review")
+    review.add_argument("--principal", required=True)
+    review.add_argument("--human-confirm", required=True)
+    s.add_parser("describe-candidate").add_argument("spec_yaml")
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     adv = s.add_parser("advance")
     adv.add_argument("spec_yaml", nargs="?", default=None)
@@ -1778,7 +1826,7 @@ def main(argv: list[str] | None = None) -> int:
         elif decision.approval_required and not _human_approved(args, policy_key):
             print(f"REFUSED: {decision.reason}; pass the human-only flag for this command "
                   "(--unseal-holdout/--human-confirm-unseal, --seal-holdout/--human-confirm-seal, "
-                  "--human-confirm-promote YES_PROMOTE or --human-approve-manifest)", file=sys.stderr)
+                  "--human-confirm-promote YES_PROMOTE, --human-confirm YES_APPROVE_INTENT/YES_RECORD_REVIEW, or --human-approve-manifest)", file=sys.stderr)
             code = 2
         elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data",
                                  "resolve-data", "promote-contract"}:
@@ -1792,6 +1840,15 @@ def main(argv: list[str] | None = None) -> int:
                 code = data_actions[args.action](args, runner)
             else:
                 code = cmds[args.subcommand](args, runner)
+        elif args.subcommand in {"approve-research-intent", "record-conformance", "describe-candidate"}:
+            if args.subcommand == "describe-candidate":
+                from warden.registry import ResearchRegistry
+                from warden.runner import ExperimentRunner as _IntentRunner
+
+                runner = _IntentRunner(registry=ResearchRegistry(Path("registry/registry.db"), readonly=True))
+            else:
+                runner = _get_runner(readonly=False)
+            code = cmd_research_intent(args, runner)
         elif args.subcommand == "register-hypothesis":
             runner = _get_runner(readonly=False)
             if not check_worktree():

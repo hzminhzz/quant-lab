@@ -247,7 +247,7 @@ def _diagnostics(registry: ResearchRegistry, run_id: str) -> dict:
 # ------------------------------------------------- 1. pre-reservation ordering (T14)
 
 
-def test_incompatible_history_is_refused_before_a_trial_slot_is_charged(tmp_path: Path) -> None:
+def test_incompatible_history_is_refused_before_a_trial_slot_is_charged(pre_rg05_policy, tmp_path: Path) -> None:
     panel = tmp_path / "repo" / "data" / "exploratory" / "wire.parquet"
     _write_panel(panel, assets=("AAA", "BBB"), n_bars=80, freq_minutes=60)
     sha = __import__("hashlib").sha256(panel.read_bytes()).hexdigest()
@@ -270,6 +270,7 @@ def test_incompatible_history_is_refused_before_a_trial_slot_is_charged(tmp_path
 
 
 def test_cli_backtest_reflects_the_refusal_without_recording_a_failed_slot(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     panel = tmp_path / "repo" / "data" / "exploratory" / "wire.parquet"
@@ -294,6 +295,7 @@ def test_cli_backtest_reflects_the_refusal_without_recording_a_failed_slot(
 
 
 def test_recorded_trial_carries_the_validation_clock_and_legacy_history_stays_debt(
+    pre_rg05_policy,
     tmp_path: Path,
 ) -> None:
     panel = tmp_path / "repo" / "data" / "exploratory" / "wire.parquet"
@@ -331,7 +333,7 @@ def test_recorded_trial_carries_the_validation_clock_and_legacy_history_stays_de
     assert res.stage_reached == "STAGE_3_STRESS"
 
 
-def test_symbol_subset_is_published_on_the_contract_validation_grid(tmp_path: Path) -> None:
+def test_symbol_subset_is_published_on_the_contract_validation_grid(pre_rg05_policy, tmp_path: Path) -> None:
     panel = tmp_path / "repo" / "data" / "exploratory" / "wire.parquet"
     # AAA at :00 and BBB at :30 -> a 320-bar union, 160 bars for AAA alone.
     _write_panel(panel, assets=("AAA", "BBB"), n_bars=160, freq_minutes=60, stagger_minutes=30)
@@ -383,7 +385,7 @@ def test_symbol_subset_is_published_on_the_contract_validation_grid(tmp_path: Pa
     assert all(by_stamp[stamp] == 0.0 for stamp in union_grid if stamp.minute == 30)
 
 
-def test_sub_daily_candidate_compounds_onto_a_measured_daily_panel(tmp_path: Path) -> None:
+def test_sub_daily_candidate_compounds_onto_a_measured_daily_panel(pre_rg05_policy, tmp_path: Path) -> None:
     panel = tmp_path / "repo" / "data" / "exploratory" / "wire.parquet"
     _write_panel(panel, assets=("AAA", "BBB"), n_bars=720, freq_minutes=60, drift=0.0004, vol=0.0012)
     sha = __import__("hashlib").sha256(panel.read_bytes()).hexdigest()

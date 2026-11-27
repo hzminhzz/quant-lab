@@ -158,7 +158,7 @@ def test_validate_ohlcv_panel_rejects_lse_level_shift_and_corrupt_ohlcv() -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_quote_side_missing_bid_ask_fails_preflight_and_runner_before_registry_touch(tmp_path: Path) -> None:
+def test_quote_side_missing_bid_ask_fails_preflight_and_runner_before_registry_touch(pre_rg05_policy, tmp_path: Path) -> None:
     from warden.contracts import validate_panel_feed_spec
 
     repo = _setup_isolated_repo(tmp_path, name="quote_repo")

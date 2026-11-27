@@ -7,7 +7,7 @@ from warden.contracts import ENGINE_SIMULATION_EPOCH
 from warden.registry import ResearchRegistry
 
 
-def test_interrupted_screen_is_selection_debt_before_any_outcome(tiny_repo):
+def test_interrupted_screen_is_selection_debt_before_any_outcome(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo(provenance="synthetic")
     identity = bound_identity(fixture, variant(fixture, 1))
     reserve(fixture.registry, identity)
@@ -21,7 +21,7 @@ def test_interrupted_screen_is_selection_debt_before_any_outcome(tiny_repo):
     assert reopened.candidate_budget("HYP-TINY")["used"] == 1
 
 
-def test_fixed_stress_evidence_is_finalized_before_trial_returns(tiny_repo):
+def test_fixed_stress_evidence_is_finalized_before_trial_returns(pre_rg05_policy, tiny_repo):
     from warden.runner import ExperimentRunner
 
     fixture = tiny_repo(provenance="synthetic")
@@ -36,7 +36,7 @@ def test_fixed_stress_evidence_is_finalized_before_trial_returns(tiny_repo):
     assert result.total_trials_n == 1
 
 
-def test_grid_frozen_before_screen_and_variant_promotion_charges_slot(tiny_repo):
+def test_grid_frozen_before_screen_and_variant_promotion_charges_slot(pre_rg05_policy, tiny_repo):
     import yaml
 
     from warden.registry import HypothesisBudgetExhaustedError
@@ -71,7 +71,7 @@ def test_grid_frozen_before_screen_and_variant_promotion_charges_slot(tiny_repo)
     [{"candidate_variant": 1}, {"candidate_variant": 2}, {"candidate_variant": 3}],
     [{"target_symbols": ["OTHER"]}],
 ])
-def test_selectable_grid_refused_before_admission(tiny_repo, grid):
+def test_selectable_grid_refused_before_admission(pre_rg05_policy, tiny_repo, grid):
     import yaml
 
     from tests.test_rg03_candidate_admission import count
@@ -89,7 +89,7 @@ def test_selectable_grid_refused_before_admission(tiny_repo, grid):
     assert count(f.registry, "robustness_receipts") == 0
 
 
-def test_concurrent_reservation_and_interrupted_scenario(tiny_repo):
+def test_concurrent_reservation_and_interrupted_scenario(pre_rg05_policy, tiny_repo):
     from concurrent.futures import ThreadPoolExecutor
 
     f = tiny_repo(provenance="synthetic")
@@ -119,7 +119,7 @@ def test_concurrent_reservation_and_interrupted_scenario(tiny_repo):
     assert reopened.candidate_budget("HYP-TINY")["used"] == 1
 
 
-def test_failed_finalization_exposes_no_cli_performance(tiny_repo, monkeypatch, capsys):
+def test_failed_finalization_exposes_no_cli_performance(pre_rg05_policy, tiny_repo, monkeypatch, capsys):
     import sqlite3
     from types import SimpleNamespace
 
@@ -146,7 +146,7 @@ def test_failed_finalization_exposes_no_cli_performance(tiny_repo, monkeypatch, 
     assert f.registry.spec_status("HYP-TINY", f.contract.contract_id, "strategies/flat.py", {})["state"] == "REQUIRES_RECONCILIATION"
 
 
-def test_scheduler_stops_exhausted_candidate_before_verify(tiny_repo, monkeypatch):
+def test_scheduler_stops_exhausted_candidate_before_verify(pre_rg05_policy, tiny_repo, monkeypatch):
     from warden import cli
     from warden.runner import ExperimentRunner
 
@@ -177,7 +177,7 @@ def test_retired_diagnostics_refuse_execution(tmp_path, script):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_v4_migration_does_not_erase_recorded_selection_debt(tiny_repo):
+def test_v4_migration_does_not_erase_recorded_selection_debt(pre_rg05_policy, tiny_repo):
     import sqlite3
 
     from warden.runner import ExperimentRunner
@@ -190,6 +190,10 @@ def test_v4_migration_does_not_erase_recorded_selection_debt(tiny_repo):
     assert f.registry.selection_attempt_count(cid) == 1
     # Emulate a v4 ledger, whose screen and trial had separate search debt.
     with sqlite3.connect(f.registry.db_path) as conn:
+        for name in ("approved_hypothesis_no_change", "approved_hypothesis_no_delete"):
+            conn.execute(f"DROP TRIGGER {name}")
+        for name in ("candidate_intent_bindings", "conformance_reviews", "research_intents"):
+            conn.execute(f"DROP TABLE {name}")
         for table in ("robustness_outcomes", "robustness_receipts", "robustness_plans"):
             conn.execute(f"DROP TABLE {table}")
         conn.execute("PRAGMA user_version=4")

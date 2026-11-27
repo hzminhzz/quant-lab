@@ -134,3 +134,92 @@ review before it can advance. No existing evidence is rewritten.
 
 Only scratch synthetic fixtures are used for this slice's scientific execution
 tests; no production registry migration, manifest signing, or live holdout access.
+
+## RG-05: frozen research intent and independent conformance (#124)
+
+Schema v6 adds append-only intent, review and candidate-binding records to the
+existing registry. The principal approved the policy of independent review for
+each materially distinct candidate before its first scored evaluation. A frozen
+candidate can advance from screen to full without another review; a refused or
+unavailable judge never passes.
+
+### Operator sequence
+
+1. Register the hypothesis, then approve the research plan before candidate
+   evaluation. Use the existing DataRequirement format and resolver (#116).
+   For a compiled sandbox (#117), the requirement must match its sealed
+   artifact exactly. Sandbox data remains non-market-eligible.
+2. Record the returned intent digest in the experiment YAML under
+   `research_intent_sha256`.
+3. Describe the candidate without scoring it. Provide this exact binding to
+   an independent reviewer. The description loads strategy metadata and
+   resolves the exploratory data identity, but does not run a screen or
+   simulation.
+4. The principal attests the independent review, then the regular screen/full
+   commands enforce it and reserve the RG-03 candidate slot atomically.
+
+```bash
+warden register-hypothesis hypothesis.yaml --json
+warden approve-research-intent HYP-ID plan.yaml --principal PRINCIPAL --human-confirm YES_APPROVE_INTENT --json
+warden describe-candidate experiment.yaml --json
+warden record-conformance experiment.yaml review.yaml --principal PRINCIPAL --human-confirm YES_RECORD_REVIEW --json
+warden screen experiment.yaml --json
+warden backtest experiment.yaml --json
+```
+
+Plan example (replace with the actual registered hypothesis, data and thesis):
+
+```yaml
+author: strategy-author
+thesis: Inventory pressure predicts continuation
+strategy_module: strategies/candidate.py
+data_requirement:
+  asset_class: crypto_perps
+  frequency: 1h
+  symbols: [BTC, ETH]
+  min_start: "2025-01-01T00:00:00Z"
+  price_basis: ohlcv_funding
+  execution_mode: NEXT_BAR
+purpose: absolute
+evaluation_criteria: Reject unless contract gates and after-cost edge pass
+allowed_revisions:
+  sizing: Change exposure without changing the economic thesis
+```
+
+Incremental intent requires `purpose: incremental` and a `benchmark_spec`
+path under `experiments/`. Its declared config and strategy closure are
+fingerprinted at approval and checked before scoring. The paired outcome gate
+remains RG-06; incremental qualification is refused until that gate exists.
+
+Review YAML requires the exact `binding_sha256` returned by describe-candidate,
+`verdict` (PASS, REFUSED, or JUDGE_UNAVAILABLE), `reviewer` (required for
+PASS/REFUSED), and nonempty `evidence`. A material revision also requires a
+`revision` key from the approved plan and its admitted
+`predecessor_candidate_id`. Each new identity consumes the ordinary RG-03
+slot; approved intent itself cannot be replaced, even before a score.
+After admission, the review binding cannot be replaced. Prior attempts
+cannot receive a retroactive initial approval. A changed thesis, contract,
+dataset or other plan-level fact requires a new related hypothesis, subject
+to existing lineage and selection-group accounting.
+
+The immutable record binds the hypothesis, plan, resolved contract, exploratory
+dataset and manifest, venue policy/group when present, optional benchmark,
+candidate closure and effective parameters, and RG-04 robustness plan.
+Qualification checks the recorded binding before any holdout access. Historical
+receipts and artifacts remain readable and their debt is retained; missing
+historical conformance is not silently synthesized for new qualification.
+
+Both approval mutations are interactive principal-only CLI actions. Reviewer
+identity and evidence are principal-attested, not cryptographically authenticated;
+the CLI confirmation is not OS-level access control. The ledger establishes
+ordering of governed approvals and scored attempts, not proof that nobody
+edited source code or inspected outcomes outside Warden. The protected manifest
+must still receive actual human approval before deployment.
+
+Legacy evaluator-mechanics tests explicitly opt into a scratch-ledger-only
+pre-RG-05 policy double; they continue to exercise actual numerical, data,
+causality, RG-03/04 and receipt gates. Dedicated RG-05 tests, installed CLI
+advance, and compiled-sandbox integration exercise the real approval boundary
+with synthetic fixture review evidence. No production review, manifest signing,
+live registry migration, holdout access, or scientific qualification was
+performed by this implementation.

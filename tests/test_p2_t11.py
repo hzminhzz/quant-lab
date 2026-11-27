@@ -651,7 +651,7 @@ def test_rules_ewma_fills_on_the_first_executable_holdout_bar(tmp_path: Path) ->
     assert len(seen) == len(ts)
 
 
-def test_qualify_rules_sees_the_prefix_and_reports_no_cold_start(tmp_path: Path) -> None:
+def test_qualify_rules_sees_the_prefix_and_reports_no_cold_start(pre_rg05_policy, tmp_path: Path) -> None:
     fixture = _qualification_repo(
         tmp_path,
         module_rel="strategies/candidates/t11_rules.py",
@@ -677,7 +677,7 @@ def test_qualify_rules_sees_the_prefix_and_reports_no_cold_start(tmp_path: Path)
 # ---------------------------------------------------------------------------
 # 4. model qualification end-to-end through the contract-declared mode
 # ---------------------------------------------------------------------------
-def test_qualify_model_purged_expanding_covers_every_holdout_bar(tmp_path: Path) -> None:
+def test_qualify_model_purged_expanding_covers_every_holdout_bar(pre_rg05_policy, tmp_path: Path) -> None:
     fixture = _qualification_repo(
         tmp_path,
         module_rel="strategies/candidates/t11_model.py",
@@ -707,7 +707,7 @@ def test_qualify_model_purged_expanding_covers_every_holdout_bar(tmp_path: Path)
     assert all(f["label_columns_present"] == [] for f in fits)
 
 
-def test_qualify_model_frozen_pre_holdout_never_refits(tmp_path: Path) -> None:
+def test_qualify_model_frozen_pre_holdout_never_refits(pre_rg05_policy, tmp_path: Path) -> None:
     fixture = _qualification_repo(
         tmp_path,
         module_rel="strategies/candidates/t11_model_frozen.py",
@@ -737,6 +737,7 @@ def test_qualify_model_frozen_pre_holdout_never_refits(tmp_path: Path) -> None:
 
 
 def test_production_path_qualification_warms_on_the_verified_prefix(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No override: the gateway's own digest-verified prefix warms the strategy.
@@ -791,6 +792,7 @@ def test_production_path_qualification_warms_on_the_verified_prefix(
 
 
 def test_claim_and_read_start_commit_before_the_holdout_is_read(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Ordering: claim + durable read-start exist before any holdout byte is opened."""

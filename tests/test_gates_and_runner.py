@@ -90,7 +90,7 @@ def test_simulate_positions_delay_and_signed_funding() -> None:
     assert sim_short["net_returns"][5] > sim_short["gross_returns"][5]
 
 
-def test_linear_baseline_required_gate(tmp_path: Path) -> None:
+def test_linear_baseline_required_gate(pre_rg05_policy, tmp_path: Path) -> None:
     reg = ResearchRegistry(tmp_path / "reg.db")
     runner = ExperimentRunner(registry=reg, repo_root=Path("."), allow_legacy_replay=True)
 

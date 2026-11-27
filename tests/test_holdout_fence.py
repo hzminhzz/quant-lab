@@ -184,7 +184,7 @@ def _fenced_repo(tmp_path: Path, panel: pl.DataFrame, contract: EvaluationContra
 
 
 @pytest.mark.parametrize("case", ["holdout_overflow", "empty_validation_slice"])
-def test_run_spec_fails_before_stage0_or_reservation(tmp_path: Path, case: str) -> None:
+def test_run_spec_fails_before_stage0_or_reservation(pre_rg05_policy, tmp_path: Path, case: str) -> None:
     if case == "holdout_overflow":
         contract = _contract()
         panel = _panel(last_offset_hours=24)

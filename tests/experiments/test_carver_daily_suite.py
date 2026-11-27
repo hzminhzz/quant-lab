@@ -622,7 +622,7 @@ def test_s23_is_the_scaled_change_in_each_ewmac_forecast():
 
 
 
-def test_a_raising_strategy_leaves_no_screen_row_and_no_trial(tiny_repo):
+def test_a_raising_strategy_leaves_no_screen_row_and_no_trial(pre_rg05_policy, tiny_repo):
     case = tiny_repo(
         module_source="def generate_positions(*a, **k):\n    raise RuntimeError('boom')\n",
         module_name="boom",

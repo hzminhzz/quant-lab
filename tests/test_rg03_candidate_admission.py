@@ -34,7 +34,7 @@ def count(registry, table):
         return conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
 
 
-def test_fourth_selectable_screen_refused_before_outcome(tiny_repo):
+def test_fourth_selectable_screen_refused_before_outcome(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     module = fixture.repo / "strategies/flat.py"
     source = module.read_text().replace("def __init__(self):", "def __init__(self, weight):")
@@ -59,7 +59,7 @@ def test_fourth_selectable_screen_refused_before_outcome(tiny_repo):
 
 
 
-def test_screen_and_full_trial_share_identity_at_cap(tiny_repo):
+def test_screen_and_full_trial_share_identity_at_cap(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     reg = fixture.registry
     runner = ExperimentRunner(registry=reg, repo_root=fixture.repo)
@@ -99,7 +99,7 @@ def reserve(reg, identity: CandidateIdentity):
     )
 
 
-def test_concurrent_candidate_admission_is_atomic(tiny_repo):
+def test_concurrent_candidate_admission_is_atomic(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     identities = [bound_identity(fixture, variant(fixture, i)) for i in range(8)]
 
@@ -128,7 +128,7 @@ def register_related(reg, contract, hypothesis_id, module, parent=None):
     ))
 
 
-def test_code_alias_contract_and_cadence_changes_share_lineage_budget(tiny_repo):
+def test_code_alias_contract_and_cadence_changes_share_lineage_budget(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     reg = fixture.registry
     runner = ExperimentRunner(registry=reg, repo_root=fixture.repo)
@@ -166,7 +166,7 @@ def test_code_alias_contract_and_cadence_changes_share_lineage_budget(tiny_repo)
     assert reg.candidate_budget("HYP-CHILD")["lineage_used"] == 6
 
 
-def test_interrupted_screen_cannot_advance_or_replay(tiny_repo):
+def test_interrupted_screen_cannot_advance_or_replay(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     reg = fixture.registry
     spec = variant(fixture, 1)
@@ -181,7 +181,7 @@ def test_interrupted_screen_cannot_advance_or_replay(tiny_repo):
     assert count(reg, "attempt_receipts") == 0
 
 
-def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(tiny_repo):
+def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     reg = fixture.registry
     runner = ExperimentRunner(registry=reg, repo_root=fixture.repo)
@@ -195,6 +195,10 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(tiny_repo):
     with sqlite3.connect(reg.db_path) as conn:
         artifact = fixture.registry.db_path.parent / "returns" / fixture.contract.contract_id / f"{result.run_id}.parquet"
         artifact_sha = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        for name in ("approved_hypothesis_no_change", "approved_hypothesis_no_delete"):
+            conn.execute(f"DROP TRIGGER {name}")
+        for name in ("candidate_intent_bindings", "conformance_reviews", "research_intents"):
+            conn.execute(f"DROP TABLE {name}")
         conn.execute("DROP TABLE robustness_outcomes")
         conn.execute("DROP TABLE robustness_receipts")
         conn.execute("DROP TABLE robustness_plans")
@@ -204,7 +208,7 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(tiny_repo):
         before = {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables}
     migrated = ResearchRegistry(reg.db_path)
     with sqlite3.connect(reg.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables} == before
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == artifact_sha
@@ -215,7 +219,7 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(tiny_repo):
 
 
 
-def test_material_code_revision_is_distinct_but_does_not_reset_budget(tiny_repo):
+def test_material_code_revision_is_distinct_but_does_not_reset_budget(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     reg = fixture.registry
     runner = ExperimentRunner(registry=reg, repo_root=fixture.repo)
@@ -234,7 +238,7 @@ def test_material_code_revision_is_distinct_but_does_not_reset_budget(tiny_repo)
         runner.run_spec(spec, override_run_id="RUN-DUPLICATE-REVISION")
 
 
-def test_missing_legacy_binding_requires_review_not_replay(tiny_repo):
+def test_missing_legacy_binding_requires_review_not_replay(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     reg = fixture.registry
     reg.reserve_screen("HYP-TINY", fixture.contract.contract_id, "strategies/flat.py",
@@ -244,7 +248,7 @@ def test_missing_legacy_binding_requires_review_not_replay(tiny_repo):
     assert reg.candidate_budget("HYP-TINY")["used"] == 1
 
 
-def test_candidate_identity_and_operation_links_are_append_only(tiny_repo):
+def test_candidate_identity_and_operation_links_are_append_only(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     reg = fixture.registry
     reserve(reg, bound_identity(fixture, variant(fixture, 1)))

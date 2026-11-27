@@ -205,6 +205,7 @@ def _register_hyp_and_spec(
 
 
 def test_legacy_generate_positions_rejected_for_active_hypothesis_and_historical_replay_intact(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from warden.protocols import LegacyStrategyProtocolError
@@ -297,6 +298,7 @@ def test_legacy_generate_positions_rejected_for_active_hypothesis_and_historical
 
 
 def test_causal_model_ragged_panel_walk_forward_strips_val_labels_and_computes_ic(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = _make_panel(
@@ -491,6 +493,7 @@ def build_estimator(params: dict):
 
 
 def test_causal_rules_strategy_runs_via_engine_with_risk_overlays(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     t0 = datetime(2025, 1, 1, tzinfo=UTC)
@@ -831,6 +834,7 @@ def _make_persistent_trend_panel(
 
 
 def test_reference_ridge_is_refused_and_drawdown_rules_complete_funnel(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -927,6 +931,7 @@ def test_reference_ridge_is_refused_and_drawdown_rules_complete_funnel(
 
 
 def test_preregistered_four_bar_synthetic_control_completes_funnel(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # Synthetic positive control, not a trading claim. The cadence, seeds, windows,
@@ -1005,6 +1010,7 @@ def configure_strategy(contract, params):
 
 
 def test_protocol_family_mismatch_fails_closed_with_zero_trials(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from warden.protocols import LegacyStrategyProtocolError

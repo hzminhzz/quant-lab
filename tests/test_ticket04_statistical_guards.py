@@ -636,7 +636,7 @@ def test_evaluate_neighbor_stability_sign_safe_and_boundaries() -> None:
     assert strong["stability"] == pytest.approx(0.85 / 1.20)
 
 
-def test_backtest_negative_neighbor_grid_and_empty_grid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_backtest_negative_neighbor_grid_and_empty_grid(pre_rg05_policy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("warden.cli.check_worktree", lambda: True)
 
     neg_strat = """
@@ -746,6 +746,7 @@ def configure_strategy(contract, params):
 
 
 def test_backtest_failed_gates_covers_all_eight_keys_and_candidate_empty(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("warden.cli.check_worktree", lambda: True)

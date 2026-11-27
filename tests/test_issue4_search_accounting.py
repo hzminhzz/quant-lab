@@ -37,7 +37,7 @@ def _hyp(hyp_id, family="rules_ts", module="", parent=None):
                           parent_hypothesis_id=parent, strategy_module=module)
 
 
-def test_screens_grids_and_failed_reservations_are_all_counted(tiny_repo) -> None:
+def test_screens_grids_and_failed_reservations_are_all_counted(pre_rg05_policy, tiny_repo) -> None:
     fixture = tiny_repo()
     import yaml
 
@@ -102,7 +102,7 @@ def test_duplicate_and_collinear_trials_never_relax_the_gate() -> None:
     assert ranks[1]["probability"] < ranks[0]["probability"]
 
 
-def test_unvectorised_attempts_count_without_fake_streams(tiny_repo) -> None:
+def test_unvectorised_attempts_count_without_fake_streams(pre_rg05_policy, tiny_repo) -> None:
     fixture = tiny_repo()
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     res = runner.run_spec(fixture.spec)
@@ -176,7 +176,7 @@ def test_new_contract_version_inherits_the_historical_floor(tmp_path) -> None:
         conn.execute("UPDATE contract_search_state SET max_keff_gate=1.0 WHERE contract_id=?", (v1.contract_id,))
 
 
-def test_stage1_rejection_stores_the_observed_signal(tiny_repo) -> None:
+def test_stage1_rejection_stores_the_observed_signal(pre_rg05_policy, tiny_repo) -> None:
     fixture = tiny_repo(module_source="""
 import numpy as np
 

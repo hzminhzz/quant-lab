@@ -49,6 +49,7 @@ ALLOWED_EXPERIMENT_SPEC_FIELDS = frozenset(
         "parameters",
         "param_grid",
         "run_id",
+        "research_intent_sha256",
     }
 )
 
@@ -75,6 +76,7 @@ class ExperimentSpec(BaseModel):
         list[dict[str, Any]], BeforeValidator(_none_param_grid_to_empty)
     ] = Field(default_factory=list)
     run_id: str | None = None
+    research_intent_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 def load_experiment_spec(path: str | Path) -> ExperimentSpec:

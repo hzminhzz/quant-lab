@@ -494,9 +494,10 @@ class ExperimentRunner:
     def _prepare_and_check_stage0(
         self, contract, hyp, hyp_id, family, strat_module, params, trials_used,
         simulation_epoch: str = ENGINE_SIMULATION_EPOCH,
+        dataset=None,
     ):
         try:
-            dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
+            dataset = dataset or resolve_dataset(contract, self.repo_root)  # missing data is never substituted
             market = prepare_market_panel(self.repo_root, dataset, params, contract)
             panel_df, ts, assets, v_slice = (
                 market.panel, list(market.ts), list(market.assets), market.eval_slice
@@ -575,6 +576,82 @@ class ExperimentRunner:
                 "Stage 1 must score the strategy's own prefix-verified spread and net carry."
             )
 
+    def approve_research_intent(self, hypothesis_id, plan, principal):
+        with self.registry._connect() as conn:
+            row = conn.execute("SELECT contract_id FROM hypotheses WHERE hypothesis_id=?",
+                               (hypothesis_id,)).fetchone()
+        if not row:
+            raise ValueError("Register the hypothesis first")
+        contract = self.resolve_active_contract(row[0])
+        return self.registry.approve_research_intent(
+            hypothesis_id, plan, principal, contract=contract, repo_root=self.repo_root)
+
+    def _require_intent(self, spec, contract):
+        from warden.research_intent import benchmark_binding, require_resolution
+
+        document = self.registry.require_research_intent(
+            spec.hypothesis_id, spec.research_intent_sha256, contract.contract_id)
+        require_resolution(self.repo_root, contract, document)
+        if benchmark_binding(self.repo_root, document["plan"]["benchmark_spec"], contract.contract_id) != document["benchmark"]:
+            raise ValueError("Frozen research intent benchmark fingerprint changed")
+        return document
+
+    def _freeze_review_candidate(self, spec, contract, effective_params, *, dataset=None):
+        dataset = dataset or resolve_dataset(contract, self.repo_root)
+        code_sha, _ = code_closure(self.repo_root, normalise_module(spec.strategy_module))
+        candidate = freeze_candidate(
+            self.repo_root, spec, contract, dataset, effective_params, code_sha,
+            ENGINE_SIMULATION_EPOCH, legacy_replay=self.allow_legacy_replay)
+        return candidate, dataset
+
+    def _reviewed_candidate_for_run(self, spec, contract, effective_params, robustness_plan, intent):
+        from warden.research_intent import require_dataset_resolution
+
+        try:
+            dataset = resolve_dataset(contract, self.repo_root)
+        except (ValueError, OSError) as exc:
+            self._note_failure(contract, spec.hypothesis_id, spec.strategy_family,
+                               spec.strategy_module, effective_params, None, "DATA", exc)
+            raise
+        require_dataset_resolution(dataset, intent)
+        candidate, _ = self._freeze_review_candidate(spec, contract, effective_params, dataset=dataset)
+        self.registry.require_candidate_conformance(candidate, robustness_plan, spec.research_intent_sha256)
+        return candidate, dataset
+
+    def describe_review_candidate(self, path):
+        """Resolve exact executable identity, without preparing panels or scoring."""
+        spec = load_experiment_spec(path)
+        if not spec.hypothesis_id:
+            raise ValueError("Research intent requires hypothesis_id")
+        contract = self.resolve_active_contract(spec.contract_id)
+        intent = self._require_intent(spec, contract)
+        with self.registry._connect() as conn:
+            status = conn.execute("SELECT status FROM hypotheses WHERE hypothesis_id=?",
+                                  (spec.hypothesis_id,)).fetchone()[0]
+        mod, protocol = load_and_enforce_strategy_protocol(
+            self.repo_root / normalise_module(spec.strategy_module),
+            hypothesis_status=status, strategy_family=spec.strategy_family,
+            allow_legacy_replay=self.allow_legacy_replay)
+        validate_strategy_params(mod, spec.parameters)
+        effective = resolve_effective_params(mod, protocol, spec.parameters)
+        plan, _ = build_robustness_plan(mod, protocol, spec.parameters, spec.param_grid)
+        candidate, dataset = self._freeze_review_candidate(spec, contract, effective)
+        from warden.research_intent import require_dataset_resolution
+
+        require_dataset_resolution(dataset, intent)
+        return spec, candidate, plan
+
+    def describe_candidate_intent(self, path):
+        spec, candidate, plan = self.describe_review_candidate(path)
+        return self.registry.describe_candidate_intent(candidate, plan, spec.research_intent_sha256)
+
+    def record_conformance_review(self, path, review, principal):
+        from warden.research_intent import Review
+
+        spec, candidate, plan = self.describe_review_candidate(path)
+        return self.registry.record_conformance_review(
+            candidate, plan, spec.research_intent_sha256, Review.model_validate(review), principal)
+
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
         # Frozen typed spec first: an unknown or policy-injecting key raises
         # before any contract, dataset, registry or receipt side effect.
@@ -614,6 +691,7 @@ class ExperimentRunner:
                 parent_hypothesis_id=h[8],
             )
             trials_used, hyp_status = h[5], h[6]
+        intent = self._require_intent(spec, contract)
         strat_file = self.repo_root / strat_module
         strat_mod, protocol = load_and_enforce_strategy_protocol(
             strat_file,
@@ -637,20 +715,21 @@ class ExperimentRunner:
             strat_mod=strat_mod,
             contract=contract,
         )
+        robustness_plan, _ = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
+        candidate, approved_dataset = self._reviewed_candidate_for_run(
+            spec, contract, effective_params, robustness_plan, intent)
         dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch)
+            contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch, dataset=approved_dataset)
         # #95: a panel narrowed to target_symbols is annualised on its own measured calendar,
         # not on the contract's multi-exchange union bars_per_year.  Without a symbol filter
         # this is byte-identical to contract.bars_per_year.
         bpy = market.bars_per_year
         self._check_carry_declaration(family, strat_mod, strat_module)
-        robustness_plan, _ = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
-        candidate = freeze_candidate(
-            self.repo_root, spec, contract, dataset, effective_params, code_sha, simulation_epoch,
-            legacy_replay=self.allow_legacy_replay)
+        if candidate.strategy_code_sha256 != code_sha or candidate.dataset_sha256 != dataset.sha256:
+            raise ValueError("Reviewed candidate changed during preparation")
         screen_key = self.registry.reserve_screen(
             hyp_id, contract.contract_id, strat_module, params, dataset.sha256, candidate=candidate,
-            robustness_plan=robustness_plan)
+            robustness_plan=robustness_plan, intent_sha=spec.research_intent_sha256)
         carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
         if family == "carry_rv":
             carry_series = _carry_rv_stage1_series(
@@ -902,6 +981,7 @@ class ExperimentRunner:
             )
             trials_used, hyp_status = h[5], h[8]
 
+        intent = self._require_intent(spec, contract)
         strat_module = strat_module_str = normalise_module(spec.strategy_module)
         strat_mod, protocol = load_and_enforce_strategy_protocol(
             self.repo_root / strat_module,
@@ -930,8 +1010,10 @@ class ExperimentRunner:
         robustness_plan, fixed_grid = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
         neighbor_grid = classify_numeric_neighbors(fixed_grid, params_model_report)
 
+        candidate, approved_dataset = self._reviewed_candidate_for_run(
+            spec, contract, effective_params, robustness_plan, intent)
         dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch)
+            contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch, dataset=approved_dataset)
         # #95: see run_stage1_screen; equal to contract.bars_per_year unless symbols narrowed.
         bpy = market.bars_per_year
         # #100: the *selection* clock.  A ``target_symbols`` trial observes only the bars its
@@ -962,11 +1044,11 @@ class ExperimentRunner:
             simulation_epoch=simulation_epoch)
         self._check_carry_declaration(family, strat_mod, strat_module_str)
         run_id = override_run_id or spec.run_id or default_run_id(hyp_id, trials_used + 1)
-        candidate = freeze_candidate(
-            self.repo_root, spec, contract, dataset, effective_params, code_sha, simulation_epoch,
-            legacy_replay=self.allow_legacy_replay)
+        if candidate.strategy_code_sha256 != code_sha or candidate.dataset_sha256 != dataset.sha256:
+            raise ValueError("Reviewed candidate changed during preparation")
         trial_num = self.registry.register_trial_start(
-            hyp_id, run_id, candidate=candidate, robustness_plan=robustness_plan)
+            hyp_id, run_id, candidate=candidate, robustness_plan=robustness_plan,
+            intent_sha=spec.research_intent_sha256)
         provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha,
                          "simulation_epoch": simulation_epoch}
         data_sha = dataset.sha256

@@ -38,7 +38,7 @@ def _candidate(fixture) -> ExperimentResult:
 
 
 @pytest.mark.parametrize("execution_mode", ["NEXT_BAR", "QUOTE_SIDE"])
-def test_holdout_returns_are_identical_to_validation_simulator(tiny_repo, tmp_path: Path,
+def test_holdout_returns_are_identical_to_validation_simulator(pre_rg05_policy, tiny_repo, tmp_path: Path,
                                                                  execution_mode: str) -> None:
     f = tiny_repo(contract_overrides={"execution_mode": execution_mode})
     f.registry.record_trial(_candidate(f), {"parameters": {}}, np.linspace(-0.002, 0.003, 40))
@@ -104,7 +104,7 @@ def test_missing_frozen_strategy_never_burns_one_shot_holdout(tiny_repo, tmp_pat
         assert conn.execute("SELECT COUNT(*) FROM holdout_claims").fetchone()[0] == 0
 
 
-def test_missing_bid_or_ask_cannot_be_replaced_by_close(tiny_repo, tmp_path: Path, monkeypatch) -> None:
+def test_missing_bid_or_ask_cannot_be_replaced_by_close(pre_rg05_policy, tiny_repo, tmp_path: Path, monkeypatch) -> None:
     f = tiny_repo(contract_overrides={"execution_mode": "QUOTE_SIDE"})
     f.registry.record_trial(_candidate(f), {}, np.linspace(-0.002, 0.003, 40))
     panel = f.panel.with_columns(bid=pl.col("open") - 0.01)

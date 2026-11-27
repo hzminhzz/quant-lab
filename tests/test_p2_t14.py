@@ -534,9 +534,9 @@ def test_alignment_reports_exclusions_instead_of_dropping_them() -> None:
 
 def test_schema_version_advertises_the_additive_governance_table(tmp_path: Path) -> None:
     registry = _registry(tmp_path)
-    assert registry.schema_version == SCHEMA_VERSION == 5  # #113 plus additive RG-03
+    assert registry.schema_version == SCHEMA_VERSION == 6  # #113 plus additive RG-03
     with registry._connect() as conn:
-        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 5
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 6
         assert conn.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' "
             "AND name='contract_governance'").fetchone()[0] == 1

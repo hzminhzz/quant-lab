@@ -153,7 +153,7 @@ def _make_single_asset_panel_from_returns(
     )
 
 
-def test_falsifier_1a_hourly_trend_carry_rescue(tmp_path: Path) -> None:
+def test_falsifier_1a_hourly_trend_carry_rescue(pre_rg05_policy, tmp_path: Path) -> None:
     """1h trend/carry with Sharpe ~ 2.0 and bar PF ~ 1.06 < 1.15 passes via closed-trade/horizon PF >= 1.15."""
     # Pattern per 10-bar block: nine +12 bps bars and one -99 bps bar.
     # Gross bar sum = +9 bps/10 bars; bar PF ~ 1.09 -> after 2 bps round-trip per 50-bar trade, bar PF ~ 1.06 < 1.15.
@@ -226,7 +226,7 @@ def generate_positions(panel_df, contract, **kwargs):
     assert always_in_rep.passed is True
 
 
-def test_falsifier_1b_outlier_trap_rejected_at_stage1(tmp_path: Path) -> None:
+def test_falsifier_1b_outlier_trap_rejected_at_stage1(pre_rg05_policy, tmp_path: Path) -> None:
     """Strategy whose positive Sharpe comes solely from top-5% outlier bars MUST reject in Stage 1."""
     n_train = 100
     n_val = 400
@@ -282,6 +282,7 @@ def generate_positions(panel_df, contract, **kwargs):
 
 
 def test_falsifier_2_stage1_100_assets_20k_bars_sub5s_and_engine_free(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Stage 1 screen on 100 assets x 20,000 bars completes in < 5.0s and never instantiates Engine."""
@@ -349,6 +350,7 @@ def generate_positions(panel_df, contract, **kwargs):
 
 
 def test_cross_sectional_ml_stage1_uses_ml4t_ic_hac_and_predictions_panel(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Both evaluate_stage1_cross_sectional_ml and run_stage1_screen use ml4t.diagnostic.metrics IC/HAC."""
@@ -1090,6 +1092,7 @@ def _make_trending_panel(
 
 
 def test_falsifier_3_full_backtest_audit_qualify_engine_parity_and_fail_closed_leverage(
+    pre_rg05_policy,
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import argparse

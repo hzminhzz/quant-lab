@@ -73,7 +73,7 @@ def test_proxy_does_not_silently_override_quote_side_contract() -> None:
     require_execution_columns(cfd, proxy)  # explicit new lineage, no fake quotes
 
 
-def test_full_stage1_cfd_proxy_screen_records_pinned_evidence(tiny_repo) -> None:
+def test_full_stage1_cfd_proxy_screen_records_pinned_evidence(pre_rg05_policy, tiny_repo) -> None:
     """A proxy-only FX screen uses Warden's registered Stage 1 path, not a private simulator."""
     fixture = tiny_repo(contract_overrides={"asset_class": "fx", "execution_mode": "NEXT_BAR"})
     assert "bid" not in fixture.panel.columns and "ask" not in fixture.panel.columns
@@ -99,7 +99,7 @@ def test_full_stage1_cfd_proxy_screen_records_pinned_evidence(tiny_repo) -> None
     assert dataset["contract_id"] == fixture.contract.contract_id
 
 
-def test_full_stage1_refuses_quotes_on_ohlcv_without_converting_contract(tiny_repo) -> None:
+def test_full_stage1_refuses_quotes_on_ohlcv_without_converting_contract(pre_rg05_policy, tiny_repo) -> None:
     """A separate quote-based experiment remains blocked when source quotes are absent."""
     fixture = tiny_repo(contract_overrides={"asset_class": "fx", "execution_mode": "QUOTE_SIDE"})
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)

@@ -266,6 +266,7 @@ def test_ml4t_models_pinned_without_pytorch() -> None:
     ],
 )
 def test_deep_model_rejected_before_linear_baseline_and_budget_unchanged(
+    pre_rg05_policy,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     model_type: str,
@@ -303,6 +304,7 @@ def test_deep_model_rejected_before_linear_baseline_and_budget_unchanged(
 
 
 def test_deep_model_rejected_when_linear_baseline_fails_cost_breakeven_hurdle(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Weak signal + high fee/slippage ensures linear baseline passes IC/exec or logs trial
@@ -358,6 +360,7 @@ def test_deep_model_rejected_when_linear_baseline_fails_cost_breakeven_hurdle(
 
 
 def test_linear_first_gate_accepts_ml4t_linear_or_ipca_without_ridge_in_name(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     panel = _make_ragged_cross_sectional_panel(
@@ -409,6 +412,7 @@ def test_linear_first_gate_accepts_ml4t_linear_or_ipca_without_ridge_in_name(
 
 
 def test_linear_feature_portfolio_baseline_ragged_panel_and_turnover_penalty_reduces_churn(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     panel = _make_ragged_cross_sectional_panel(
@@ -472,6 +476,7 @@ def test_linear_feature_portfolio_baseline_ragged_panel_and_turnover_penalty_red
 
 
 def test_ipca_baseline_ragged_panel_verify_screen_backtest_and_causal_factor_premia(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     panel = _make_ragged_cross_sectional_panel(

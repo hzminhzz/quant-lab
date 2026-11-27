@@ -540,6 +540,7 @@ def _recorded_reads(monkeypatch) -> list[str]:
 
 
 def test_all_four_callers_load_market_data_only_through_the_gateway(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     from warden import cli
@@ -598,7 +599,7 @@ def test_all_four_callers_load_market_data_only_through_the_gateway(
     assert reads == [str(fixture.exp_path)]
 
 
-def test_callers_receive_identical_normalised_market_panels(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_callers_receive_identical_normalised_market_panels(pre_rg05_policy, tmp_path: Path, monkeypatch, capsys) -> None:
     from warden import cli
     from warden.runner import ExperimentRunner
 

@@ -32,6 +32,33 @@ An agent should be able to answer five questions from one bounded situation view
 **Where am I? What is true? What am I allowed to do? What is worth doing next?
 How will I know that it worked?**
 
+## Current research-operation ownership
+
+The lifecycle is resolve the frozen subject and approvals → reserve once → compute
+through ML4T → commit evidence → inspect or reconcile the original receipt.
+
+| Owner | Canonical responsibility |
+|---|---|
+| `ExperimentRunner.advance_spec` | Idempotent per-spec progression, stop/review decisions and the selected ledger's writer lease |
+| `ExperimentRunner.verify_spec`, `run_stage1_screen`, `run_spec`, `audit_run` | Scientific operations; screen and trial share one preparation path and screen finalization has one publication site |
+| `ResearchRegistry` | Frozen hypothesis/intent, admission, atomic evidence persistence, one lifecycle projection and original-request recovery |
+| `EvaluationKernel` | Native ML4T computation and within-operation tape reuse |
+| CLI, typed control and queued jobs | Rendering, request identity, stale-plan checks and bounded process ownership around those same scientific operations |
+
+`read_spec_status` is metadata-only and explicitly non-authoritative about artifact
+integrity. `spec_status` retains artifact reconciliation before progression.
+A hypothesis, candidate, operation, control request and job remain distinct because
+their budgets, effects and recovery obligations differ.
+
+The redundant `scripts/run_spec_session.py` funnel is retired. Use the installed
+launcher's `advance` for progression, or typed control actions and jobs for explicit
+operations. Internal callers use runner methods directly; they do not call CLI
+handlers or parse their output. Historical reports describing the retired script
+remain historical evidence.
+
+See [the architectural decision and verification record](ARCHITECTURAL-UNTANGLING-20261128.md)
+for the deletion test, preserved invariants, measurements and limits.
+
 ## 2. Pre-AC implementation baseline and the seams to deepen
 
 These are observations of the design baseline, not claims about the running production deployment. The implementation guide above records subsequent AC changes.

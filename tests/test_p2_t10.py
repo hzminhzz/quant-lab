@@ -748,10 +748,37 @@ def test_only_an_issued_proof_covering_this_execution_satisfies_the_gate(
     verify_prefix_invariance(pipeline, panel, contract)
 
 
-def test_a_causal_model_screen_has_no_second_execution_path() -> None:
-    """#96: an active protocol screens through the kernel, never the frozen arithmetic."""
-    source = (REPO_ROOT / "src" / "warden" / "runner.py").read_text(encoding="utf-8")
-    assert "run_causal_model_strategy(" not in source
-    # The frozen replay arithmetic is still reachable — but only on the legacy branch.
-    assert source.count("sim1 = simulate_positions(") == 1
-    assert "out = _run_strategy_isolated(" in source
+def test_a_causal_model_screen_has_no_second_execution_path(
+    pre_rg05_policy, tiny_repo, monkeypatch
+) -> None:
+    """A real causal model screen dispatches once and cannot call replay arithmetic."""
+    from tests.test_p2_t11 import MODEL_MODULE
+    from warden import runner as runner_module
+    from warden.contracts import HypothesisSpec
+
+    fixture = tiny_repo(module_source=MODEL_MODULE)
+    fixture.registry.register_hypothesis(HypothesisSpec(
+        "HYP-MODEL", fixture.contract.contract_id, "Native model fixture", "cross_sectional_ml",
+        "Cross-sectional drift may persist across observed assets",
+        "Rebalancing frictions can eliminate the measured effect", 8,
+        "Reject when validation rank correlation lacks evidence",
+    ))
+    spec = yaml.safe_load(fixture.spec.read_text())
+    spec.update(hypothesis_id="HYP-MODEL", strategy_family="cross_sectional_ml", model_type="ridge")
+    fixture.spec.write_text(yaml.safe_dump(spec))
+    calls = []
+    native_run = EvaluationKernel.run
+
+    def observed(kernel, *args, **kwargs):
+        calls.append(kwargs["protocol"])
+        return native_run(kernel, *args, **kwargs)
+
+    def forbid_replay(*args, **kwargs):
+        pytest.fail("active model screen entered the historical replay path")
+
+    monkeypatch.setattr(EvaluationKernel, "run", observed)
+    monkeypatch.setattr(runner_module, "simulate_positions", forbid_replay)
+    monkeypatch.setattr(runner_module, "_run_strategy_isolated", forbid_replay)
+    report = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo).run_stage1_screen(fixture.spec)
+    assert report.strategy_family == "cross_sectional_ml"
+    assert calls == ["causal_model"]

@@ -1,16 +1,9 @@
-"""Integration regression: cmd_verify validates #90 spec and #88 fence before work.
+"""The CLI retains fail-closed verification boundaries owned by ExperimentRunner.
 
-These tests pin the two integration-only edits in ``warden.cli.cmd_verify``:
-
-* the frozen ``ExperimentSpec`` is loaded before any contract/dataset/registry/cache
-  or strategy work, so an unknown or policy-injecting key is rejected with exit 1 and
-  no side effects; and
-* the #88 exploratory fence (no bar at/after ``holdout_start``, no empty validation
-  window) runs before the strategy proofs and before the feature cache is written.
-
-``check_worktree`` is stubbed here because this branch is intentionally unsigned: the
-manifest re-sign is a separate, principal-authorized step.  The fence and schema checks
-are what these tests exercise, not manifest integrity.
+Invalid spec keys fail before contract/data access or evidence writes. The
+exploratory fence rejects holdout-overlapping and empty validation windows before
+strategy proofs and feature-cache publication. Isolated fixtures stub the CLI
+checksum gate; protected-inventory behavior is covered separately.
 """
 
 from __future__ import annotations
@@ -103,8 +96,7 @@ def test_cmd_verify_contains_out_of_repo_strategy_module(tmp_path, monkeypatch, 
     the next step is the single closure digest.  ``code_closure`` cannot express a module
     that sits outside ``repo_root`` and raises ``ValueError``; that input failure has to be
     reported as exit 1 with a ``Verify failed:`` message rather than escaping the handled
-    region as a traceback.  ``check_worktree`` is stubbed for the same reason as the tests
-    above (this branch is pre-sign), so the assertion is about error containment only.
+    region as a traceback. The fixture checksum stub isolates error containment.
     """
     monkeypatch.setattr(cli, "check_worktree", lambda *args, **kwargs: True)
     contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")

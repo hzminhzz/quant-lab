@@ -147,15 +147,14 @@ def test_failed_finalization_exposes_no_cli_performance(pre_rg05_policy, tiny_re
 
 
 def test_scheduler_stops_exhausted_candidate_before_verify(pre_rg05_policy, tiny_repo, monkeypatch):
-    from warden import cli
     from warden.runner import ExperimentRunner
 
     f = tiny_repo(provenance="synthetic")
     runner = ExperimentRunner(registry=f.registry, repo_root=f.repo)
     for i in range(3):
         runner.run_stage1_screen(variant(f, i))
-    monkeypatch.setattr(cli, "cmd_verify", lambda *a: pytest.fail("verification must not start"))
-    result = cli._advance_one_spec(variant(f, 4), runner, check_outcome_memory=False, acquire_lease=False)
+    monkeypatch.setattr(runner, "verify_spec", lambda *a: pytest.fail("verification must not start"))
+    result = runner.advance_spec(variant(f, 4))
     assert result["action"] == "SKIP_TERMINAL"
     assert "budget exhausted" in result["reason"]
     assert f.registry.candidate_budget("HYP-TINY")["used"] == 3

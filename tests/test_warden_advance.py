@@ -122,6 +122,7 @@ def _prepare_fixture(tiny_repo, *, hyp_id: str = "HYP-ADV-001", module_code: str
         module_rel=module_rel,
     )
     generate_manifest(fx.repo)
+    _write_outcome_index(fx.repo)
     return fx, runner, spec_path, module_rel
 
 
@@ -172,23 +173,21 @@ def test_installed_advance_without_pythonpath(tiny_repo) -> None:
     assert json.loads(result.stdout)["value"]["action"] == "STAGE1_REJECTED"
 
 
-def test_advance_full_progression_and_idempotent_rerun(pre_rg05_policy, tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_advance_full_progression_and_idempotent_rerun(pre_rg05_policy, tiny_repo) -> None:
     _fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-001", module_code=PASS_RULES_MODULE)
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
 
-    out1 = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    out1 = runner.advance_spec(spec_path)
     assert out1["action"] in {"STAGE1_REJECTED", "BACKTEST_FINALIZED", "AUDITED"}
     assert spec_path.is_file()  # Immutable spec never moved or deleted
 
     # Re-running advance must be a pure SKIP_TERMINAL no-op
-    out2 = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    out2 = runner.advance_spec(spec_path)
     assert out2["action"] == "SKIP_TERMINAL"
     assert out2["state"] in {"STAGE1_REJECT", "STAGE3_FINAL"}
 
 
-def test_advance_never_overwrites_existing_audit(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_advance_never_overwrites_existing_audit(tiny_repo) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-002", module_code=FLAT_MODULE)
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
 
     import hashlib
     from dataclasses import replace
@@ -229,14 +228,13 @@ def test_advance_never_overwrites_existing_audit(tiny_repo, monkeypatch: pytest.
     assert st["state"] == "STAGE3_FINAL"
     assert st["audit_verdict"] == "APPROVED"
 
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "SKIP_TERMINAL"
     assert audit_md.read_text(encoding="utf-8") == "SENTINEL_DO_NOT_OVERWRITE\n"
 
 
-def test_advance_requires_reconciliation_on_pending_receipt(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_advance_requires_reconciliation_on_pending_receipt(tiny_repo) -> None:
     fx, runner, spec_path, _module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-003")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
 
     hyp = HypothesisSpec(
         "HYP-ADV-003",
@@ -251,7 +249,7 @@ def test_advance_requires_reconciliation_on_pending_receipt(tiny_repo, monkeypat
     fx.registry.register_hypothesis(hyp)
     fx.registry.register_trial_start("HYP-ADV-003", "RUN-ADV-PEND")
 
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "REVIEW_REQUIRED"
     assert out["state"] == "REQUIRES_RECONCILIATION"
     assert out["run_id"] == "RUN-ADV-PEND"
@@ -290,10 +288,9 @@ def test_register_hypothesis_is_idempotent_after_module_binding(tiny_repo) -> No
 
 
 def test_advance_outcome_memory_block_stops_before_verify_and_screen(
-    tiny_repo, monkeypatch: pytest.MonkeyPatch
+    tiny_repo
 ) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-004")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
 
     index_path = fx.repo / "docs" / "research-outcomes" / "branch-result-index-v1.json"
     index_path.parent.mkdir(parents=True, exist_ok=True)
@@ -319,7 +316,7 @@ def test_advance_outcome_memory_block_stops_before_verify_and_screen(
         ),
         encoding="utf-8",
     )
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=True)
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "BLOCKED_OUTCOME_MEMORY"
     assert fx.registry.screen_status("HYP-ADV-004", fx.contract.contract_id, module_rel, {})["state"] == "UNSEEN"
 
@@ -351,10 +348,9 @@ def test_advance_cli_busy_returns_75(tiny_repo) -> None:
 
 def test_advance_pending_skips_legacy_and_blocked_without_moving_files(
     pre_rg05_policy,
-    tiny_repo, monkeypatch: pytest.MonkeyPatch
+    tiny_repo
 ) -> None:
     fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-005")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
     _write_outcome_index(fx.repo)
     legacy_mod = fx.repo / "strategies" / "candidates" / "legacy_mod.py"
     legacy_mod.write_text("def generate_positions(panel, contract, **params): return {}\n", encoding="utf-8")
@@ -376,9 +372,8 @@ def test_advance_pending_skips_legacy_and_blocked_without_moving_files(
     assert (fx.repo / "experiments" / "active" / "hyp_legacy.yaml").is_file()
 
 
-def test_advance_audits_third_trial_unaudited_candidate(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_advance_audits_third_trial_unaudited_candidate(tiny_repo) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-3RD")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
 
     import hashlib
     from dataclasses import replace
@@ -413,7 +408,7 @@ def test_advance_audits_third_trial_unaudited_candidate(tiny_repo, monkeypatch: 
     with fx.registry._connect() as conn:
         conn.execute("UPDATE hypotheses SET trials_used = 3 WHERE hypothesis_id = ?", ("HYP-ADV-3RD",))
 
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "AUDITED"
     assert out["audit_verdict"] is not None
 
@@ -422,7 +417,6 @@ def test_advance_audit_error_without_evidence_requires_review(
     tiny_repo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-AERR")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
 
     import hashlib
     from dataclasses import replace
@@ -454,23 +448,22 @@ def test_advance_audit_error_without_evidence_requires_review(
         stage_reached="STAGE_3_STRESS",
     )
     fx.registry.record_trial(res, {}, np.array([0.01, 0.02, 0.015]))
-    monkeypatch.setattr(cli, "cmd_audit_check", lambda *a, **k: 1)
+    def unavailable(_run_id):
+        raise ValueError("audit evidence unavailable")
 
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    monkeypatch.setattr(runner, "audit_run", unavailable)
+
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "REVIEW_REQUIRED"
     assert out["audit_verdict"] is None
 
 
-def test_advance_rejects_mismatched_hypothesis_file(tiny_repo, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_advance_rejects_mismatched_hypothesis_file(tiny_repo) -> None:
     fx, runner, spec_path, _ = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-SPEC")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
     wrong_hyp = _write_hypothesis_md(fx.repo, "HYP-ADV-OTHER", fx.contract.contract_id)
 
-    out = cli._advance_one_spec(
-        spec_path,
-        runner,
+    out = runner.advance_spec(spec_path,
         hypothesis_path=wrong_hyp.relative_to(fx.repo).as_posix(),
-        check_outcome_memory=False,
     )
     assert out["action"] == "REVIEW_REQUIRED"
     assert "does not match spec" in out["reason"]
@@ -482,7 +475,6 @@ def test_advance_reconcile_screen_marks_review_and_never_screens(
     tiny_repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-RECON")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
     hyp = HypothesisSpec(
         "HYP-ADV-RECON",
         fx.contract.contract_id,
@@ -520,7 +512,7 @@ def test_advance_reconcile_screen_marks_review_and_never_screens(
     assert cli_rc == 0 and cli_payload["source"] == "warden.reconcile-screen"
     assert cli_payload["value"]["state"] == "INTERRUPTED_REVIEW"
 
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=False)
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "REVIEW_REQUIRED"
     assert out["state"] == "REQUIRES_RECONCILIATION"
     with fx.registry._connect() as conn:
@@ -529,25 +521,24 @@ def test_advance_reconcile_screen_marks_review_and_never_screens(
 
 
 def test_advance_outcome_memory_missing_index_requires_review(
-    tiny_repo, monkeypatch: pytest.MonkeyPatch
+    tiny_repo
 ) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-NOIDX")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
+    (fx.repo / "docs/research-outcomes/branch-result-index-v1.json").unlink()
 
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=True)
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "REVIEW_REQUIRED"
     assert "missing" in out["reason"].lower()
     assert fx.registry.screen_status("HYP-ADV-NOIDX", fx.contract.contract_id, module_rel, {})["state"] == "UNSEEN"
 
 
 def test_advance_outcome_memory_malformed_index_requires_review(
-    tiny_repo, monkeypatch: pytest.MonkeyPatch
+    tiny_repo
 ) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-BADIDX")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
     index_path = _write_outcome_index(fx.repo, {"schema_version": 1, "source_refs": [], "outcomes": [], "original_unattempted": []})
 
-    out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=True)
+    out = runner.advance_spec(spec_path)
     assert out["action"] == "REVIEW_REQUIRED"
     assert "unreadable or malformed" in out["reason"]
     assert index_path.is_file()
@@ -556,14 +547,13 @@ def test_advance_outcome_memory_malformed_index_requires_review(
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permission bits")
 def test_advance_outcome_memory_unreadable_index_requires_review(
-    tiny_repo, monkeypatch: pytest.MonkeyPatch
+    tiny_repo
 ) -> None:
     fx, runner, spec_path, module_rel = _prepare_fixture(tiny_repo, hyp_id="HYP-ADV-PERM")
-    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
     index_path = _write_outcome_index(fx.repo)
     index_path.chmod(0o000)
     try:
-        out = cli._advance_one_spec(spec_path, runner, check_outcome_memory=True)
+        out = runner.advance_spec(spec_path)
     finally:
         index_path.chmod(0o600)
     assert out["action"] == "REVIEW_REQUIRED"

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import time
 
@@ -35,11 +34,9 @@ def revisions(control, action):
                   "docs/research-outcomes/branch-result-index-v1.json",
                   ".warden_manifest.sha256"})
     inventory = code_inventory(root, spec.strategy_module)
-    with registry._connect() as conn:
-        intent = conn.execute("SELECT intent_json FROM research_intents WHERE hypothesis_id=?",
-                              (spec.hypothesis_id,)).fetchone()
+    intent = registry.read_research_intent(spec.hypothesis_id)
     if intent:
-        benchmark = json.loads(intent[0])["plan"].get("benchmark_spec")
+        benchmark = intent["plan"].get("benchmark_spec")
         if benchmark:
             paths.add(benchmark)
             benchmark_spec = load_experiment_spec(safe_file(root, benchmark))
@@ -148,18 +145,6 @@ def reconcile(control, request):
 
         require_mutation_context(control.root, control.registry_path)
         registry = current_registry(control.registry_path, writable=True)
-        record = registry.control_request(request.request_id)
-        if not record:
+        if registry.reconcile_control_request(request.request_id) is None:
             return control.refuse("TECHNICAL_PRE_ADMISSION", "unknown request")
-        if record["kind"] == "trial":
-            registry.reconcile_attempt(record["operation_id"], confirm_interrupted=True)
-        elif record["kind"] == "screen":
-            # Read the frozen receipt, never a mutable spec or candidate module.
-            with registry._connect() as conn:
-                row = conn.execute("SELECT hypothesis_id,contract_id,strategy_module,parameters_json "
-                                   "FROM screen_receipts WHERE screen_key=?", (record["operation_id"],)).fetchone()
-            registry.reconcile_screen(*row[:3], json.loads(row[3]), confirm_interrupted=True)
-        else:
-            registry.record_control_error(request.request_id,
-                                          "interrupted before domain link; no scientific reservation")
         return receipt(control, request.request_id)

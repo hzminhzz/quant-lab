@@ -84,6 +84,8 @@ def test_crash_after_reservation_retains_request_and_charge(tiny_repo, monkeypat
     recovered = act(control, plan)
     assert recovered["status"] == "UNCERTAIN"
     assert f.registry.candidate_budget("HYP-TINY")["used"] == 1
+    # Recovery must use the admitted receipt even after the editable request disappears.
+    f.spec.unlink()
     marked = control.handle({"schema_version": 1, "operation": "reconcile",
                              "request_id": "screen-one", "mode": "mark_interrupted"})
     assert marked["value"]["state"] == "INTERRUPTED_REVIEW"

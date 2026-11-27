@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import datetime
 import hashlib
 import hmac
@@ -178,152 +177,22 @@ def cmd_verify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
         sys.exit(2)
     import polars as pl
 
-    from warden.codeid import code_closure
-    from warden.contracts import canonical_json
-    from warden.evaluation import EvaluationKernel
-    from warden.leakage import (
-        CrossAssetLeakageError,
-        LookaheadLeakageError,
-        compute_and_cache_features,
-        verify_model_prefix_invariance,
-        verify_prefix_invariance,
-        verify_rules_strategy_asset_independence,
-        verify_rules_strategy_prefix_invariance,
-    )
-    from warden.market_data import ROLE_EXPLORATORY, MarketDataGateway
-    from warden.params_model import validate_strategy_params
-    from warden.protocols import (
-        LegacyStrategyProtocolError,
-        RulesProofPipeline,
-        enforce_active_strategy_protocol,
-        resolve_effective_params,
-        resolve_protocol_target,
-    )
-    from warden.provenance import resolve_dataset
-    from warden.registry import normalise_module
+    from warden.leakage import CrossAssetLeakageError, LookaheadLeakageError
+    from warden.protocols import LegacyStrategyProtocolError
     from warden.sandbox_seal import SandboxArtifactError
-    from warden.schemas import load_experiment_spec
-    from warden.strategy_loader import load_module_from_path
-    from warden_evidence.feature_cache import verified_feature_evidence
-    # #90: validate the frozen spec before any contract, registry, dataset or artifact
-    # side effect.  pydantic.ValidationError subclasses ValueError, so an unknown or
-    # policy-injecting key returns exit 1 here instead of being silently accepted.
+
     try:
-        spec = load_experiment_spec(args.spec_yaml)
-    except ValueError as exc:
-        print(f"Verify failed: {exc}", file=sys.stderr)
-        return 1
-    try:
-        contract = runner.resolve_contract(spec.contract_id)
+        result = runner.verify_spec(Path(args.spec_yaml))
     except SandboxArtifactError as exc:
-        # An untrusted document is a refused request (exit 2), not failed evidence.
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
-    params = spec.parameters
-    strat_module = normalise_module(spec.strategy_module)
-    mod = load_module_from_path(runner.repo_root / strat_module)
-    hyp_status = "ACTIVE"
-    hyp_id = spec.hypothesis_id
-    if hyp_id and runner.registry.db_path.is_file():
-        with runner.registry._connect() as conn:
-            row = conn.execute(
-                "SELECT status FROM hypotheses WHERE hypothesis_id=?",
-                (hyp_id,),
-            ).fetchone()
-            if row:
-                hyp_status = str(row[0])
-    try:
-        family = spec.strategy_family if "strategy_family" in spec.model_fields_set else None
-        protocol = enforce_active_strategy_protocol(
-            mod,
-            hypothesis_status=hyp_status,
-            strategy_family=family,
-            allow_legacy_replay=runner.allow_legacy_replay,
-        )
-        # One closure digest binds every cache/evidence row in this verify to the code that ran.
-        # Kept inside the handled region and after protocol validation: an out-of-repo
-        # ``strategy_module`` makes ``code_closure`` raise ValueError, which must fail closed
-        # as exit 1 rather than escape as a traceback.  It is still computed before any
-        # strategy proof or feature-cache write, so #92's identity binding is unchanged.
-        closure_sha = code_closure(runner.repo_root, strat_module)[0]
-        # T12: a declared ParamsModel validates the spec's parameters before any
-        # market read or feature-cache write; a mistyped declaration fails here
-        # (exit 1) instead of surfacing later as a strategy exception.
-        validate_strategy_params(mod, params)
-        dataset = resolve_dataset(contract, runner.repo_root)  # exact contract path, never a substitute
-        effective_params = resolve_effective_params(mod, protocol, params)
-        # #95: the one market-reader.  ``load`` normalises the v1/v2 feed, applies the #88
-        # exploratory fence, refuses an empty validation window and preserves the contract's
-        # full validation timestamp grid — all before any strategy proof or feature-cache
-        # write, and without opening the holdout.
-        market = MarketDataGateway(runner.repo_root).load(
-            contract, ROLE_EXPLORATORY, effective_params.get("target_symbols"), resolution=dataset
-        )
-        panel = market.panel
-
-        cache_dir = runner.repo_root / "cache" / "features"
-        if protocol == "causal_model":
-            verify_model_prefix_invariance(mod, panel, contract, params)
-            pipeline = resolve_protocol_target(mod).pipeline
-        elif protocol == "causal_rules":
-            # One kernel session serves both proofs and the feature-cache tape: the
-            # full-panel execution is reused instead of repeated for every cut point.
-            kernel = EvaluationKernel()
-            prefix_proof = verify_rules_strategy_prefix_invariance(
-                mod, panel, contract, params, policy_cfg=spec.model_dump(), kernel=kernel,
-                code_sha256=closure_sha,
-            )
-            verify_rules_strategy_asset_independence(
-                mod, panel, contract, params, policy_cfg=spec.model_dump(), kernel=kernel
-            )
-            pipeline = RulesProofPipeline(
-                repo_root=str(runner.repo_root.resolve()),
-                strategy_module=strat_module,
-                code_sha256=closure_sha,
-                params=dict(params),
-                policy_cfg=spec.model_dump(),
-                kernel=kernel,
-                prefix_proof=prefix_proof,
-            )
-        else:
-            pipeline = getattr(mod, "pipeline", None) or (mod if hasattr(mod, "compute") else None)
-            if not pipeline:
-                raise ValueError("Strategy module does not expose a pipeline or compute() method.")
-            verify_prefix_invariance(pipeline, panel, contract)
-
-        compute_and_cache_features(pipeline, panel, contract, cache_dir=cache_dir, registry=runner.registry,
-                                   code_closure_digest=closure_sha)
-        proof = verified_feature_evidence(pipeline, panel, contract, runner.registry, cache_dir,
-                                          code_closure_digest=closure_sha)
-        if not proof["verified"]:
-            raise ValueError("Causal cache artifact could not be independently reconciled")
-    except (
-        LegacyStrategyProtocolError,
-        LookaheadLeakageError,
-        CrossAssetLeakageError,
-        ValueError,
-        RuntimeError,
-        KeyError,
-        pl.exceptions.PolarsError,
-    ) as exc:
+    except (LegacyStrategyProtocolError, LookaheadLeakageError, CrossAssetLeakageError,
+            ValueError, RuntimeError, KeyError, pl.exceptions.PolarsError) as exc:
         print(f"Verify failed: {exc}", file=sys.stderr)
         return 1
-    if not hyp_id:
-        print("Verify failed: spec declares no hypothesis_id; causal evidence cannot be recorded", file=sys.stderr)
-        return 1
-    evidence = runner.registry.record_spec_causality(
-        hypothesis_id=hyp_id, contract_id=contract.contract_id,
-        strategy_module=strat_module,
-        config_hash=hashlib.sha256(canonical_json(params).encode()).hexdigest()[:12],
-        data_sha256=dataset.sha256,
-        module_sha256=closure_sha,
-        feature_identity=proof["feature_identity"], artifact_sha256=proof["artifact_sha256"],
-        proof_sha256=hashlib.sha256((cache_dir / f"{proof['feature_identity']}.proof.json").read_bytes()).hexdigest())
-    res = {"status": "PASS", "prefix_invariance": True, "cached": True, "rows": len(panel),
-           "data_provenance": dataset.provenance, "market_eligible": dataset.eligible_market,
-           "provenance_reason": dataset.reason, "causal_evidence_key": evidence}
-    print(json.dumps(res, indent=2) if args.json else
-          f"PASS: Prefix-invariance verified. provenance={dataset.provenance} market_eligible={dataset.eligible_market}")
+    print(json.dumps(result, indent=2) if args.json else
+          f"PASS: Prefix-invariance verified. provenance={result['data_provenance']} "
+          f"market_eligible={result['market_eligible']}")
     return 0
 
 
@@ -394,527 +263,23 @@ def cmd_backtest(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int
 def cmd_audit_check(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     if not check_worktree():
         sys.exit(2)
-    from warden.gates import (
-        AUDIT_DSR_FLOOR,
-        SR2_FLOOR,
-        SRD_FLOOR,
-        TRIMMED_SHARPE_FLOOR,
-        compute_trimmed_sharpe,
-        evaluate_cadence_alignment,
-        evaluate_fold_isolation_evidence,
-    )
-    with runner.registry._connect() as conn:
-        t = conn.execute("SELECT * FROM trials WHERE run_id = ?", (args.run_id,)).fetchone()
-        if not t:
-            print(f"Error: Run ID '{args.run_id}' not found.", file=sys.stderr)
-            return 1
-        trial = dict(t)
-    has_causal_proof = runner.registry.causal_proof_for_run(args.run_id, runner.repo_root)["verified"]
-    contract = runner.resolve_contract(trial["contract_id"])
-    eligibility = runner.registry.effective_eligibility(args.run_id)
-    diag_raw = trial.get("diagnostics_json")
     try:
-        diag = json.loads(diag_raw) if isinstance(diag_raw, str) and diag_raw.strip() else {}
-    except json.JSONDecodeError:
-        diag = {}
-    if not isinstance(diag, dict):
-        diag = {}
-    # Check 1 and Check 4 read what the run recorded about itself (executed tape cadence,
-    # folds that actually ran), not the contract's static integers.  A trial with no such
-    # record cannot pass an ML fold check and is reported as evidence-absent for cadence.
-    cadence = evaluate_cadence_alignment(
-        diag.get("cadence_evidence"),
-        label_horizon_bars=contract.label_horizon_bars,
-        execution_protocol=diag.get("execution_protocol"),
-    )
-    fold_evidence = evaluate_fold_isolation_evidence(
-        family=trial.get("strategy_family"),
-        protocol=diag.get("execution_protocol"),
-        evidence=diag.get("fold_isolation"),
-        contract=contract,
-    )
-    r_path = runner.repo_root / (trial.get("returns_parquet_path") or "")
-    trimmed_sharpe: float | None = None
-    if r_path.is_file():
-        # A return artifact is Warden's own simulation output, not market data: it is read
-        # through the narrowed return-artifact reader (registry/returns only), never through
-        # the market gateway and never with a bare pl.read_parquet.
-        from warden_evidence.return_artifacts import read_return_artifact
-
-        r_series = read_return_artifact(
-            r_path, runner.registry.db_path.parent / "returns"
-        ).to_numpy()
-        trimmed_sharpe = compute_trimmed_sharpe(r_series, contract.bars_per_year)
-    trimmed_ok = (trimmed_sharpe is not None) and (trimmed_sharpe > TRIMMED_SHARPE_FLOOR)
-
-    c = {
-        "1_target_rebalance_alignment": trial.get("stage_reached") in {"STAGE_2_BACKTEST", "STAGE_3_STRESS"} and bool(cadence["passed"]),
-        "2_outlier_sensitivity": trimmed_ok and trial.get("net_sharpe", TRIMMED_SHARPE_FLOOR) > TRIMMED_SHARPE_FLOOR and trial.get("verdict") == "CANDIDATE_FOR_QUALIFICATION",
-        "3_point_in_time_causality": has_causal_proof and contract.execution_delay_bars >= 1,
-        "4_fold_local_fitting": bool(fold_evidence["passed"]),
-        "5_cost_and_latency_survival": (trial.get("stress_2x_cost_sharpe", -1.0) > SR2_FLOOR) and (trial.get("delay_plus1_sharpe", -1.0) > SRD_FLOOR),
-        "6_selection_bias_accounting": (trial.get("total_trials_n", 0) >= 1) and (trial.get("deflated_sharpe_prob", 0.0) >= AUDIT_DSR_FLOOR),
-    }
-    historical_passed = all(c.values())
-    approved = historical_passed and eligibility["eligible"]
-    verdict = "APPROVED" if approved else ("REVOKED_INELIGIBLE" if historical_passed else "REJECTED")
-    runner.registry.record_audit(args.run_id, trial["contract_id"], verdict, c, eligibility["reason"])
-    checks = {k: {"passed": v} for k, v in c.items()}
-    checks["2_outlier_sensitivity"]["trimmed_sharpe"] = trimmed_sharpe
-    checks["1_target_rebalance_alignment"].update(cadence)
-    checks["4_fold_local_fitting"].update(fold_evidence)
-
-    simulation_epoch = trial.get("simulation_epoch")
-    portfolio_analysis = diag.get("portfolio_analysis")
-    trade_analysis = diag.get("trade_analysis")
-    pbo_diag = diag.get("pbo")
-    ras_diag = diag.get("ras")
-    engine_artifacts = diag.get("engine_artifacts")
-
-    audit = {
-        "run_id": args.run_id,
-        "simulation_epoch": simulation_epoch,
-        "checks": checks,
-        "trimmed_sharpe": trimmed_sharpe,
-        "portfolio_analysis": portfolio_analysis,
-        "trade_analysis": trade_analysis,
-        "pbo": pbo_diag,
-        "ras": ras_diag,
-        "engine_artifacts": engine_artifacts,
-        "audit_passed": approved,
-        "historical_checks_passed": historical_passed,
-        "verdict": verdict,
-        "effective_eligibility": eligibility,
-    }
+        audit = runner.audit_run(args.run_id)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    eligibility = audit["effective_eligibility"]
     out = runner.repo_root / ".workspace" / "hypotheses" / f"AUDIT_{args.run_id}.md"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    trimmed_line = f"{trimmed_sharpe:.4f}" if trimmed_sharpe is not None else "N/A"
-    extra_lines: list[str] = []
-    if simulation_epoch:
-        extra_lines.append(f"Simulation epoch: {simulation_epoch}")
-    if isinstance(portfolio_analysis, dict):
-        pa_sr = portfolio_analysis.get("sharpe_ratio")
-        pa_ret = portfolio_analysis.get("total_return")
-        extra_lines.append(f"Portfolio analysis: Sharpe={pa_sr}, TotalReturn={pa_ret}")
-    if isinstance(trade_analysis, dict):
-        extra_lines.append(
-            f"Trade analysis: trades={trade_analysis.get('n_trades')}, "
-            f"win_rate={trade_analysis.get('win_rate')}, pf={trade_analysis.get('profit_factor')}"
-        )
-    if isinstance(pbo_diag, dict):
-        extra_lines.append(f"PBO: {pbo_diag.get('pbo')} (blocks={pbo_diag.get('n_blocks')})")
-    if isinstance(ras_diag, dict):
-        extra_lines.append(f"RAS: complexity={ras_diag.get('rademacher_complexity')}")
-    if isinstance(engine_artifacts, dict) and engine_artifacts:
-        extra_lines.append(f"Engine artifacts: {', '.join(sorted(engine_artifacts))}")
-    extra_lines.append(f"Cadence check: {cadence.get('reason', '')}")
-    if cadence.get("evidence") == "recorded":
-        extra_lines.append(
-            "Cadence observations: "
-            f"decision={cadence.get('observed_rebalance_cadence_bars')} bars vs label horizon "
-            f"{cadence.get('label_horizon_bars')}; "
-            f"holding={cadence.get('observed_holding_completed_cadence_bars')} bars "
-            f"(completed epochs={cadence.get('holding_completed_epochs')}) vs declared holding "
-            f"horizon {cadence.get('holding_horizon_bars')}; "
-            f"basis={cadence.get('holding_cadence_basis')}"
-        )
-    extra_lines.append(
-        f"Fold isolation: {fold_evidence.get('reason') or fold_evidence.get('basis', '')}"
-    )
-    extra_block = ("\n".join(extra_lines) + "\n") if extra_lines else ""
-    out.write_text(
-        f"# 6-Check Audit: {args.run_id}\nVerdict: {verdict}\n"
-        f"Effective eligibility: {eligibility['eligible']} ({eligibility['reason']})\n"
-        f"Trimmed Sharpe (ex top-5%): {trimmed_line}\n"
-        + extra_block
-        + "\n".join(f"- [{ 'PASS' if v else 'FAIL' }] {k}" for k, v in c.items()) + "\n"
-    )
     print(json.dumps(audit, indent=2) if args.json else
-          f"Audit for {args.run_id}: {verdict} (eligible={eligibility['eligible']}: {eligibility['reason']})\nReport: {out}")
-    return 0 if approved else 1
+          f"Audit for {args.run_id}: {audit['verdict']} "
+          f"(eligible={eligibility['eligible']}: {eligibility['reason']})\nReport: {out}")
+    return 0 if audit["audit_passed"] else 1
 
 
 def _check_repo_worktree(repo_root: Path) -> bool:
     if Path(repo_root).resolve() == Path.cwd():
         return check_worktree()
     return check_worktree(repo_root)
-
-
-def _invoke_quiet(fn, sub_args: argparse.Namespace, runner: _ExperimentRunnerType) -> tuple[int, str]:
-    import contextlib
-    import io
-
-    out_buf, err_buf = io.StringIO(), io.StringIO()
-    try:
-        with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
-            rc = int(fn(sub_args, runner))
-    except SystemExit as exc:
-        rc = 0 if exc.code is None else (exc.code if isinstance(exc.code, int) else 1)
-    except (OSError, ValueError, RuntimeError, KeyError, TypeError) as exc:
-        return 1, f"{type(exc).__name__}: {exc}"
-    detail = (err_buf.getvalue() or out_buf.getvalue()).strip().splitlines()
-    return rc, detail[-1] if detail else ""
-
-
-def _resolve_hypothesis_file(repo_root: Path, hypothesis_id: str, explicit_path: str) -> Path | None:
-    if explicit_path:
-        cand = Path(explicit_path)
-        if cand.is_file():
-            return cand
-        rel_cand = repo_root / cand
-        return rel_cand if rel_cand.is_file() else None
-    hyp_dir = repo_root / ".workspace" / "hypotheses"
-    for ext in (".md", ".yaml", ".yml"):
-        cand = hyp_dir / f"{hypothesis_id}{ext}"
-        if cand.is_file():
-            return cand
-    return None
-
-
-def _advance_mutation_lease(runner: _ExperimentRunnerType):
-    """The single registry lease one advancing spec needs.
-
-    Deliberately per-spec: a ``--pending`` batch must not hold the writer lease across
-    specs, so an interactive command can run the moment the current spec commits.
-    """
-    return mutation_lease(Path(runner.repo_root) / "registry" / "registry.db")
-
-
-def _protocol_kind_from_source(module_path: Path) -> str:
-    """Classify a strategy module by parsing it, never by importing it.
-
-    A scan must not execute module-level code: a legacy module may do anything at import
-    time, including raising or touching the filesystem. The vocabulary matches
-    ``warden.protocols.detect_strategy_protocol``; ``invalid`` defers to the import-time
-    protocol check that verify/screen already perform fail-closed.
-    """
-    try:
-        tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
-    except (OSError, SyntaxError, ValueError):
-        return "invalid"
-
-    names: set[str] = set()
-
-    def _collect(body: list[ast.stmt]) -> None:
-        for node in body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                names.add(node.name)
-            elif isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and isinstance(
-                        node.value, (ast.Lambda, ast.Name, ast.Attribute)
-                    ):
-                        names.add(target.id)
-            elif isinstance(node, ast.ClassDef):
-                _collect(node.body)
-
-    _collect(tree.body)
-    if "build_estimator" in names:
-        return "causal_model"
-    if {"required_symbols", "configure_strategy"} <= names:
-        return "causal_rules"
-    if "generate_positions" in names:
-        return "legacy"
-    return "invalid"
-
-
-def _advance_one_spec(
-    spec_path: Path,
-    runner: _ExperimentRunnerType,
-    *,
-    hypothesis_path: str = "",
-    check_outcome_memory: bool = True,
-    pending_mode: bool = False,
-    status_registry: Any = None,
-    acquire_lease: bool = True,
-) -> dict[str, Any]:
-    """Advance one immutable spec, taking a writer lease only once real work is owed.
-
-    The status gates run against a lock-free projection; only a spec that still has work
-    (registration, verify/screen, backtest, audit) acquires ``mutation_lease``, and it is
-    released before the next spec is considered.
-    """
-    import yaml
-
-    from warden.contracts import ContractValidationError, load_hypothesis
-    from warden.registry import PER_HYPOTHESIS_CAP, RUNNABLE_HYPOTHESIS_STATUSES, normalise_module
-
-    repo = Path(runner.repo_root)
-    try:
-        spec_rel = spec_path.resolve().relative_to(repo.resolve()).as_posix()
-    except ValueError:
-        spec_rel = str(spec_path)
-
-    def _result(action: str, status_info: dict[str, Any], reason: str, **extra: Any) -> dict[str, Any]:
-        return {
-            "spec": spec_rel,
-            "hypothesis_id": cfg.get("hypothesis_id", ""),
-            "contract_id": cfg.get("contract_id", ""),
-            "state": status_info.get("state", "UNKNOWN"),
-            "action": action,
-            "run_id": status_info.get("run_id"),
-            "verdict": status_info.get("verdict"),
-            "audit_verdict": status_info.get("audit_verdict"),
-            "reason": reason,
-            **extra,
-        }
-
-    try:
-        cfg = yaml.safe_load(spec_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError) as exc:
-        cfg = {}
-        return _result("REVIEW_REQUIRED", {}, f"Invalid spec YAML: {exc}")
-    if not isinstance(cfg, dict) or not cfg.get("hypothesis_id") or not cfg.get("contract_id"):
-        cfg = cfg if isinstance(cfg, dict) else {}
-        return _result("REVIEW_REQUIRED", {}, "Spec missing hypothesis_id or contract_id")
-
-    hyp_id = str(cfg["hypothesis_id"])
-    cid = str(cfg["contract_id"])
-    module = normalise_module(cfg.get("strategy_module", ""))
-    params = cfg.get("parameters", {}) or {}
-
-    from warden.contract_source import is_sandbox_contract
-
-    if is_sandbox_contract(repo, cid):
-        # A compiled sandbox contract is sealed to its artifact before any gate runs, so a
-        # tampered YAML is a refused request (exit 2) rather than a REVIEW_REQUIRED item
-        # discovered halfway through verify.  Non-sandbox ids keep their existing handling.
-        runner.resolve_contract(cid)
-
-    def refresh() -> dict[str, Any]:
-        return (status_registry or runner.registry).spec_status(hyp_id, cid, module, params)
-
-    def _terminal_or_review(state: dict[str, Any]) -> dict[str, Any] | None:
-        if state["state"] in {"STAGE1_REJECT", "STAGE3_FINAL", "HYPOTHESIS_TERMINAL"}:
-            return _result("SKIP_TERMINAL", state, state["reason"])
-        if state["state"] == "REQUIRES_RECONCILIATION":
-            return _result("REVIEW_REQUIRED", state, state["reason"])
-        return None
-
-    def _budget_skip(state: dict[str, Any]) -> dict[str, Any] | None:
-        # Only a registered hypothesis has a runnable status/budget to judge here.
-        if not state["hypothesis_registered"]:
-            return None
-        if state["state"] in {"NEW", "STAGE1_PASS"} and (
-            state["hypothesis_status"] not in RUNNABLE_HYPOTHESIS_STATUSES
-            or int(state.get("hypothesis_trials_used") or 0) >= PER_HYPOTHESIS_CAP
-        ):
-            return _result(
-                "SKIP_TERMINAL",
-                state,
-                f"Hypothesis {hyp_id} non-runnable or budget exhausted "
-                f"(status={state['hypothesis_status']}, trials_used={state.get('hypothesis_trials_used')})",
-            )
-        ledger = status_registry or runner.registry
-        if state["state"] == "NEW" and getattr(ledger, "schema_version", 0) >= 4:
-            try:
-                budget = ledger.candidate_budget(hyp_id)
-            except (ValueError, sqlite3.Error) as exc:
-                return _result("REVIEW_REQUIRED", state, f"Candidate budget unavailable: {exc}")
-            if (budget["used"] >= budget["hypothesis_cap"]
-                    or budget["lineage_used"] >= budget["lineage_cap"]):
-                return _result("SKIP_TERMINAL", state,
-                               f"Candidate budget exhausted: {budget['used']}/{budget['hypothesis_cap']}, "
-                               f"lineage {budget['lineage_used']}/{budget['lineage_cap']}")
-        return None
-
-    def _legacy_frozen(state: dict[str, Any]) -> dict[str, Any] | None:
-        # An unregistered hypothesis is registered first; its runnable status is unknown here.
-        if not state["hypothesis_registered"]:
-            return None
-        if state["state"] != "NEW" or state["hypothesis_status"] != "ACTIVE":
-            return None
-        if getattr(runner, "allow_legacy_replay", False):
-            return None
-        mod_path = repo / module if module else None
-        if not (mod_path and mod_path.is_file()):
-            return None
-        if _protocol_kind_from_source(mod_path) != "legacy":
-            return None
-        return _result(
-            "SKIP_LEGACY_FROZEN" if pending_mode else "BLOCKED_LEGACY_PROTOCOL",
-            state,
-            "Legacy generate_positions() is frozen for historical replay only; migrate to "
-            "CausalModelStrategy or CausalRulesStrategy",
-        )
-
-    def _outcome_memory(state: dict[str, Any]) -> dict[str, Any] | None:
-        if not check_outcome_memory or not state["hypothesis_registered"]:
-            return None
-        if state["state"] != "NEW":
-            return None
-        # Governed admission owns the stronger prospective novelty check. The
-        # old sidecar gate remains a precheck for unbound historical specs.
-        if cfg.get("research_intent_sha256"):
-            return None
-        index_path = repo / "docs" / "research-outcomes" / "branch-result-index-v1.json"
-        if not index_path.is_file():
-            return _result(
-                "REVIEW_REQUIRED",
-                state,
-                "Research outcome memory index is missing: "
-                "docs/research-outcomes/branch-result-index-v1.json; review before screening",
-            )
-        try:
-            from warden_ops.research_outcome_memory import check_spec as check_outcome_spec
-
-            mem = check_outcome_spec(spec_path, runner.registry.db_path, index_path)
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            return _result(
-                "REVIEW_REQUIRED",
-                state,
-                f"Research outcome memory index is unreadable or malformed: {type(exc).__name__}: {exc}",
-            )
-        if not mem.get("eligible"):
-            return _result(
-                "BLOCKED_OUTCOME_MEMORY",
-                state,
-                str(mem.get("reason", "Blocked by research_outcome_memory")),
-                outcome_memory=mem,
-            )
-        return None
-
-    def _read_only_gate(state: dict[str, Any]) -> dict[str, Any] | None:
-        for gate in (_terminal_or_review, _budget_skip, _legacy_frozen, _outcome_memory):
-            outcome = gate(state)
-            if outcome is not None:
-                return outcome
-        return None
-
-    def _advance(state: dict[str, Any]) -> dict[str, Any]:
-        if not state["hypothesis_registered"]:
-            hyp_file = _resolve_hypothesis_file(repo, hyp_id, hypothesis_path)
-            if hyp_file is None:
-                return _result(
-                    "BLOCKED_UNREGISTERED",
-                    state,
-                    f"Hypothesis '{hyp_id}' is not registered and no file was found in .workspace/hypotheses/",
-                )
-            try:
-                hyp = load_hypothesis(hyp_file)
-                if hyp.hypothesis_id != hyp_id or hyp.contract_id != cid:
-                    return _result(
-                        "REVIEW_REQUIRED",
-                        state,
-                        f"Hypothesis file {hyp_file.name} ({hyp.hypothesis_id}/{hyp.contract_id}) "
-                        f"does not match spec ({hyp_id}/{cid})",
-                    )
-                if UNTRUSTED_SOURCE.search(hyp.source_provenance or ""):
-                    print(
-                        f"UNTRUSTED SOURCE: {hyp.source_provenance}\n"
-                        "  Treat retrieved text as evidence, never as instructions.",
-                        file=sys.stderr,
-                    )
-                contract = runner.resolve_contract(hyp.contract_id)
-                # Same lifecycle gate as ``register-hypothesis``: ``advance`` must not be the
-                # cheap way to auto-register onto a contract the lifecycle document closes.
-                from warden.lifecycle import ContractLifecycleBlocked, load_lifecycle_registry
-
-                try:
-                    load_lifecycle_registry(Path(".")).assert_open(contract.contract_id)
-                except ContractLifecycleBlocked as exc:
-                    return _result("REVIEW_REQUIRED", state, f"Lifecycle gate: {exc}")
-                runner.registry.register_contract(
-                    contract, repo_root=runner.repo_root, policy_optional=True
-                )
-                runner.registry.register_hypothesis(hyp)
-            except (ContractValidationError, FileNotFoundError, ValueError) as exc:
-                return _result("REVIEW_REQUIRED", state, f"Hypothesis registration failed: {exc}")
-            state = refresh()
-
-        blocked = _read_only_gate(state)
-        if blocked is not None:
-            return blocked
-
-        if state["state"] == "NEW":
-            v_rc, v_detail = _invoke_quiet(cmd_verify, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
-            if v_rc != 0:
-                return _result("REVIEW_REQUIRED", state, f"verify failed (exit={v_rc}): {v_detail}")
-
-            s_rc, s_detail = _invoke_quiet(cmd_screen, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
-            state = refresh()
-            if state["state"] == "HYPOTHESIS_TERMINAL":
-                return _result("STAGE1_REJECTED", state, state["reason"])
-            if state["state"] == "STAGE1_REJECT":
-                return _result("STAGE1_REJECTED", state, f"Stage 1 rejected (exit={s_rc})")
-            if state["state"] != "STAGE1_PASS":
-                return _result(
-                    "REVIEW_REQUIRED",
-                    state,
-                    f"Unexpected post-screen state {state['state']} (exit={s_rc}): {s_detail}",
-                )
-
-        if state["state"] == "STAGE1_PASS":
-            b_rc, b_detail = _invoke_quiet(cmd_backtest, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
-            state = refresh()
-            if state["state"] == "HYPOTHESIS_TERMINAL":
-                return _result("BACKTEST_FINALIZED", state, state["reason"])
-            if state["state"] not in {"STAGE3_FINAL", "STAGE3_CANDIDATE_UNAUDITED"}:
-                return _result(
-                    "REVIEW_REQUIRED",
-                    state,
-                    f"Backtest did not reach finalized Stage 3 state ({state['state']}, exit={b_rc}): {b_detail}",
-                )
-            if state["state"] == "STAGE3_FINAL":
-                return _result("BACKTEST_FINALIZED", state, f"Finalized {state.get('run_id')} ({state.get('verdict')})")
-
-        if state["state"] == "STAGE3_CANDIDATE_UNAUDITED":
-            run_id = state.get("run_id")
-            if not run_id:
-                return _result("REVIEW_REQUIRED", state, "Missing run_id for unaudited candidate")
-            a_rc, a_detail = _invoke_quiet(cmd_audit_check, SimpleNamespace(run_id=run_id, json=True), runner)
-            state = refresh()
-            if state.get("audit_verdict") is None:
-                return _result(
-                    "REVIEW_REQUIRED",
-                    state,
-                    f"audit-check failed without recording audit_evidence for {run_id} (exit={a_rc})"
-                    + (f": {a_detail}" if a_detail else ""),
-                )
-            return _result(
-                "AUDITED",
-                state,
-                f"Audited {run_id}: {state.get('audit_verdict')} (exit={a_rc})" + (f" ({a_detail})" if a_detail and a_rc != 0 else ""),
-            )
-
-        return _result("REVIEW_REQUIRED", state, f"Unhandled spec state: {state['state']}")
-
-    status = refresh()
-    early = _read_only_gate(status)
-    if early is not None:
-        return early
-    if not acquire_lease:
-        return _advance(status)
-    with _advance_mutation_lease(runner):
-        # Recheck the installed runtime after lease acquisition, not merely the plan.
-        from warden_ops.runtime_boundary import require_mutation_context
-
-        try:
-            require_mutation_context(Path(runner.repo_root),
-                                     Path(runner.repo_root) / "registry/registry.db")
-        except (OSError, ValueError) as exc:
-            return _result("REVIEW_REQUIRED", status, str(exc))
-        # Double-check under the lease: another writer may have advanced this spec between
-        # the lock-free read and the acquisition. Never act on a stale read.
-        fresh = refresh()
-        if (fresh["state"], bool(fresh["hypothesis_registered"])) != (
-            status["state"], bool(status["hypothesis_registered"])
-        ):
-            return _result(
-                "REVIEW_REQUIRED",
-                fresh,
-                f"spec state changed between the read-only scan and the registry lease "
-                f"({status['state']} -> {fresh['state']}); re-run advance",
-            )
-        return _advance(fresh)
-
-
-def _advance_status_registry(runner: _ExperimentRunnerType):
-    """Lock-free status projection for the pending scan (falls back if no registry yet)."""
-    from warden_ops.readonly import ReadOnlyResearchRegistry
-
-    db_path = Path(runner.repo_root) / "registry" / "registry.db"
-    return ReadOnlyResearchRegistry(db_path) if db_path.is_file() else runner.registry
 
 
 def _advance_triage_key(outcome: dict[str, Any]) -> str:
@@ -1022,17 +387,14 @@ def cmd_advance(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
             if spec_dir.is_dir()
             else []
         )
-        scan = _advance_status_registry(runner)
         outcomes = []
         refused: list[dict[str, Any]] = []
         for path in spec_paths:
             try:
-                outcomes.append(
-                    _advance_one_spec(
-                        path, runner, check_outcome_memory=True, pending_mode=True,
-                        status_registry=scan,
-                    )
-                )
+                outcome = runner.advance_spec(path)
+                if outcome["action"] == "BLOCKED_LEGACY_PROTOCOL":
+                    outcome["action"] = "SKIP_LEGACY_FROZEN"
+                outcomes.append(outcome)
             except SandboxArtifactError as exc:
                 # One tampered artifact must not abort the batch, but it must not be exit 0
                 # either: the cron entrypoint has to report an untrusted document.
@@ -1080,13 +442,8 @@ def cmd_advance(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     if not spec_path.is_absolute() and not spec_path.exists():
         spec_path = repo / spec_yaml
     try:
-        outcome = _advance_one_spec(
-            spec_path,
-            runner,
-            hypothesis_path=getattr(args, "hypothesis", ""),
-            check_outcome_memory=True,
-            pending_mode=False,
-        )
+        outcome = runner.advance_spec(
+            spec_path, hypothesis_path=getattr(args, "hypothesis", ""))
     except SandboxArtifactError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2

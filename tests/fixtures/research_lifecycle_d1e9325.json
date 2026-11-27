@@ -1,0 +1,585 @@
+{
+  "source_commit": "d1e9325b553a6895702570a897b9e401786d1853",
+  "native_release": "e3c2000366d8e30515d6b0c9ca9425950b2ad20cd343afaf1818396923cf2261",
+  "cases": {
+    "verify": {
+      "audit": null,
+      "counts": {
+        "attempt_receipts": 0,
+        "candidate_admissions": 0,
+        "candidate_operations": 0,
+        "screen_receipts": 0,
+        "selection_attempts": 0,
+        "spec_causality": 1,
+        "trials": 0
+      },
+      "operation": "verify",
+      "payload": {
+        "cached": true,
+        "causal_evidence_key": "<artifact-bound-proof>",
+        "data_provenance": "verified_market",
+        "market_eligible": true,
+        "prefix_invariance": true,
+        "provenance_reason": "verified market data",
+        "rows": 48,
+        "status": "PASS"
+      },
+      "returncode": 0,
+      "screen": [],
+      "selection": [],
+      "trials": []
+    },
+    "screen": {
+      "audit": null,
+      "counts": {
+        "attempt_receipts": 0,
+        "candidate_admissions": 1,
+        "candidate_operations": 1,
+        "screen_receipts": 1,
+        "selection_attempts": 1,
+        "spec_causality": 0,
+        "trials": 0
+      },
+      "operation": "screen",
+      "payload": {
+        "data_provenance": "verified_market",
+        "market_eligible": true,
+        "metrics": {
+          "avg_holding_bars": 5.002765352771466,
+          "bar_profit_factor": 0,
+          "bootstrap_p_value": 1,
+          "conditional_edge": -0.00014814319822093106,
+          "pf_basis": "closed_trade",
+          "profit_factor": 0,
+          "time_in_market": 0.21428571428571427,
+          "trade_edge": -0.0007411256593084295,
+          "trimmed_sharpe": -43.31490204745091
+        },
+        "notes": "PF=0.00 (closed_trade, barPF=0.00), Edge=-1.5bps, TiM=21.4%, Holding=5.0h",
+        "passed": false,
+        "provenance_reason": "verified market data",
+        "strategy_family": "rules_ts"
+      },
+      "returncode": 1,
+      "screen": [
+        {
+          "attempt_id": "ATT-abf3d3cb3dcc35f9-001",
+          "contract_id": "TINY_V1",
+          "data_sha256": "949eecd485a41030016ddd9fc7b5d1e389a1efe7a3e4ec758982f336e5899ad6",
+          "hypothesis_id": "HYP-TINY",
+          "parameters_json": {},
+          "screen_key": "74316adfec4b997fb99feedb700e596fbcb4676242ffe4d12e2aaf19042bcc38",
+          "state": "FINALIZED",
+          "strategy_module": "strategies/flat.py"
+        }
+      ],
+      "selection": [
+        {
+          "attempt_base": "abf3d3cb3dcc35f9",
+          "attempt_id": "ATT-abf3d3cb3dcc35f9-001",
+          "config_hash": "",
+          "contract_id": "TINY_V1",
+          "data_provenance": "verified_market",
+          "diagnostics_json": {
+            "avg_holding_bars": 5.002765352771466,
+            "bar_profit_factor": 0,
+            "bootstrap_p_value": 1,
+            "conditional_edge": -0.00014814319822093106,
+            "dataset": {
+              "admission_reason": "v1 contract: provenance evidence inherited, not re-adjudicated by #106",
+              "admission_state": "legacy_grandfathered",
+              "contract_id": "TINY_V1",
+              "eligible_market": true,
+              "path": "data/exploratory/tiny.parquet",
+              "provenance": "verified_market",
+              "reason": "verified market data",
+              "role": "exploratory",
+              "sha256": "949eecd485a41030016ddd9fc7b5d1e389a1efe7a3e4ec758982f336e5899ad6",
+              "source": "fixture"
+            },
+            "notes": "PF=0.00 (closed_trade, barPF=0.00), Edge=-1.5bps, TiM=21.4%, Holding=5.0h",
+            "pf_basis": "closed_trade",
+            "profit_factor": 0,
+            "selection_timestamps_ns": [
+              1735725600000000000,
+              1735729200000000000,
+              1735732800000000000,
+              1735736400000000000,
+              1735740000000000000,
+              1735743600000000000,
+              1735747200000000000,
+              1735750800000000000,
+              1735754400000000000,
+              1735758000000000000,
+              1735761600000000000,
+              1735765200000000000,
+              1735768800000000000,
+              1735772400000000000
+            ],
+            "time_in_market": 0.21428571428571427,
+            "trade_edge": -0.0007411256593084295,
+            "trimmed_sharpe": -43.31490204745091
+          },
+          "hypothesis_id": "HYP-TINY",
+          "kind": "standalone_screen",
+          "outcome": "REJECT",
+          "parameters_json": {},
+          "returns_json": [
+            0,
+            0,
+            0,
+            -0.00004921763546505975,
+            -0.00003999812557820004,
+            0,
+            0,
+            -0.00011876879735706058,
+            -0.00003998699663565475,
+            0,
+            0,
+            -0.0003964491618406729,
+            -0.000039942549322380394,
+            0
+          ],
+          "returns_observed": 1,
+          "returns_sha256": "00dab6b3edfc201cefbc8f41f2f362f842f8484134f40a809a44efba81c1818d",
+          "run_id": "",
+          "simulation_epoch": "ml4t_backtest_engine_v1",
+          "stage": "STAGE_1_SIGNAL",
+          "strategy_family": "rules_ts",
+          "strategy_module": "strategies/flat.py"
+        }
+      ],
+      "trials": []
+    },
+    "backtest": {
+      "audit": {
+        "returncode": 1,
+        "payload": {
+          "run_id": "RUN-HYP-TINY-2b31260ac91f-001",
+          "checks": {
+            "1_target_rebalance_alignment": {
+              "blocking_dimensions": [
+                "holding"
+              ],
+              "decision_divergence": false,
+              "declared_alignment": null,
+              "declared_alignment_valid": {
+                "decision": null,
+                "holding": false
+              },
+              "evidence": "recorded",
+              "holding_beyond_label_horizon": false,
+              "holding_cadence_basis": "completed_epochs",
+              "holding_completed_epochs": 6,
+              "holding_divergence": true,
+              "holding_horizon_bars": 8,
+              "label_horizon_bars": 2,
+              "material_divergence": true,
+              "observed_holding_cadence_bars": 1,
+              "observed_holding_completed_cadence_bars": 1,
+              "observed_rebalance_cadence_bars": 2.3333333333333335,
+              "passed": false,
+              "reason": "observed holding cadence 1.00 bars diverges from declared holding horizon 8 (band 2.00-32.00) without declared alignment"
+            },
+            "2_outlier_sensitivity": {
+              "passed": false,
+              "trimmed_sharpe": -43.31490204745091
+            },
+            "3_point_in_time_causality": {
+              "passed": false
+            },
+            "4_fold_local_fitting": {
+              "basis": "contract_integers",
+              "ml_trial": false,
+              "passed": true,
+              "required_gap_bars": 4
+            },
+            "5_cost_and_latency_survival": {
+              "passed": false
+            },
+            "6_selection_bias_accounting": {
+              "passed": false
+            }
+          },
+          "audit_passed": false,
+          "historical_checks_passed": false,
+          "verdict": "REJECTED",
+          "effective_eligibility": {
+            "attempt_evidence_state": "FINALIZED",
+            "contract_id": "TINY_V1",
+            "data_provenance": "verified_market",
+            "dispositions": [],
+            "eligible": false,
+            "historical_audit_verdict": null,
+            "historical_verdict": "REVISE",
+            "reason": "historical verdict REVISE is not candidate-for-qualification",
+            "run_id": "RUN-HYP-TINY-2b31260ac91f-001"
+          }
+        }
+      },
+      "counts": {
+        "attempt_receipts": 1,
+        "candidate_admissions": 1,
+        "candidate_operations": 1,
+        "screen_receipts": 0,
+        "selection_attempts": 0,
+        "spec_causality": 0,
+        "trials": 1
+      },
+      "operation": "backtest",
+      "payload": {
+        "annualized_turnover": 750.6496398966715,
+        "breakeven_cost_bps": -3.704603740471663,
+        "config_hash": "44136fa355b3",
+        "contract_id": "TINY_V1",
+        "cvar_99_pct": 0.0003603507144578033,
+        "data_provenance": "verified_market",
+        "data_snapshot_sha256": "949eecd485a41030016ddd9fc7b5d1e389a1efe7a3e4ec758982f336e5899ad6",
+        "deflated_sharpe_prob": 0.000027819484463765446,
+        "delay_plus1_sharpe": -28.278654417359213,
+        "diagnostics_json": {
+          "cadence_evidence": {
+            "assets_held": 2,
+            "declared_alignment": null,
+            "expected_holding_bars": 8,
+            "holding_cadence_bars": 1,
+            "holding_censored_epochs": 0,
+            "holding_completed_assets": 2,
+            "holding_completed_cadence_bars": 1,
+            "holding_completed_epochs": 6,
+            "label_horizon_bars": 2,
+            "measured_on": "evaluation_tape_positions",
+            "n_bars": 14,
+            "rebalance_cadence_bars": 2.3333333333333335,
+            "rebalance_events": 6
+          },
+          "dataset": "DatasetResolution(contract_id='TINY_V1', role='exploratory', path='data/exploratory/tiny.parquet', sha256='949eecd485a41030016ddd9fc7b5d1e389a1efe7a3e4ec758982f336e5899ad6', provenance='verified_market', source='fixture', eligible_market=True, reason='verified market data', admission_state='legacy_grandfathered', admission_reason='v1 contract: provenance evidence inherited, not re-adjudicated by #106')",
+          "engine_artifacts": {
+            "equity": {
+              "path": "<fixture>/backtest_results/ml4t_backtest_engine_v1/TINY_V1/RUN-HYP-TINY-2b31260ac91f-001/equity.parquet",
+              "sha256": "ade90ee6cfa7469eb3bd055df02f78a33ab7a6b32ddcec3003887fd222ea9123",
+              "simulation_epoch": "ml4t_backtest_engine_v1"
+            },
+            "fills": {
+              "path": "<fixture>/backtest_results/ml4t_backtest_engine_v1/TINY_V1/RUN-HYP-TINY-2b31260ac91f-001/fills.parquet",
+              "sha256": "6dc2a37cef70cd5ca15e5152fb8d0522066f55016713d7aa4e4afeacc4873d24",
+              "simulation_epoch": "ml4t_backtest_engine_v1"
+            },
+            "funding": {
+              "path": "<fixture>/backtest_results/ml4t_backtest_engine_v1/TINY_V1/RUN-HYP-TINY-2b31260ac91f-001/funding.parquet",
+              "sha256": "749d6dd7b762d2435db6f777c797f7a0672ec76eada95a302a251d30e8c6afb8",
+              "simulation_epoch": "ml4t_backtest_engine_v1"
+            },
+            "manifest": {
+              "path": "<fixture>/backtest_results/ml4t_backtest_engine_v1/TINY_V1/RUN-HYP-TINY-2b31260ac91f-001/manifest.json",
+              "sha256": "3d0ac6b2953973e05fc6fc051404ee24149d369055b725bf64fcd6ec31f8d620",
+              "simulation_epoch": "ml4t_backtest_engine_v1"
+            },
+            "portfolio_state": {
+              "path": "<fixture>/backtest_results/ml4t_backtest_engine_v1/TINY_V1/RUN-HYP-TINY-2b31260ac91f-001/portfolio_state.parquet",
+              "sha256": "a2a829bf9ccce2b36680747b0f7bc6cedef33d040b44fb2a07ed5b3211920d20",
+              "simulation_epoch": "ml4t_backtest_engine_v1"
+            },
+            "trades": {
+              "path": "<fixture>/backtest_results/ml4t_backtest_engine_v1/TINY_V1/RUN-HYP-TINY-2b31260ac91f-001/trades.parquet",
+              "sha256": "4645fadc6027820d13b5d0ffc1348133cbcc0b4e60a0ca814a55312deeacab13",
+              "simulation_epoch": "ml4t_backtest_engine_v1"
+            }
+          },
+          "excluded_streams": [],
+          "execution_policy": {
+            "allow_leverage": false,
+            "allow_short_selling": true,
+            "market_impact_coefficient": null,
+            "max_gross_leverage": 1,
+            "max_volume_participation": null
+          },
+          "execution_protocol": "causal_rules",
+          "failed_gates": [
+            "net_sharpe",
+            "dsr",
+            "cost_2x",
+            "latency_plus1",
+            "trimmed_sharpe",
+            "stage1_rules"
+          ],
+          "family_key": "crypto_perps:1h",
+          "fold_isolation": null,
+          "funding_events": 6,
+          "metrics": {
+            "active_bar_share": 0.21428571428571427,
+            "active_sharpe": -95.85038121244125,
+            "annualized_turnover": 750.6496398966715,
+            "bar_profit_factor": 0,
+            "benchmark_conventions": "equal-weight buy-and-hold at 1/N, no costs; strategy net returns include fees",
+            "benchmark_net_sharpe": -45.78843727820669,
+            "breakeven_cost_bps": -3.704603740471663,
+            "closed_trade_count": 3,
+            "closed_trade_hit_rate": 0,
+            "closed_trade_profit_factor": 0,
+            "cvar_99_pct": 0.0003603507144578033,
+            "gross_sharpe": -31.02388742624128,
+            "hit_rate": 0,
+            "information_ratio": 42.963063908213364,
+            "max_drawdown_pct": 0.06842183507127508,
+            "net_sharpe": -43.31490204745091,
+            "one_way_cost_decimal": 0.0002,
+            "profit_factor": 0,
+            "relative_return_annualized": 4.291431429406712,
+            "trade_conventions": "closed_trade_profit_factor: maximal contiguous runs of same-sign non-zero net exposure; sign flips and flat gaps start a new trade; partial scale-ins/scale-outs stay inside their trade; fees are charged on the bar they occur (turnover based) and net returns are summed per trade; ratio = sum(positive trade returns) / |sum(negative trade returns)|"
+          },
+          "model_metadata": {
+            "model_class": "rules",
+            "model_tier": "nonlinear",
+            "model_type": "rules"
+          },
+          "neighbor_exemption": "parameter_free",
+          "neighbor_grid": {
+            "degenerate_indices": [],
+            "distinct_numeric_neighbors": 0,
+            "duplicate_indices": [],
+            "evaluated_configurations": 0,
+            "evaluated_indices": [],
+            "min_distinct": 2,
+            "non_numeric_indices": [],
+            "numeric_indices": [],
+            "requested": 0
+          },
+          "neighbor_requirement": {
+            "distinct_numeric_neighbors": 0,
+            "exemption": "parameter_free",
+            "grid": {
+              "degenerate_indices": [],
+              "distinct_numeric_neighbors": 0,
+              "duplicate_indices": [],
+              "evaluated_configurations": 0,
+              "evaluated_indices": [],
+              "min_distinct": 2,
+              "non_numeric_indices": [],
+              "numeric_indices": [],
+              "requested": 0
+            },
+            "met": true,
+            "min_distinct": 2,
+            "params_model": {
+              "declared": false,
+              "name": null,
+              "numeric_fields": [],
+              "unknown_keys": []
+            },
+            "reason": "strategy declares no numeric parameter",
+            "required": false
+          },
+          "neighbor_stability": {
+            "baseline_net_sharpe": -43.31490204745091,
+            "distinct_numeric_neighbors": 0,
+            "max_sharpe": null,
+            "min_sharpe": null,
+            "neighbor_tested": false,
+            "passed": null,
+            "stability": null
+          },
+          "neighbor_tested": false,
+          "params_model": {
+            "declared": false,
+            "name": null,
+            "numeric_fields": [],
+            "unknown_keys": []
+          },
+          "pbo": null,
+          "portfolio_analysis": {
+            "alpha": null,
+            "annual_return": -0.34836567719753886,
+            "annual_volatility": 0.009886109583156003,
+            "avg_loss": -0.00011406054436650474,
+            "avg_win": 0,
+            "beta": null,
+            "calmar_ratio": -509.1440135077436,
+            "cvar_95": -0.0003964491618406729,
+            "down_capture": null,
+            "information_ratio": null,
+            "kurtosis": 6.758034100433013,
+            "max_drawdown": -0.0006842183507127508,
+            "omega_ratio": 0,
+            "profit_factor": 0,
+            "sharpe_ratio": -43.31490245752654,
+            "skewness": -2.8037528069560733,
+            "sortino_ratio": -40.51932815241783,
+            "stability": 0.821233669392285,
+            "tail_ratio": 0,
+            "total_return": -0.0006842183507127508,
+            "up_capture": null,
+            "var_95": -0.00021595692492632474,
+            "win_rate": 0
+          },
+          "ras": null,
+          "retrospective_replication_only": false,
+          "selection": {
+            "alignment": {
+              "aligned_bars": 14,
+              "excluded": [],
+              "frequency": "bar",
+              "inherited": [],
+              "legacy_excluded": 0,
+              "overlap_fraction": 1,
+              "periods_per_year": 5113.5,
+              "scope": [
+                "TINY_V1"
+              ],
+              "selection_group_id": "",
+              "streams_aligned": 0
+            },
+            "bars_per_year_used": 8760,
+            "correction_policy": "max(dedup@0.9995 + 0.50/unvectorized, prior_floor)",
+            "k_eff_dedup": 1,
+            "k_eff_effective": 1,
+            "k_eff_gate": 1,
+            "noise_floor_applied": false,
+            "non_promotable_reason": "",
+            "preflight": {
+              "aligned_bars": 14,
+              "frequency": "bar",
+              "overlap_fraction": 1,
+              "scope": [
+                "TINY_V1"
+              ],
+              "selection_group_id": ""
+            },
+            "prior_max_keff": 1,
+            "raw_attempt_count": 1,
+            "raw_operation_count": 4,
+            "selection_clock": {
+              "contract_validation_bars": 14,
+              "panel_validation_bars": 14,
+              "projected_onto_contract_grid": false,
+              "structural_zero_bars": 0
+            },
+            "simulation_epoch": "ml4t_backtest_engine_v1",
+            "streams_used": 1,
+            "unvectorized_attempts": 0
+          },
+          "session_col_used": null,
+          "source_published_at": null,
+          "stage1_rules": {
+            "metrics": {
+              "avg_holding_bars": 5.002765352771466,
+              "bar_profit_factor": 0,
+              "bootstrap_p_value": 1,
+              "conditional_edge": -0.00014814319822093106,
+              "pf_basis": "closed_trade",
+              "profit_factor": 0,
+              "time_in_market": 0.21428571428571427,
+              "trade_edge": -0.0007411256593084295,
+              "trimmed_sharpe": -43.31490204745091
+            },
+            "notes": "PF=0.00 (closed_trade, barPF=0.00), Edge=-1.5bps, TiM=21.4%, Holding=5.0h"
+          },
+          "timing_skill": {
+            "caveat": "Exposure-aware circular-shift null: shifting preserves the declared position exposure (time-in-market and magnitudes) but assumes the return process is roughly stationary over the window. Under regimes/trends the empirical tail fraction is not an exact distribution-free p-value; read it as a labelled diagnostic, never as a gate.",
+            "exposure_preserved": true,
+            "gate_applied": false,
+            "k": 200,
+            "null_mean": -0.000005570507502447994,
+            "null_q05": -0.000017990273116822217,
+            "null_q95": 0.000006603322159166346,
+            "null_std": 0.000012327038998841593,
+            "observed_statistic": -0.000031632586723814096,
+            "p_value": 1,
+            "seed": 42,
+            "time_in_market": 0.21428571428571427,
+            "valid_shift_range": [
+              6,
+              8
+            ]
+          },
+          "trade_analysis": {
+            "avg_duration_days": 0.041666666666666664,
+            "avg_loser": -164.21219007264398,
+            "avg_pnl": -114.03639178541698,
+            "avg_winner": 136.84259965071794,
+            "duration_quartiles": {
+              "q25": 0.041666666666666664,
+              "q50": 0.041666666666666664,
+              "q75": 0.041666666666666664
+            },
+            "gross_loss": -821.0609503632198,
+            "gross_profit": 136.84259965071794,
+            "max_pnl": 136.84259965071794,
+            "median_duration_days": 0.041666666666666664,
+            "min_pnl": -349.2804271364593,
+            "n_known_durations": 6,
+            "n_losers": 5,
+            "n_trades": 6,
+            "n_winners": 1,
+            "pnl_kurtosis": -0.764854152521699,
+            "pnl_quartiles": {
+              "q25": -226.05639208078378,
+              "q50": -86.98724914352195,
+              "q75": -27.24376555589675
+            },
+            "pnl_skewness": 0.09575883323066421,
+            "pnl_std": 166.9717690508203,
+            "profit_factor": 0.1666655801742632,
+            "total_pnl": -684.2183507125019,
+            "win_rate": 0.16666666666666666
+          },
+          "trimmed_sharpe": -43.31490204745091
+        },
+        "effective_trials_keff": 1,
+        "expected_max_sharpe_noise": 0,
+        "gross_sharpe": -31.02388742624128,
+        "hit_rate": 0,
+        "hypothesis_id": "HYP-TINY",
+        "ic_hac_tstat": null,
+        "max_drawdown_pct": 0.06842183507127508,
+        "mean_ic": null,
+        "model_type": "rules",
+        "net_sharpe": -43.31490204745091,
+        "notes": "Simulated on TINY_V1; 2xCostSR=-52.25.",
+        "param_neighbor_stability": null,
+        "profit_factor": 0,
+        "returns_sha256": "",
+        "run_id": "RUN-HYP-TINY-2b31260ac91f-001",
+        "simulation_epoch": "ml4t_backtest_engine_v1",
+        "stage_reached": "STAGE_3_STRESS",
+        "strategy_code_sha256": "6ac2bd0583552e0ba625c60548d4d9078517552399d69b299a9245e981e41021",
+        "strategy_family": "rules_ts",
+        "strategy_module": "strategies/flat.py",
+        "strategy_name": "Tiny",
+        "stress_1p5_cost_sharpe": -48.16056701160313,
+        "stress_2x_cost_sharpe": -52.25121135699783,
+        "synthetic": 0,
+        "total_trials_n": 1,
+        "verdict": "REVISE"
+      },
+      "returncode": 0,
+      "screen": [],
+      "selection": [],
+      "trials": [
+        {
+          "run_id": "RUN-HYP-TINY-2b31260ac91f-001",
+          "verdict": "REVISE",
+          "stage_reached": "STAGE_3_STRESS",
+          "returns_json": [
+            0,
+            0,
+            0,
+            -0.00004921763546505975,
+            -0.00003999812557820004,
+            0,
+            0,
+            -0.00011876879735706058,
+            -0.00003998699663565475,
+            0,
+            0,
+            -0.0003964491618406729,
+            -0.000039942549322380394,
+            0
+          ],
+          "returns_sha256": "509389b3719f3581997747a86c48bed395df013edf522453ea0df7d29a937627",
+          "trial_number_in_hyp": 1
+        }
+      ]
+    }
+  }
+}

@@ -7,6 +7,8 @@ remain binding. The original [acceptance report](AGENT-CONTROL-ACCEPTANCE-202611
 and [blocked cutover packet](AGENT-CONTROL-CUTOVER-20261127.md) preserve the pre-amendment
 history; their unavailable independent authority was not demonstrated or retroactively passed.
 Current operation is described in [AGENT-CONTROL-OPERATIONS.md](AGENT-CONTROL-OPERATIONS.md).
+The [appliance acceptance and cutover report](AGENT-CONTROL-APPLIANCE-ACCEPTANCE-20261127.md)
+records the completed amended lifecycle and actual deployed identity.
 
 ## Objective and completion
 

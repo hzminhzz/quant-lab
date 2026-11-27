@@ -1,0 +1,795 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-27",
+  "authority_model": "trusted-research-appliance",
+  "status": {
+    "implemented": true,
+    "verified": true,
+    "merged": true,
+    "deployed": true,
+    "new_scientific_qualification": false
+  },
+  "acceptance_amendment": {
+    "A13": "narrowly amended: maintenance does not authorize scientific effects",
+    "A14": "narrowly amended: fixed exact verification and direct review, no independent signer",
+    "A23": "SUPERSEDED; original independent authentication did not pass; replacement lifecycle deployed",
+    "A24": "narrowly amended: actual missing capability remains explicit; scientific limits retained",
+    "others": "A01-A12, A15-A22, A25 and scientific RG criteria preserved"
+  },
+  "decision": {
+    "schema_version": 1,
+    "decision": "PROCEED_WITH_AUTHORIZED_MAINTENANCE",
+    "authorization_basis": "Owner's in-session authorization for the accepted trusted-appliance amendment, verified deployment, additive canonical migration and safe recovery.",
+    "independent_authentication": false,
+    "scientific_authority": false,
+    "adr": "docs/adr/2026-11-27-trusted-research-appliance.md",
+    "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+    "source_commit": "4a46bd2fc3a45bacda6788d634bcd774ececfad0",
+    "integrated_merge": "f9e91c0cf3c9eaf25056e3ce7ef989be36bf9194",
+    "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8",
+    "checks": {
+      "ast-boundaries": true,
+      "environment-integrity": true,
+      "full-suite": true,
+      "protected-inventory": true,
+      "source-integrity": true
+    },
+    "canonical": "/home/quant/dev/quant-lab/registry/registry.db",
+    "current_schema": 2,
+    "target_schema": 10,
+    "writer_quiescent": true,
+    "canonical_source_and_evidence_changed": [],
+    "request_id": "ac-appliance-cutover-20261127",
+    "transition_preconditions": "Canonical and legacy locks, fresh WAL snapshot, scratch rehearsal, idempotence and all-old-column/row/schema-object preservation are enforced again inside the transition before live effects.",
+    "exclusions": [
+      "sealed data",
+      "historical exposure attestation",
+      "independent scientific conformance",
+      "capital",
+      "trading",
+      "database rewind",
+      "legacy scientific scheduler restart"
+    ],
+    "recovery": "Halt admission, preserve the current ledger, then reactivate a verified schema-compatible runtime with a new request ID."
+  },
+  "source_merges": [
+    {
+      "pr": 142,
+      "commit": "c364b66a6a8cced725b88dae52a6f645ae61a666"
+    },
+    {
+      "pr": 143,
+      "commit": "f9e91c0cf3c9eaf25056e3ce7ef989be36bf9194"
+    }
+  ],
+  "verification": {
+    "baseline": "full committed tests + protected inventory + AST; ADR appliance 2026-11-27",
+    "canonical_state_mounted": false,
+    "checks": {
+      "ast-boundaries": true,
+      "environment-integrity": true,
+      "full-suite": true,
+      "protected-inventory": true,
+      "source-integrity": true
+    },
+    "command": [
+      "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "-n",
+      "4",
+      "--dist",
+      "worksteal",
+      "--tb=short",
+      "-o",
+      "addopts=",
+      "-o",
+      "cache_dir=/home/quant/dev/quant-lab-appliance/verification/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/pytest-cache",
+      "--junitxml=/home/quant/dev/quant-lab-appliance/verification/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/attempt-tryaf5g1/suite.xml",
+      "tests"
+    ],
+    "dependency_lock_sha256": "4ec2ad5bbb6dd00ebebc1c917e7c8af52cd9b7847c02135a4be19c36a7487ddd",
+    "environment": {
+      "identity": "af9e482bc80d2397879a9606a6ab94ffd7711dadbeb36adec7a0736896b44ab4",
+      "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+      "python_sha256": "dfd07dc263857d1abd26c12dd23bf67cb7bd55da6dd82a96416118365d6f048d"
+    },
+    "evidence_directory": "/home/quant/dev/quant-lab-appliance/verification/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/attempt-tryaf5g1",
+    "log_sha256": "b20a93c7426cc595ac5e3ba7c46932ef9aa36a1e06856e6db2a484413cc528b6",
+    "observed_at": 1795781249.0187757,
+    "ok": true,
+    "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+    "required_checks": [
+      "full-suite",
+      "protected-inventory",
+      "ast-boundaries",
+      "source-integrity",
+      "environment-integrity"
+    ],
+    "schema_version": 1,
+    "scientific_authority": false,
+    "source_error": null,
+    "suite": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 43,
+      "tests": 1450,
+      "xfail": 1
+    },
+    "suite_sha256": "7745f0dd086b7ef6cf740a8a475a58112b6d6a6e7bc5fc4b9ecb4f02326cb79b",
+    "test_source": "/home/quant/dev/quant-lab-appliance/verification/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/attempt-tryaf5g1/source",
+    "test_source_commit": "4a46bd2fc3a45bacda6788d634bcd774ececfad0",
+    "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8"
+  },
+  "test_summary": {
+    "passed": 1407,
+    "skipped": 42,
+    "expected_failures": [
+      {
+        "test": "tests.test_liquidation_episode_fixture::test_sparse_union_must_preserve_inactive_position",
+        "reason": "Reviewed untracked candidate counts inactive union bars as holding bars; scientific change requires approval"
+      }
+    ],
+    "warnings": 2261,
+    "seconds": 235.99,
+    "skips": {
+      "Historical pinned exploratory market Parquet not mounted; integration benchmark deferred": 1,
+      "IDM smoke call reads the operator-mounted multi-asset panel; set WARDEN_LIVE_DATA=1": 1,
+      "set AF30_LIVE_CHECKS=1 to run live-registry checks": 1,
+      "set FX_LIVE_CHECKS=1 to run live-registry checks": 1,
+      "Historical seeded research registry absent in this checkout": 4,
+      "set AF30_LIVE_CHECKS=1 to run; needs the live registry and market-data panels": 6,
+      "live market bytes not requested; set WARDEN_LIVE_DATA=1": 26,
+      "repository dataset probe needs data/exploratory; set WARDEN_LIVE_DATA=1": 1,
+      "CRYPTO_PERPS_TOP100_1H_V1 exploratory parquet not present": 1
+    },
+    "expected_failure_count": 1
+  },
+  "prior_failures": [
+    {
+      "release": "a05e292f5eb48a8ed8f7b130c019661e6a89e0e00bea99cace596e34d9eab3a1",
+      "failures": 101,
+      "reason": "Verifier forced runtime noninteractive context into synthetic approval tests and omitted installed project; corrected in 81b4bc2. Evidence retained in original inactive preflight home."
+    },
+    {
+      "release": "5672154fc2f170aec20c576642fb927b6586af95d1dd3fd1105caf4547221140",
+      "verification_id": "11454b5e719c11d10c8e324eefe04fb2dd38c9917f574243ccfd390a75be34e3",
+      "failures": 1,
+      "reason": "Stage 1 took 5.65s against unchanged 5s gate; isolated and complete reruns passed. Contention is an inference, not established causation."
+    },
+    {
+      "operation": "initial writer pause",
+      "result": "REFUSED before migration after systemd removed linked timer definition",
+      "remedy": "Same definition restored without enable/start; RED/GREEN regression and complete verification in 4a46bd2; actual corrected pause quiescent."
+    }
+  ],
+  "writer_pause": {
+    "after": {
+      "quant-social-research.service": {
+        "ActiveState": "inactive",
+        "FragmentPath": "/home/quant/.config/systemd/user/quant-social-research.service",
+        "LoadState": "loaded",
+        "MainPID": "0",
+        "UnitFileState": "linked"
+      },
+      "quant-social-research.timer": {
+        "ActiveState": "inactive",
+        "FragmentPath": "/home/quant/.config/systemd/user/quant-social-research.timer",
+        "LoadState": "loaded",
+        "UnitFileState": "linked"
+      }
+    },
+    "before": {
+      "quant-social-research.service": {
+        "ActiveState": "inactive",
+        "FragmentPath": "/home/quant/.config/systemd/user/quant-social-research.service",
+        "LoadState": "loaded",
+        "MainPID": "0",
+        "UnitFileState": "linked"
+      },
+      "quant-social-research.timer": {
+        "ActiveState": "failed",
+        "FragmentPath": "/home/quant/.config/systemd/user/quant-social-research.timer",
+        "LoadState": "loaded",
+        "UnitFileState": "linked"
+      }
+    },
+    "quiescent": true,
+    "restored_unit_links": [
+      "quant-social-research.timer"
+    ]
+  },
+  "canonical_migration": {
+    "backup": {
+      "counts": {
+        "attempt_receipts": 75,
+        "audit_evidence": 44,
+        "audit_reports": 9,
+        "causality_evidence": 11,
+        "contract_governance": 0,
+        "contract_search_state": 7,
+        "contracts": 20,
+        "feature_sets": 188,
+        "holdout_claims": 6,
+        "hypotheses": 153,
+        "qualifications": 6,
+        "screen_receipts": 119,
+        "selection_attempts": 244,
+        "spec_causality": 5,
+        "trial_dispositions": 3,
+        "trial_quarantine": 5,
+        "trials": 75
+      },
+      "integrity": "ok",
+      "opened_source_read_only": true,
+      "sha256": "2f2c868bd4174cc70c35231984ccd00de03773936781b5142de46e7b617ef25e",
+      "snapshot": "/home/quant/dev/quant-lab-appliance/transitions/ac-appliance-cutover-20261127-f_g75x49/before.db",
+      "source": "/home/quant/dev/quant-lab/registry/registry.db"
+    },
+    "rehearsal": {
+      "all_existing_tables_unchanged": true,
+      "idempotent": true,
+      "integrity": "ok",
+      "original_counts": {
+        "attempt_receipts": 75,
+        "audit_evidence": 44,
+        "audit_reports": 9,
+        "causality_evidence": 11,
+        "contract_governance": 0,
+        "contract_search_state": 7,
+        "contracts": 20,
+        "feature_sets": 188,
+        "holdout_claims": 6,
+        "hypotheses": 153,
+        "qualifications": 6,
+        "screen_receipts": 119,
+        "selection_attempts": 244,
+        "spec_causality": 5,
+        "trial_dispositions": 3,
+        "trial_quarantine": 5,
+        "trials": 75
+      },
+      "path": "/home/quant/dev/quant-lab-appliance/rehearsals/ac-appliance-cutover-20261127-f_g75x49/registry.db",
+      "source_schema": 2,
+      "target_schema": 10
+    },
+    "transition": {
+      "authority_model": "trusted-research-appliance",
+      "observed": {
+        "authority_model": "trusted-research-appliance",
+        "canonical_ledger": "/home/quant/dev/quant-lab/registry/registry.db",
+        "dependency_lock_sha256": "4ec2ad5bbb6dd00ebebc1c917e7c8af52cd9b7847c02135a4be19c36a7487ddd",
+        "environment": {
+          "identity": "af9e482bc80d2397879a9606a6ab94ffd7711dadbeb36adec7a0736896b44ab4",
+          "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+          "python_sha256": "dfd07dc263857d1abd26c12dd23bf67cb7bd55da6dd82a96416118365d6f048d"
+        },
+        "healthy": true,
+        "ledger_schema": 10,
+        "module_root": "/home/quant/dev/quant-lab-appliance/runtimes/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/src",
+        "observed_at": 1795781388.1066082,
+        "pid": 1824902,
+        "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+        "runtime_kind": "on-demand CLI",
+        "scientific_authority": false,
+        "sealed_access": false,
+        "source_commit": "4a46bd2fc3a45bacda6788d634bcd774ececfad0",
+        "status": "ACTIVE",
+        "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8"
+      },
+      "preservation": {
+        "all_existing_tables_unchanged": true,
+        "integrity": "ok",
+        "original_counts": {
+          "attempt_receipts": 75,
+          "audit_evidence": 44,
+          "audit_reports": 9,
+          "causality_evidence": 11,
+          "contract_governance": 0,
+          "contract_search_state": 7,
+          "contracts": 20,
+          "feature_sets": 188,
+          "holdout_claims": 6,
+          "hypotheses": 153,
+          "qualifications": 6,
+          "screen_receipts": 119,
+          "selection_attempts": 244,
+          "spec_causality": 5,
+          "trial_dispositions": 3,
+          "trial_quarantine": 5,
+          "trials": 75
+        },
+        "source_schema": 2,
+        "target_schema": 10
+      },
+      "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+      "request_id": "ac-appliance-cutover-20261127",
+      "scientific_authority": false,
+      "state": "ACTIVE",
+      "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8"
+    }
+  },
+  "final_preservation": {
+    "head": "b1322ff996b0e31dfd6ac8576f59f1dd063e557b",
+    "source_status_unchanged": true,
+    "source_files": 1290,
+    "source_sha256": "d9b33033c5c7f8d7e6729083ee629da14840c969f553e947504ab0d83bb8b360",
+    "source_allowlist": [
+      ".agents",
+      ".workspace",
+      "adapters",
+      "contracts",
+      "docs",
+      "experiments",
+      "resources",
+      "scripts",
+      "src",
+      "strategies",
+      "tests",
+      ".github",
+      ".gitignore",
+      ".warden_manifest.sha256",
+      ".warden_manifest.sha256.meta.json",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md",
+      "CONTEXT.md",
+      "CONTEXT-MAP.md",
+      "AGENT_RUNBOOK.md",
+      "CHANGELOG.md",
+      "STAGE3_CAMPAIGN_PROMPT.md",
+      "pyproject.toml",
+      "uv.lock"
+    ],
+    "evidence_files": 77,
+    "evidence_sha256": "9c1a069e3a6c237fb7140329c97c6d182e4195a6137cf1a5ebcf1da9426c8f7e",
+    "changed_source_or_evidence": [],
+    "ledger_schema": 10,
+    "ledger_integrity": "ok",
+    "ledger_physical": {
+      "registry.db": "86ee4e794acba0ac49ddd0e17e6258b7b1266ce9ec42bdad37cc081e795016e0"
+    },
+    "preservation": {
+      "all_existing_tables_unchanged": true,
+      "integrity": "ok",
+      "original_counts": {
+        "attempt_receipts": 75,
+        "audit_evidence": 44,
+        "audit_reports": 9,
+        "causality_evidence": 11,
+        "contract_governance": 0,
+        "contract_search_state": 7,
+        "contracts": 20,
+        "feature_sets": 188,
+        "holdout_claims": 6,
+        "hypotheses": 153,
+        "qualifications": 6,
+        "screen_receipts": 119,
+        "selection_attempts": 244,
+        "spec_causality": 5,
+        "trial_dispositions": 3,
+        "trial_quarantine": 5,
+        "trials": 75
+      },
+      "source_schema": 2,
+      "target_schema": 10
+    },
+    "added_columns": {
+      "contract_governance": [
+        "group_source"
+      ],
+      "contracts": [
+        "policy"
+      ]
+    },
+    "added_tables": {
+      "candidate_admissions": 0,
+      "candidate_intent_bindings": 0,
+      "candidate_operations": 0,
+      "conformance_reviews": 0,
+      "control_job_events": 0,
+      "control_jobs": 0,
+      "control_request_errors": 0,
+      "control_request_links": 0,
+      "control_requests": 0,
+      "control_resource_policy": 0,
+      "holdout_batch_outcomes": 0,
+      "holdout_batch_reads": 0,
+      "holdout_batches": 0,
+      "holdout_exposures": 6,
+      "holdout_legacy_scopes": 0,
+      "hypothesis_terminal": 0,
+      "research_intents": 0,
+      "robustness_outcomes": 0,
+      "robustness_plans": 0,
+      "robustness_receipts": 0
+    },
+    "counts": {
+      "attempt_receipts": 75,
+      "audit_evidence": 44,
+      "audit_reports": 9,
+      "candidate_admissions": 0,
+      "candidate_intent_bindings": 0,
+      "candidate_operations": 0,
+      "causality_evidence": 11,
+      "conformance_reviews": 0,
+      "contract_governance": 0,
+      "contract_search_state": 7,
+      "contracts": 20,
+      "control_job_events": 0,
+      "control_jobs": 0,
+      "control_request_errors": 0,
+      "control_request_links": 0,
+      "control_requests": 0,
+      "control_resource_policy": 0,
+      "feature_sets": 188,
+      "holdout_batch_outcomes": 0,
+      "holdout_batch_reads": 0,
+      "holdout_batches": 0,
+      "holdout_claims": 6,
+      "holdout_exposures": 6,
+      "holdout_legacy_scopes": 0,
+      "hypotheses": 153,
+      "hypothesis_terminal": 0,
+      "qualifications": 6,
+      "research_intents": 0,
+      "robustness_outcomes": 0,
+      "robustness_plans": 0,
+      "robustness_receipts": 0,
+      "screen_receipts": 119,
+      "selection_attempts": 244,
+      "spec_causality": 5,
+      "trial_dispositions": 3,
+      "trial_quarantine": 5,
+      "trials": 75
+    },
+    "market_data_tree_traversed": false
+  },
+  "live_recovery": {
+    "identical_request_returned_original": true,
+    "halt": {
+      "database_rewound": false,
+      "reason": "AC-10 controlled recovery verification",
+      "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+      "state": "HALTED"
+    },
+    "halt_observed": "HALTED",
+    "admission_while_halted": {
+      "returncode": 2,
+      "stderr": "",
+      "value": {
+        "reason": "appliance is not healthy: HALTED",
+        "scientific_authority": false,
+        "state": "REFUSED"
+      }
+    },
+    "reactivation": {
+      "authority_model": "trusted-research-appliance",
+      "observed": {
+        "authority_model": "trusted-research-appliance",
+        "canonical_ledger": "/home/quant/dev/quant-lab/registry/registry.db",
+        "dependency_lock_sha256": "4ec2ad5bbb6dd00ebebc1c917e7c8af52cd9b7847c02135a4be19c36a7487ddd",
+        "environment": {
+          "identity": "af9e482bc80d2397879a9606a6ab94ffd7711dadbeb36adec7a0736896b44ab4",
+          "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+          "python_sha256": "dfd07dc263857d1abd26c12dd23bf67cb7bd55da6dd82a96416118365d6f048d"
+        },
+        "healthy": true,
+        "ledger_schema": 10,
+        "module_root": "/home/quant/dev/quant-lab-appliance/runtimes/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/src",
+        "observed_at": 1795781514.5298839,
+        "pid": 1826582,
+        "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+        "runtime_kind": "on-demand CLI",
+        "scientific_authority": false,
+        "sealed_access": false,
+        "source_commit": "4a46bd2fc3a45bacda6788d634bcd774ececfad0",
+        "status": "ACTIVE",
+        "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8"
+      },
+      "preservation": {
+        "all_existing_tables_unchanged": true,
+        "integrity": "ok",
+        "original_counts": {
+          "attempt_receipts": 75,
+          "audit_evidence": 44,
+          "audit_reports": 9,
+          "candidate_admissions": 0,
+          "candidate_intent_bindings": 0,
+          "candidate_operations": 0,
+          "causality_evidence": 11,
+          "conformance_reviews": 0,
+          "contract_governance": 0,
+          "contract_search_state": 7,
+          "contracts": 20,
+          "control_job_events": 0,
+          "control_jobs": 0,
+          "control_request_errors": 0,
+          "control_request_links": 0,
+          "control_requests": 0,
+          "control_resource_policy": 0,
+          "feature_sets": 188,
+          "holdout_batch_outcomes": 0,
+          "holdout_batch_reads": 0,
+          "holdout_batches": 0,
+          "holdout_claims": 6,
+          "holdout_exposures": 6,
+          "holdout_legacy_scopes": 0,
+          "hypotheses": 153,
+          "hypothesis_terminal": 0,
+          "qualifications": 6,
+          "research_intents": 0,
+          "robustness_outcomes": 0,
+          "robustness_plans": 0,
+          "robustness_receipts": 0,
+          "screen_receipts": 119,
+          "selection_attempts": 244,
+          "spec_causality": 5,
+          "trial_dispositions": 3,
+          "trial_quarantine": 5,
+          "trials": 75
+        },
+        "source_schema": 10,
+        "target_schema": 10
+      },
+      "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+      "request_id": "ac-appliance-recovery-20261127",
+      "scientific_authority": false,
+      "state": "ACTIVE",
+      "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8"
+    },
+    "final": {
+      "authority_model": "trusted-research-appliance",
+      "canonical_ledger": "/home/quant/dev/quant-lab/registry/registry.db",
+      "dependency_lock_sha256": "4ec2ad5bbb6dd00ebebc1c917e7c8af52cd9b7847c02135a4be19c36a7487ddd",
+      "environment": {
+        "identity": "af9e482bc80d2397879a9606a6ab94ffd7711dadbeb36adec7a0736896b44ab4",
+        "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+        "python_sha256": "dfd07dc263857d1abd26c12dd23bf67cb7bd55da6dd82a96416118365d6f048d"
+      },
+      "healthy": true,
+      "ledger_schema": 10,
+      "module_root": "/home/quant/dev/quant-lab-appliance/runtimes/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/src",
+      "observed_at": 1795781518.7581613,
+      "pid": 1826657,
+      "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+      "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+      "runtime_kind": "on-demand CLI",
+      "scientific_authority": false,
+      "sealed_access": false,
+      "source_commit": "4a46bd2fc3a45bacda6788d634bcd774ececfad0",
+      "status": "ACTIVE",
+      "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8"
+    },
+    "ledger_sha_after_cutover_and_recovery_equal": true
+  },
+  "runtime": {
+    "authority_model": "trusted-research-appliance",
+    "canonical_ledger": "/home/quant/dev/quant-lab/registry/registry.db",
+    "dependency_lock_sha256": "4ec2ad5bbb6dd00ebebc1c917e7c8af52cd9b7847c02135a4be19c36a7487ddd",
+    "environment": {
+      "identity": "af9e482bc80d2397879a9606a6ab94ffd7711dadbeb36adec7a0736896b44ab4",
+      "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+      "python_sha256": "dfd07dc263857d1abd26c12dd23bf67cb7bd55da6dd82a96416118365d6f048d"
+    },
+    "healthy": true,
+    "ledger_schema": 10,
+    "module_root": "/home/quant/dev/quant-lab-appliance/runtimes/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/src",
+    "observed_at": 1795781715.7692983,
+    "pid": 1829203,
+    "python": "/home/quant/dev/quant-lab-appliance/envs/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/bin/python",
+    "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+    "runtime_kind": "on-demand CLI",
+    "scientific_authority": false,
+    "sealed_access": false,
+    "source_commit": "4a46bd2fc3a45bacda6788d634bcd774ececfad0",
+    "status": "ACTIVE",
+    "verification_id": "e396a3b82f1970963d25f5baaaeb82bc839af978cbf15ae4d1e21c52d346abd8"
+  },
+  "configured_writers": {
+    "quant-social-research.service": {
+      "ActiveState": "inactive",
+      "FragmentPath": "/home/quant/.config/systemd/user/quant-social-research.service",
+      "LoadState": "loaded",
+      "MainPID": "0",
+      "UnitFileState": "linked"
+    },
+    "quant-social-research.timer": {
+      "ActiveState": "inactive",
+      "FragmentPath": "/home/quant/.config/systemd/user/quant-social-research.timer",
+      "LoadState": "loaded",
+      "UnitFileState": "linked"
+    }
+  },
+  "lifecycle_events": [
+    {
+      "created_at": 1795779860.5513763,
+      "kind": "installed",
+      "subject": "5672154fc2f170aec20c576642fb927b6586af95d1dd3fd1105caf4547221140"
+    },
+    {
+      "created_at": 1795780160.3104696,
+      "kind": "verified",
+      "subject": "5672154fc2f170aec20c576642fb927b6586af95d1dd3fd1105caf4547221140"
+    },
+    {
+      "created_at": 1795780420.7410173,
+      "kind": "verified",
+      "subject": "5672154fc2f170aec20c576642fb927b6586af95d1dd3fd1105caf4547221140"
+    },
+    {
+      "created_at": 1795780462.054685,
+      "kind": "installed",
+      "subject": "dbc4d8fd3fbaf665b48317d12eae5ddbc51ba67aa6e4bdb94c5da7ca84e2381f"
+    },
+    {
+      "created_at": 1795780679.010326,
+      "kind": "verified",
+      "subject": "dbc4d8fd3fbaf665b48317d12eae5ddbc51ba67aa6e4bdb94c5da7ca84e2381f"
+    },
+    {
+      "created_at": 1795780791.8288805,
+      "kind": "writers-pause-intent",
+      "subject": "configured-writers"
+    },
+    {
+      "created_at": 1795780999.3538237,
+      "kind": "installed",
+      "subject": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+    },
+    {
+      "created_at": 1795781249.0278563,
+      "kind": "verified",
+      "subject": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+    },
+    {
+      "created_at": 1795781329.2452157,
+      "kind": "writers-pause-intent",
+      "subject": "configured-writers"
+    },
+    {
+      "created_at": 1795781329.9282727,
+      "kind": "writer-unit-link-restored",
+      "subject": "quant-social-research.timer"
+    },
+    {
+      "created_at": 1795781329.9595666,
+      "kind": "writers-observed",
+      "subject": "configured-writers"
+    },
+    {
+      "created_at": 1795781384.559789,
+      "kind": "transition-intent",
+      "subject": "ac-appliance-cutover-20261127"
+    },
+    {
+      "created_at": 1795781385.1063733,
+      "kind": "migration-complete",
+      "subject": "ac-appliance-cutover-20261127"
+    },
+    {
+      "created_at": 1795781388.213585,
+      "kind": "transition-result",
+      "subject": "ac-appliance-cutover-20261127"
+    },
+    {
+      "created_at": 1795781499.274422,
+      "kind": "halted",
+      "subject": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+    },
+    {
+      "created_at": 1795781510.9841871,
+      "kind": "transition-intent",
+      "subject": "ac-appliance-recovery-20261127"
+    },
+    {
+      "created_at": 1795781511.5886471,
+      "kind": "migration-complete",
+      "subject": "ac-appliance-recovery-20261127"
+    },
+    {
+      "created_at": 1795781514.6613328,
+      "kind": "transition-result",
+      "subject": "ac-appliance-recovery-20261127"
+    }
+  ],
+  "measurements": {
+    "idle": {
+      "max_seconds": 9.495513718982693,
+      "median_seconds": 8.741819989023497,
+      "peak_rss_mb": 243.83203125,
+      "response_bytes": 8784,
+      "samples": 3
+    },
+    "contended": {
+      "max_seconds": 10.1880701110058,
+      "median_seconds": 8.710350169014418,
+      "peak_rss_mb": 243.99609375,
+      "response_bytes": 8784,
+      "samples": 3
+    },
+    "over_capacity": "BUSY",
+    "workers": [
+      {
+        "claimed": false,
+        "details": {
+          "limit_exceeded": false,
+          "outcome": "operational completion; inspect domain verdict",
+          "receipt": {
+            "fixture": "FINISHED"
+          },
+          "usage": {
+            "cpu_seconds": 20.056953,
+            "elapsed_seconds": 20.23097785699065,
+            "io_bytes": 99295,
+            "peak_rss_mb": 71.7578125
+          }
+        },
+        "fence": "fea6c5b12379483c9ce88e0f73468426",
+        "job_id": "one",
+        "objective": "finish fixture",
+        "resources": {
+          "cpu": 1,
+          "io_mb": 64,
+          "memory_mb": 128,
+          "wall_seconds": 30
+        },
+        "resources_held": false,
+        "retry_allowed": false,
+        "scientific_authority": "existing domain receipt only",
+        "state": "FINISHED",
+        "updated_at": 1795781600.1598802
+      },
+      {
+        "claimed": false,
+        "details": {
+          "limit_exceeded": false,
+          "outcome": "operational completion; inspect domain verdict",
+          "receipt": {
+            "fixture": "FINISHED"
+          },
+          "usage": {
+            "cpu_seconds": 19.915301,
+            "elapsed_seconds": 20.14896681299433,
+            "io_bytes": 99295,
+            "peak_rss_mb": 71.7578125
+          }
+        },
+        "fence": "b357bf46ce1c442d915ac11e4d4a93fa",
+        "job_id": "two",
+        "objective": "finish fixture",
+        "resources": {
+          "cpu": 1,
+          "io_mb": 64,
+          "memory_mb": 128,
+          "wall_seconds": 30
+        },
+        "resources_held": false,
+        "retry_allowed": false,
+        "scientific_authority": "existing domain receipt only",
+        "state": "FINISHED",
+        "updated_at": 1795781600.092312
+      }
+    ],
+    "all_samples_zero_scientific_writes": true,
+    "foreground_cpu_reservation": 1,
+    "worker_count": 2,
+    "worker_duration_seconds": 20,
+    "cache_reset": false,
+    "limitations": "Three fresh processes per condition, pinned foreground CPU and 1GiB limit. All contended samples began while workers ran; the last overlaps their completion. Process-tree CPU/I/O are lower bounds. Actual installed verification cost is included; no speedup claim."
+  },
+  "scientific_limits": [
+    "JUDGE_UNAVAILABLE where genuine independent evidence is absent",
+    "6 legacy exposures retain unknown detailed scope; 0 scope attestations and 0 frozen batches",
+    "2 local-only unused contract identities remain unresolved, preserved at canonical checkout",
+    "42 intentional data/live-fixture skips and the existing scientific expected failure",
+    "legacy scientific timer remains disabled/inactive until governed admission is eligible",
+    "no sealed access, historical attestation, capital allocation or trading authorization"
+  ],
+  "provenance_limits": "Local receipts are owner-operated engineering evidence. Same-host malicious-agent isolation and independent release authentication are not claimed. Environment identity hashes Python bytes and installed names/versions with a locked noneditable installation, not every installed package file.",
+  "private_raw_evidence_root": ".workspace/evidence/",
+  "raw_suite_artifacts": "/home/quant/dev/quant-lab-appliance/verification/117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76/attempt-tryaf5g1"
+}

@@ -1,8 +1,9 @@
 # Agent control: implemented source and operational boundaries
 
-This guide describes AC-01–09 source behavior. It does not attest a production
-installation. The approved architecture, contracts and acceptance matrix remain
-in AGENT-CONTROL-PLAN.md. Engineering tests use isolated synthetic fixtures.
+This guide describes the AC source and maintenance lifecycle. The
+[appliance acceptance and cutover report](AGENT-CONTROL-APPLIANCE-ACCEPTANCE-20261127.md)
+records the actual installed runtime, canonical migration, preservation and live recovery.
+The approved architecture, contracts and acceptance matrix remain in AGENT-CONTROL-PLAN.md. Engineering tests use isolated synthetic fixtures.
 The original scientific ledger and its existing Warden/ML4T owners remain authoritative.
 
 ## One typed application
@@ -183,9 +184,10 @@ ceiling and bounded child memory. It performs no strategy scoring and refuses
 sealed paths/symlinks. Staging is a measured experiment; the production gateway
 and its exact-byte/fence behavior are unchanged.
 
-Measured evidence is in `docs/evidence/ac-*-20261127.json`. The
-[acceptance report](AGENT-CONTROL-ACCEPTANCE-20261127.md) maps every A01–A25 criterion
-to its witness or external blocker. The [consolidated AC-10 decision](AGENT-CONTROL-CUTOVER-20261127.md)
-binds the exact frozen source candidate, verification omissions and migration evidence.
-Source integration, authority integration, production activation and scientific
+Current evidence is in [the appliance record](evidence/ac-appliance-20261127.json) and
+[acceptance/cutover report](AGENT-CONTROL-APPLIANCE-ACCEPTANCE-20261127.md), including every
+A01–A25 disposition, exact deployed identity, omissions, migration and recovery.
+The [original acceptance](AGENT-CONTROL-ACCEPTANCE-20261127.md) and
+[original blocked decision](AGENT-CONTROL-CUTOVER-20261127.md) remain historical.
+Source integration, maintenance authorization, production activation and scientific
 qualification remain separate completion states.

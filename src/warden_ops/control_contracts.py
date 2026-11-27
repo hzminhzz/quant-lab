@@ -105,7 +105,7 @@ class Enqueue(Act):
 
 class JobStatus(StrictModel):
     schema_version: Literal[1]
-    operation: Literal["job-status", "cancel-job"]
+    operation: Literal["job-status", "cancel-job", "recover-job"]
     job_id: Identifier
 
 
@@ -178,6 +178,8 @@ def capabilities() -> dict:
          "durable fenced progress and resource receipt", True),
         ("cancel-job", "warden_ops.jobs.JobQueue", False, "operational cancellation",
          "retain admitted or uncertain science; release capacity only after observed exit", True),
+        ("recover-job", "warden_ops.jobs.JobQueue", False, "operational recovery",
+         "verify inherited lease and process-session exit; never replay or refund science", True),
         ("receipt", "warden.registry.ResearchRegistry", False, "authorized metadata",
          "original domain receipt", True),
         ("reconcile", "warden.registry.ResearchRegistry", True, "explicit interrupted disposition",

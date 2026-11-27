@@ -66,7 +66,8 @@ def _group_alive(group):
     return False
 
 
-def run_bounded(command, *, cwd, env, output, limits, heartbeat=None, cpu_ids=None):
+def run_bounded(command, *, cwd, env, output, limits, heartbeat=None, cpu_ids=None,
+                ownership_fd=None, on_spawn=None):
     """Only trusted owners supply commands. Reap before returning or raising."""
     started = time.monotonic()
     peak, io_bytes, output_bytes, cpu_seconds = 0., 0, 0, 0.
@@ -83,9 +84,31 @@ def run_bounded(command, *, cwd, env, output, limits, heartbeat=None, cpu_ids=No
             # Pin before the command can spawn children; parent-side affinity
             # changes after Popen have an inheritance race.
             pinned = ["/usr/bin/taskset", "--cpu-list", ",".join(map(str, sorted(cpus))), *command]
-            proc = subprocess.Popen(pinned, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
-                                    start_new_session=True, close_fds=True)
-            process_exited = False
+            if ownership_fd is None:
+                if on_spawn is not None:
+                    raise ValueError("worker publication requires an ownership lease")
+                proc = subprocess.Popen(pinned, cwd=cwd, env=env, stdout=stdout, stderr=stderr,
+                                        start_new_session=True, close_fds=True)
+                process_exited = False
+            else:
+                from warden_ops.job_ownership import gated_command, process_identity
+
+                if on_spawn is None:
+                    raise ValueError("gated launch requires durable session publication")
+                read_fd, write_fd = os.pipe()
+                try:
+                    proc = subprocess.Popen(gated_command(pinned, read_fd), cwd=cwd, env=env,
+                                            stdout=stdout, stderr=stderr, start_new_session=True,
+                                            close_fds=True, pass_fds=(read_fd, ownership_fd))
+                    process_exited = False
+                    os.close(read_fd)
+                    read_fd = None
+                    on_spawn(process_identity(proc.pid))
+                    os.write(write_fd, b"1")
+                finally:
+                    if read_fd is not None:
+                        os.close(read_fd)
+                    os.close(write_fd)
             while True:
                 pid, status, reaped_usage = os.wait4(proc.pid, os.WNOHANG)
                 if pid:

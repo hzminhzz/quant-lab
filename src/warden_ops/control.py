@@ -145,7 +145,7 @@ class Control:
             request = parse_request(payload)
         except (ValidationError, ValueError, TypeError) as exc:
             return self.refuse("TECHNICAL_PRE_ADMISSION", str(exc))
-        if request.operation in {"act", "reconcile", "enqueue", "cancel-job"}:
+        if request.operation in {"act", "reconcile", "enqueue", "cancel-job", "recover-job"}:
             from warden_ops.runtime_boundary import require_mutation_context
 
             try:
@@ -160,7 +160,7 @@ class Control:
         if request.operation == "inspect" and request.view == "findings":
             from warden_ops.findings import inspect_findings
             return inspect_findings(self, request)
-        if request.operation in {"enqueue", "job-status", "cancel-job"}:
+        if request.operation in {"enqueue", "job-status", "cancel-job", "recover-job"}:
             from warden.lease import MutationBusy
             from warden_ops.jobs import JobQueue
             from warden_ops.runtime_boundary import operational_admission
@@ -178,10 +178,14 @@ class Control:
                                              resources=request.plan.resources)
                     elif request.operation == "cancel-job":
                         value = queue.cancel(request.job_id)
+                    elif request.operation == "recover-job":
+                        from warden_ops.control_actions import receipt
+
+                        value = queue.recover(request.job_id, receipt=lambda: receipt(self, request.job_id))
                     else:
                         value = queue.status(request.job_id)
                 return Result(ok=True, status="OK", observed_at=time.time(), value=value,
-                              next_actions=["job-status", "receipt"]).model_dump(mode="json")
+                              next_actions=["job-status", "receipt", "recover-job"]).model_dump(mode="json")
             except MutationBusy as exc:
                 return self.refuse("BUSY", str(exc), retry="backoff; lookup receipt before retry")
             except (OSError, ValueError, sqlite3.Error) as exc:

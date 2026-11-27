@@ -27,6 +27,7 @@ strategy modules be committed and unchanged under the allowlisted paths.
 | enqueue | Persist a bounded objective and exact action plan; science is admitted only on dispatch |
 | job-status | Read durable progress, resource reservations, fence, costs and stop disposition |
 | cancel-job | Cancel an undispatched job or request a running owner to stop; free resources only after actual exit |
+| recover-job | Reconcile an abandoned supervisor using its durable lease and process-session identity; retain capacity if exit is unverified |
 
 `ok` describes completion of the requested interface operation. A completed
 screen can have `recorded_verdict=REJECT`. It is not eligible to advance because
@@ -67,9 +68,14 @@ CPU affinity, per-process address-space/CPU/file-size limits, wall time, sampled
 tree RSS/I/O limits, and cancellation checks. Thread-pool environment limits are
 explicit, and CPU affinity is applied before the child command can fork.
 Cancellation, expiry and missing heartbeats retain resource reservations until
-the trusted supervisor verifies the owned process group has stopped. Parent exit
-alone is insufficient; surviving children are terminated, and unconfirmed exit
-keeps capacity held. No lease expiry grants a new scientific attempt.
+actual exit is verified. A job's supervisor and gated worker share a durable-inode
+lease; the worker cannot start before its boot/PID/start-tick/session identity is
+committed. Parent death kills the worker leader; surviving session members retain
+capacity. Use `recover-job` with the original `job_id` after an interrupted owner.
+It refuses while the lease is held, retains uncertain sessions, and appends a
+STOPPED_REVIEW event only after proving exit or that dispatch was never released.
+It never signals an ambiguous/reused PID, refunds science, or reruns a request.
+Legacy claims without ownership evidence remain held for explicit review.
 
 Resource receipts state what was measured. Per-process wait4 cost is combined with
 descendant samples; process-tree CPU and logical I/O are lower bounds. Sampled RSS
@@ -122,10 +128,17 @@ They are not a second supported release path.
 2. Commit reviewed source. Build an immutable candidate with the existing builder; integrate
    only after the full candidate gate, then verify the exact integrated commit for activation.
    Prepare a separate environment for this release outside the mutable checkout. Use
-   `UV_PROJECT_ENVIRONMENT=HOME/envs/RELEASE_ID uv sync --frozen --no-editable --project CANDIDATE`,
+   `UV_PROJECT_ENVIRONMENT=HOME/envs/RELEASE_ID uv sync --frozen --no-editable --link-mode copy --project CANDIDATE`,
    then the same command with `--check`. Install the project as well as its locked dependencies:
    subprocess regressions exercise the installed CLI without relying on `PYTHONPATH`.
    Preserve prior environments; each release's interpreter binding is immutable.
+   Copy rather than hardlink package files so an in-place dependency edit cannot
+   change another release or the shared package cache. The verification receipt
+   binds the installed tree's actual file bytes, executable modes, import roots,
+   interpreter bytes and package metadata, including unlisted files and bytecode.
+   Recompute this fingerprint at each health/admission check; do not substitute
+   version metadata or a persistent stale proof. This adds measured I/O and does
+   not establish integrity of every shared host OS library or base standard library.
 3. Use `warden appliance install --home HOME --source CHECKOUT --candidate CANDIDATE
    --canonical CANONICAL_ROOT --python LOCKED_PYTHON --writer-unit UNIT ...`.
    Installation creates a separate sparse Git runtime and explicit canonical state bindings.
@@ -189,9 +202,9 @@ maximum 20 events). Use `--after SEQUENCE --limit N` for ordered pagination and
 `--full` only when complete raw receipts are required. The summary links each event
 to its sequence and payload digest; the append-only operations journal retains all
 details. In DevSpace, inspect compact JSON/selected fields rather than dumping complete
-preservation manifests or test logs. A pre-AM release requires the original verified
-recovery module or a freshly verified forward repair; do not reinterpret its old
-receipt as satisfying the new gate.
+preservation manifests or test logs. A release predating the installed-environment byte identity requires its original
+verification module or a freshly verified forward repair; do not reinterpret its
+older receipt as satisfying the stronger gate.
 
 The lifecycle journal is operational evidence. It confers no research-intent approval, independent
 conformance, historical attestation, batch/read grant, contract promotion or trading authority.

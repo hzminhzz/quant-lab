@@ -274,14 +274,21 @@ def protected_manifest_entries(repo_root: Path = Path(".")) -> dict[str, Path]:
     This is the single source of truth shared by manifest generation and verification, so a
     newly added file under a protected directory can never be silently absent from the set.
     """
+    from warden.codeid import source_path
+
     repo = Path(repo_root)
     entries: dict[str, Path] = {}
     for pattern in _PROTECTED_GLOBS:
+        # Validate the fixed directory prefix before glob can enter it.
+        prefix = pattern.split("*", 1)[0].rstrip("/")
+        if prefix:
+            source_path(repo, prefix)
         for path in sorted(repo.glob(pattern)):
-            if path.is_file():
-                entries[path.relative_to(repo).as_posix()] = path
+            rel = path.relative_to(repo).as_posix()
+            if source_path(repo, rel).is_file():
+                entries[rel] = path
     for rel in _PROTECTED_FILES:
-        path = repo / rel
+        path = source_path(repo, rel)
         if path.is_file():
             entries[rel] = path
     return entries
@@ -401,7 +408,10 @@ def check_worktree(repo_root: Path = Path(".")) -> bool:
     listed = _parse_manifest(manifest)
     if listed is None:
         return False
-    protected = protected_manifest_entries(repo)
+    try:
+        protected = protected_manifest_entries(repo)
+    except (OSError, ValueError):
+        return False
     # Exact set equality: an unlisted new file under a protected directory, a manifest entry
     # whose file disappeared, and a stale manifest are all integrity failures.
     if set(listed) != set(protected):

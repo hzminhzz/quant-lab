@@ -80,7 +80,7 @@ def test_the_built_wheel_imports_the_new_modules_outside_the_repo(tmp_path: Path
         "print(warden.__file__)"
     )
     probe = subprocess.run(
-        [sys.executable, "-I", "-c", code],
+        [sys.executable, "-I", "-B", "-c", code],
         cwd=str(tmp_path),
         env=env,
         check=False,

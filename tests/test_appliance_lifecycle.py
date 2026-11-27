@@ -195,6 +195,12 @@ def test_active_runtime_refuses_dependency_drift(installed):
     site = Path(subprocess.check_output(
         [str(appliance.python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
         text=True).strip())
+    module = site / "warden_evidence/__init__.py"
+    original = module.read_bytes()
+    module.write_bytes(original + b"\n# same-version fixture drift\n")
+    assert appliance.observe()["healthy"] is False
+    module.write_bytes(original)
+    assert appliance.observe()["healthy"] is True
     metadata = site / "unexpected_fixture-1.0.dist-info"
     metadata.mkdir()
     (metadata / "METADATA").write_text("Name: unexpected-fixture\nVersion: 1.0\n")

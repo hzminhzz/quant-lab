@@ -57,44 +57,77 @@ def _declared_dependencies(tree: ast.Module) -> list[str]:
     return strings(consts.get("CODE_DEPENDENCIES"))
 
 
-def code_closure(repo_root: Path, module_path: str) -> tuple[str, list[str]]:
-    """Return (digest, sorted repo-relative paths) for the module and its local imports."""
-    repo_root = Path(repo_root).resolve()
-    entry = repo_root / module_path
+def source_path(root: Path, path: str | Path) -> Path:
+    """Validate a source reference before inspecting its target.
+
+    Do not resolve untrusted links: even stat'ing a sealed target is forbidden.
+    Source is local and unlinked; mutable dataset bindings are not source.
+    """
+    root = Path(root)
+    target = root / path
+    if not target.is_relative_to(root) or ".." in target.parts:
+        raise ValueError("protected or external input refused")
+    parts = target.relative_to(root).parts
+    # Python source can legitimately be named e.g. aaa_holdout.py. Dataset
+    # trees (including holdout staging) are never code or preparation inputs.
+    if (not parts or parts[0].lower() in {"data", "registry", "cache"}
+            or any("holdout" in part.lower() for part in parts[:-1])
+            or ("holdout" in parts[-1].lower() and target.suffix != ".py"
+                and parts != ("scripts", "lock_holdout_permissions.sh"))):
+        raise ValueError("protected or external input refused")
+    current = root
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("symlinked source input refused")
+    return target
+
+
+def code_inventory(repo_root: Path, module_path: str) -> dict[str, str]:
+    """Discover and hash allowed source once, using the same bytes for AST and identity."""
+    root = Path(repo_root).resolve()
+    entry = source_path(root, module_path)
     if not entry.is_file():
         raise FileNotFoundError(f"strategy module not found: {module_path}")
-
-    seen: set[Path] = set()
+    inventory = {}
     queue = [entry]
+
+    def include(candidate):
+        candidate = source_path(root, candidate)
+        if candidate.is_file():
+            queue.append(candidate)
+            return True
+        return False
+
     while queue:
         path = queue.pop()
-        path = path.resolve()
-        if path in seen:
+        rel = str(path.relative_to(root))
+        if rel in inventory:
             continue
-        seen.add(path)
+        raw = path.read_bytes()
+        inventory[rel] = hashlib.sha256(raw).hexdigest()
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = ast.parse(raw.decode("utf-8"))
         except SyntaxError:
             continue
         for name in _imported_names(tree):
             if name.startswith("."):
                 base = path.parent / name.lstrip(".")
                 for cand in (base.with_suffix(".py"), base / "__init__.py"):
-                    if cand.is_file():
-                        queue.append(cand)
+                    include(cand)
                 continue
             if name.split(".")[0] in _EXTERNAL_PREFIXES:
                 continue
             for cand in _candidate_paths(name, path.parent):
-                if cand.is_file():
-                    queue.append(cand)
+                if include(cand):
                     break
         for dep in _declared_dependencies(tree):
-            cand = repo_root / dep
-            if cand.is_file():
-                queue.append(cand)
+            include(root / dep)
+    return dict(sorted(inventory.items()))
 
-    rels = sorted(str(p.relative_to(repo_root)) for p in seen)
-    lines = [f"{rel} {hashlib.sha256((repo_root / rel).read_bytes()).hexdigest()}" for rel in rels]
-    digest = hashlib.sha256("\n".join(lines).encode()).hexdigest()
-    return digest, rels
+
+def code_closure(repo_root: Path, module_path: str) -> tuple[str, list[str]]:
+    """Preserve the historical closure identity for allowed source bytes."""
+    inventory = code_inventory(repo_root, module_path)
+    lines = [f"{rel} {sha}" for rel, sha in inventory.items()]
+    return hashlib.sha256("\n".join(lines).encode()).hexdigest(), list(inventory)

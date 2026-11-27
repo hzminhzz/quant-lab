@@ -23,6 +23,7 @@ from pathlib import Path
 from warden.lease import MutationBusy, mutation_lease
 from warden.registry import SCHEMA_VERSION, ResearchRegistry
 from warden_ops.control_contracts import digest
+from warden_ops.environment import environment_identity as _environment
 from warden_ops.integrity import check_ast_boundaries, check_worktree
 from warden_ops.ledger_maintenance import assert_preserved, backup_readonly, file_sha256, read_state
 from warden_ops.release import verify_candidate, verify_materialization
@@ -70,14 +71,6 @@ def _sync_dir(path):
 def _command(argv, *, cwd=None, env=None, timeout=30):
     return subprocess.run(argv, cwd=cwd, env=env, check=True, capture_output=True,
                           text=True, timeout=timeout).stdout.strip()
-
-
-def _environment(python):
-    code = ("import hashlib,importlib.metadata,json,sys;"
-            "p=sorted((d.metadata[\"Name\"],d.version) for d in importlib.metadata.distributions());"
-            "print(json.dumps({\"version\":sys.version,\"packages\":p}))")
-    value = json.loads(_command([str(python), "-I", "-c", code]))
-    return {"python": str(python), "python_sha256": file_sha256(python), "identity": digest(value)}
 
 
 class Appliance:

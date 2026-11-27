@@ -6,7 +6,7 @@ import json
 import os
 import time
 
-from warden.codeid import code_closure
+from warden.codeid import code_inventory, source_path
 from warden.lease import mutation_lease
 from warden.registry import ResearchRegistry
 from warden.schemas import load_experiment_spec
@@ -16,11 +16,9 @@ from warden_ops.integrity import check_worktree, protected_manifest_entries
 
 
 def safe_file(root, relative):
-    target = root / relative
-    if ("holdout" in str(relative).lower() or not target.resolve().is_relative_to(root)
-            or "holdout" in str(target.resolve()).lower()):
+    if "holdout" in str(relative).lower():
         raise ValueError("protected or external input refused")
-    return target
+    return source_path(root, relative)
 
 
 def revisions(control, action):
@@ -36,8 +34,7 @@ def revisions(control, action):
     paths.update({action.spec_path, ".workspace/memory/LESSONS.md",
                   "docs/research-outcomes/branch-result-index-v1.json",
                   ".warden_manifest.sha256"})
-    _, closure = code_closure(root, spec.strategy_module)
-    paths.update(closure)
+    inventory = code_inventory(root, spec.strategy_module)
     with registry._connect() as conn:
         intent = conn.execute("SELECT intent_json FROM research_intents WHERE hypothesis_id=?",
                               (spec.hypothesis_id,)).fetchone()
@@ -46,15 +43,19 @@ def revisions(control, action):
         if benchmark:
             paths.add(benchmark)
             benchmark_spec = load_experiment_spec(safe_file(root, benchmark))
-            _, closure = code_closure(root, benchmark_spec.strategy_module)
-            paths.update(closure)
-    for relative in sorted(paths):
-        target = safe_file(root, relative)
+            for relative, sha in code_inventory(root, benchmark_spec.strategy_module).items():
+                if relative in inventory and inventory[relative] != sha:
+                    raise ValueError("shared code changed during preparation")
+                inventory[relative] = sha
+    for relative in sorted(paths - inventory.keys()):
+        target = source_path(root, relative)
         h = hashlib.sha256()
         with target.open("rb") as handle:
             for block in iter(lambda: handle.read(1024 * 1024), b""):
                 h.update(block)
-        result.append(Revision(source="file:" + relative, sha256=h.hexdigest()))
+        inventory[relative] = h.hexdigest()
+    result.extend(Revision(source="file:" + relative, sha256=sha)
+                  for relative, sha in sorted(inventory.items()))
     result.append(Revision(source="registry-identity", sha256=digest(str(control.registry_path.resolve()))))
     return result
 

@@ -60,7 +60,7 @@ def environment_preflight(python, source, env):
         "print(json.dumps({'versions':{name:m.version(name) for name in names},"
         "'mismatch':mismatch}))"
     )
-    proc = subprocess.run([str(python), "-I", "-c", code, str(source)], cwd=source, env=env,
+    proc = subprocess.run([str(python), "-I", "-B", "-c", code, str(source)], cwd=source, env=env,
                           capture_output=True, text=True, check=False, timeout=30)
     if proc.returncode:
         raise ValueError("installed project/dependency import preflight failed: " + proc.stderr[-1000:])

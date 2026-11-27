@@ -77,7 +77,7 @@ class JobQueue:
             self._event(conn, job, "QUEUED", None, {"completion": "finalized domain receipt or durable stop disposition"})
             return self._status(conn, job)
 
-    def claim(self, job):
+    def claim(self, job, *, ownership=None):
         with self.registry._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             current = self._status(conn, job)
@@ -98,10 +98,57 @@ class JobQueue:
             if any("cpu_ids" not in item for item in held) or len(free) < request["cpu"]:
                 return {**current, "state": "BUSY", "retry_after_seconds": 5, "reservations": used}
             fence = uuid.uuid4().hex
-            self._event(conn, job, "RUNNING", fence, {"started_at": self.clock(), "usage": None, "cpu_ids": free[:request["cpu"]],
-                                                   "progress": {"completed": 0, "total": None}})
+            details = {"started_at": self.clock(), "usage": None, "cpu_ids": free[:request["cpu"]],
+                       "progress": {"completed": 0, "total": None}}
+            if ownership is not None:
+                details["ownership"] = ownership
+            self._event(conn, job, "RUNNING", fence, details)
             payload = json.loads(conn.execute("SELECT payload_json FROM control_jobs WHERE job_id=?", (job,)).fetchone()[0])
             return {**self._status(conn, job), "claimed": True, "payload": payload}
+
+    def register_worker(self, job, fence, identity):
+        """Publish the session before the gated worker receives permission."""
+        with self.registry._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = self._status(conn, job)
+            self._fence(current, fence)
+            details = current["details"]
+            if ("ownership" not in details or "worker" in details
+                    or identity["session"] != identity["pid"]):
+                raise ValueError("worker session ownership cannot be established")
+            self._event(conn, job, "RUNNING", fence, {**details, "worker": identity})
+
+    def recover(self, job, *, receipt):
+        """Inspect an abandoned job, never replay or release unproven capacity."""
+        from warden_ops.job_ownership import job_lease, stop_evidence
+
+        current = self.status(job)
+        if current["state"] not in _HELD:
+            return current
+        if not current["details"].get("ownership"):
+            return {**current, "recovery": "legacy or missing process ownership evidence; retain resources"}
+        try:
+            with job_lease(self.registry.db_path, job) as fd, self.registry._connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                current = self._status(conn, job)
+                if current["state"] not in _HELD:
+                    return current
+                evidence, reason = stop_evidence(current["details"], fd)
+                if evidence is None:
+                    # Do not fence a healthy supervisor merely because recovery
+                    # was requested. Missing evidence is not proof of exit.
+                    return {**current, "recovery": reason}
+                if not evidence["process_exited"]:
+                    details = {**current["details"], "recovery": evidence, "reason": reason}
+                    if current["state"] != "EXPIRED_UNKNOWN" or current["details"] != details:
+                        self._event(conn, job, "EXPIRED_UNKNOWN", current["fence"], details)
+                    return {**self._status(conn, job), "recovery": reason}
+                self._event(conn, job, "STOPPED_REVIEW", current["fence"],
+                            {**current["details"], "recovery": evidence, "receipt": receipt(),
+                             "reason": "abandoned supervisor recovered; retain scientific charge or uncertainty"})
+                return self._status(conn, job)
+        except FileNotFoundError:
+            return {**current, "recovery": "job lease evidence missing; retain resources"}
 
     @staticmethod
     def _usage(usage):

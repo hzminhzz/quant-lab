@@ -41,7 +41,25 @@ def qualify_candidate(
     if human_confirm_token != "YES_UNSEAL_HOLDOUT":
         raise PermissionError("Holdout unsealing requires confirmation token 'YES_UNSEAL_HOLDOUT'.")
 
+    from warden.contract_source import is_sandbox_contract
+
     reg = runner.registry
+    # The namespace refusal's only ledger act is one read of the run's contract id — there
+    # is no other way to learn which namespace a run belongs to.  Everything *after* that
+    # read is what it guarantees: no holdout claim, no eligibility verdict, no holdout stat
+    # and no replay.  Promotion into ``contracts/`` and the human re-sign are a separate,
+    # human-only step; this gate stays shut until then.
+    with reg._connect() as conn:
+        sandbox_row = conn.execute(
+            "SELECT contract_id FROM trials WHERE run_id = ?", (run_id,)
+        ).fetchone()
+    if sandbox_row is not None and is_sandbox_contract(runner.repo_root, sandbox_row[0]):
+        raise PermissionError(
+            f"Run ID '{run_id}' belongs to sandbox contract '{sandbox_row[0]}' under "
+            "contracts/sandbox/: a compiled exploratory artifact is never holdout-qualified. "
+            "Promote the contract and its dataset manifest into contracts/ and let the human "
+            "re-sign the manifest first."
+        )
     with reg._connect() as conn:
         t_row = conn.execute("SELECT * FROM trials WHERE run_id = ?", (run_id,)).fetchone()
         if not t_row:
@@ -74,7 +92,9 @@ def qualify_candidate(
         if q_row:
             raise HoldoutAlreadyUnsealedError(f"Lineage '{lineage_id}' was already unsealed by run '{q_row[1]}'.")
 
-    contract = runner.resolve_contract(cid)
+    contract = runner.resolve_active_contract(cid)
+    # Active lookup, not the recorded one: an archived contract can never be qualified,
+    # and the refusal names its archive location (#114).
     # Evidence tier is contract-owned.  A synthetic tier can never be qualified on
     # a production holdout, so it is refused before any claim or read begins.
     governance = resolve_contract_governance(contract, runner.repo_root)

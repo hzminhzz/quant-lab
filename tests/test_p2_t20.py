@@ -37,6 +37,7 @@ import yaml
 
 from warden import lifecycle as lifecycle_module
 from warden.cli import main as cli_main
+from warden.contract_source import all_contract_paths
 from warden.contracts import (
     ContractPolicy,
     EvaluationContract,
@@ -383,7 +384,7 @@ def test_shipped_registry_closes_exactly_the_declared_legacy_contracts() -> None
     # Every closed contract is a real, loadable contract document in this repo.
     from warden.contracts import load_contract
 
-    present = {load_contract(p).contract_id for p in REPO_ROOT.glob("contracts/*.yaml")}
+    present = {load_contract(p).contract_id for p in all_contract_paths(REPO_ROOT)}
     assert DEPRECATED | SURVIVORSHIP <= present
     # The replacement ids are new: they must not silently re-use a v1 contract id.
     assert not (set(REPLACEMENTS) & present)

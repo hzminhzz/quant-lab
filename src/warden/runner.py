@@ -15,6 +15,7 @@ import numpy as np
 import polars as pl
 
 from warden.codeid import code_closure
+from warden.contract_source import load_active_contract, load_recorded_contract
 from warden.contracts import (
     ENGINE_SIMULATION_EPOCH,
     EvaluationContract,
@@ -22,7 +23,6 @@ from warden.contracts import (
     HypothesisSpec,
     Stage1Report,
     canonical_json,
-    load_contract,
 )
 from warden.diagnostics import compute_shift_skill_pvalue, compute_trade_metrics
 from warden.engine_sim import (
@@ -438,11 +438,55 @@ class ExperimentRunner:
         self._stage0_vol_cache: dict[tuple[str, tuple[str, ...], int], float] = {}
 
     def resolve_contract(self, contract_id: str) -> EvaluationContract:
-        cid = contract_id.lower()
-        for p in [self.repo_root / "contracts" / f"{cid}.yaml", self.repo_root / "contracts" / f"{cid}.yml"]:
-            if p.is_file():
-                return load_contract(p)
-        raise FileNotFoundError(f"Contract not found: '{contract_id}'")
+        """**Recorded** lookup: the same bytes a past trial was recorded against.
+
+        Live first, then the read-only archive (#114), so ``status``/``spec-status``
+        readback and any replay of an archived contract keep resolving.  This is *not*
+        authorization for new work: execution paths call :meth:`resolve_active_contract`.
+
+        A compiled sandbox contract (#117) resolves too — registration, spec-status and the
+        advance/audit paths read the same document the trial was recorded against, and
+        ``qualify`` is the one gate that refuses the namespace.  A sandbox document is
+        sealed to its artifact here (see :mod:`warden.sandbox_seal`), so an edited YAML is
+        refused instead of executed.
+        """
+        contract = load_recorded_contract(self.repo_root, contract_id, allow_sandbox=True)
+        self._seal_sandbox_contract(contract)
+        return contract
+
+    def resolve_active_contract(self, contract_id: str) -> EvaluationContract:
+        """**Active** lookup: refuses an archived contract, naming its archive location.
+
+        A compiled sandbox contract (#117) resolves here on purpose: it may run the ordinary
+        pipeline (verify/screen/backtest/advance).  It is not *reusable* (the resolver reads
+        only live contracts) and not *qualifiable* (``qualify`` refuses the namespace), so
+        resolving it cannot promote un-promoted evidence.  Its bytes must still be the ones
+        it was compiled with: a sandbox contract is sealed to its artifact before it runs.
+        """
+        contract = load_active_contract(self.repo_root, contract_id, allow_sandbox=True)
+        self._seal_sandbox_contract(contract)
+        return contract
+
+    def _seal_sandbox_contract(self, contract: EvaluationContract) -> None:
+        """Refuse a sandbox contract whose document no longer matches its artifact (#117)."""
+        from warden.sandbox_seal import verify_sandbox_contract
+
+        verify_sandbox_contract(
+            self.repo_root,
+            contract,
+            registered_spec_hash=self._registered_spec_hash(contract.contract_id),
+        )
+
+    def _registered_spec_hash(self, contract_id: str) -> str | None:
+        """The contract digest this registry recorded, or ``None`` before first registration."""
+        try:
+            with self.registry._connect() as conn:
+                row = conn.execute(
+                    "SELECT spec_hash FROM contracts WHERE contract_id=?", (str(contract_id),)
+                ).fetchone()
+        except (OSError, sqlite3.Error):  # a projection with no contracts table yet
+            return None
+        return str(row[0]) if row and row[0] else None
 
     def _prepare_and_check_stage0(
         self, contract, hyp, hyp_id, family, strat_module, params, trials_used,
@@ -525,7 +569,7 @@ class ExperimentRunner:
         spec = load_experiment_spec(exp_yaml_path)
         if not spec.hypothesis_id:
             raise ValueError("Experiment spec must declare hypothesis_id for screening")
-        contract = self.resolve_contract(spec.contract_id)
+        contract = self.resolve_active_contract(spec.contract_id)
         hyp_id, family = spec.hypothesis_id, spec.strategy_family
         params = spec.parameters
         # Live runs are always stamped with the active engine epoch.  Historical
@@ -806,7 +850,7 @@ class ExperimentRunner:
         spec = load_experiment_spec(exp_yaml_path)
         if not spec.hypothesis_id:
             raise ValueError("Experiment spec must declare hypothesis_id for backtesting")
-        contract = self.resolve_contract(spec.contract_id)
+        contract = self.resolve_active_contract(spec.contract_id)
         hyp_id, family = spec.hypothesis_id, spec.strategy_family
         strat_name = spec.strategy_name or Path(exp_yaml_path).stem
         model_type, params = spec.model_type, spec.parameters

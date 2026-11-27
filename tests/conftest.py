@@ -11,6 +11,7 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import hashlib
 import json
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,6 +23,34 @@ import yaml
 
 from warden.contracts import EvaluationContract, HypothesisSpec, utc
 from warden.registry import ResearchRegistry
+
+
+def write_fixture_checksums(repo: Path, *protected_paths: str) -> None:
+    """Pin only the files declared by a scratch fixture; no approval or signature."""
+    lines = [f"{hashlib.sha256((repo / rel).read_bytes()).hexdigest()}  {rel}\n"
+             for rel in protected_paths]
+    (repo / ".warden_manifest.sha256").write_text("".join(lines), encoding="utf-8")
+
+
+@pytest.fixture
+def cli_repo(tmp_path: Path) -> Path:
+    """A scratch checkout with a real empty ledger and no production inputs."""
+    repo = tmp_path / "cli_repo"
+    repo.mkdir()
+    git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgSign=false",
+           "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid"]
+    subprocess.run([*git, "init", "-q"], cwd=repo, check=True)
+    subprocess.run([*git, "commit", "--allow-empty", "-qm", "fixture"], cwd=repo, check=True)
+    ResearchRegistry(repo / "registry/registry.db")
+    contract = "contracts/fixture.yaml"
+    (repo / contract).parent.mkdir()
+    panel_pin = hashlib.sha256(b"fixture-only panel identity").hexdigest()
+    (repo / contract).write_text(
+        f"contract_id: FIXTURE\ndata_snapshot_sha256: {panel_pin}\n", encoding="utf-8",
+    )
+    write_fixture_checksums(repo, contract)
+    return repo
+
 
 FLAT_MODULE = """
 from ml4t.backtest import Strategy

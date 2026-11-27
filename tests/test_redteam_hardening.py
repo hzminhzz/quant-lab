@@ -18,6 +18,7 @@ from warden.cli import (
     generate_manifest,
 )
 from warden.codeid import code_closure
+from warden.contract_source import load_active_contract, recorded_contract_path
 from warden.contracts import (
     EvaluationContract,
     ExperimentResult,
@@ -43,12 +44,18 @@ from warden.runner import (
 )
 from warden.synthetic import generate_canonical_market_panel
 
-CONTRACT_PATH = Path("contracts/crypto_perps_1h_v1.yaml")
+CONTRACT_PATH = recorded_contract_path(Path.cwd(), "CRYPTO_PERPS_1H_V1")
 
 
 @pytest.fixture
 def clean_contract() -> EvaluationContract:
     return load_contract(CONTRACT_PATH)
+
+
+@pytest.fixture
+def qualifiable_contract() -> EvaluationContract:
+    """A *live* contract: qualification is new work, so #114 refuses an archived id."""
+    return load_active_contract(Path.cwd(), "CRYPTO_PERPS_5M_V1")
 
 
 @pytest.fixture
@@ -196,20 +203,20 @@ def test_zero_and_negative_validation_sharpe_cannot_be_qualified(tmp_path: Path,
         qualify_candidate("RUN-ZERO", "YES_UNSEAL_HOLDOUT", runner, holdout_override_path=holdout_p)
 
 
-def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(tmp_path: Path, clean_contract, synthetic_panel) -> None:
+def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(tmp_path: Path, qualifiable_contract, synthetic_panel) -> None:
     """Unsealing a root hypothesis must lock all child and grandchild hypotheses in that lineage."""
     reg = ResearchRegistry(tmp_path / "reg.db")
     runner = ExperimentRunner(registry=reg, repo_root=Path("."))
-    reg.register_contract(clean_contract)
+    reg.register_contract(qualifiable_contract)
 
-    h_root = HypothesisSpec("HYP-RT", clean_contract.contract_id, "R", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit")
-    h_child = HypothesisSpec("HYP-CH", clean_contract.contract_id, "C", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit", parent_hypothesis_id="HYP-RT")
-    h_grand = HypothesisSpec("HYP-GD", clean_contract.contract_id, "G", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit", parent_hypothesis_id="HYP-CH")
+    h_root = HypothesisSpec("HYP-RT", qualifiable_contract.contract_id, "R", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit")
+    h_child = HypothesisSpec("HYP-CH", qualifiable_contract.contract_id, "C", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit", parent_hypothesis_id="HYP-RT")
+    h_grand = HypothesisSpec("HYP-GD", qualifiable_contract.contract_id, "G", "rules_ts", "Mechanism at least twenty chars", "Friction at least twenty chars", 8, "Crit", parent_hypothesis_id="HYP-CH")
     reg.register_hypothesis(h_root)
     reg.register_hypothesis(h_child)
     reg.register_hypothesis(h_grand)
 
-    r_root = ExperimentResult("RUN-RT-01", "HYP-RT", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market", strategy_code_sha256=code_closure(Path("."), "strategies/candidates/vol_breakout_1h.py")[0])
+    r_root = ExperimentResult("RUN-RT-01", "HYP-RT", qualifiable_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, qualifiable_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market", strategy_code_sha256=code_closure(Path("."), "strategies/candidates/vol_breakout_1h.py")[0])
     reg.record_trial(r_root, {}, np.zeros(100))
 
     holdout_p = tmp_path / "holdout.parquet"
@@ -220,7 +227,7 @@ def test_grandchild_hypothesis_cannot_re_unseal_root_lineage(tmp_path: Path, cle
     assert q1["lineage_id"] == "HYP-RT"
 
     # Attempting to unseal grandchild of the same root lineage must fail closed
-    r_grand = ExperimentResult("RUN-GD-01", "HYP-GD", clean_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, clean_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market", strategy_code_sha256=code_closure(Path("."), "strategies/candidates/vol_breakout_1h.py")[0])
+    r_grand = ExperimentResult("RUN-GD-01", "HYP-GD", qualifiable_contract.contract_id, "S", "rules_ts", "x", "STAGE_3_STRESS", "CANDIDATE_FOR_QUALIFICATION", 1.5, 1.2, 0.95, 0.1, 1, 1.0, None, None, 0.5, 1.2, 5.0, 10.0, 20.0, 0.8, 1.0, "notes", 0.1, 0.0, 0, qualifiable_contract.data_snapshot_sha256, "strategies/candidates/vol_breakout_1h.py", "rules", "", data_provenance="verified_market", strategy_code_sha256=code_closure(Path("."), "strategies/candidates/vol_breakout_1h.py")[0])
     reg.record_trial(r_grand, {}, np.zeros(100))
 
     with pytest.raises(HoldoutAlreadyUnsealedError, match="Lineage 'HYP-RT' was already unsealed"):
@@ -292,8 +299,11 @@ def test_continue_exact_match_rejects_substring_count_drift(tmp_path: Path) -> N
     assert ret == 1
 
 
-def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contract) -> None:
+def test_verify_without_pipeline_exits_with_code_1(tmp_path: Path, clean_contract, monkeypatch) -> None:
     """cmd_verify on a module without a pipeline or compute() method must exit with code 1."""
+    # The subject is a missing pipeline, not checkout integrity (covered by the scratch-repo
+    # manifest tests); stub the integrity gate so an unsigned branch does not mask the verdict.
+    monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
     # An explicit tmp registry: the default would create the checkout's registry/registry.db,
     # which other tests then read as if it were live evidence.
     runner = ExperimentRunner(

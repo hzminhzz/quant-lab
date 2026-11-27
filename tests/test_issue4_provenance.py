@@ -17,7 +17,8 @@ import polars as pl
 import pytest
 import yaml
 
-from warden.contracts import EvaluationContract, HypothesisSpec, load_contract, utc
+from warden.contract_source import load_recorded_contract
+from warden.contracts import EvaluationContract, HypothesisSpec, utc
 from warden.provenance import DatasetProvenanceError, resolve_dataset
 from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
@@ -107,7 +108,7 @@ def test_missing_dataset_never_falls_back_to_another_contract(tmp_path: Path) ->
 
 
 def test_declared_provenance_requires_a_pin() -> None:
-    contract = load_contract(REPO / "contracts" / "crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(REPO, "CRYPTO_PERPS_1H_V1")
     with pytest.raises(ValueError, match="requires a data_snapshot_sha256 pin"):
         replace(contract, data_snapshot_sha256="", data_provenance="verified_market")
     with pytest.raises(ValueError, match="data_provenance must be"):

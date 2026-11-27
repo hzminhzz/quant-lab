@@ -5,11 +5,12 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from warden.contract_source import recorded_contract_path
 from warden.contracts import load_contract
 from warden.synthetic import generate_canonical_market_panel
 
 API = runpy.run_path("scripts/salvage_crypto_perps.py")
-CONTRACT = Path("contracts/crypto_perps_1h_v1.yaml")
+CONTRACT = recorded_contract_path(Path.cwd(), "CRYPTO_PERPS_1H_V1")
 
 
 def test_deterministic_chronological_parquet_split(tmp_path):

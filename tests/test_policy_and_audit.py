@@ -12,9 +12,15 @@ import pytest
 from warden.audit import AUDIT_LOG
 from warden.cli import _legacy_trace, _replay, build_parser, main
 from warden.policy import authorize
+from warden.registry import ResearchRegistry
 from warden.runner import ExperimentRunner
 
-ROOT = Path(".")
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def in_cli_repo(cli_repo, monkeypatch):
+    monkeypatch.chdir(cli_repo)
 
 
 def test_authorize_allowlist_deny_and_approval():
@@ -31,7 +37,7 @@ def test_every_subcommand_has_json_flag():
         assert "json" in [a.dest for a in sub._actions], f"{name} lost --json"
 
 
-def test_audit_log_records_one_line_per_invocation():
+def test_audit_log_records_one_line_per_invocation(in_cli_repo):
     real = Path(AUDIT_LOG)
     before = len(real.read_text().splitlines()) if real.is_file() else 0
     assert main(["status", "--json"]) == 0
@@ -42,7 +48,7 @@ def test_audit_log_records_one_line_per_invocation():
     assert entry["cmd"] == "status" and entry["allow"] is True and entry["exit_code"] == 0
 
 
-def test_audit_failure_does_not_break_the_cli(monkeypatch, capsys):
+def test_audit_failure_does_not_break_the_cli(in_cli_repo, monkeypatch, capsys):
     """A read-only or missing audit dir must not turn a successful command into a failure."""
     def boom(*a, **k):
         raise PermissionError("audit dir read-only")
@@ -52,16 +58,16 @@ def test_audit_failure_does_not_break_the_cli(monkeypatch, capsys):
     assert "audit log unavailable" in capsys.readouterr().err
 
 
-def test_status_json_envelope_shape():
+def test_status_json_envelope_shape(in_cli_repo):
     out = subprocess.run([sys.executable, "-m", "warden.cli", "status", "--json"], capture_output=True, text=True, check=False)
     assert out.returncode == 0
     env = json.loads(out.stdout)
     assert env["ok"] is True and env["source"] == "warden.status" and env["policy"] == "allow"
-    assert isinstance(env["value"]["trials_count"], int) and env["value"]["trials_count"] >= 0
+    assert env["value"]["trials_count"] == 0
     assert env["observed_at"].endswith("+00:00")
 
 
-def test_unknown_subcommand_denied_before_dispatch():
+def test_unknown_subcommand_denied_before_dispatch(in_cli_repo):
     # argparse rejects unparsed subcommands (exit 2); the policy layer denies anything
     # that parses but is not allowlisted (unit-tested above).
     out = subprocess.run([sys.executable, "-m", "warden.cli", "shell", "--json"], capture_output=True, text=True, check=False)
@@ -69,7 +75,7 @@ def test_unknown_subcommand_denied_before_dispatch():
     assert not authorize("shell").allow
 
 
-def test_qualify_refused_without_unseal_flag():
+def test_qualify_refused_without_unseal_flag(in_cli_repo):
     out = subprocess.run([sys.executable, "-m", "warden.cli", "qualify", "--run-id", "RUN-ML-001", "--json"], capture_output=True, text=True, check=False)
     assert out.returncode == 2
     assert "human-only gate" in out.stderr
@@ -94,14 +100,21 @@ def test_replay_refuses_non_typed_trace_commands(cmd, tmp_path, capsys):
     probe = Path("/tmp/warden_probe")
     probe.unlink(missing_ok=True)
     entries = _legacy_trace(f"```bash\n{cmd}\n```\n")
-    assert _replay(entries, ExperimentRunner(repo_root=ROOT)) is True
+    # A scratch ledger: ExperimentRunner(repo_root=ROOT) alone would create and migrate the
+    # checkout's registry/registry.db, which no test may touch.
+    runner = ExperimentRunner(
+        registry=ResearchRegistry(tmp_path / "registry.db"), repo_root=ROOT
+    )
+    assert _replay(entries, runner) is True
     assert "REFUSED" in capsys.readouterr().err
     assert not probe.exists(), "SELECT writefile() must be unreachable"
     assert not Path("/tmp/warden_pwn").exists()
 
 
-def test_replay_accepts_legacy_count_query_and_typed_ops():
-    runner = ExperimentRunner(repo_root=ROOT)
+def test_replay_accepts_legacy_count_query_and_typed_ops(tmp_path):
+    runner = ExperimentRunner(
+        registry=ResearchRegistry(tmp_path / "registry.db"), repo_root=ROOT
+    )
     legacy = _legacy_trace('```bash\nsqlite3 registry/registry.db "SELECT COUNT(*) FROM trials"\n```\n')
     assert legacy[0]["op"] == "registry_count" and legacy[0]["table"] == "trials"
     assert _replay(legacy, runner) is False
@@ -112,17 +125,12 @@ def test_replay_accepts_legacy_count_query_and_typed_ops():
     assert _replay([{"op": "registry_count", "table": "sqlite_master", "expect": "1"}], runner) is True
 
 
-def test_continue_json_envelope(tmp_path):
-    """Self-contained checkpoint: other tests add trials, so never rely on live state."""
-    import sqlite3
-
-    with sqlite3.connect("registry/registry.db") as conn:
-        n_trials = conn.execute("SELECT COUNT(*) FROM trials").fetchone()[0]
+def test_continue_json_envelope(in_cli_repo, tmp_path):
     head = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
     state = {
         "schema": 1, "created_at": "2026-01-01T00:00:00+00:00", "ticket": "T", "notes": "",
         "evidence": [{"source": "git", "kind": "head", "value": head, "observed_at": "2026-01-01T00:00:00+00:00"}],
-        "tool_trace": [{"op": "registry_count", "table": "trials", "expect": str(n_trials)}],
+        "tool_trace": [{"op": "registry_count", "table": "trials", "expect": "0"}],
         "quality_gates": {"worktree_integrity": True},
     }
     checkpoint = tmp_path / "state.json"
@@ -135,7 +143,7 @@ def test_continue_json_envelope(tmp_path):
     assert env["source"] == "warden.continue.SUCCESS"
 
 
-def test_untrusted_source_banner_on_register(tmp_path, capsys, monkeypatch):
+def test_untrusted_source_banner_on_register(cli_repo, in_cli_repo, tmp_path, capsys, monkeypatch):
     """Focused unit test: temp registry, temp hypothesis, stubbed integrity check."""
     from warden.contracts import load_contract
     from warden.registry import ResearchRegistry
@@ -143,13 +151,13 @@ def test_untrusted_source_banner_on_register(tmp_path, capsys, monkeypatch):
     reg = ResearchRegistry(tmp_path / "registry.db")
 
     class _Runner:
-        repo_root = ROOT
+        repo_root = cli_repo
 
         def __init__(self, registry):
             self.registry = registry
 
         def resolve_contract(self, contract_id):
-            return load_contract(Path("contracts/indices_1h_v2.yaml"))
+            return load_contract(ROOT / "contracts/indices_1h_v2.yaml")
 
     monkeypatch.setattr("warden.cli.ExperimentRunner", lambda: _Runner(reg))
     monkeypatch.setattr("warden.cli.check_worktree", lambda *a, **k: True)
@@ -222,12 +230,11 @@ def test_result_bytes_counts_utf8_bytes():
     assert w.count == 2
 
 
-def test_parse_error_is_audited():
-    before = len(Path(AUDIT_LOG).read_text().splitlines())
+def test_parse_error_is_audited(in_cli_repo):
     out = subprocess.run([sys.executable, "-m", "warden.cli", "shell", "--json"], capture_output=True, text=True, check=False)
     assert out.returncode == 2
     lines = Path(AUDIT_LOG).read_text().splitlines()
-    assert len(lines) == before + 1
+    assert len(lines) == 1
     entry = json.loads(lines[-1])
     assert entry["cmd"] is None and entry["allow"] is False
     assert entry["policy"].startswith("parse error")

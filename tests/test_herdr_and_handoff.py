@@ -13,33 +13,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warden.cli import check_worktree, generate_manifest
+from tests.conftest import write_fixture_checksums
+from warden.cli import check_worktree
+from warden.contract_source import load_recorded_contract, recorded_contract_path
 from warden.runner import ExperimentRunner
-
-
-def _make_isolated_cli_repo(tmp_path: Path) -> Path:
-    """Create an isolated repo copy in tmp_path so tests never mutate repo-root .workspace/."""
-    src_root = Path.cwd()
-    work = tmp_path / "repo"
-    work.mkdir(parents=True, exist_ok=True)
-    for rel in ("src", "contracts", "scripts", "AGENTS.md", "pyproject.toml", "uv.lock"):
-        s = src_root / rel
-        if s.exists():
-            os.symlink(s, work / rel)
-    (work / "registry").mkdir(parents=True, exist_ok=True)
-    src_db = src_root / "registry" / "registry.db"
-    if src_db.is_file():
-        src_conn = sqlite3.connect(f"file:{src_db}?mode=ro", uri=True)
-        dst_conn = sqlite3.connect(work / "registry" / "registry.db")
-        src_conn.backup(dst_conn)
-        dst_conn.close()
-        src_conn.close()
-    subprocess.run(["git", "init", "-q"], cwd=work, check=True)
-    subprocess.run(["git", "config", "user.email", "test@quant-lab.local"], cwd=work, check=True)
-    subprocess.run(["git", "config", "user.name", "Test"], cwd=work, check=True)
-    subprocess.run(["git", "commit", "--allow-empty", "-m", "init", "-q"], cwd=work, check=True)
-    generate_manifest(work)
-    return work
 
 
 def _seed_run_ml_001_ledger(root: Path) -> Path:
@@ -52,11 +29,11 @@ def _seed_run_ml_001_ledger(root: Path) -> Path:
     recorded legacy disposition of RUN-ML-001 (a synthetic run with no pinned market digest,
     quarantined as such), so the refusal is exercised on every checkout in any order.
     """
-    from warden.contracts import ExperimentResult, HypothesisSpec, load_contract
+    from warden.contracts import ExperimentResult, HypothesisSpec
     from warden.registry import ResearchRegistry
 
     reg = ResearchRegistry(root / "registry" / "registry.db")
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     reg.register_contract(contract)
     reg.register_hypothesis(
         HypothesisSpec(
@@ -149,12 +126,15 @@ fi
 
 
 def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    cli_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Issue #4 tickets 02/03: historical checks may pass, effective verdict may not approve."""
     # The trial and its return artifact live inside the isolated repo, so the audit reads the
     # seeded evidence through the registry/returns fence -- never the checkout's ledger.
-    work = _make_isolated_cli_repo(tmp_path)
+    work = cli_repo
+    rel = "contracts/crypto_perps_1h_v1.yaml"
+    shutil.copy2(recorded_contract_path(Path.cwd(), "CRYPTO_PERPS_1H_V1"), work / rel)
+    write_fixture_checksums(work, "contracts/fixture.yaml", rel)
     seed_db = _seed_run_ml_001_ledger(work)
     with sqlite3.connect(seed_db) as conn:
         historic = conn.execute("SELECT 1 FROM trials WHERE run_id='RUN-ML-001'").fetchone()
@@ -180,13 +160,15 @@ def test_audit_check_refuses_effective_approval_for_synthetic_run_ml_001(
     assert "Verdict: APPROVED" not in report.read_text()
 
 
-def test_audit_check_planted_violation_fails_closed(tmp_path: Path) -> None:
+def test_audit_check_planted_violation_fails_closed(tmp_path: Path, monkeypatch) -> None:
     # Plant an artificial run with failing delay survival in a temporary registry
     from warden.contracts import ExperimentResult
     from warden.registry import ResearchRegistry
 
     (tmp_path / "contracts").mkdir(parents=True, exist_ok=True)
-    shutil.copy2("contracts/crypto_perps_1h_v1.yaml", tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
+    shutil.copy2(recorded_contract_path(Path.cwd(), "CRYPTO_PERPS_1H_V1"), tmp_path / "contracts" / "crypto_perps_1h_v1.yaml")
+    write_fixture_checksums(tmp_path, "contracts/crypto_perps_1h_v1.yaml")
+    monkeypatch.chdir(tmp_path)
     fake_db = tmp_path / "reg.db"
     reg = ResearchRegistry(fake_db)
 
@@ -242,9 +224,9 @@ def test_audit_check_planted_violation_fails_closed(tmp_path: Path) -> None:
 
 
 def test_handoff_and_continue_drift_detection(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    cli_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    work = _make_isolated_cli_repo(tmp_path)
+    work = cli_repo
     monkeypatch.chdir(work)
     # Generate clean handoff
     cmd_h = [sys.executable, "-m", "warden.cli", "handoff", "--ticket", "TKT-10", "--notes", "Testing drift"]
@@ -267,9 +249,9 @@ def test_handoff_and_continue_drift_detection(
 
     # Tamper the recorded trials count downward (the real "a trial was appended" case) -> drift fails closed
     tampered = json.loads(json.dumps(state))
-    for entry in tampered["tool_trace"]:
-        if entry.get("op") == "registry_count":
-            entry["expect"] = str(int(entry["expect"]) + 1)
+    trial_counts = [entry for entry in tampered["tool_trace"] if entry["op"] == "registry_count"]
+    assert [entry["expect"] for entry in trial_counts] == ["0"]
+    trial_counts[0]["expect"] = "1"
     tampered_file = tmp_path / "tampered_state.json"
     tampered_file.write_text(json.dumps(tampered))
 

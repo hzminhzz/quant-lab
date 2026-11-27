@@ -6,13 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from warden.contracts import HypothesisSpec, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import HypothesisSpec
 from warden.registry import ResearchRegistry, ScreenAlreadyAttemptedError
 
 
 def _registry(tmp_path: Path) -> ResearchRegistry:
     reg = ResearchRegistry(tmp_path / "registry.db")
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     reg.register_contract(contract)
     reg.register_hypothesis(HypothesisSpec(
         "HYP-SCREEN", contract.contract_id, "Screen fixture", "rules_ts",

@@ -11,6 +11,7 @@ from pathlib import Path
 
 MANIFEST_FILE = ".warden_manifest.sha256"
 MANIFEST_SHA256_LEN = 64
+VENUE_POLICY_FILE = "contracts/policy/venue_policy.yaml"
 _PROTECTED_GLOBS = (
     "src/warden/**/*.py",
     "src/warden_ops/**/*.py",
@@ -22,6 +23,13 @@ _PROTECTED_GLOBS = (
     "contracts/datasets/*.json",
     "contracts/datasets/*.yaml",
     "contracts/datasets/*.yml",
+    # Read-only contract archive (#114).  These bytes are the historical replay authority
+    # for closed contracts, so editing one must invalidate the worktree gate exactly like
+    # editing a live contract does; the mapping document is protected with them.
+    "contracts/archive/*.yaml",
+    "contracts/archive/*.yml",
+    "contracts/archive/*.json",
+    "contracts/archive/datasets/*.json",
 )
 _PROTECTED_FILES = (
     "AGENTS.md",
@@ -31,6 +39,7 @@ _PROTECTED_FILES = (
     # worktree gate, which every agent runs before registering a hypothesis.  It is listed
     # explicitly because ``contracts/*.yaml`` deliberately does not reach its directory.
     "contracts/lifecycle/contract_lifecycle.json",
+    VENUE_POLICY_FILE,
     "scripts/registry_evidence_snapshot.py",
     "scripts/rehearse_state_machine_migration.py",
     "scripts/mcp_warden/adapter.py",
@@ -287,12 +296,17 @@ def generate_manifest(repo_root: Path = Path(".")) -> str:
 
 
 def _parse_manifest(manifest: Path) -> dict[str, str] | None:
-    """Parse `<sha256>  <relpath>` lines; malformed, empty or duplicate entries fail closed."""
-    entries: dict[str, str] = {}
     try:
-        lines = manifest.read_text(encoding="utf-8").splitlines()
+        text = manifest.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
+    return _manifest_entries(text)
+
+
+def _manifest_entries(text: str) -> dict[str, str] | None:
+    """Parse `<sha256>  <relpath>` lines; malformed, empty or duplicate entries fail closed."""
+    entries: dict[str, str] = {}
+    lines = text.splitlines()
     if not any(line.strip() for line in lines):
         return None
     for line in lines:
@@ -308,6 +322,35 @@ def _parse_manifest(manifest: Path) -> dict[str, str] | None:
             return None
         entries[rel] = digest
     return entries
+
+
+def read_signed_manifest_entry(repo_root: Path, relpath: str) -> bytes:
+    """Read an exact manifest-covered input and verify the HMAC in a trusted runtime.
+
+    Unlike the general worktree integrity check, absent or unverified signatures fail here.
+    Verify and parse the same manifest bytes, and return only the input bytes hashed against it.
+    Callers still need the general worktree gate for the other protected inputs and AST checks.
+    """
+    repo = Path(repo_root).resolve()
+    path = repo / relpath
+    if path.resolve() != path or relpath not in protected_manifest_entries(repo):
+        raise ValueError(f"required protected input is missing or not a regular repository file: {relpath}")
+    signature = repo / (MANIFEST_FILE + ".sig")
+    key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
+    if not key or not signature.is_file():
+        raise ValueError("a verified human manifest HMAC is required")
+    manifest = (repo / MANIFEST_FILE).read_bytes()
+    recorded = signature.read_bytes().strip()
+    expected = hmac.new(key.encode(), manifest, hashlib.sha256).hexdigest().encode("ascii")
+    if not hmac.compare_digest(expected, recorded):
+        raise ValueError("invalid human manifest HMAC")
+    listed = _manifest_entries(manifest.decode("utf-8"))
+    if listed is None or relpath not in listed:
+        raise ValueError(f"protected input is not covered by a valid signed manifest: {relpath}")
+    data = path.read_bytes()
+    if not hmac.compare_digest(hashlib.sha256(data).hexdigest(), listed[relpath]):
+        raise ValueError(f"protected input digest mismatch: {relpath}")
+    return data
 
 
 def _manifest_signature_ok(repo: Path) -> bool:

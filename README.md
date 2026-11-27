@@ -31,6 +31,21 @@
 
 ---
 
+## ML4T lake store
+
+`warden data build` with a reviewed `ml4t_lake` source reads Hive Parquet from
+`ML4T_DATA_STORE`. Point it at the **store directory itself**, e.g.
+`export ML4T_DATA_STORE=/path/to/ml4t-data/.data/store`, and use the same value in
+`ml4t-data`. Use an absolute path for shells, scheduled runs, and worktrees
+that may start in different directories. If the variable is unset, Warden
+uses `../ml4t-data/.data/store` relative to the quant-lab checkout — that is, the
+sibling must literally be named `ml4t-data` and sit next to the checkout. On a
+machine whose data repository lives deeper (for example `dev/quant/ml4t-data`)
+the default is not the right store, so set `ML4T_DATA_STORE` explicitly; a
+default that is missing or empty fails closed at the read, not with a fallback.
+A blank, missing, or non-directory override is an error, not a fallback. Existing
+pinned Warden artifacts and contracts are unchanged.
+
 ## Repository Architecture & Layout
 
 | Path | Role |
@@ -53,6 +68,8 @@
 | [`AGENTS.md`](./AGENTS.md) | Operating contract, four-way ownership, falsification funnel, CLI contracts, and agent-maintained status. |
 | [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) | Thesis intake procedure, verification table, and ledger rules. |
 | [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | Detailed pipeline map, coded Stage 0–3 gates, six-check audit, and registry vocabulary. |
+| [`docs/DATA-REQUIREMENT.md`](./docs/DATA-REQUIREMENT.md) | `warden resolve-data` / `data compile`: decisions, the superset opt-in (`--allow-superset`), and what each answer carries. |
+| [`docs/EXIT-CODES.md`](./docs/EXIT-CODES.md) | The one exit-code vocabulary (`0` success, `1` evidence refused, `2` request refused, `3` not satisfiable, `75` busy) and the documented `data build` exception. |
 | [`STAGE3_CAMPAIGN_PROMPT.md`](./STAGE3_CAMPAIGN_PROMPT.md) | Copy-paste brief for batching a strategy family through Stage 3. |
 | [`CHANGELOG.md`](./CHANGELOG.md) | Dated summary of architectural changes and verification runs. |
 | [`docs/archive/README.md`](./docs/archive/README.md) | Historical RFC, bootstrap tickets, compatibility spec, handbook, and audit/approval trails. |

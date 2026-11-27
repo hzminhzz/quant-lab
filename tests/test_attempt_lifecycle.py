@@ -10,14 +10,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warden.contracts import ExperimentResult, HypothesisSpec, canonical_json, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import ExperimentResult, HypothesisSpec, canonical_json
 from warden.registry import ResearchRegistry
 from warden.runner import default_run_id
 
 
 def _registry(tmp_path: Path) -> ResearchRegistry:
     registry = ResearchRegistry(tmp_path / "registry.db")
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     registry.register_contract(contract)
     registry.register_hypothesis(HypothesisSpec(
         "HYP-A", contract.contract_id, "Crash-safe research", "rules_ts",
@@ -44,7 +45,7 @@ def _result() -> ExperimentResult:
 
 def test_default_run_ids_cannot_collide_across_same_family_hypotheses(tmp_path: Path) -> None:
     registry = _registry(tmp_path)
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     registry.register_hypothesis(HypothesisSpec(
         "HYP-OTHER", contract.contract_id, "Other mechanism", "rules_ts",
         "A different economic supply-demand mechanism may produce a signal",

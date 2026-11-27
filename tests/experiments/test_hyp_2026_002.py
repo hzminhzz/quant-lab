@@ -9,6 +9,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from warden.contract_source import load_active_contract
 from warden.runner import ExperimentRunner, LinearBaselineRequiredError
 from warden.strategy_loader import load_module_from_path
 
@@ -28,11 +29,12 @@ def _require_historical_seed() -> None:
 
 def test_hyp_2026_002_linear_baseline_required_gate(tmp_path: Path) -> None:
     # In an empty temporary registry with no prior Ridge baseline, running LightGBM must raise
-    from warden.contracts import HypothesisSpec, load_contract
+    from warden.contracts import HypothesisSpec
     from warden.registry import ResearchRegistry
 
     reg = ResearchRegistry(tmp_path / "reg.db")
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    # Screening is new work: a live contract, never an archived one (#114).
+    contract = load_active_contract(Path(__file__).resolve().parents[2], "CRYPTO_PERPS_5M_V1")
     reg.register_contract(contract)
 
     hyp = HypothesisSpec(

@@ -9,8 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warden.cli import check_worktree, generate_manifest
-from warden.contracts import load_contract
+from warden.contract_source import load_active_contract, load_recorded_contract
 from warden.gates import (
     compute_hac_tstat,
     evaluate_stage1_cross_sectional_ml,
@@ -71,7 +70,7 @@ def test_hac_tstat_and_family_gates() -> None:
 
 
 def test_simulate_positions_delay_and_signed_funding() -> None:
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    contract = load_recorded_contract(Path.cwd(), "CRYPTO_PERPS_1H_V1")
     n_bars, n_assets = 10, 2
     positions = np.ones((n_bars, n_assets))
     returns = np.full((n_bars, n_assets), 0.01)
@@ -95,8 +94,9 @@ def test_linear_baseline_required_gate(tmp_path: Path) -> None:
     reg = ResearchRegistry(tmp_path / "reg.db")
     runner = ExperimentRunner(registry=reg, repo_root=Path("."), allow_legacy_replay=True)
 
-    # Contract & Hypothesis registration
-    contract = load_contract(Path("contracts/crypto_perps_1h_v1.yaml"))
+    # Contract & Hypothesis registration.  Screening is new work, so the contract must be
+    # live: #114 refuses an archived id before the linear-first gate could even fire.
+    contract = load_active_contract(Path.cwd(), "CRYPTO_PERPS_5M_V1")
     reg.register_contract(contract)
 
     from warden.contracts import HypothesisSpec
@@ -129,29 +129,15 @@ parameters:
         runner.run_spec(spec_yaml)
 
 
-def test_worktree_tampering_aborts_with_exit_code_2(tmp_path: Path) -> None:
-    # 1. Clean worktree check passes
-    assert check_worktree(Path(".")) is True
+def test_worktree_tampering_aborts_with_exit_code_2(cli_repo: Path) -> None:
+    cmd = [sys.executable, "-m", "warden.cli", "check-worktree", "--json"]
+    clean = subprocess.run(cmd, cwd=cli_repo, capture_output=True, text=True, check=False)
+    assert clean.returncode == 0, clean.stdout + clean.stderr
 
-    # 2. Tampering test in isolated copy
-    import shutil
-    copy_dir = tmp_path / "tampered_repo"
-    shutil.copytree(Path("."), copy_dir, ignore=shutil.ignore_patterns(".venv", ".git", "data", "cache"))
-    generate_manifest(copy_dir)
-
-    # Initial check on fresh copy passes
-    assert check_worktree(copy_dir) is True
-
-    # Tamper with a contract file
-    contract_file = copy_dir / "contracts" / "crypto_perps_1h_v1.yaml"
+    contract_file = cli_repo / "contracts/fixture.yaml"
     contract_file.write_text(contract_file.read_text() + "\n# TAMPERED\n")
 
-    # check_worktree must fail closed
-    assert check_worktree(copy_dir) is False
-
-    # CLI check-worktree should exit with code 2
-    cmd = [sys.executable, "-m", "warden.cli", "check-worktree"]
-    proc = subprocess.run(cmd, cwd=copy_dir, capture_output=True, text=True, check=False)
+    proc = subprocess.run(cmd, cwd=cli_repo, capture_output=True, text=True, check=False)
     assert proc.returncode == 2
 
 

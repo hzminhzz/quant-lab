@@ -4,6 +4,116 @@ Notable changes to quant-lab. Commit refs are pushed to origin/main unless noted
 protected files change, the governance manifest (`.warden_manifest.sha256`) is re-signed by the human
 principal — or by an agent under explicit in-session delegation, recorded in an approval trail.
 
+## 2026-11-27
+
+### Spec #109 promotion-gate review fixes (#118)
+
+A second adversarial pass over `warden promote-contract` found that every fact the gate checked
+was a field in the agent-writable sandbox artifact. Fixed by re-deriving from bytes or refusing
+the shape:
+
+- **The fence is derived from the Parquet, not the manifest (K1).** `_check_fence` reads the
+  published file through the same reader `data fence` audits with; the manifest's `last_bar` is
+  only a cross-check and a disagreement refuses `fence_violated`, naming both timestamps. No
+  injected reader refuses `fence_unverified` rather than trusting the claim.
+- **A manifest carrying a holdout pin or a verified-provenance claim is refused (K2)** —
+  `holdout_declared` / `claimed_provenance`, exit 2 — because promotion removes the sandbox
+  namespace refusal that used to make holdout unreachable. The receipt now records `provenance`
+  and `holdout_pin_present` instead of a hardcoded `holdout_opened: false`.
+- **`raw_inputs` are confined to the lake (K3).** An absolute path, a `..` segment or a symlink
+  resolving outside `lake_root` refuses `unconfined_raw_input` before the target is statted and
+  without a byte count; a record the manifest did not list refuses `lake_inputs`. This closes a
+  size oracle over any readable file, including the sealed holdout root.
+- **The promoted contract is bound to its compile (K4).** `data compile` records
+  `sandbox.contract_sha256` and promotion compares it, so edited mechanics refuse
+  `mismatched_identity` instead of promoting with a silently different `spec_hash`.
+- **A re-promotion is decided before the evidence is re-read (K5)**, `.yml` included, so a
+  routine lake move cannot turn `already_promoted` into `mismatched_merkle`.
+- **The exploratory fence reads the production contract, not the sandbox copy (K6)**, matching
+  `contract_source`'s precedence; a conflicting same-id pair stays `ambiguous_owner`.
+- **Receipt and docs (K8):** compile-time `contract_sha256`, `provenance`, `holdout_pin_present`
+  and `repo_head`; `extra` can no longer override the honesty flags; `promotion_failed`
+  documented in `docs/EXIT-CODES.md`, and `docs/SANDBOX-PROMOTION.md` states what is *not* proved.
+- Tests now exercise the write path that previously had none: O_EXCL never overwrites, a lost
+  race rolls back in reverse, a self-qualifying manifest is refused (K7).
+
+### Spec #109 review fixes (branch `feat/spec109-reviewfix`)
+
+Behaviour changes first, because two of them change a default:
+
+- **Superset reuse is opt-in (A5).** `resolve_data_requirement(..., allow_superset=False)` no
+  longer returns a contract whose basket is a wider universe than the requirement declared:
+  the answer is `compile_required` with `reason="superset_requires_opt_in"`, one
+  `rejected_candidates` entry per candidate carrying its `symbols_to_drop`, and the smallest
+  candidate's drop set on the report. `warden resolve-data --allow-superset` and
+  `warden data compile --allow-superset` opt in; an exact match still wins either way. An
+  `fx` requirement can no longer be handed a basket containing a metal without saying so.
+  See `docs/DATA-REQUIREMENT.md`.
+- **The mandatory selection group is enforced on the live registration path (A6).**
+  `register-hypothesis` (and `advance`'s auto-registration) pass `repo_root` with
+  `policy_optional=True`: when a trusted venue policy is installed it is authoritative (a
+  contradicting declaration or an unmapped domain is refused, exit 2, naming both), and when
+  none is trusted registration keeps today's behaviour while
+  `contract_governance.group_source` records `contract` instead of a bare `declared`.
+  Registration is never refused merely because the policy is absent.
+
+Security and evidence:
+
+- **Removed `compile_data_requirement(policy=...)` (A1).** A caller-constructed
+  `VenuePolicy` (plain frozen dataclass, caller-supplied `sha256`) bypassed `load_venue_policy`
+  entirely. The only policy path is the signed one; the resolution report is re-derived under it.
+- **The recorded lookup checks the digest of whichever document it returns (A2).** A live
+  `contracts/<id>.yaml` for an archived id must match `archive_map.json`'s `sha256`, or the
+  lookup refuses naming both digests. `docs/CONTRACT-ARCHIVE.md` updated.
+- **A compiled sandbox contract is sealed to its artifact (A4).** New
+  `warden.sandbox_seal.verify_sandbox_contract` runs at `ExperimentRunner.resolve_contract` /
+  `resolve_active_contract` and compares the YAML to `contracts/sandbox/datasets/<ID>.json`
+  and the trusted policy (costs, funding, leverage, group, fences, mechanics, asset class,
+  cadence, execution mode, Parquet digest, exploratory path) plus the registry's recorded
+  `spec_hash` when a row exists. Register/verify/screen/backtest/advance refuse an edited
+  document with exit 2. No manifest schema change.
+- **The compiled window is reconciled with `val_start` (B3)** and **a fence that straddles a
+  lake partition drops that partition whole instead of refusing the compile (B8)** —
+  recorded in `sandbox.lake.excluded_partitions` with
+  `sandbox.fence.partition_policy = "exclude_straddling_partition"`; the post-aggregate
+  `last_bar + interval <= fence` proof is unchanged, and a fence whose exclusion leaves no
+  usable partition still refuses.
+
+Tests and docs:
+
+- New evidence for behaviour that had none: both post-aggregate fence lines (A3), the
+  rebalancer book-scale factor via a partial reduction (B1), the exit-code vocabulary
+  (`docs/EXIT-CODES.md` + one parametrised CLI test, B4), and packaging (a real
+  `uv build --wheel` + isolated `--target` import, B7).
+- `POLICY_OWNED_KEYS` no longer names `min_expected_move_to_cost_ratio`, which the policy
+  does not own (B2); the `qualify` sandbox refusal comment states what it guarantees (B5);
+  the governance-carrier test is renamed to the property that holds (B6).
+
+### Unified contract schema and shared selection debt (#113, spec #109 lane F)
+
+- `EvaluationContract.policy` is now an explicit field instead of #94's `InitVar` carrier. It is
+  persisted in an additive `contracts.policy` TEXT column, survives `asdict()`/`replace()`/pickle
+  natively, and is excluded from `spec_hash_payload()`/`to_dict()` so all 36 legacy v1 digests and
+  every v2 digest are byte-identical (verified against the pinned table in `tests/test_p2_t08.py`).
+  A projection can no longer collapse a v2 contract into a v1 one, which was the DSR-reset path
+  #109 names.
+- `register_new_contract(..., venue_policy=|repo_root=)` makes the signed venue policy the sole
+  authority for a new contract's `selection_group_id`: an unmapped `(asset_class, cadence)` domain
+  fails closed with the domain named (`SelectionGroupResolutionError`), and a declaration that
+  contradicts the policy is refused. `register_contract` records the group for every contract,
+  including a policy-mapped legacy one (`contract_governance.group_source` = `declared` | `policy`).
+- `map_selection_groups(...)` maps pre-existing contracts onto their policy group as an explicit,
+  auditable step (additive `INSERT OR IGNORE` only; unmapped domains are reported, never guessed),
+  and `selection_group_debt(contract)` / `recorded_policy(contract_id)` expose the persisted count
+  and ledger-side governance block. A legacy contract's own scope and `asset_class:frequency` floor
+  are unchanged — the mapping widens the group's debt, it never narrows a hurdle.
+- Registry schema `user_version` 3: two additive columns (`contracts.policy`,
+  `contract_governance.group_source`), no row rewrite, no new trigger, no changed table DDL. The
+  down-path is data-only: a v2 build refuses a v3 registry, so rollback is `PRAGMA user_version=2`
+  with both columns left in place and ignored.
+- Library-only: `src/warden/cli.py` and the live registry are untouched (lane A/J own the CLI
+  wiring and the manifest re-sign).
+
 ## 2026-11-25
 
 ### P2 research refactor (#79, #94–#106)

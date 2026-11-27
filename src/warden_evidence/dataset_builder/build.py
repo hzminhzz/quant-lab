@@ -8,11 +8,15 @@ look at the source tree, and it publishes only what the gate approved.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+import polars as pl
+
 from warden_evidence.dataset_builder.adapters import (
+    Ml4tLakeAdapter,
     ParquetReader,
     SourceAdapter,
     get_source_adapter,
@@ -110,6 +114,10 @@ def build_dataset(
     adapter: SourceAdapter | None = None,
     fs: RawFileSystem | None = None,
     parquet_reader: ParquetReader | None = None,
+    frame_guard: Callable[[pl.DataFrame], None] | None = None,
+    manifest_extra: dict[str, Any] | None = None,
+    manifest_extra_factory: Callable[[str], dict[str, Any]] | None = None,
+    manifest_name: str | None = None,
 ) -> BuildOutcome:
     """Build one dataset from a parsed spec.
 
@@ -117,11 +125,15 @@ def build_dataset(
         spec: a validated :class:`DatasetSpec` (parse it with ``load_dataset_spec``).
         repo_root: root the published paths are relative to.
         source_root: local root of the declared raw inputs; ignored when ``fs`` or
-            ``adapter`` is supplied.
+            ``adapter`` is supplied. If omitted, ``ml4t_lake`` uses the configured lake.
         dataset_dir / manifest_dir: repository-relative output directories.
         adapter: explicit adapter (used by tests and by venue-specific adapters).
         fs: explicit raw filesystem (containment still applies per input).
         parquet_reader: reader for Parquet raw inputs; never imported by the builder.
+        manifest_extra: caller-owned manifest block, merged verbatim.
+        manifest_extra_factory: caller-owned block computed from the published Parquet digest —
+            the only way a caller can record a fact that depends on those exact bytes (spec
+            #118 pins the compiled contract's own digest this way).
     """
     root = Path(repo_root).resolve()
     if not root.is_dir():
@@ -132,8 +144,14 @@ def build_dataset(
     dataset_relative, dataset_path = _relative_target(
         root, dataset_dir, filename, role="dataset_dir"
     )
+    # A reviewer resolves a dataset manifest by the *contract* that owns it, so a caller may
+    # name the file explicitly (spec #117 publishes a sandbox manifest under its contract id).
+    # The default keeps every existing build naming it by dataset id, byte for byte.
+    published_name = manifest_name or spec.dataset_id
+    if not published_name or "/" in published_name or published_name in {".", ".."}:
+        raise DatasetBuildError(f"manifest_name {published_name!r} must be a plain file stem")
     manifest_relative, manifest_path = _relative_target(
-        root, manifest_dir, f"{spec.dataset_id}.json", role="manifest_dir"
+        root, manifest_dir, f"{published_name}.json", role="manifest_dir"
     )
 
     # Write-once precedes every raw read: a refused rebuild touches nothing.
@@ -145,14 +163,18 @@ def build_dataset(
             )
 
     if adapter is None:
-        reader = fs
-        if reader is None:
-            if source_root is None:
-                raise DatasetBuildError(
-                    f"adapter {spec.source.adapter!r} needs source_root or an explicit fs"
-                )
-            reader = LocalRawFileSystem(source_root)
-        adapter = get_source_adapter(spec.source.adapter, fs=reader, parquet_reader=parquet_reader)
+        if fs is None and source_root is not None:
+            fs = LocalRawFileSystem(source_root)
+        if fs is not None:
+            adapter = get_source_adapter(spec.source.adapter, fs=fs, parquet_reader=parquet_reader)
+        elif spec.source.adapter == Ml4tLakeAdapter.name:
+            adapter = get_source_adapter(
+                spec.source.adapter, repo_root=root, parquet_reader=parquet_reader
+            )
+        else:
+            raise DatasetBuildError(
+                f"adapter {spec.source.adapter!r} needs source_root or an explicit fs"
+            )
     if getattr(adapter, "name", None) != spec.source.adapter:
         raise DatasetBuildError(
             f"adapter {getattr(adapter, 'name', None)!r} does not match declared "
@@ -160,6 +182,11 @@ def build_dataset(
         )
 
     bundle = adapter.load(spec)
+    if frame_guard is not None:
+        # A caller-owned assertion on the exact raw bytes that were read, run *before* the
+        # gate: a lawful refusal here publishes nothing (spec #117 fences the holdout this
+        # way, and a leak must not be reachable through the aggregate either).
+        frame_guard(bundle.frame)
     outcome: GateOutcome = run_quality_gate(bundle.frame, spec)
     frame = outcome.frame
     if frame.is_empty():  # pragma: no cover - the gate already refuses emptiness
@@ -167,6 +194,11 @@ def build_dataset(
 
     parquet_bytes = serialise_parquet(frame, spec)
     parquet_sha256 = hashlib.sha256(parquet_bytes).hexdigest()
+    extra = dict(manifest_extra or {})
+    if manifest_extra_factory is not None:
+        # The factory sees the digest of the bytes about to be published, so a caller can bind a
+        # document it derives from them (the compiled contract) into the manifest itself.
+        extra.update(manifest_extra_factory(parquet_sha256))
     closure = builder_code_closure_sha256()
     assets = sorted({str(value) for value in frame["asset"].unique().to_list()})
     first_bar = str(frame["timestamp"].min())
@@ -187,6 +219,11 @@ def build_dataset(
         last_bar=last_bar,
         assets=assets,
         lineage=bundle.summary.get("lineage"),
+        # A manifest published under an explicit name is *addressed* by that name: a reader
+        # (the provenance gate, the exploratory fence) resolves the owner from this field, so
+        # the two must agree.
+        contract_id=published_name,
+        extra=extra or None,
     )
     published = publish_once(
         dataset_path=dataset_path,

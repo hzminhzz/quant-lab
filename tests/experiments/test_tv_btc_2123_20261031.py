@@ -6,9 +6,9 @@ from runpy import run_path
 import polars as pl
 import pytest
 
-from warden.contracts import load_contract
+from warden.contract_source import load_recorded_contract
 
-CONTRACT = load_contract(Path("contracts/auto_crypto_perps_top100_1h_v1_h24_e24_f45_s20_v1.yaml"))
+CONTRACT = load_recorded_contract(Path(__file__).resolve().parents[2], "AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1")
 generate_positions = run_path("strategies/candidates/tv_btc_2123_20261031.py")["generate_positions"]
 
 

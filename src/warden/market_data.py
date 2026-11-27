@@ -46,9 +46,9 @@ from warden.contracts import (
     validate_panel_feed_spec,
 )
 from warden.provenance import (
-    MANIFEST_DIR,
     DatasetProvenanceError,
     DatasetResolution,
+    manifest_path_for,
     resolve_contract_governance,
     resolve_dataset,
 )
@@ -408,7 +408,7 @@ class MarketDataGateway:
         the builder's claim to the panel.  It never promotes provenance: eligibility still
         comes from :func:`resolve_dataset` and the contract's own declaration.
         """
-        manifest = self.repo_root / MANIFEST_DIR / f"{contract.contract_id}.json"
+        manifest = manifest_path_for(contract.contract_id, self.repo_root)
         if not manifest.is_file():
             return {}
         try:

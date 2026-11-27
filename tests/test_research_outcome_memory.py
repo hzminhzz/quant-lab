@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from scripts.research_outcome_memory import check_spec, inventory, load_index
+from warden_ops.research_outcome_memory import check_spec, inventory, load_index
 
 
 def source_registry(path: Path) -> None:
@@ -227,8 +227,11 @@ def test_hourly_runner_checks_failure_memory_before_screening() -> None:
     assert "WARDEN_NON_INTERACTIVE=1" in wrapper
     assert "warden advance --pending" in wrapper
 
+    # The guard must come from the packaged module, not the unpackaged scripts/ tree,
+    # or an installed wheel would silently skip the duplicate-screen preflight.
     cli_src = Path("src/warden/cli.py").read_text(encoding="utf-8")
-    assert "scripts.research_outcome_memory" in cli_src
+    assert "warden_ops.research_outcome_memory" in cli_src
+    assert "scripts.research_outcome_memory" not in cli_src
     adv_idx = cli_src.index("def _advance_one_spec(")
     adv_slice = cli_src[adv_idx:]
     guard = adv_slice.index("check_outcome_spec")

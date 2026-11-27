@@ -29,6 +29,12 @@ PROTECTED_GLOBS = (
     # edit to either must be visible as protected-set drift here as well.
     "contracts/datasets/*.yaml",
     "contracts/datasets/*.yml",
+    # Read-only contract archive (#114): the archived contract documents, their dataset
+    # manifests and the mapping document are trusted inputs exactly like the live ones.
+    "contracts/archive/*.yaml",
+    "contracts/archive/*.yml",
+    "contracts/archive/*.json",
+    "contracts/archive/datasets/*.json",
 )
 PROTECTED_FILES = (
     # Contract lifecycle decisions (#106) are protected by exact path in
@@ -36,6 +42,7 @@ PROTECTED_FILES = (
     # do not reach ``contracts/lifecycle/``. Naming it here keeps this standalone view in
     # parity with the integrity manifest's protected set instead of widening the globs.
     "contracts/lifecycle/contract_lifecycle.json",
+    "contracts/policy/venue_policy.yaml",
 )
 PROTECTED_DIR_PREFIXES = ("src/warden/", "src/warden_ops/", "src/warden_evidence/", "contracts/")
 TRUST_FILES = (MANIFEST_FILE, "pyproject.toml", "uv.lock")

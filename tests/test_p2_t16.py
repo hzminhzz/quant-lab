@@ -31,7 +31,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from warden.contracts import HypothesisSpec, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import HypothesisSpec
 from warden.registry import ResearchRegistry
 
 REPO = Path(__file__).resolve().parents[1]
@@ -161,7 +162,7 @@ def _contract_registry(tmp_path: Path) -> Path:
     tmp_path.mkdir(parents=True, exist_ok=True)
     db = tmp_path / "registry.db"
     reg = ResearchRegistry(db)
-    contract = load_contract(REPO / "contracts" / "crypto_perps_1h_v1.yaml")
+    contract = load_recorded_contract(REPO, "CRYPTO_PERPS_1H_V1")
     reg.register_contract(contract)
     for hid in ("HYP-PASS", "HYP-REJECT", "HYP-INTERRUPTED", "HYP-PENDING"):
         reg.register_hypothesis(HypothesisSpec(
@@ -509,7 +510,7 @@ def _cases(tmp_path: Path) -> dict[str, str]:
         [revision._check_spec(revision.load_prereg(prereg), probe, rdb) for probe in probes],
         indent=2, sort_keys=True)
 
-    rom = _load("research_outcome_memory.py")
+    from warden_ops import research_outcome_memory as rom
     rom_db = _rom_fixture(tmp_path / "rom")
     cases["research_outcome_inventory.json"] = json.dumps(
         rom.inventory(rom_db, REPO / "docs/research-outcomes/branch-result-index-v1.json"),

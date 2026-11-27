@@ -9,7 +9,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from warden.contracts import HypothesisSpec, load_contract
+from warden.contract_source import load_recorded_contract
+from warden.contracts import HypothesisSpec
 from warden.registry import (
     HypothesisBudgetExhaustedError,
     ResearchRegistry,
@@ -26,7 +27,7 @@ def _from_ns(value: int) -> datetime:
 
 
 REPO = __import__("pathlib").Path(".")
-CONTRACT = load_contract(REPO / "contracts" / "crypto_perps_1h_v1.yaml")
+CONTRACT = load_recorded_contract(REPO, "CRYPTO_PERPS_1H_V1")
 
 
 def _hyp(hyp_id, family="rules_ts", module="", parent=None):

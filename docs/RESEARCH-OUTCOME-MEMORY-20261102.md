@@ -60,8 +60,8 @@ Of these 16 off-main identities, **13 are negative for the exact evaluated confi
 From a checkout that has access to the existing authoritative Warden registry:
 
 ```bash
-uv run --frozen python -m scripts.research_outcome_memory --inventory
-uv run --frozen python -m scripts.research_outcome_memory --check-spec experiments/queue/example.yaml
+uv run --frozen python -m warden_ops.research_outcome_memory --inventory
+uv run --frozen python -m warden_ops.research_outcome_memory --check-spec experiments/active/example.yaml
 ```
 
 The `--inventory` command is read-only: it dynamically joins hypotheses, trials and selection attempts, then lists the nine truly unattempted original mechanisms separately from 16 off-main evidence records. The checker refuses any identical hypothesis+contract with a frozen sidecar negative/PASS-but-unqualified, any Warden hypothesis with existing trials or attempts, unresolved original source blockers, contract ID conflicts, and obvious registered module aliases. The checker **never** authorizes a contract or trading: a new candidate still goes through normal Warden source, causality, cost and governance gates.

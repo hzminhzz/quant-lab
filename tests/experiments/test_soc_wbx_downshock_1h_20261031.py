@@ -11,15 +11,15 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.contracts import load_contract
+from warden.contract_source import load_recorded_contract
 from warden.strategy_loader import load_module_from_path
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE = load_module_from_path(
     ROOT / "strategies/candidates/soc_wbx_downshock_1h_20261031.py"
 )
-CONTRACT = load_contract(
-    ROOT / "contracts/auto_crypto_perps_top100_1h_v1_h24_e24_f45_s20_v1.yaml"
+CONTRACT = load_recorded_contract(
+    ROOT, "AUTO_CRYPTO_PERPS_TOP100_1H_V1_H24_E24_F45_S20_V1"
 )
 
 

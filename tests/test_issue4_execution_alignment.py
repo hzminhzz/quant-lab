@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from warden.contracts import load_contract
+from warden.contract_source import load_recorded_contract
 from warden.leakage import (
     compute_open_forward_label,
     purged_walk_forward_splits,
@@ -23,7 +23,7 @@ from warden.runner import (
     simulate_positions,
 )
 
-REPO_CONTRACT = load_contract(__import__("pathlib").Path("contracts/crypto_perps_1h_v1.yaml"))
+REPO_CONTRACT = load_recorded_contract(__import__("pathlib").Path.cwd(), "CRYPTO_PERPS_1H_V1")
 
 
 def _gapped_panel(n_bars: int = 60, n_assets: int = 3):

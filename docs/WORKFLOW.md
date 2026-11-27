@@ -15,9 +15,11 @@ candidate, operation, benchmark, novelty and exposure rules.
 Use [CONTEXT-MAP.md](../CONTEXT-MAP.md) for task-specific deeper reading.
 
 The principal provides an objective and scope through chat. The agent inspects,
-prepares, executes authorized work and verifies effects. Commands below are
-executor interfaces; the principal should receive a concrete decision packet
-when a protected decision is necessary.
+prepares, executes authorized work and verifies effects. Operational commands use the
+installed appliance launcher described in [operations](AGENT-CONTROL-OPERATIONS.md).
+Development commands shown below apply only to isolated fixtures or read-only inspection.
+The principal receives a concrete decision packet when a protected scientific decision
+is necessary; routine engineering uses the delegated appliance lifecycle.
 
 Before mutation, establish:
 
@@ -76,8 +78,9 @@ artifact, including symbols later excluded from scoring.
 A stale protected manifest blocks the affected integrity-gated scientific
 commands. Diagnose the mismatch, preserve the diff and prepare the required
 approval/release evidence; continue independently authorized engineering work.
-Current signing authority remains unchanged. The proposed Release Authority is
-not installed merely because its design is documented.
+Scientific signing authority remains unchanged. The trusted appliance ADR permits
+unsigned maintenance checksums and verified activation; the former independent
+Release Authority is historical, not an installed alternative.
 
 ## 2. Freeze intent before candidate implementation
 

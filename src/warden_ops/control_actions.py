@@ -108,6 +108,9 @@ def act(control, request):
     if digest({k: v for k, v in fields.items() if k != "plan_sha256"}) != request.plan.plan_sha256:
         return control.refuse("INTEGRITY_INCIDENT", "changed plan digest")
     with mutation_lease(control.registry_path):
+        from warden_ops.runtime_boundary import require_mutation_context
+
+        require_mutation_context(control.root, control.registry_path)
         # Repeat lookup under the lease; no duplicate invocation after a lost reply.
         existing = view.control_request(request.request_id)
         if existing:
@@ -140,6 +143,9 @@ def act(control, request):
 
 def reconcile(control, request):
     with mutation_lease(control.registry_path):
+        from warden_ops.runtime_boundary import require_mutation_context
+
+        require_mutation_context(control.root, control.registry_path)
         registry = current_registry(control.registry_path, writable=True)
         record = registry.control_request(request.request_id)
         if not record:

@@ -6,6 +6,7 @@ import os
 import sqlite3
 import subprocess
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -45,9 +46,12 @@ def current_registry(path, *, writable=False):
 
 
 class Control:
-    def __init__(self, root: Path, *, registry_path: Path | None = None, runtime_probe=None):
+    def __init__(self, root: Path, *, registry_path: Path | None = None, runtime_probe=None,
+                 caller_root: Path | None = None):
         self.root = Path(root).resolve()
         self.registry_path = Path(registry_path) if registry_path is not None else self.root / "registry/registry.db"
+        self.caller_root = Path(caller_root) if caller_root is not None else Path(
+            os.environ.get("QUANT_LAB_CALLER_ROOT", self.root))
         self.runtime_probe = runtime_probe
         if runtime_probe is None and os.environ.get("QUANT_LAB_APPLIANCE_HOME"):
             from warden_ops.appliance import Appliance
@@ -94,7 +98,7 @@ class Control:
                 runtime = {"status": "UNAVAILABLE", "release_id": None}
         value = {
             "objective": request.objective,
-            "checkout": checkout_view(Path(os.environ.get("QUANT_LAB_CALLER_ROOT", self.root))),
+            "checkout": checkout_view(self.caller_root),
             "runtime": runtime, "ledger": ledger,
             "authority": {
                 "status": "MAINTENANCE_DELEGATED" if runtime.get("authority_model") == "trusted-research-appliance" else "UNVERIFIED",
@@ -141,6 +145,13 @@ class Control:
             request = parse_request(payload)
         except (ValidationError, ValueError, TypeError) as exc:
             return self.refuse("TECHNICAL_PRE_ADMISSION", str(exc))
+        if request.operation in {"act", "reconcile", "enqueue", "cancel-job"}:
+            from warden_ops.runtime_boundary import require_mutation_context
+
+            try:
+                require_mutation_context(self.root, self.registry_path)
+            except (OSError, ValueError) as exc:
+                return self.refuse("TECHNICAL_PRE_ADMISSION", str(exc))
         if request.operation == "observe":
             return self.observe(request)
         if request.operation == "inspect" and request.view == "capabilities":
@@ -150,22 +161,29 @@ class Control:
             from warden_ops.findings import inspect_findings
             return inspect_findings(self, request)
         if request.operation in {"enqueue", "job-status", "cancel-job"}:
+            from warden.lease import MutationBusy
             from warden_ops.jobs import JobQueue
+            from warden_ops.runtime_boundary import operational_admission
             try:
                 readonly = request.operation == "job-status"
-                registry = current_registry(self.registry_path, writable=not readonly)
-                queue = JobQueue(registry)
-                if request.operation == "enqueue":
-                    payload = {"schema_version": 1, "operation": "act", "request_id": request.request_id,
-                               "plan": request.plan.model_dump(mode="json")}
-                    value = queue.submit(request.request_id, payload, objective=request.objective,
-                                         resources=request.plan.resources)
-                elif request.operation == "cancel-job":
-                    value = queue.cancel(request.job_id)
-                else:
-                    value = queue.status(request.job_id)
+                admission = nullcontext() if readonly else operational_admission(
+                    self.root, self.registry_path)
+                with admission:
+                    registry = current_registry(self.registry_path, writable=not readonly)
+                    queue = JobQueue(registry)
+                    if request.operation == "enqueue":
+                        payload = {"schema_version": 1, "operation": "act", "request_id": request.request_id,
+                                   "plan": request.plan.model_dump(mode="json")}
+                        value = queue.submit(request.request_id, payload, objective=request.objective,
+                                             resources=request.plan.resources)
+                    elif request.operation == "cancel-job":
+                        value = queue.cancel(request.job_id)
+                    else:
+                        value = queue.status(request.job_id)
                 return Result(ok=True, status="OK", observed_at=time.time(), value=value,
                               next_actions=["job-status", "receipt"]).model_dump(mode="json")
+            except MutationBusy as exc:
+                return self.refuse("BUSY", str(exc), retry="backoff; lookup receipt before retry")
             except (OSError, ValueError, sqlite3.Error) as exc:
                 return self.refuse("TECHNICAL_PRE_ADMISSION", str(exc))
         if request.operation in {"prepare", "act", "receipt", "reconcile"}:

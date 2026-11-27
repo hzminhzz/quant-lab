@@ -1,0 +1,108 @@
+{
+  "cpu_ids": [
+    6,
+    7
+  ],
+  "limits": "five new processes per condition; warm host page cache, no cache flush; sampled process-tree CPU/RSS/I/O lower bounds; strace separate from timing; path-attributed reads include non-hash reads",
+  "median_seconds": {
+    "contended": 13.871174271014752,
+    "idle": 6.100011864997214
+  },
+  "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76",
+  "samples": {
+    "contended": [
+      {
+        "cpu_seconds": 7.114933,
+        "elapsed_seconds": 14.277233280998189,
+        "io_bytes": 775423762,
+        "output_bytes": 8701,
+        "peak_rss_mb": 243.640625,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 7.232975,
+        "elapsed_seconds": 14.472504914010642,
+        "io_bytes": 775350365,
+        "output_bytes": 8700,
+        "peak_rss_mb": 293.15234375,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 6.92334,
+        "elapsed_seconds": 13.871174271014752,
+        "io_bytes": 775350149,
+        "output_bytes": 8701,
+        "peak_rss_mb": 243.55078125,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 6.642035,
+        "elapsed_seconds": 13.290711956011364,
+        "io_bytes": 775164551,
+        "output_bytes": 8701,
+        "peak_rss_mb": 244.08203125,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 6.868522,
+        "elapsed_seconds": 13.765163927979302,
+        "io_bytes": 775406903,
+        "output_bytes": 8701,
+        "peak_rss_mb": 242.8125,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      }
+    ],
+    "idle": [
+      {
+        "cpu_seconds": 6.065411,
+        "elapsed_seconds": 6.100011864997214,
+        "io_bytes": 774662480,
+        "output_bytes": 8701,
+        "peak_rss_mb": 242.9921875,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 5.967257,
+        "elapsed_seconds": 5.998169339000015,
+        "io_bytes": 774248663,
+        "output_bytes": 8701,
+        "peak_rss_mb": 243.7109375,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 6.176667,
+        "elapsed_seconds": 6.224826824996853,
+        "io_bytes": 774698204,
+        "output_bytes": 8701,
+        "peak_rss_mb": 243.30078125,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 5.916904,
+        "elapsed_seconds": 5.948644629999762,
+        "io_bytes": 774115548,
+        "output_bytes": 8700,
+        "peak_rss_mb": 243.58203125,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      },
+      {
+        "cpu_seconds": 6.359395,
+        "elapsed_seconds": 6.3989123219798785,
+        "io_bytes": 774926068,
+        "output_bytes": 8701,
+        "peak_rss_mb": 242.9453125,
+        "release_id": "117b55159078966d00278d67ab212e57c70edee3897bd874300aa60d74c42b76"
+      }
+    ]
+  },
+  "separate_strace_logical_read_bytes": {
+    "candidate": 34270074,
+    "runtime": 48275657,
+    "verification": 450438
+  },
+  "source_commit": "4a46bd2fc3a45bacda6788d634bcd774ececfad0",
+  "source_inventory_bytes": {
+    "candidate": 5602675,
+    "runtime": 5602675
+  }
+}

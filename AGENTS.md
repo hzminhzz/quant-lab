@@ -1,226 +1,71 @@
-## Memory
+# Quant-Lab agent operating contract
 
-Your memory is OptMem:
-- The tool is `~/.optmem/memo`
-- Your memories are in `~/.optmem/memory`
+## Start here
 
-OptMem outlives every session, compaction, model and vendor change.
-Without it you do not know who you are, or what was decided and tried.
+- Activate OptMem: run `~/.optmem/memo wake` at session start and follow its output.
+  Record durable discoveries with `~/.optmem/memo note "<one line, max 280 bytes>"`;
+  complete requested compression before the next action. Never edit its store directly.
+  Use `memo recall`/ `memo zoom` for older context. Subagents do not write OptMem.
+- Inspect actual Git, checkout, active runtime, ledger, authority and pending receipts.
+  Preserve unrelated dirty/untracked work. Dated reports and memory are not live state.
+- Read [CONTEXT-MAP.md](CONTEXT-MAP.md) for the task-specific authoritative sources.
+- Recover ordinary blockers autonomously via [RECOVER](docs/BLOCKER-RECOVERY.md):
+  diagnose, repair, verify, then resume the authorized objective. Preserve failures.
 
-### At startup: activating OptMem (mandatory)
+## Ownership and effects
 
-Run `~/.optmem/memo wake` before any other tool call, in every session, and
-then do exactly what it prints, to the end of its output.
+- ML4T owns schemas, features, labeling, diagnostics, CV and simulation. Inspect
+  installed APIs; use matching `.agents/skills/ml4t-*/SKILL.md` before domain work.
+- Warden owns immutable contracts, causal execution, cost floors, validation-label
+  stripping, budgets, append-only SQLite and Parquet evidence. Never bypass it.
+- Agents prepare hypotheses, candidates, tests and workspace artifacts. The principal
+  owns scientific intent, independent conformance, semantic policy changes, protected
+  effects and capital allocation. A missing independent judge is JUDGE_UNAVAILABLE.
+- [Trusted appliance ADR](docs/adr/2026-11-27-trusted-research-appliance.md) delegates
+  routine maintenance, unsigned checksums, verified deployment, additive migration and
+  recovery. It supersedes older independent software-release authority requirements.
+  A maintenance receipt is not scientific approval, signing or qualification.
+- Never place live orders, run sudo, modify `~/quant-research`, bypass host permissions,
+  fabricate approval/conformance, lower gates, or erase/rewrite scientific history.
+- Never open, hash, sample, stat or permission-probe sealed holdout files. Only a
+  separately authorized exact scientific operation under RG-08 and the existing
+  one-shot exposure gates may unseal. Noninteractive qualification remains refused.
 
-### While working: register memories (mandatory)
+## Engineering vs operations
 
-Call `~/.optmem/memo note "<1 line, max 280 bytes>"` whenever you learn
-something new, or something worth keeping happens. That covers a task
-worth real effort, a fact or insight the user teaches you, anything you
-learn about their life (even indirectly), any event of lasting effect.
+- Use isolated development worktrees and the frozen uv environment. No canonical
+  registry, exploratory data or cache symlinks in verification. Tests use disposable
+  fixtures, never live state. Migrations rehearse on an independent SQLite backup.
+- Use the installed appliance launcher for operational state/effects, not a mutable
+  checkout's CLI, MCP or legacy scheduler. Report caller checkout and runtime separately.
+  See [operations](docs/AGENT-CONTROL-OPERATIONS.md) for exact commands, lifecycle,
+  release receipts, writer quiescence, halt/recovery and known legacy limitations.
+- Refresh the unsigned integrity inventory via `warden generate-manifest --maintenance`;
+  never invent a scientific signature or alter existing approval metadata.
+  Check changed paths, protected inventory/AST, targeted regressions and exact full
+  release verification. A passing development test does not authorize activation.
+- Scientific scheduling stays paused until separately eligible. No ledger rewind.
+  An uncertain effect requires its existing receipt, never a blind retry.
 
-Do not register redundant memories.
+## Research (only within an authorized objective)
 
-If `~/.optmem/memo note` asks a compression: do it before your next action.
-
-Never edit or delete anything under `~/.optmem/memory`: the tool manages it.
-
-### When you need an old memory: search, or navigate
-
-`~/.optmem/memo recall <regex>` searches every memory, word for word.
-
-Your memories also form a binary tree: #0-1, #2-3 ... exist as one-line
-summaries, pairs of those as #0-3, and so on -- every `#a-b` line wake
-prints is one node of it. `~/.optmem/memo zoom <a-b>` opens a node into its
-two halves, down to the raw memories.
-
-### If you're a subagent: skip everything above
-
-Parallel sessions on this machine are all you, and may all write memories.
-A subagent is not: it must never run `memo`, because it cannot judge what
-is already known, and its notes would arrive duplicated and incorrectly.
-When you spawn one, write: `You are a subagent. Don't run memo.`
-
-# Quant-Lab operating contract
-
-**Maintenance amendment (principal-authorized, 2026-11-27):** Before release, migration or
-recovery, read [the trusted research appliance ADR](docs/adr/2026-11-27-trusted-research-appliance.md)
-and [operations](docs/AGENT-CONTROL-OPERATIONS.md). Routine software maintenance, unsigned
-checksum refresh, verified deployment and additive migration are delegated to the agent.
-This supersedes older independent release/POSIX ownership requirements only for maintenance.
-Scientific semantics, independent conformance, historical attestation, sealed data, capital,
-trading and host-permission restrictions below remain binding. Receipts are not scientific approval.
-
-Architecture: `docs/archive/agent_native_quant_research_rfc.md`; portability: `docs/archive/AGENT_COMPATIBILITY.md`; bootstrap tickets: `docs/archive/TICKETS.md`. Use `uv` and the locked environment. Optional adapters never enforce the scientific boundary on their own.
-
-## Four-way ownership
-
-- ML4T libraries own canonical schemas, indicators, labeling, diagnostics, CV, execution simulation and live runtime. Reuse installed APIs; inspect their signatures before calling them.
-- Deterministic `src/warden/` owns immutable contracts, cost floors, causality verification, validation-label stripping, budgets, append-only SQLite and Parquet evidence. Experiments cannot bypass it.
-- Coding agents own `experiments/active/`, `strategies/candidates/`, `tests/experiments/` and `.workspace/`. Baselines are frozen after registration. Record provenance, model ID and data cutoff; distinguish synthetic evidence from market evidence.
-- Human principal owns `contracts/`, evaluator approval, holdout unsealing and capital allocation. Never place live orders, never run sudo, never modify `~/quant-research`. Never unseal a production holdout **autonomously**: an agent may execute `warden qualify` only when the principal's approval is explicit in the current session and names either the run ID, or a selection criterion together with the plan that produces the run (for example a paired re-validation whose new run ID cannot exist yet). The agent records the approving instruction, the pre-read tree hashes and the result. Absent that, the gate stays closed.
-
-Protected hashes are checked by `warden check-worktree`; POSIX ownership is the actual external security boundary. During the approved TKT-01–12 implementation rollout, implement and sign the specified evaluator files; after cutover, evaluator/contract changes require human approval and a new contract where semantics change. Local synthetic holdout fixtures are not sealed production data.
-
-## Autonomous blocker recovery — RECOVER
-
-- **Trigger:** A `BLOCKED` result, missing data/quotes, bad source, broken test, stale catalog, failed API, unavailable judge, or unresolved dependency invokes [docs/BLOCKER-RECOVERY.md](docs/BLOCKER-RECOVERY.md). Diagnose → choose remedy → implement → verify → **resume the original objective**. A failed subtask does not end the broader authorized research campaign.
-- **Research proxy policy (principal approval, 2026-11-01):** Historical Dukascopy CFD/OHLCV is acceptable for Stage 0/1 discovery and explicitly labeled Stage 3 **proxy-only robustness** when relevant and quality-checked; native exchange futures or tick/quote data is **not** a prerequisite for these research stages. Native-venue economic qualification remains separate. Use [docs/DATA-PROXY.md](docs/DATA-PROXY.md) to select the existing pinned `NEXT_BAR` contract or create a separately versioned, provenance-pinned proxy contract within this approved research scope. Model nonzero spread/slippage/fees. Do not silently replace the dataset or price basis of an existing `QUOTE_SIDE` contract.
-- **Evidence levels:** A CFD proxy is observed market data, not the execution venue's fills. Report proxy screen and robustness outcomes separately from venue-specific execution verification, scientific qualification, holdout authorization, and deployment. Proxy labels are report annotations, not Warden's persisted verdict vocabulary. A missing futures feed may block *venue-specific qualification*, not the whole preliminary discovery campaign. Never use observations after the decision timestamp; missing **futures-market** data is not permission for **future-information** leakage.
-- Repair ordinary data-provider, code, catalog, dependency and test faults autonomously under the approved scope. On scientific falsification preserve the attempt and continue the next distinct hypothesis; never lower statistical gates, delete attempts, unseal holdouts, fabricate quotes, downgrade provenance or mutate frozen contracts. Escalate only an irreducible user-only approval or external blocker; keep immutable evidence and other sessions' work intact.
-- If an independent `judge` is available, use it for nontrivial new decisions and record the real verdict; if not, record `JUDGE_UNAVAILABLE` and continue reversible authorized work with direct tests. OptMem `wake`/`note`/`nap` is memory upkeep, never objective completion.
-
-## Falsification funnel
-
-0. Register economic mechanism, counterparty/friction and falsification criteria before computation. Reject expected holding-period volatility below 2.5 times round-trip costs.
-1. Verify causal features, then branch by family: `rules_ts` uses conditional return edge, profit factor, time-in-market and block bootstrap; `cross_sectional_ml` uses purged OOS IC and HAC significance; `carry_rv` uses positive net carry and stationary spread; `meta_overlay` uses tail-risk/turnover reduction versus its base strategy. Never force rules through cross-sectional IC.
-2. Simulate with contract-injected next-bar/quote-side execution, fees, slippage and funding. Persist every attempted configuration, including failures; never delete or update a trial.
-3. Apply contract-wide effective-rank DSR, analytical 1.5x cost stress (`stress_1p5_cost_sharpe`), full `ml4t.backtest.Engine` 2x cost stress (`cost_2x`), +1 bar latency (`latency_plus1`), `trimmed_sharpe`, and optional `param_grid` (±15% parameter neighbors when supplied). A failed gate is evidence, not permission to lower the threshold.
-4. Run the six-check audit and hand off a frozen qualification packet. A lineage is evaluated once on production holdout, by the agent only on explicit principal approval as defined in Four-way ownership; the second read is refused by the registry.
-
-Each hypothesis has three trials total: one baseline plus two targeted revisions. A fourth is blocked. Re-registering the same ID never resets the budget. After exhaustion, record a post-mortem in `.workspace/memory/LESSONS.md`. Log a Ridge or `ml4t-models` linear/IPCA baseline on the same feature set before LightGBM or other nonlinear models; `model_tier == "deep"` models require a logged linear baseline clearing the contract cost-breakeven hurdle.
-
-## Six-check adversarial audit
-
-1. Target/rebalance horizon alignment.
-2. Sensitivity after removing the top 5% best bars.
-3. Point-in-time timestamps and mandatory execution lag.
-4. Fold-local preprocessing/model fitting; validation inputs physically exclude labels.
-5. Survival under 2x costs and +1 bar latency.
-6. All trial counts retained and contract-wide DSR threshold met.
-
-Source: https://github.com/ml4t/agentic-ai-in-trading and RFC Sections 4–9.
-
-## Portable CLI contracts
-
-```bash
-uv run warden --version
-uv run warden status --json
-uv run warden check-worktree
-uv run warden register-hypothesis .workspace/hypotheses/HYP-2026-001.md --json
-uv run warden verify experiments/active/hyp_2026_001.yaml --json
-uv run warden screen experiments/active/hyp_2026_001.yaml --json
-uv run warden backtest experiments/active/hyp_2026_001.yaml --json
-uv run warden audit-check --run-id RUN-ML-001 --json
-uv run warden advance experiments/active/hyp_2026_001.yaml --json
-uv run warden advance --pending --json
-uv run warden handoff --notes "Evidence and next decision"
-uv run warden continue
-```
-
-All 16 CLI subcommands are implemented and lazy-loaded. Experiment commands fail closed on integrity/governance errors. Backtests end with `WARDEN_RUN_COMPLETE` or `WARDEN_RUN_FAILED`; JSON results precede the sentinel. `qualify --run-id ID --unseal-holdout --human-confirm-unseal` executes only under explicit principal approval (Four-way ownership) and is refused under `WARDEN_NON_INTERACTIVE=1`. Never replay arbitrary shell from transition documents; continuation verifies read-only expectations.
-
-## Research Evidence Ledger (approved 2026-11-07)
-
-- The legacy LOC cap was retired in Ticket 02 (`1f41d0d`, `#73`) in favor of repo-wide and `strategies/` AST import boundary checks enforced by `warden check-worktree`; Stage 1–3 statistics, per-hypothesis and lineage budgets, trial search debt, dataset provenance and one-shot production holdout rules remain unchanged.
-- SQLite `registry/registry.db` is authoritative for scientific attempts, Stage 1 `screen_receipts`, `attempt_receipts`, `holdout_claims` and exact `spec_causality` proof identity. Parquet/proof files are immutable artifacts whose bytes must reconcile to SQLite. YAML queue status, agent memory and campaign reports are projections, never independent permission to rerun science.
-- Before a queued spec is screened or backtested, use `uv run warden spec-status experiments/active/<spec>.yaml --json`. `NEW` may be screened once; `STAGE1_PASS` may advance without another screen; `STAGE1_REJECT` or `STAGE3_FINAL` must not replay; `REQUIRES_RECONCILIATION` goes to review. Do not reset any budget after interruption.
-- For an uncertain run, use `uv run warden attempt-status --run-id ID --json` (read-only). `reconcile-attempt` may mark an orphan as review-required, not refund/retry it. Scheduler archival requires a matching FINALIZED SQLite+Parquet receipt; FAILED and incomplete trials stay in review.
-- `uv run warden verify-causality --run-id ID --json` checks a *run-bound* frozen strategy/contract/input/proof fingerprint, not an unrelated contract-wide feature row. **Production qualification enforces a recorded APPROVED six-check audit and valid run-bound proof before any holdout claim/read**; a feature cache hit without matching causal proof is not approval.
-- `src/warden_ops/` contains integrity, checkpoint, and read-only projection utilities; `src/warden_evidence/` contains Warden-owned proof and market-validation code. The stdio MCP adapter (`scripts/mcp_warden/adapter.py`) is optional; the legacy HTTP server (`scripts/mcp_warden/server.py`) was removed. No tool may sign a human manifest, read protected holdout or enable live trading without separate approval.
-- `scripts/rehearse_state_machine_migration.py` migrates an **isolated SQLite snapshot only**, never the original live database. The updated `.warden_manifest.sha256` is an unsigned integrity checksum, *not* an independent human signature or permission to deploy.
-- Use `docs/STATE-MACHINE-EVIDENCE-20261107.md` and `docs/STATE-MACHINE-TRANSITIONS-20261107.md` for M01–M25 events, transition and failure semantics, fixture coverage, rollback rules and verified/nonverified dispositions.
-
-## Methodology skills
-
-61 copied declarative upstream skills live one level deep at `.agents/skills/ml4t-<name>/SKILL.md`; in OMP the same skill is `skill://ml4t-<name>`. Read the matching skill before domain work:
-
-- Panel transformations/features: `.agents/skills/ml4t-polars-patterns/SKILL.md`, `.agents/skills/ml4t-compute-features/SKILL.md` (`skill://ml4t-polars-patterns`, `skill://ml4t-compute-features`).
-- Validation/leakage: `.agents/skills/ml4t-purging-embargo/SKILL.md`, `.agents/skills/ml4t-lookahead-bias/SKILL.md`, `.agents/skills/ml4t-data-leakage/SKILL.md` (corresponding `skill://ml4t-*` URIs).
-- Factors/DSR: `.agents/skills/ml4t-evaluate-factor/SKILL.md`, `.agents/skills/ml4t-deflated-sharpe/SKILL.md` (`skill://ml4t-evaluate-factor`, `skill://ml4t-deflated-sharpe`).
-- Simulation/costs: `.agents/skills/ml4t-run-backtest/SKILL.md`, `.agents/skills/ml4t-transaction-costs/SKILL.md` (`skill://ml4t-run-backtest`, `skill://ml4t-transaction-costs`).
-
-Skills are Markdown only: no scripts, hooks or executable dependencies. Install optional UX with `scripts/setup_agent_adapter.sh --harness omp|opencode|claude|codex|all`; `--harness clean` removes only installer-owned links. Deleting adapters must not affect Warden or tests.
-
-### Automatic skill routing (OMP adapter)
-
-When running under the OMP adapter (`scripts/setup_agent_adapter.sh --harness omp`), `.omp/extensions/skill-router.ts` provides automatic pre-turn skill selection:
-- Evaluates incoming task intent against frontmatter metadata of all 61 skills using Jev / System One (`modelRoles.judge`).
-- Resolves transitive prerequisite DAGs in topological order (e.g. `run-backtest` $\to$ `cost-model` $\to$ `transaction-costs`) and injects complete skill bodies into session context before turn execution starts.
-- Rebinds dynamically in subagent child sessions (`task` tool).
-- Enforces a generic action gate in `tool_call`: if skill routing fails or if current active coverage has zero research skills loaded (e.g. documentation edits), mutating actions (`write`, `edit` to strategy files, and `warden backtest/screen/qualify`) are blocked fail-closed, while read-only tools (`read`, `grep`, `glob`) remain operational for diagnosis.
-- In non-OMP harnesses (or when the adapter is unlinked), manual skill reading (`skill://<name>` or `.agents/skills/ml4t-*/SKILL.md`) remains the standard interface.
-
-<!-- omh:agent-instructions:begin -->
-## Agent-maintained contract (Tickets 01–11 + perf, 2026-11-24)
-
-This marker-delimited region is maintained by coding agents; the hand-written sections above stay
-byte-for-byte. It records conventions and gates that are not obvious from the code. `CHANGELOG.md`
-lists what landed; `docs/archive/UNTANGLE_DECISION_LOG.md` and `docs/archive/EVIDENCE_INTEGRITY.md` hold the full triage and the
-principal-delegation authorization trails.
-
-### Research intake
-- Before implementing or scoring a new hypothesis (including external-source adaptations), complete
-  [the canonical term sheet](.workspace/templates/hypothesis.md) and follow the
-  [intake/approval sequence](AGENT_RUNBOOK.md). Register and approve the complete intent before
-  candidate implementation; read the applicable ML4T skills and resolve prior-art/lineage decisions.
-  External results are prior evidence, not independent qualification. For new admissions, the
-  RG-03/04 candidate/lineage budgets and fixed robustness accounting in
-  [Research Governance](docs/RESEARCH-GOVERNANCE.md) govern; legacy trial counters remain historical debt.
-
-### Strategy authoring
-- New `ACTIVE` hypotheses must implement one of the two inverted causal protocols in `src/warden/protocols.py`
-  (`generate_positions` is frozen for read-only historical replay only and fails closed on `ACTIVE` hypotheses):
-  - `CausalModelStrategy` (`pipeline` + `build_estimator(params) -> WalkForwardModelProtocol`), where Warden owns
-    `WalkForwardCV`, `MLDatasetBuilder` fold scaling, label stripping, `cross_sectional_ic_series`, and
-    `ml4t.backtest.Engine` simulation. Reference templates: `strategies/baselines/causal_ridge_1h.py`,
-    `strategies/baselines/causal_linear_portfolio_1h.py`, `strategies/baselines/causal_ipca_1h.py`.
-  - `CausalRulesStrategy` (`required_symbols(params)` + `configure_strategy(contract, params) -> Strategy`),
-    where Warden owns `ml4t.backtest.Engine` execution and native risk overlays.
-    Reference template: `strategies/candidates/causal_rules_drawdown_template.py`.
-- Deep-model guardrail: running a `model_tier == "deep"` strategy requires a logged linear baseline on the same
-  hypothesis that clears the contract cost-breakeven hurdle.
-- Sibling helpers import by bare name; `warden.strategy_loader` puts the module's directory on
-  `sys.path` once. Add no per-module `sys.path` bootstrap (the old carver convention is retired).
-- A strategy that loads code at runtime (`load_module_from_path`) or imports from a subdir declares
-  `CODE_DEPENDENCIES` — a module-level tuple/list of repo-relative paths, or a name bound to one — so
-  the code closure covers it. `tests/test_evidence_integrity.py` enforces this fail-closed.
-
-### Evidence binding & execution (fail closed)
-- `warden.codeid.code_closure` is the single authority on a strategy's code identity: all imports plus
-  `CODE_DEPENDENCIES`. The trial records it as `strategy_code_sha256`.
-- `warden qualify` binds to that recorded digest: it refuses a missing/absent trial module, an absent
-  binding, or a changed closure, and never substitutes a baseline. A legacy trial without a binding is
-  resolved through the governed candidate/revision path before it can qualify; do not replay spent evidence.
-- Contracts are immutable: register through `ResearchRegistry.register_contract` (identical → no-op,
-  changed → refuse). Write the `contracts` table only through that API, never raw SQL.
-- Stage 2, Stage 3, and `qualify` simulate via `ml4t.backtest.Engine` (`src/warden/engine_sim.py`) under
-  `simulation_epoch` isolation (`registry/backtest_results/<simulation_epoch>/<contract>/<run_id>`). `REVISE`
-  trials persist explicit failing gate keys in `diagnostics_json["failed_gates"]`.
-
-### Implementation status & retired tools
-- The runner wires all four family gates across Stage 1 and Stage 3: `rules_ts`, `cross_sectional_ml`,
-  `carry_rv`, and `meta_overlay`.
-- Retired tools and removed surfaces:
-  - The legacy LOC-budget script and LOC cap are retired; `warden check-worktree` enforces repo-wide
-    (`ml4t.live`) and `strategies/` (`sqlite3`, `subprocess`, HTTP/socket, `ml4t.backtest.Engine`) AST import
-    boundaries via `warden_ops.integrity.check_ast_boundaries`.
-  - `scripts/mcp_warden/server.py`, `src/warden/causality.py`, `scripts/hourly_queue_coordinator.py`, and
-    folder-based `experiments/queue/` / `.workspace/hypotheses/queue/` state moves are retired; specs live
-    immutably in `experiments/active/` and `.workspace/hypotheses/`, and `scripts/run_hourly_pipeline.sh` is a
-    thin `flock` wrapper calling `uv run --frozen warden advance --pending`.
-
-### Commands (verified by observed run this session)
-- `uv run --frozen pytest -q` — full suite, parallel via `pytest-xdist` (`-n 4 --dist worksteal` in
-  `pyproject.toml`; per-worker `POLARS_MAX_THREADS=2` / `OMP_NUM_THREADS=1` / `OPENBLAS_NUM_THREADS=1` in
-  `tests/conftest.py`).
-- `uv run --frozen warden check-worktree` — integrity manifest checksum + AST boundary gate (observed `rc=0`).
-- `uv run --frozen ruff check <paths>` — lint.
-
-### Generated files
-- `.warden_manifest.sha256` — source: the protected files (`src/warden/`, `src/warden_ops/`,
-  `src/warden_evidence/`, `contracts/`, `AGENTS.md`, `pyproject.toml`, `uv.lock`, and protected `scripts/`
-  including `scripts/run_hourly_pipeline.sh` and `scripts/mcp_warden/adapter.py`). Regenerate:
-  `uv run warden generate-manifest --human-approve-manifest` (HUMAN-ONLY; an agent runs it only under explicit
-  in-session principal delegation and records an approval trail). Gate: `uv run warden check-worktree`.
-  `.warden_manifest.sha256.meta.json` carries the signature (mode / approver / approved_at / manifest_sha256).
-
-### Pitfalls (each cost time)
-- Regenerate the worktree manifest BEFORE the final pytest run after editing protected files: the
-  worktree-tampering test asserts an integrity-clean baseline and reports a false regression otherwise.
-- A fresh worktree lacks gitignored runtime state: symlink the read-only data dirs, snapshot the
-  registry via SQLite's backup API (never `cp` a WAL-mode db), create required runtime dirs — or the
-  baseline is full of environment failures masquerading as regressions.
-- In this host's terminal an `env -u VAR …`-prefixed command can silently no-op (rc=0, nothing runs);
-  use a plain invocation and verify side effects by read-back.
-<!-- omh:agent-instructions:end -->
+- Follow [AGENT_RUNBOOK.md](AGENT_RUNBOOK.md), [WORKFLOW](docs/WORKFLOW.md) and
+  [Research Governance](docs/RESEARCH-GOVERNANCE.md). Complete the canonical term sheet,
+  resolve the exact DataRequirement, register and approve frozen intent before candidate
+  implementation; independently review the exact candidate binding before scoring.
+- New ACTIVE candidates use native CausalModelStrategy/CausalRulesStrategy. Legacy
+  generate_positions is historical replay only. Preserve full code closure and data
+  identities, point-in-time inputs, mandatory execution lag, fold-local preprocessing,
+  immutable baselines, selection debt and candidate/lineage limits. No synthetic
+  quotes, silent data substitution or choosing contracts to dodge thresholds.
+- Follow the family-specific falsification funnel, linear-baseline requirement,
+  fixed robustness/cost gates, six-check audit and prior-evidence/novelty rules.
+  Details and exact owner references are in the runbook and workflow.
+- The approved Dukascopy proxy policy is in [DATA-PROXY](docs/DATA-PROXY.md):
+  labeled proxy discovery/robustness is not execution-venue qualification.
+- The SQLite ledger is the scientific authority. Inspect spec-status, attempt-status,
+  run-bound causal proof and matching finalized receipts before advancing. Keep failed,
+  interrupted and historical attempts, exposure and selection debt. No retries/refunds
+  on exhausted or uncertain admissions. Narrative reports are projections, not authority.
+- Distinguish verified/inferred/hypothesis/unknown and engineering implementation,
+  verification, deployment, scientific qualification and trading authorization.

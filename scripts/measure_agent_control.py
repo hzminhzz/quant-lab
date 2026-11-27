@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import statistics
+import subprocess
 import sys
 import tempfile
 import time
@@ -95,6 +96,78 @@ def observe_measurements(scratch):
             "note": "five cold processes per condition; no cache or speedup claim"}
 
 
+def appliance_measurements(home, scratch):
+    """Matched cold launcher requests, idle and with two bounded CPU contenders."""
+    home = Path(home).resolve(strict=True)
+    launcher = home / "warden"
+    cpus = sorted(os.sched_getaffinity(0))[-2:]
+    if len(cpus) != 2:
+        raise ValueError("matched benchmark requires two available CPUs")
+    limits = Resources(cpu=2, memory_mb=2048, io_mb=4096, wall_seconds=60)
+    samples = {"idle": [], "contended": []}
+    caller = scratch / "caller"
+    caller.mkdir()
+    argv = [str(launcher), "control", "--json"]
+    for condition, rows in samples.items():
+        for number in range(5):
+            output = scratch / f"{condition}-{number}"
+            output.mkdir()
+            burners = []
+            try:
+                if condition == "contended":
+                    for cpu in cpus:
+                        burners.append(subprocess.Popen(
+                            ["/usr/bin/taskset", "--cpu-list", str(cpu), sys.executable, "-c",
+                             "import time; end=time.monotonic()+60\nwhile time.monotonic()<end: pass"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+                result = run_bounded(argv, cwd=caller, env=_env(), output=output,
+                                     limits=limits, cpu_ids=cpus)
+            finally:
+                for burner in burners:
+                    if burner.poll() is None:
+                        burner.terminate()
+                    burner.wait(timeout=5)
+            raw = (output / "stdout").read_bytes()
+            value = json.loads(raw)["value"]
+            if (result["state"] != "FINISHED" or not value["runtime"]["healthy"]
+                    or value["scientific_writes"] or value["evaluator_calls"] or value["sealed_access"]
+                    or len(raw) > 12288):
+                raise ValueError("observation benchmark failed health/inertness/output gate")
+            rows.append({**result["usage"], "output_bytes": len(raw),
+                         "release_id": value["runtime"]["release_id"]})
+    # Source inventory size is deterministic metadata, not a fabricated I/O
+    # counter. The request profile below measures actual reads separately.
+    release = samples["idle"][0]["release_id"]
+    candidate = home / "releases" / release
+    runtime = home / "runtimes" / release
+    manifest = json.loads((candidate / "candidate.json").read_text())
+    sizes = {name: sum((path / rel).stat().st_size for rel in manifest["inventory"])
+             for name, path in (("candidate", candidate), ("runtime", runtime))}
+    trace = scratch / "read.trace"
+    subprocess.run(["/usr/bin/strace", "-f", "-yy", "-e", "trace=read,pread64",
+                    "-o", str(trace), *argv], cwd=caller, env=_env(),
+                   capture_output=True, check=True, timeout=120)
+    import re
+
+    read_bytes = {"candidate": 0, "runtime": 0, "verification": 0}
+    for line in trace.read_text(errors="replace").splitlines():
+        match = re.search(r"= (\d+)(?:\s|$)", line)
+        if match:
+            for name, path in (("candidate", candidate), ("runtime", runtime),
+                               ("verification", home / "verification" / release)):
+                if str(path) + "/" in line:
+                    read_bytes[name] += int(match.group(1))
+                    break
+    return {"release_id": release, "source_commit": manifest["source"]["commit"],
+            "cpu_ids": cpus, "samples": samples,
+            "median_seconds": {name: statistics.median(r["elapsed_seconds"] for r in rows)
+                               for name, rows in samples.items()},
+            "source_inventory_bytes": sizes, "separate_strace_logical_read_bytes": read_bytes,
+            "limits": "five new processes per condition; warm host page cache, no cache flush; "
+                      "sampled process-tree CPU/RSS/I/O lower bounds; strace separate from timing; "
+                      "path-attributed reads include non-hash reads"}
+
+
 def byte_method(path, method):
     # Reject protected names and every symlink before opening any bytes.
     path = Path(path).absolute()
@@ -142,8 +215,9 @@ def byte_measurements(path, scratch):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--measure", choices=("observe", "bytes"))
+    parser.add_argument("--measure", choices=("observe", "bytes", "appliance"))
     parser.add_argument("--path", type=Path)
+    parser.add_argument("--home", type=Path)
     parser.add_argument("--child-method", choices=("buffer", "staged", "buffer-parse", "staged-parse"))
     args = parser.parse_args()
     if args.child_method:
@@ -151,7 +225,10 @@ def main():
         return
     with tempfile.TemporaryDirectory(prefix="warden-ac-measure-") as directory:
         scratch = Path(directory)
-        result = observe_measurements(scratch) if args.measure == "observe" else byte_measurements(args.path, scratch)
+        if args.measure == "appliance":
+            result = appliance_measurements(args.home, scratch)
+        else:
+            result = observe_measurements(scratch) if args.measure == "observe" else byte_measurements(args.path, scratch)
     print(json.dumps(result, sort_keys=True))
 
 

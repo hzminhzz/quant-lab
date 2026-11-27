@@ -12,12 +12,12 @@ This index changes no permissions or scientific rules.
 | Resolve terminology | [CONTEXT.md](CONTEXT.md) | Follow the named domain owner when implementation conflicts |
 | Design the whole system or its interfaces | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Current source seams cited there; target capabilities are explicitly marked |
 | Implement control actions, recovery or authority | [AGENT-CONTROL-CONTRACTS.md](docs/AGENT-CONTROL-CONTRACTS.md), [delivery plan](docs/AGENT-CONTROL-PLAN.md) | Public behavior and existing registry/approval owners; no duplicate scientific authority |
-| Understand an architectural trade-off | [Control and release ADR](docs/adr/2026-11-27-warden-control-and-release-authority.md) | Alternatives, consequences and remaining approval dependencies |
+| Understand an architectural trade-off | [Trusted appliance ADR](docs/adr/2026-11-27-trusted-research-appliance.md) | Current maintenance delegation and scientific effect boundaries; earlier control/release ADR is history |
 | Choose/compile data for a thesis | [DATA-REQUIREMENT.md](docs/DATA-REQUIREMENT.md), [VENUE-POLICY.md](docs/VENUE-POLICY.md) | Resolver/compiler and signed policy; declared universe, clock, provenance and bytes |
 | Admit, revise, compare or close research | [RESEARCH-GOVERNANCE.md](docs/RESEARCH-GOVERNANCE.md) | Frozen intent/review, candidate/lineage debt, operation receipts and paired evidence |
 | Recover a failed or interrupted step | [BLOCKER-RECOVERY.md](docs/BLOCKER-RECOVERY.md), [EXIT-CODES.md](docs/EXIT-CODES.md) | Admission/effect status first; existing receipt before retry |
 | Find previous failures or related studies | [Outcome-memory history](docs/RESEARCH-OUTCOME-MEMORY-20261102.md), current lessons and outcome index | Current registry plus unreconciled branch evidence; historical counts are dated |
-| Prepare release or production migration | [Agent control plan](docs/AGENT-CONTROL-PLAN.md), [RG acceptance record](docs/RESEARCH-GOVERNANCE-ACCEPTANCE-20261127.md), [T20 host obligations](docs/T20-CUTOVER-RUNBOOK.md) | Actual permissions, immutable release, compatible ledger and exact separate decisions |
+| Prepare release or production migration | [Operations](docs/AGENT-CONTROL-OPERATIONS.md), [Trusted appliance ADR](docs/adr/2026-11-27-trusted-research-appliance.md) | Actual permissions, immutable release, compatible ledger, exact gate receipt and separate scientific decisions |
 | Review earlier architecture/history | [Archive index](docs/archive/README.md), [state-machine transitions](docs/STATE-MACHINE-TRANSITIONS-20261107.md) | Original evidence date/revision; do not execute archived command recipes blindly |
 
 ## Ownership map
@@ -29,8 +29,8 @@ This index changes no permissions or scientific rules.
 | Research governance | Intent, conformance, novelty, candidate/lineage allowance, selection debt and exposure | Data/code identities and prior evidence |
 | Scientific evaluation | Causal execution and frozen statistical/robustness/comparative tests | Admitted frozen candidates and ML4T |
 | Evidence | Durable records/artifacts and their provenance | Finalized effects; no speculative approvals |
-| Agent control — target | Situation, plans, action/receipt interface, continuation and resource coordination | Existing domain rules; never another scientific ledger |
-| Release Authority — target | Authorized immutable runtime and protected decision consumption | Exact candidates, trusted verification and explicit grants |
+| Agent control | Situation, plans, action/receipt interface, continuation and resource coordination | Existing domain rules; never another scientific ledger |
+| Trusted appliance | Verified immutable runtime, additive migration and recovery | Exact candidates, full verification, observed writer state; no scientific approval |
 
 ## Reading and truth rules
 

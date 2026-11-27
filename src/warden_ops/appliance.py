@@ -18,7 +18,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from warden.lease import MutationBusy, mutation_lease
@@ -27,11 +26,16 @@ from warden_ops.control_contracts import digest
 from warden_ops.integrity import check_ast_boundaries, check_worktree
 from warden_ops.ledger_maintenance import assert_preserved, backup_readonly, file_sha256, read_state
 from warden_ops.release import verify_candidate, verify_materialization
+from warden_ops.verification import (
+    WITNESS, clean_test_environment, collect_inventory, environment_preflight,
+    fast_source_checks, junit_report, run_suite, selection_matches, verification_command,
+)
 
 MODEL = "trusted-research-appliance"
 HEX = re.compile(r"^[a-f0-9]{64}$")
 REQUIRED_CHECKS = ("full-suite", "protected-inventory", "ast-boundaries",
-                   "source-integrity", "environment-integrity")
+                   "source-integrity", "environment-integrity", "environment-preflight",
+                   "collection-inventory", "stage1-performance-witness", "fast-source-checks")
 BINDINGS = ("registry", "data/exploratory", "cache", ".workspace/hypotheses")
 
 
@@ -227,9 +231,48 @@ class Appliance:
                     for kind, subject, payload, at in conn.execute(
                         "SELECT kind,subject,payload,created_at FROM lifecycle_events ORDER BY sequence")]
 
+    def history_summary(self, *, after=None, limit=10):
+        """Bounded lifecycle index. Full evidence remains in the append-only journal."""
+        if not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise ValueError("history limit must be between 1 and 20")
+        if after is not None and (not isinstance(after, int) or after < 0):
+            raise ValueError("history cursor must be a nonnegative sequence")
+        with contextlib.closing(sqlite3.connect(
+                (self.home / "operations.db").as_uri() + "?mode=ro", uri=True)) as conn:
+            conn.execute("BEGIN")
+            total, latest = conn.execute(
+                "SELECT COUNT(*), COALESCE(MAX(sequence),0) FROM lifecycle_events").fetchone()
+            if after is None:
+                rows = list(reversed(conn.execute(
+                    "SELECT sequence,kind,subject,payload,created_at FROM lifecycle_events "
+                    "ORDER BY sequence DESC LIMIT ?", (limit,)).fetchall()))
+            else:
+                rows = conn.execute(
+                    "SELECT sequence,kind,subject,payload,created_at FROM lifecycle_events "
+                    "WHERE sequence>? ORDER BY sequence LIMIT ?", (after, limit)).fetchall()
+        events = []
+        for sequence, kind, subject, raw, created_at in rows:
+            payload = json.loads(raw)
+            event = {"sequence": sequence, "kind": kind[:80], "subject": subject[:100],
+                     "created_at": created_at, "payload_sha256": digest(payload)}
+            for key in ("state", "ok", "verification_id", "release_id"):
+                value = payload.get(key)
+                if isinstance(value, (bool, int, float)):
+                    event[key] = value
+                elif isinstance(value, str):
+                    event[key] = value[:100]
+            events.append(event)
+        cursor = events[-1]["sequence"] if events else (after or 0)
+        return {"total": total, "latest_sequence": latest, "events": events,
+                "next_after": cursor if cursor < latest else None,
+                "older_events_omitted": bool(events and events[0]["sequence"] > 1),
+                "full_evidence": "appliance history --full", "scientific_authority": False}
+
     def _last(self, kind, subject):
-        return next((e["payload"] for e in reversed(self.history())
-                     if e["kind"] == kind and e["subject"] == subject), None)
+        with contextlib.closing(sqlite3.connect((self.home / "operations.db").as_uri() + "?mode=ro", uri=True)) as conn:
+            row = conn.execute("SELECT payload FROM lifecycle_events WHERE kind=? AND subject=? "
+                               "ORDER BY sequence DESC LIMIT 1", (kind, subject)).fetchone()
+        return json.loads(row[0]) if row else None
 
     def _env(self, root, *, maintenance=False):
         env = {**os.environ, "PYTHONPATH": f"{root / 'src'}:{root}",
@@ -254,9 +297,38 @@ class Appliance:
         return manifest
 
     def verify(self, release):
-        """Serialize verification receipts against other verification and activation."""
+        """Serialize attempts; preserve incomplete and successful evidence separately."""
         with mutation_lease(self.home / "operations.db"):
-            return self._verify(release)
+            self.runtime(release)  # Validate the identity before making evidence paths.
+            directory = self.home / "verification" / release
+            directory.mkdir(parents=True, exist_ok=True)
+            prior = self._last("verification-started", release)
+            if prior:
+                terminal = [self._last(kind, release) for kind in
+                            ("verified", "verification-incomplete", "verification-failed")]
+                if not any(event and event.get("evidence_directory") == prior["evidence_directory"]
+                           for event in terminal):
+                    result = {**prior, "state": "INCOMPLETE",
+                              "reason": "previous owner exited without terminal receipt"}
+                    _write(Path(prior["evidence_directory"]) / "incomplete.json", result)
+                    self._append("verification-incomplete", release, result)
+            attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=directory))
+            started = {"state": "STARTED", "release_id": release, "evidence_directory": str(attempt),
+                       "observed_at": time.time(), "scientific_authority": False}
+            _write(attempt / "started.json", started)
+            self._append("verification-started", release, started)
+            try:
+                return self._verify(release, attempt)
+            except (KeyboardInterrupt, subprocess.TimeoutExpired) as exc:
+                result = {**started, "state": "INCOMPLETE", "reason": type(exc).__name__}
+                _write(attempt / "incomplete.json", result)
+                self._append("verification-incomplete", release, result)
+                raise
+            except Exception as exc:
+                result = {**started, "state": "FAILED", "reason": str(exc)[:1000]}
+                _write(attempt / "failed.json", result)
+                self._append("verification-failed", release, result)
+                raise
 
     def _verification_source(self, release, directory, manifest):
         """Complete committed test assets without canonical registry/data bindings."""
@@ -275,33 +347,43 @@ class Appliance:
         _command(["git", "diff", "--quiet", "HEAD", "--"], cwd=source)
         return source
 
-    def _verify(self, release):
-        """Fixed full-suite baseline over byte-matched source, never canonical state."""
+    def _verify(self, release, attempt):
+        """Fixed inventory and full suite plus isolated strict performance witness."""
         manifest = self._check_runtime(release)
         candidate = self.home / "releases" / release
-        directory = self.home / "verification" / release
-        directory.mkdir(parents=True, exist_ok=True)
-        attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=directory))
+        directory = attempt.parent
         source = self._verification_source(release, attempt, manifest)
         env = self._env(source, maintenance=True)
         # Synthetic approval fixtures establish their own context; no production state is mounted.
         env.pop("WARDEN_NON_INTERACTIVE", None)
+        env, cleared = clean_test_environment(env)
         python = self._python(release)
         before_environment = _environment(python)
+        preflight = environment_preflight(python, source, env)
+        fast_checks = fast_source_checks(python, source, env)
+        base = verification_command(python, source, attempt)
+        nodes = collect_inventory(base, source, env, attempt)
+        _write(attempt / "collection.json", {"node_ids": nodes, "count": len(nodes)})
         xml = attempt / "suite.xml"
-        argv = [str(python), "-m", "pytest", "-q", "-n", "4", "--dist", "worksteal",
-                "--tb=short", "-o", "addopts=", "-o", f"cache_dir={directory / 'pytest-cache'}",
+        witness_xml = attempt / "witness.xml"
+        argv = [*base, "-n", "4", "--dist", "worksteal", "--deselect", WITNESS,
+                "--warden-selection", str(attempt / "suite-selection"),
                 f"--junitxml={xml}", "tests"]
-        with (attempt / "suite.log").open("x") as log:
-            proc = subprocess.run(argv, cwd=source, env=env, stdout=log, stderr=subprocess.STDOUT,
-                                  check=False, timeout=1800)
-        counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0, "xfail": 0}
-        if xml.exists():
-            report = ET.parse(xml).getroot()
-            for suite in report.iter("testsuite"):
-                for name in ("tests", "failures", "errors", "skipped"):
-                    counts[name] += int(suite.get(name, "0"))
-            counts["xfail"] = sum(node.get("type") == "pytest.xfail" for node in report.iter("skipped"))
+        witness_cpus = sorted(os.sched_getaffinity(0))[-2:]
+        witness_argv = ["/usr/bin/taskset", "--cpu-list", ",".join(map(str, witness_cpus)),
+                        *base, "-n", "0", "--warden-selection", str(attempt / "witness-selection"),
+                        f"--junitxml={witness_xml}", WITNESS]
+        suite_rc = run_suite(argv, source, env, attempt / "suite.log")
+        # The strict 100 x 20k witness never competes with the xdist workers.
+        witness_rc = run_suite(witness_argv, source, env, attempt / "witness.log")
+        suite_counts, suite_skips = junit_report(xml)
+        witness, witness_skips = junit_report(witness_xml)
+        counts = {key: suite_counts[key] + witness[key] for key in suite_counts}
+        inventory_ok = (counts["tests"] == len(nodes)
+                        and suite_counts["tests"] == len(nodes) - 1
+                        and selection_matches(attempt, nodes))
+        witness_ok = (witness_rc == 0 and witness["tests"] == 1
+                      and witness["failures"] == witness["errors"] == witness["skipped"] == 0)
         with contextlib.redirect_stdout(io.StringIO()):
             integrity = check_worktree(candidate)
         source_error = None
@@ -313,20 +395,31 @@ class Appliance:
                 raise ValueError("test source acquired external state bindings")
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             source_error = str(exc)
-        checks = {"full-suite": proc.returncode == 0 and counts["tests"] > 0
+        checks = {"full-suite": suite_rc == 0 and witness_ok and inventory_ok
                   and counts["failures"] == counts["errors"] == 0,
                   "protected-inventory": integrity, "ast-boundaries": not check_ast_boundaries(candidate),
                   "source-integrity": source_error is None,
-                  "environment-integrity": _environment(python) == before_environment}
+                  "environment-integrity": _environment(python) == before_environment,
+                  "environment-preflight": True, "collection-inventory": inventory_ok,
+                  "stage1-performance-witness": witness_ok, "fast-source-checks": True}
+        artifact_names = ("collection.log", "collection.json", "suite.xml", "suite.log",
+                          "witness.xml", "witness.log",
+                          *(path.name for path in sorted(attempt.glob("*-selection-*.json"))))
+        artifacts = {name: file_sha256(attempt / name) for name in artifact_names
+                     if (attempt / name).is_file()}
         result = {"schema_version": 1, "release_id": release, "ok": all(checks.values()),
                   "test_source": str(source), "test_source_commit": manifest["source"]["commit"],
                   "canonical_state_mounted": False, "source_error": source_error,
                   "evidence_directory": str(attempt),
                   "required_checks": list(REQUIRED_CHECKS), "checks": checks, "suite": counts,
-                  "suite_sha256": file_sha256(xml) if xml.exists() else None,
-                  "log_sha256": file_sha256(attempt / "suite.log"), "command": argv,
+                  "collection_count": len(nodes), "witness": witness, "preflight": preflight,
+                  "fast_checks": fast_checks,
+                  "cleared_test_environment": cleared, "skip_reasons": suite_skips + witness_skips,
+                  "artifacts": artifacts, "suite_sha256": artifacts.get("suite.xml"),
+                  "log_sha256": artifacts.get("suite.log"), "command": argv,
+                  "witness_command": witness_argv,
                   "environment": before_environment, "dependency_lock_sha256": manifest["dependency_lock_sha256"],
-                  "baseline": "full committed tests + protected inventory + AST; ADR appliance 2026-11-27",
+                  "baseline": "full committed tests + isolated strict Stage 1 witness + inventory + AST",
                   "scientific_authority": False, "observed_at": time.time()}
         result["verification_id"] = digest(result)
         _write(attempt / "receipt.json", result)
@@ -334,24 +427,40 @@ class Appliance:
         _write(directory / "current.json", {"attempt": attempt.name, "verification_id": result["verification_id"]})
         return result
 
-    def _verified(self, release):
-        self._check_runtime(release)
+    def _verified(self, release, *, manifest=None):
+        # A caller may pass only its freshly verified materialization within this
+        # observation. Mutating callers always start a fresh verification.
+        if manifest is None:
+            manifest = self._check_runtime(release)
         directory = self.home / "verification" / release
         current = _json(directory / "current.json")
         path = directory / current["attempt"]
         if path.is_symlink() or path.resolve().parent != directory.resolve():
             raise ValueError("verification pointer outside immutable evidence")
         value = _json(path / "receipt.json")
-        if (value["release_id"] != release or not value["ok"]
+        started = self._last("verification-started", release)
+        invalidated = any(event and event.get("evidence_directory") == str(path)
+                          for event in (self._last("verification-incomplete", release),
+                                        self._last("verification-failed", release)))
+        artifacts = value.get("artifacts", {})
+        if (value["release_id"] != release or not value["ok"] or invalidated
+                or not started or started["evidence_directory"] != str(path)
                 or current["verification_id"] != value["verification_id"]
                 or self._last("verified", release) != value
+                or value["test_source_commit"] != manifest["source"]["commit"]
+                or value["dependency_lock_sha256"] != manifest["dependency_lock_sha256"]
                 or value["required_checks"] != list(REQUIRED_CHECKS)
                 or not all(value["checks"].get(check) is True for check in REQUIRED_CHECKS)
                 or digest({k: v for k, v in value.items() if k != "verification_id"}) != value["verification_id"]
-                or value["suite_sha256"] != file_sha256(path / "suite.xml")
-                or value["log_sha256"] != file_sha256(path / "suite.log")
+                or not {"collection.log", "collection.json", "suite.xml", "suite.log",
+                        "witness.xml", "witness.log", "collect-selection-controller.json",
+                        "witness-selection-controller.json",
+                        *(f"suite-selection-gw{i}.json" for i in range(4))} <= set(artifacts)
+                or any(Path(name).name != name for name in artifacts)
+                or any((path / name).is_symlink() or file_sha256(path / name) != sha
+                       for name, sha in artifacts.items())
                 or value["environment"] != _environment(self._python(release))):
-            raise ValueError("verification missing, changed or no longer valid")
+            raise ValueError("verification missing, incomplete, changed or no longer valid")
         return value
 
     def writer_state(self):
@@ -414,6 +523,13 @@ class Appliance:
                     raise MutationBusy("legacy scheduler writer is active") from exc
                 if not self._quiescent(self.writer_state()):
                     raise ValueError("configured writers are not quiescent; pause and observe before transition")
+                from warden_ops.readonly import open_readonly
+                from warden_ops.jobs import _HELD
+
+                view = open_readonly(self.db).read_control_snapshot(limit=1)
+                if any(state in _HELD and count for state, count in
+                       (view.get("job_states") or {}).items()):
+                    raise MutationBusy("operational jobs still hold resources; resolve before transition")
                 yield
             finally:
                 os.close(fd)
@@ -510,13 +626,21 @@ class Appliance:
         return resolved.name
 
     def _probe(self, release):
-        self._check_runtime(release)
-        root = self.runtime(release)
-        result = _command([str(self._python(release)), "-m", "warden_ops.appliance", "_probe",
-                           "--home", str(self.home), "--release", release], cwd=root,
-                          env=self._env(root, maintenance=True), timeout=60)
-        value = json.loads(result)
-        if value["module_root"] != str(root / "src") or value["release_id"] != release:
+        manifest = self._check_runtime(release)
+        root, python = self.runtime(release), self._python(release)
+        if (Path(__file__).resolve().parents[1] == root / "src"
+                and Path(sys.executable).absolute() == python.absolute()
+                and "WARDEN_HUMAN_SIGNING_KEY" not in os.environ):
+            # The stable launcher already selected this exact interpreter and
+            # pinned module tree. Do not spawn another identical observer.
+            value = _local_probe(self, release, manifest=manifest)
+        else:
+            result = _command([str(python), "-m", "warden_ops.appliance", "_probe",
+                               "--home", str(self.home), "--release", release], cwd=root,
+                              env=self._env(root, maintenance=True), timeout=60)
+            value = json.loads(result)
+        if (value["module_root"] != str(root / "src") or value["release_id"] != release
+                or Path(value["python"]).absolute() != python.absolute()):
             raise ValueError("observed executable identity differs from installed runtime")
         return value
 
@@ -527,6 +651,8 @@ class Appliance:
                     "authority_model": MODEL, "scientific_authority": False}
         try:
             value = self._probe(release)
+            if self.active_release() != release:
+                raise ValueError("active runtime changed during observation; refresh")
             if (self.home / "halted.json").exists():
                 value.update(status="HALTED", healthy=False, halt=_json(self.home / "halted.json"))
             return value
@@ -548,16 +674,36 @@ class Appliance:
         if not observed["healthy"]:
             raise ValueError("appliance is not healthy: " + observed["status"])
         root = self.runtime(observed["release_id"])
+        # Only the typed read-only observation may consume this request's proof.
+        # Every other operation goes through the native CLI and fresh admission.
+        if (argv[:1] == ["control"] and Path(__file__).resolve().parents[1] == root / "src"
+                and Path(sys.executable).absolute() == self._python(observed["release_id"]).absolute()):
+            from warden.cli import build_parser
+            from warden.policy import authorize
+            from warden_ops.control import Control
+
+            args = build_parser().parse_args(argv)
+            try:
+                payload = json.loads(args.request)
+            except ValueError:
+                payload = None
+            if (isinstance(payload, dict) and payload.get("operation") == "observe"
+                    and authorize("control").allow):
+                control = Control(root, runtime_probe=lambda: observed, caller_root=Path.cwd())
+                result = control.handle(payload)
+                print(json.dumps(result))
+                return 0 if result["ok"] else 2
         env = self._env(root)
         env["QUANT_LAB_CALLER_ROOT"] = str(Path.cwd())
         return subprocess.run([str(self._python(observed["release_id"])), "-m", "warden.cli", *argv], cwd=root,
                               env=env, check=False).returncode
 
 
-def _local_probe(appliance, release):
+def _local_probe(appliance, release, *, manifest=None):
     root = appliance.runtime(release)
-    manifest = appliance._check_runtime(release)
-    verification = appliance._verified(release)
+    if manifest is None:
+        manifest = appliance._check_runtime(release)
+    verification = appliance._verified(release, manifest=manifest)
     with contextlib.closing(sqlite3.connect(appliance.db.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         conn.execute("PRAGMA query_only=ON")
         schema = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -587,6 +733,9 @@ def main(argv=None):
     parser.add_argument("--writer-unit", action="append", default=[])
     parser.add_argument("--request-id")
     parser.add_argument("--reason", default="operator maintenance halt")
+    parser.add_argument("--full", action="store_true", help="Return full lifecycle evidence.")
+    parser.add_argument("--after", type=int)
+    parser.add_argument("--limit", type=int, default=10)
     args, rest = parser.parse_known_args(argv)
     try:
         if args.operation != "run" and rest:
@@ -610,7 +759,8 @@ def main(argv=None):
             elif args.operation == "halt":
                 value = app.halt(args.reason)
             elif args.operation == "history":
-                value = app.history()
+                value = app.history() if args.full else app.history_summary(
+                    after=args.after, limit=args.limit)
             else:
                 value = app.observe()
         print(json.dumps(value, sort_keys=True))

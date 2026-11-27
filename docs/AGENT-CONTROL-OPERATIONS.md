@@ -114,9 +114,13 @@ They are not a second supported release path.
 ### Routine agent workflow
 
 1. Work in an isolated development checkout. Preserve the canonical ledger and concurrent work.
-   Run behavior tests, review the actual diff, then use `warden generate-manifest --maintenance`.
+   Run behavior tests, review the actual diff, then use `uv run --frozen warden generate-manifest --maintenance`.
    This refreshes unsigned checksums only; it refuses existing signature/approval metadata.
-2. Commit and integrate reviewed source. Build an immutable candidate with the existing builder.
+   Run `uv run --frozen python -m warden_ops.verification --fast` before expensive checks.
+   It checks installed imports and lock versions, isolated fixture setup, fatal Ruff rules,
+   protected inventory/AST and complete test collection. It is not a release receipt.
+2. Commit reviewed source. Build an immutable candidate with the existing builder; integrate
+   only after the full candidate gate, then verify the exact integrated commit for activation.
    Prepare a separate environment for this release outside the mutable checkout. Use
    `UV_PROJECT_ENVIRONMENT=HOME/envs/RELEASE_ID uv sync --frozen --no-editable --project CANDIDATE`,
    then the same command with `--check`. Install the project as well as its locked dependencies:
@@ -131,8 +135,13 @@ They are not a second supported release path.
    all test assets in a fresh worktree for each attempt. Release bytes and environment identity
    are reverified before/after; canonical state/data are not mounted. Synthetic test fixtures
    establish their own approval contexts and may create their own disposable ledgers.
-   Runtime noninteractive guards remain enabled. Receipts retain exact XML/log hashes,
-   dependency identity, failures, skips and expected failures.
+   Runtime noninteractive guards remain enabled. A durable STARTED event precedes preflight.
+   Each attempt retains its own logs, exact selected node inventories, XML, skip/xfail reasons,
+   dependency identity and receipt. Inherited pytest selectors and autoloaded plugins are cleared.
+   The fixed Stage 1 100-assets × 20,000-bars witness runs separately on two available CPUs,
+   with the unchanged strict <5 s and engine-free assertions. An interrupted or failed attempt
+   cannot reuse older success. Re-run explicitly; an orphan STARTED event is reconciled as
+   incomplete, not as a pass.
 5. Use `warden appliance pause-writers --home HOME`. Timers are disabled and stopped so the
    pause survives restart; prior enablement and unit definitions are recorded. If systemd's
    disable operation removes an external unit link, the same byte-checked definition is linked
@@ -160,6 +169,24 @@ refuses admission; compatible recovery reuses the earlier release's preserved en
 Halt prevents new launcher admissions; it does not erase or refund an
 already admitted scientific operation. Existing canonical leases still guard such operations.
 Legacy scientific scheduling remains paused until eligible under current research governance.
+The supported operational entry point on this VPS is
+`/home/quant/dev/quant-lab-appliance/warden`. Development `uv run warden` and
+`python -m warden_ops.job_runner` must never point at canonical state. Current mutation
+entry points refuse linked/checkout ledgers, incompatible existing schema, and mismatched
+active runtime; leases recheck scientific admission. Isolated unlinked scratch ledgers
+remain available to tests. This guard is not a sandbox: pre-maintenance code in the dirty
+legacy checkout can still write the old ledger if explicitly invoked. Do not run that CLI,
+legacy scheduler, or direct low-level registry API against live state. Do not retrofit or
+reset the concurrent checkout. Existing data/approval gates are unchanged.
+
+Use `HOME/warden appliance history` for the latest bounded lifecycle index (default 10,
+maximum 20 events). Use `--after SEQUENCE --limit N` for ordered pagination and
+`--full` only when complete raw receipts are required. The summary links each event
+to its sequence and payload digest; the append-only operations journal retains all
+details. In DevSpace, inspect compact JSON/selected fields rather than dumping complete
+preservation manifests or test logs. A pre-AM release requires the original verified
+recovery module or a freshly verified forward repair; do not reinterpret its old
+receipt as satisfying the new gate.
 
 The lifecycle journal is operational evidence. It confers no research-intent approval, independent
 conformance, historical attestation, batch/read grant, contract promotion or trading authority.
@@ -176,8 +203,12 @@ checks old indexes/triggers, verifies idempotence and integrity, and records eve
 new table and additive column. It only migrates a new independent scratch path.
 An evidence snapshot is never permission to rewind newly accrued live history.
 
-`python -m scripts.measure_agent_control --measure observe` records cold status/
-control latency and foreground cost under two bounded synthetic CPU jobs.
+`python -m scripts.measure_agent_control --measure appliance --home HOME` records
+five fresh installed-launcher requests each idle and with two bounded pinned CPU
+competitors. It captures elapsed time, CPU, RSS, logical I/O, response bytes and
+separate source-read tracing; report the host/cache limitations and never equate
+logical reads with physical disk I/O. The earlier `--measure observe` mode measures
+cold status/control outside the installed appliance.
 `--measure bytes --path <explicit-unsealed-exploratory-parquet>` compares the existing
 buffered verifier/parser with temporary streaming staging under a 512 MiB input
 ceiling and bounded child memory. It performs no strategy scoring and refuses

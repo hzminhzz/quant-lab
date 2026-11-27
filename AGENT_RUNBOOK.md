@@ -4,11 +4,12 @@
 Surface a conflict instead of silently changing the rule. Use [CONTEXT-MAP.md](CONTEXT-MAP.md)
 for task-specific reading and [WORKFLOW.md](docs/WORKFLOW.md) for the integrated sequence.
 
-The principal supplies objectives and protected decisions through chat. The agent handles
-inspection, preparation, authorized execution and verification. Commands here describe the
-executor interface. The [target architecture](docs/ARCHITECTURE.md) and
-[delivery plan](docs/AGENT-CONTROL-PLAN.md) propose an authenticated decision/release path;
-those capabilities are not implemented by this documentation update.
+The principal supplies objectives and protected scientific decisions through chat. The agent handles
+inspection, preparation, authorized execution and verification. Routine maintenance is delegated
+under the [trusted appliance ADR](docs/adr/2026-11-27-trusted-research-appliance.md).
+Use the installed launcher for operational commands below; `uv run --frozen` examples
+are development/fixture interfaces, not permission to mutate canonical state. See
+[operations](docs/AGENT-CONTROL-OPERATIONS.md) for the current deployment and recovery path.
 
 For a whole research objective, use [STAGE3_CAMPAIGN_PROMPT.md](STAGE3_CAMPAIGN_PROMPT.md).
 Current scope and receipts remain authoritative across sessions.
@@ -121,8 +122,8 @@ a verified HMAC signature; protected policy inputs still require their actual si
 8. **Default runner/registry construction is not read-only.** It can create schema and
    quarantine/migration rows. Status/preflight uses `ReadOnlyResearchRegistry` or
    `ResearchRegistry(..., readonly=True)` through the supported read interfaces. The current
-   handoff builder still constructs a mutable registry; it is not proof of read-only inspection.
-   The target AC-02 slice moves that read to the shared read-only seam. Tests use isolated
+   handoff uses the shared read-only observation seam; do not treat a checkpoint as an
+   admission receipt. Tests use isolated
    snapshots taken through SQLite's backup API; a main-file-only copy can miss WAL commits.
 9. **A strategy's code identity is its full closure, and qualification binds to it.** `code_closure`
    covers all imports plus any runtime-loaded code a module declares in `CODE_DEPENDENCIES`. A new
@@ -131,6 +132,43 @@ a verified HMAC signature; protected policy inputs still require their actual si
    whose module is missing or whose closure no longer matches the recorded digest — resolve through
    the governed candidate/revision path; never replay spent evidence to re-bind. Register contracts only via `register_contract` (it refuses
    a changed contract); never raw-write the `contracts` table.
+
+## Retained methodology and authoring contract
+
+- Register economic mechanism, counterparty/friction and falsification criteria before
+  computation. Stage 0 rejects expected holding-period volatility below 2.5 times costs.
+  Rules use conditional edge, profit factor, time-in-market and block bootstrap;
+  cross-sectional ML uses purged OOS IC and HAC significance; carry/RV uses net carry
+  and stationary spread; overlays use tail-risk/turnover versus their frozen base.
+  Never force rules through cross-sectional IC.
+- Use contract-injected next-bar/quote-side execution, costs and funding. Stage 2/3
+  and qualification use native `ml4t.backtest.Engine`, simulation-epoch-isolated artifacts,
+  effective-rank DSR, analytical 1.5x costs, full 2x costs, +1 bar latency, trimmed
+  Sharpe and declared parameter neighbors. Failed gates are evidence.
+- Audit all six axes: target/rebalance horizon, top-5%-bar sensitivity, point-in-time
+  timestamps/mandatory lag, fold-local preprocessing and label stripping, 2x costs
+  and +1 bar latency, and retained trial/debt counts with the selection correction.
+- Legacy three-trial allowances remain historical debt; new admissions use the
+  current RG-03/04 candidate/lineage limits. A new ID does not reset spent allowances.
+  Log a linear Ridge or ML4T linear/IPCA baseline on the same features before nonlinear
+  models; deep tiers require that baseline to clear the contract cost-breakeven hurdle.
+- New ACTIVE strategies implement `CausalModelStrategy` or `CausalRulesStrategy` in
+  `src/warden/protocols.py`. See `strategies/baselines/causal_ridge_1h.py`,
+  `causal_linear_portfolio_1h.py`, `causal_ipca_1h.py`, and
+  `strategies/candidates/causal_rules_drawdown_template.py`. Warden owns fold-local
+  scaling, label stripping, model fitting, IC and Engine execution.
+  Sibling helpers import by bare name; the strategy loader owns path setup.
+- Use the matching local ML4T declarative skill for features, leakage, purging,
+  diagnostics, DSR, costs or simulation. Optional agent adapters/skill routers
+  are UX only; Warden and tests work without them.
+- Warden receipts and immutable artifacts are authoritative. Require finalized
+  matching SQLite/Parquet receipts for archival and exact run-bound causal proof
+  plus recorded approved audit for qualification. A feature cache hit is not proof.
+  Backtest sentinels report transport completion, not qualification.
+- The approved [proxy policy](docs/DATA-PROXY.md) permits historical Dukascopy
+  CFD/OHLCV for labeled proxy discovery and Stage 3 proxy robustness only;
+  use nonzero costs and approved NEXT_BAR contracts. Native-venue economic
+  qualification remains separate. Never replace QUOTE_SIDE inputs silently.
 
 ## What the harness does NOT enforce (declare it yourself, or write `[MISSING]`)
 
@@ -143,13 +181,15 @@ a verified HMAC signature; protected policy inputs still require their actual si
 
 ## Never
 
-`sudo` · edit `contracts/` · edit `src/warden/` (protected by `.warden_manifest.sha256` and AST import
-boundary checks in `warden check-worktree`; `scripts/check_loc_budget.py` is retired) · lower or
-reinterpret a gate · pre-lag a signal (`signal_delay_bars>0` raises `DoubleLatencyError`) · read
-`data/holdout/` — and never `open()`, `read()` or `stat()` it to "test permissions"; a permission
-check may only look at the parent directory's mode bits · run `qualify` without an explicit human
-instruction · sign the manifest · delete rows from `registry.db` (append-only triggers) ·
-reset/stash/clean unrelated dirty work.
+`sudo` · modify scientific contract/evaluator semantics without separate principal approval ·
+lower or reinterpret a gate · pre-lag a signal (`signal_delay_bars>0` raises `DoubleLatencyError`) ·
+read, hash, stat or permission-probe sealed holdout files · run `qualify` without the separately
+authorized RG-08 batch and exact read approval · fabricate signatures or scientific authority ·
+delete or rewrite scientific rows · reset/stash/clean unrelated dirty work.
+
+The protected source and AST checks still apply. The appliance ADR permits routine evaluator
+engineering and unsigned inventory refresh, but not a scientific semantic change. The old LOC
+cap is retired; protected scientific policy signatures retain their existing checks.
 
 Security note: `data/holdout` carries an ACL entry `user:quant:--x`, so this account can *traverse*
 the directory even though it cannot list it. Isolation therefore rests on the file modes, not the
@@ -159,7 +199,7 @@ directory. Do not test that, and do not cite it as evidence that the data is or 
 
 | Situation | Action |
 |---|---|
-| `check-worktree` rc≠0 | diagnose exact protected drift; preserve the diff and prepare a concrete release/approval packet; keep affected scientific gates closed and use only an actually authorized signing channel |
+| `check-worktree` rc≠0 | diagnose exact protected drift; preserve the diff; use the delegated unsigned maintenance lifecycle only for engineering changes; keep affected scientific gates closed until verified and separately authorized where required |
 | source rule missing | mark `[MISSING]`; preregister an explicitly justified adaptation or stop if unresolved |
 | candidate or lineage budget exhausted | retain receipts/debt and prepare the applicable RG-07 disposition; add an evidence-linked lesson; a new ID does not reset the budget |
 | gate fails | record it; the failure is evidence, not permission to adjust |
@@ -172,4 +212,4 @@ directory. Do not test that, and do not cite it as evidence that the data is or 
 `registry/returns/<contract>/<run>.parquet` · `registry/backtest_results/<simulation_epoch>/<contract>/<run_id>` ·
 `cache/features/` · `.workspace/memory/LESSONS.md` ·
 audits in `.workspace/hypotheses/AUDIT_<RUN_ID>.md` · templates in `.workspace/templates/` ·
-cron entrypoint `scripts/run_hourly_pipeline.sh` (`warden advance --pending`).
+legacy cron entrypoint `scripts/run_hourly_pipeline.sh` (paused; not an operational admission path).

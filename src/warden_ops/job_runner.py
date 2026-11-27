@@ -19,15 +19,19 @@ from warden_ops.process_limits import run_bounded
 
 
 def run_job(root, registry_path, job_id):
+    from warden_ops.runtime_boundary import operational_admission
+
     root = Path(root).resolve()
-    registry = current_registry(registry_path, writable=True)
-    queue = JobQueue(registry)
-    claim = queue.claim(job_id)
+    with operational_admission(root, registry_path):
+        registry = current_registry(registry_path, writable=True)
+        queue = JobQueue(registry)
+        claim = queue.claim(job_id)
     if not claim["claimed"]:
         return claim
     fence, limits = claim["fence"], Resources.model_validate(claim["resources"])
     output = root / ".workspace" / "jobs" / f"{job_id}-{fence}"
-    env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL") if k in os.environ}
+    env = {k: os.environ[k] for k in ("PATH", "LANG", "LC_ALL", "QUANT_LAB_APPLIANCE_HOME")
+           if k in os.environ}
     env.update(PYTHONPATH=str(Path(__file__).resolve().parents[1]), WARDEN_NON_INTERACTIVE="1",
                POLARS_MAX_THREADS=str(limits.cpu), OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1")
     command = ["prlimit", f"--as={limits.memory_mb * 1024 * 1024}",

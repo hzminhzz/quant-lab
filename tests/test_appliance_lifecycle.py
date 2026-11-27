@@ -14,6 +14,7 @@ import pytest
 from warden.lease import MutationBusy, mutation_lease
 from warden.registry import SCHEMA_VERSION, ResearchRegistry
 from warden_ops.appliance import Appliance
+from warden_ops.control_contracts import digest
 from warden_ops.integrity import generate_manifest
 from warden_ops.release import build_candidate
 
@@ -21,10 +22,15 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def fixture_python(environment):
-    subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", "--without-pip",
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip",
                     str(environment)], check=True)
     site = environment / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
     (site / "fixture-dependencies.pth").write_text(sysconfig.get_path("purelib") + "\n")
+    # Nested venvs do not process the parent venv's editable-install .pth.
+    # Install the fixture package bytes explicitly for isolated import preflight.
+    for name in ("warden", "warden_ops", "warden_evidence"):
+        shutil.copytree(REPO / "src" / name, site / name,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     return environment / "bin/python"
 
 
@@ -41,9 +47,14 @@ def installed(tmp_path, request):
     (source / "tests").mkdir()
     (source / "adapters").mkdir()
     (source / "adapters/fixture.txt").write_text("required test asset")
-    (source / "tests/test_smoke.py").write_text(
-        "from pathlib import Path\nimport os,sqlite3\n\ndef test_fixture():\n    assert 2 + 2 == 4\n\n"
-        "def test_second():\n    assert Path(\"adapters/fixture.txt\").read_text() == \"required test asset\"\n"
+    (source / "tests/conftest.py").write_text("# Explicit synthetic fixture context.\n")
+    (source / "tests/test_smoke.py").write_text("def test_fixture():\n    assert 2 + 2 == 4\n")
+    # The tiny lifecycle fixture exercises the gate's exact witness routing, not
+    # the real scientific performance test (which runs in the full project gate).
+    (source / "tests/test_ticket07_engine_cutover.py").write_text(
+        "from pathlib import Path\nimport os,sqlite3\n\n"
+        "def test_falsifier_2_stage1_100_assets_20k_bars_sub5s_and_engine_free():\n"
+        "    assert Path(\"adapters/fixture.txt\").read_text() == \"required test asset\"\n"
         "    assert os.environ.get(\"WARDEN_NON_INTERACTIVE\") is None\n"
         "    Path(\"registry\").mkdir(exist_ok=True)\n"
         "    with sqlite3.connect(\"registry/registry.db\") as conn:\n"
@@ -114,6 +125,24 @@ def test_verified_migration_and_actual_runtime_preserve_history(installed):
     assert history(db) == before
 
 
+def test_launcher_observation_does_not_write_runtime_audit_or_scientific_state(installed):
+    appliance, release, db = installed
+    appliance.transition(release, request_id="first")
+    before = history(db)
+    runtime = appliance.runtime(release)
+    proc = subprocess.run([str(appliance.home / "warden"), "control", "--json"],
+                          cwd=appliance.home, capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    value = json.loads(proc.stdout)["value"]
+    assert value["runtime"]["healthy"]
+    assert value["checkout"]["root"] == str(appliance.home)
+    assert value["scientific_writes"] == value["evaluator_calls"] == 0
+    assert not value["sealed_access"]
+    assert len(proc.stdout.encode()) <= 12288
+    assert not (runtime / ".workspace/audit/toolcalls.jsonl").exists()
+    assert history(db) == before
+
+
 @pytest.mark.parametrize("installed", [True], indirect=True)
 def test_active_runtime_refuses_dependency_drift(installed):
     appliance, release, db = installed
@@ -179,6 +208,23 @@ def test_canonical_lease_blocks_transition_before_any_effect(installed):
     with mutation_lease(appliance.home / "operations.db"), pytest.raises(MutationBusy):
         appliance.verify(release)
     assert history(db) == [("original", b"do not rewind")]
+
+
+def test_active_job_reservation_blocks_runtime_transition(installed):
+    from warden_ops.jobs import JobQueue, ResourceLimits
+
+    appliance, release, db = installed
+    appliance.transition(release, request_id="initial")
+    queue = JobQueue(ResearchRegistry(db))
+    queue.submit("fixture-job", {"fixture": True}, objective="bounded fixture",
+                 resources=ResourceLimits(cpu=1, memory_mb=128, io_mb=1, wall_seconds=10))
+    claim = queue.claim("fixture-job")
+    assert claim["claimed"]
+    with pytest.raises(MutationBusy, match="operational jobs"):
+        appliance.transition(release, request_id="job-busy")
+    assert queue.status("fixture-job")["resources_held"]
+    queue.confirm_stopped("fixture-job", claim["fence"], receipt={}, process_exited=True)
+    assert appliance.transition(release, request_id="job-drained")["state"] == "ACTIVE"
 
 
 def test_recovery_observes_committed_migration_without_rewinding(installed, monkeypatch):
@@ -248,6 +294,99 @@ def test_verification_ignores_inherited_test_selection(installed, monkeypatch):
     assert verified["suite"]["tests"] == 2
     assert xml.read_bytes() == original_bytes  # A new verification must retain the old evidence.
 
+
+def test_verification_timeout_is_durable_and_refuses_activation(installed, monkeypatch):
+    appliance, release, _db = installed
+    run = subprocess.run
+
+    def timed_out(argv, **kwargs):
+        if "-m" in argv and "pytest" in argv and "--collect-only" not in argv:
+            raise subprocess.TimeoutExpired(argv, 1)
+        return run(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", timed_out)
+    with pytest.raises(subprocess.TimeoutExpired):
+        appliance.verify(release)
+    events = appliance.history()
+    assert events[-1]["kind"] == "verification-incomplete"
+    assert events[-1]["payload"]["state"] == "INCOMPLETE"
+    with pytest.raises(ValueError, match="verification"):
+        appliance.transition(release, request_id="must-not-activate")
+    monkeypatch.setattr(subprocess, "run", run)
+    assert appliance.verify(release)["ok"]
+    assert any(e["kind"] == "verification-incomplete" for e in appliance.history())
+
+
+def test_lost_verification_acknowledgement_does_not_activate_unpublished_attempt(installed, monkeypatch):
+    appliance, release, _db = installed
+    append = appliance._append
+
+    def lost(kind, subject, payload):
+        append(kind, subject, payload)
+        if kind == "verified":
+            raise KeyboardInterrupt("lost before current receipt publication")
+
+    monkeypatch.setattr(appliance, "_append", lost)
+    with pytest.raises(KeyboardInterrupt):
+        appliance.verify(release)
+    with pytest.raises(ValueError, match="verification"):
+        appliance.transition(release, request_id="lost-verification")
+    assert appliance.history()[-1]["kind"] == "verification-incomplete"
+    monkeypatch.setattr(appliance, "_append", append)
+    assert appliance.verify(release)["ok"]
+
+
+def test_verification_receipt_has_exact_inventory_and_separate_witness(installed):
+    appliance, release, _db = installed
+    receipt = appliance._last("verified", release)
+    assert receipt["checks"]["collection-inventory"]
+    assert receipt["checks"]["stage1-performance-witness"]
+    assert receipt["collection_count"] == receipt["suite"]["tests"]
+    assert receipt["witness"]["tests"] == 1
+    assert receipt["witness"]["skipped"] == 0
+    assert {"collection.log", "suite.xml", "witness.xml"} <= receipt["artifacts"].keys()
+
+
+def test_history_summary_is_bounded_and_exact_evidence_remains_available(installed):
+    appliance, release, _db = installed
+    large = {"state": "FIXTURE", "details": "x" * 50_000}
+    appliance._append("fixture-evidence", release, large)
+    page = appliance.history_summary(limit=2)
+    assert len(json.dumps(page).encode()) <= 12_288
+    assert page["total"] == len(appliance.history())
+    last = page["events"][-1]
+    assert last["kind"] == "fixture-evidence"
+    assert last["payload_sha256"] == digest(large)
+    assert appliance.history()[-1]["payload"] == large
+    first = appliance.history_summary(after=0, limit=1)
+    assert first["next_after"] == first["events"][-1]["sequence"]
+    second = appliance.history_summary(after=first["next_after"], limit=1)
+    assert second["events"][0]["sequence"] > first["events"][0]["sequence"]
+
+
+def test_verification_owner_death_never_reuses_old_success(installed):
+    appliance, release, _db = installed
+    root = appliance.runtime(release)
+    code = ("import os,signal; from warden_ops.appliance import Appliance;"
+            f"a=Appliance({str(appliance.home)!r});"
+            "a._verify=lambda *args: os.kill(os.getpid(),signal.SIGKILL);"
+            f"a.verify({release!r})")
+    proc = subprocess.run([str(appliance.python), "-c", code], cwd=root,
+                          env=appliance._env(root, maintenance=True), check=False, timeout=30)
+    assert proc.returncode == -9
+    with pytest.raises(ValueError, match="verification"):
+        appliance.transition(release, request_id="must-refuse-orphan")
+    assert appliance.verify(release)["ok"]
+    assert any(e["kind"] == "verification-incomplete" for e in appliance.history())
+
+
+def test_tampered_selection_evidence_blocks_activation(installed):
+    appliance, release, _db = installed
+    receipt = appliance._last("verified", release)
+    artifact = Path(receipt["evidence_directory"]) / "suite-selection-gw0.json"
+    artifact.write_text("[]")
+    with pytest.raises(ValueError, match="verification"):
+        appliance.transition(release, request_id="tampered-selection")
 
 
 def test_pause_preserves_linked_timer_definition_without_enabling_it(installed, monkeypatch):

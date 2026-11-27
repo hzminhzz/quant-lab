@@ -32,7 +32,7 @@ UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IG
 MUTATING_COMMANDS = frozenset({"register-hypothesis", "approve-research-intent", "record-conformance", "close-hypothesis", "authorize-holdout-batch", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
 # ``advance`` mutates one spec at a time, so it takes the lease per spec instead of
 # holding it across a ``--pending`` batch (issue #101).
-BATCH_LEASED_COMMANDS = MUTATING_COMMANDS - {"advance"}
+BATCH_LEASED_COMMANDS = MUTATING_COMMANDS - {"advance", "generate-manifest", "handoff"}
 
 ADVANCE_PROGRESS_ACTIONS = frozenset({"STAGE1_REJECTED", "BACKTEST_FINALIZED", "AUDITED"})
 ADVANCE_SKIP_ACTIONS = frozenset({"SKIP_TERMINAL", "SKIP_LEGACY_FROZEN"})
@@ -886,6 +886,14 @@ def _advance_one_spec(
     if not acquire_lease:
         return _advance(status)
     with _advance_mutation_lease(runner):
+        # Recheck the installed runtime after lease acquisition, not merely the plan.
+        from warden_ops.runtime_boundary import require_mutation_context
+
+        try:
+            require_mutation_context(Path(runner.repo_root),
+                                     Path(runner.repo_root) / "registry/registry.db")
+        except (OSError, ValueError) as exc:
+            return _result("REVIEW_REQUIRED", status, str(exc))
         # Double-check under the lease: another writer may have advanced this spec between
         # the lock-free read and the acquisition. Never act on a stale read.
         fresh = refresh()
@@ -1906,10 +1914,26 @@ def main(argv: list[str] | None = None) -> int:
     active_lease = None
     lease_acquired = False
     try:
+        if (decision.allow and (not decision.approval_required or _human_approved(args, policy_key))
+                and args.subcommand in MUTATING_COMMANDS - {"generate-manifest", "handoff"}):
+            from warden_ops.runtime_boundary import require_mutation_context
+
+            try:
+                require_mutation_context(Path.cwd(), Path("registry/registry.db"))
+            except (OSError, ValueError) as exc:
+                print(f"REFUSED: {exc}", file=sys.stderr)
+                code = 2
+                return code
         if decision.allow and (not decision.approval_required or _human_approved(args, policy_key)) and args.subcommand in BATCH_LEASED_COMMANDS:
             active_lease = mutation_lease(Path("registry/registry.db"))
             active_lease.__enter__()
             lease_acquired = True
+            try:
+                require_mutation_context(Path.cwd(), Path("registry/registry.db"))
+            except (OSError, ValueError) as exc:
+                print(f"REFUSED: {exc}", file=sys.stderr)
+                code = 2
+                return code
         if not decision.allow:
             print(f"REFUSED: {decision.reason}", file=sys.stderr)
             code = 2
@@ -1992,6 +2016,12 @@ def main(argv: list[str] | None = None) -> int:
                 # advance leases per spec; the one-time construction/migration here is the
                 # only registry-wide window, and it closes before the batch starts.
                 with mutation_lease(Path("registry/registry.db")):
+                    try:
+                        require_mutation_context(Path.cwd(), Path("registry/registry.db"))
+                    except (OSError, ValueError) as exc:
+                        print(f"REFUSED: {exc}", file=sys.stderr)
+                        code = 2
+                        return code
                     runner = _get_runner(readonly=False)
             else:
                 runner = _get_runner(readonly=False)

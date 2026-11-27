@@ -2,7 +2,12 @@
 
 This is the materialization plan for [AGENT-CONTROL-PLAN.md](AGENT-CONTROL-PLAN.md), not another specification. The architecture, control contracts, acceptance matrix A01–A25 and resource targets in that plan remain binding. AC identifiers map one-to-one to delivery slices. Integrate #119 on the #109 baseline before starting AC-01. Use one direct executor, existing Warden/ML4T/SQLite seams, hermetic fixtures, and durable evidence; no external agent delegation is required. Do not sign, migrate production, install privileged components, read sealed holdouts, place trades or change scientific policy without the exact separate authority.
 
-### Milestone: Agent Control and Release Authority (AC-01-10)
+### Milestone: Agent Control and Trusted Research Appliance (AC-01-10)
+
+The [2026-11-27 amendment](adr/2026-11-27-trusted-research-appliance.md) authorizes routine
+maintenance and eligible production transition after verification. It narrowly revises
+A13/A14/A24 and supersedes A23 for releases. Original GitHub bodies and acceptance history
+remain preserved; all other behavioral and scientific criteria remain binding.
 
 **Issue 1 — [AC-01] Freeze control vocabulary, effects and behavioral fixtures**
 
@@ -36,21 +41,26 @@ Depends on: AC-01.
 - Demonstrate a candidate beside a separately pinned authorized runtime. Do not remove current integrity checks or change the protected manifest/keys.
 - Acceptance: build identity is reproducible and exact; stale development inventory does not mutate runtime; altered candidate bytes fail verification; omissions and failures recorded. A14/A15 preparation; candidate-controlled tests cannot replace trusted required checks.
 
-**Issue 5 — [AC-05] Authenticate exact principal decisions through an agent-operated interface**
+**Issue 5 — [AC-05] Separate delegated maintenance from scientific authority**
 
-Depends on: AC-01, AC-04.
+Depends on: AC-01, AC-04. Amended by the accepted trusted research appliance ADR.
 
-- Prepare typed content-addressed decision packets with effects, evidence, scope, expiry and consequences. Inspect actual authenticated channel and protected installer capability before choosing integration. Require an exact decision from an independently authenticated identity, not copied chat, name or CLI flag.
-- Reuse only unchanged valid decisions; preserve distinct authorization effects. Standing grants are not implied by implementation.
-- Acceptance: A13/A23/A24. Wrong-subject, expired/revoked/forged decisions denied; installed path requires zero human CLI commands. If no suitable channel exists, report the exact capability blocker and complete only fixture/protocol preparation.
+- Retain exact request/subject identity and explicit effect scope. Local maintenance receipts
+  never satisfy scientific intent, conformance, exposure, promotion or trading requirements.
+- Preserve existing scientific signature readers; checksum refresh does not fabricate approval.
+- Acceptance: amended A13/A24 and the A23 replacement. Original independent authentication is
+  explicitly superseded, not passed. Complete maintenance without principal CLI work.
 
-**Issue 6 — [AC-06] Admit and activate immutable releases under scoped Release Authority**
+**Issue 6 — [AC-06] Install and activate verified immutable appliance releases**
 
-Depends on: AC-03, AC-04, AC-05; separate explicit bootstrap and delegation authority.
+Depends on: AC-03, AC-04, amended AC-05.
 
-- Isolate release admission, grants, key custody, trusted verification and activation from coding identity. Protected authority classifies conservative release scope; unverifiable changes require exact principal decision. Candidate cannot weaken its own trusted verification baseline.
-- Bind activation to observed executable identity and ledger compatibility; preserve scientific history on failure or rollback. Keep existing policy/signature rules until replacement is authorized and verified. No production action by default.
-- Acceptance: A13–A15/A17/A23/A24. Demonstrate permitted routine release and refusal of unauthorized/verifier changes, stale-worktree independence, compatible rollback or affected halt. Bootstrap and live authority remain explicitly gated.
+- Reuse the candidate builder, Git, locked environment, canonical leases and registry migration.
+  Keep a separate pinned runtime, fixed verification baseline and append-only lifecycle journal.
+- Verify actual executable identity, schema, source/environment integrity and safe halt/recovery.
+  Recover interrupted effects by observation; never restore an older database over accrued history.
+- Acceptance: amended A13/A14/A24, unchanged A15/A17, and the A23 replacement. The accepted
+  owner maintenance scope replaces independent release UI/key/installer requirements.
 
 **Issue 7 — [AC-07] Continue bounded objectives with recoverable jobs and shared resource limits**
 
@@ -78,8 +88,8 @@ Depends on: AC-06, AC-07, AC-08.
 
 **Issue 10 — [AC-10] Perform the separately authorized production transition**
 
-Depends on: AC-09 plus exact principal decisions and installed capabilities.
+Depends on: AC-09, accepted owner maintenance scope and verified operational preconditions.
 
-- Do not start live effects without explicit scoped release, installation/migration and any necessary policy approvals. Confirm actual runtime, canonical registry, backup/rollback compatibility; quiesce incompatible writers, apply only approved canonical migration, activate exact release, verify observed runtime/health and reconcile interrupted effects.
+- The principal's architectural amendment authorizes the eligible lifecycle transition. Confirm exact source/environment/verification, canonical registry and compatible recovery; pause legacy writers, acquire both locks, rehearse a fresh snapshot, apply only the canonical additive migration, activate the exact runtime and observe identity/health. Reconcile interruption through receipts.
 - Preserve all accrued research history and spent exposures. Historical attestation, frozen-batch authorization, sealed reads and trading remain separate decisions.
 - Acceptance: observed active executable/ledger/policy/grant identities, health, preserved evidence and compatible recovery verified; report remaining blockers honestly. No implied scientific qualification or capital authority.

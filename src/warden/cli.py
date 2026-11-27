@@ -1135,7 +1135,19 @@ def _human_approved(args: argparse.Namespace, policy_key: str | None = None) -> 
 
 
 def cmd_generate_manifest(args: argparse.Namespace, runner: ExperimentRunner) -> int:
-    """Refuse autonomous self-certification: a human key or an explicit human approval is required."""
+    """Refresh maintenance checksums separately from existing scientific signatures."""
+    if getattr(args, "maintenance", False):
+        repo = runner.repo_root
+        if (repo / (MANIFEST_FILE + ".sig")).exists() or (repo / (MANIFEST_FILE + ".meta.json")).exists():
+            print("REFUSED: preserve the existing signed manifest/approval metadata; "
+                  "refresh maintenance inventory in a separate unsigned checkout.", file=sys.stderr)
+            return 2
+        content = generate_manifest(repo)
+        result = {"manifest": MANIFEST_FILE, "mode": "maintenance",
+                  "manifest_sha256": hashlib.sha256(content.encode()).hexdigest(),
+                  "scientific_approval": False}
+        print(json.dumps(result) if args.json else "Maintenance checksum inventory refreshed; no scientific approval.")
+        return 0
     key = os.environ.get("WARDEN_HUMAN_SIGNING_KEY", "")
     if key:
         mode, approver = "hmac", "WARDEN_HUMAN_SIGNING_KEY"
@@ -1724,11 +1736,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"warden {__version__}")
     s = p.add_subparsers(dest="subcommand")
     s.add_parser("status")
+    appliance = s.add_parser("appliance", add_help=False)
+    appliance.add_argument("-h", "--help", dest="appliance_help", action="store_true")
+    appliance.add_argument("arguments", nargs=argparse.REMAINDER)
     control = s.add_parser("control")
     control.add_argument("--request", default='{"schema_version":1,"operation":"observe"}')
     s.add_parser("check-worktree")
     gm = s.add_parser("generate-manifest")
     gm.add_argument("--human-approve-manifest", action="store_true")
+    gm.add_argument("--maintenance", action="store_true",
+                    help="Refresh unsigned integrity checksums; confers no scientific approval.")
     s.add_parser("register-hypothesis").add_argument("path")
     intent = s.add_parser("approve-research-intent")
     intent.add_argument("hypothesis_id")
@@ -1880,6 +1897,8 @@ def main(argv: list[str] | None = None) -> int:
     policy_key = args.subcommand
     if args.subcommand == "data" and getattr(args, "action", None):
         policy_key = f"data {args.action}"
+    if args.subcommand == "generate-manifest" and getattr(args, "maintenance", False):
+        policy_key = "generate-manifest maintenance"
     decision = authorize(policy_key)
     started = time.perf_counter()
     sink = _CountingWriter(sys.stdout)
@@ -1900,12 +1919,15 @@ def main(argv: list[str] | None = None) -> int:
                   "--human-confirm-promote YES_PROMOTE, --human-confirm YES_APPROVE_INTENT/YES_RECORD_REVIEW/YES_CLOSE_HYPOTHESIS, or --human-approve-manifest)", file=sys.stderr)
             code = 2
         elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data",
-                                 "resolve-data", "promote-contract", "control"}:
+                                 "resolve-data", "promote-contract", "control", "appliance"}:
             runner = SimpleNamespace(repo_root=Path("."))
             cmds = {"check-worktree": cmd_check_worktree, "generate-manifest": cmd_generate_manifest,
                     "handoff": cmd_handoff, "resolve-data": cmd_resolve_data,
                     "promote-contract": cmd_promote_contract, "control": cmd_control}
-            if args.subcommand == "data":
+            if args.subcommand == "appliance":
+                from warden_ops.appliance import main as appliance_main
+                code = appliance_main(["--help"] if args.appliance_help else args.arguments)
+            elif args.subcommand == "data":
                 data_actions = {"build": cmd_data_build, "seal-holdout": cmd_data_seal_holdout,
                                 "fence": cmd_data_fence, "compile": cmd_data_compile}
                 code = data_actions[args.action](args, runner)

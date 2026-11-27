@@ -49,6 +49,10 @@ class Control:
         self.root = Path(root).resolve()
         self.registry_path = Path(registry_path) if registry_path is not None else self.root / "registry/registry.db"
         self.runtime_probe = runtime_probe
+        if runtime_probe is None and os.environ.get("QUANT_LAB_APPLIANCE_HOME"):
+            from warden_ops.appliance import Appliance
+            home = Path(os.environ["QUANT_LAB_APPLIANCE_HOME"])
+            self.runtime_probe = lambda: Appliance(home).observe()
 
     def refuse(self, classification, reason, *, scope="request", owner="warden.control",
                remedy="inspect capabilities and prepare again", retry="no automatic retry",
@@ -89,10 +93,14 @@ class Control:
             except (OSError, ValueError):
                 runtime = {"status": "UNAVAILABLE", "release_id": None}
         value = {
-            "objective": request.objective, "checkout": checkout_view(self.root),
+            "objective": request.objective,
+            "checkout": checkout_view(Path(os.environ.get("QUANT_LAB_CALLER_ROOT", self.root))),
             "runtime": runtime, "ledger": ledger,
-            "authority": {"status": "UNVERIFIED", "actor_uid": os.getuid(), "grants": [],
-                          "reason": "coding identity is not principal authentication"},
+            "authority": {
+                "status": "MAINTENANCE_DELEGATED" if runtime.get("authority_model") == "trusted-research-appliance" else "UNVERIFIED",
+                "actor_uid": os.getuid(), "grants": [], "scientific_authority": False,
+                "maintenance_model": runtime.get("authority_model"),
+                "reason": "maintenance delegation confers no scientific approval or independent conformance"},
             "blockers": blockers,
             "eligible_actions": ["inspect", "prepare"],
             "eligibility_note": "affordances only; exact domain admission is rechecked at act",
@@ -102,7 +110,9 @@ class Control:
             "sources": {"ledger": ledger.get("revision"), "runtime": runtime.get("release_id")},
             "scientific_writes": 0, "evaluator_calls": 0, "sealed_access": False,
         }
-        snapshot = digest(value)
+        # A fresh on-demand probe has a new PID/time but the same state revision.
+        stable_runtime = {key: item for key, item in runtime.items() if key not in {"pid", "observed_at"}}
+        snapshot = digest({**value, "runtime": stable_runtime})
         if request.since == snapshot:
             value = {"snapshot_id": snapshot, "unchanged": True,
                      "blockers": blockers, "continuation": value["continuation"]}

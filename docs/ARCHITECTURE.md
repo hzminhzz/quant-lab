@@ -1,7 +1,8 @@
 # Quant-Lab architecture: evidence-driven agent control
 
-Status: **APPROVED TARGET DESIGN — source implementation is documented separately; production is not authorized**. Revised 2026-11-27.
-See [implemented operations and boundaries](AGENT-CONTROL-OPERATIONS.md) for AC-01–09 source behavior and unavailable authority integration.
+Status: **APPROVED — trusted research appliance amendment, 2026-11-27**.
+See [implemented operations and boundaries](AGENT-CONTROL-OPERATIONS.md) and the
+[accepted amendment](adr/2026-11-27-trusted-research-appliance.md) for maintenance authority and scientific exclusions.
 Grounded in `feat/119-research-governance` at `8fb7180` plus the uncommitted
 governance review fixes. The current procedure is [WORKFLOW.md](WORKFLOW.md);
 [AGENTS.md](../AGENTS.md) and explicit principal authorization still govern operations.
@@ -11,7 +12,8 @@ governance review fixes. The current procedure is [WORKFLOW.md](WORKFLOW.md);
 Quant-Lab should let one agent pursue a research objective, understand exactly
 what is known, choose the next justified action, and verify its effect without
 reconstructing the system from command output. The principal sets objectives and
-authority through an authenticated decision interface; the agent handles execution.
+authority through explicit instructions; the agent handles authorized maintenance and execution.
+Scientific protected effects retain their existing distinct approval and evidence requirements.
 
 Optimize in this order:
 
@@ -39,7 +41,7 @@ These are observations of the design baseline, not claims about the running prod
 | [CLI](../src/warden/cli.py) exposes status, spec/attempt state, advance, intent, review and batch commands | Callers assemble several partial views; transport completion and scientific outcomes use different shapes | One versioned situation/action/receipt contract over the existing domain operations |
 | [Read-only projections](../src/warden_ops/readonly.py) use an existing ledger without migrations | Missing data and unavailable fields need explicit interpretation; the separate [checkpoint builder](../src/warden_ops/checkpoint.py) still constructs a mutable registry | One read model; checkpoint publication never initializes or migrates the scientific ledger |
 | [Admission](../src/warden/candidate_admission.py), [intent](../src/warden/research_intent.py), [registry](../src/warden/registry.py) and [exposure](../src/warden/exposure.py) already own scientific transitions | An agent must discover ordering, debts and recovery rules across those modules and documents | Warden computes eligible actions and dependency explanations from those same rules |
-| [Integrity](../src/warden_ops/integrity.py) binds protected bytes; CLI manifest generation requires approval | Mutable source work and release authorization share one manifest lifecycle | Immutable release candidates, mechanically generated inventories, and separately scoped release authorization |
+| [Integrity](../src/warden_ops/integrity.py) binds protected bytes; CLI manifest generation requires approval | Mutable source work and release authorization share one manifest lifecycle | Immutable release candidates, mechanically generated inventories, and owner-delegated verified maintenance lifecycle |
 | [Outcome memory](../src/warden_ops/research_outcome_memory.py) and [novelty](../src/warden/novelty.py) retain prior failures | A long historical inventory is expensive context; retrieved summaries can lose applicability or authority | Bounded evidence views with completeness metadata, contradiction links and explicit applicability |
 | [MCP adapter](../scripts/mcp_warden/adapter.py) restricts commands and paths | Generic command/flags plus mixed-output parsing; a timeout requires manual reconstruction | Typed operations, stable request identity, bounded progress and receipt lookup |
 
@@ -65,7 +67,7 @@ owned below it. This is a dependency model, not a plan for six deployed services
 | Action plan | Typed actions with prerequisites, expected effects, costs and stop conditions | Explain and prepare work before spending research budget or requiring a decision |
 | Governed operation | A single admitted transition with a durable receipt | Check authority and identities, reserve, execute, finalize, reconcile |
 | Domain implementation | Data resolution, scientific evaluation, release admission, exposure accounting | Enforce each invariant once through its existing owner |
-| Evidence and authority | Immutable artifacts and research history; separately protected grants and release attestations | Establish what happened, what it means, and what is permitted |
+| Evidence and authority | Immutable artifacts, research history, scientific approvals and maintenance receipts | Establish what happened, what it means, and what is permitted |
 
 Authority is an independent input to the tower. Evidence can satisfy a condition
 of an existing grant; it cannot create a grant. A situation view and a learned
@@ -81,16 +83,16 @@ flowchart TD
   K --> W
   W --> E["Canonical research evidence"]
   E --> R
-  C --> L["Release Authority"]
-  P["Principal decision"] --> L
+  C --> L["Appliance lifecycle"]
+  P["Owner maintenance scope"] --> L
   L --> V["Authorized immutable runtime"]
   V --> W
 ```
 
 **Warden control** is a deep application interface, not an autonomous scientific
 judge. The agent selects and explains actions; deterministic Warden rules decide
-whether an action may execute. The Release Authority has a separately controlled
-identity because the proposer must not be able to grant itself release authority.
+whether a scientific action may execute. The appliance owns verified software maintenance;
+its receipts cannot satisfy scientific conformance, exposure or trading requirements.
 
 ## 4. The agent's operating loop
 
@@ -135,11 +137,11 @@ to bypass a timeout. A new shell process is not evidence that the old work faile
 
 ### Example: an evaluator fix makes the worktree manifest stale
 
-Development can produce a new unsigned build inventory and engineering evidence
-in isolation. The active authorized runtime remains pinned. The Release Authority
-either admits the exact candidate within an explicit standing grant or returns
-a prepared decision packet. Approval of a release does not approve production
-migration, historical exposure reconciliation or holdout access.
+Refresh unsigned maintenance checksums in the isolated development checkout, run the
+required verification, then install a new immutable runtime through the appliance lifecycle.
+The current runtime stays pinned throughout development. Evaluator fixes preserve scientific
+semantics; changing those semantics or approving a scientific effect still needs its existing
+scientific authority. Deployment alone grants no historical attestation or holdout access.
 
 ## 5. State, identity and knowledge
 
@@ -171,45 +173,31 @@ completeness-preserving replacement exists.
 See [the control contracts](AGENT-CONTROL-CONTRACTS.md) for the exact required
 information, refusal semantics, concurrency and evidence publication rules.
 
-## 6. Release authority and a principal who uses chat
+## 6. Trusted research appliance and effect-based governance
 
-Three objects replace the overloaded concept of “the signed worktree”:
+The [accepted amendment](adr/2026-11-27-trusted-research-appliance.md) replaces independent
+software-release authentication with owner-delegated maintenance. The personal single-owner
+system protects against accidental agent errors, not a malicious actor with unrestricted host
+control. A separate same-host signer would not establish independence under that threat model.
 
-- **Build identity:** reproducible inventory of the candidate's exact source,
-  dependencies, configuration and contract/policy references.
-- **Verification evidence:** observed checks of those bytes, including failed,
-  skipped, expected-failure and untested areas, with the verifier's identity.
-- **Release authorization:** permission from a protected authority to activate
-  that build under a specific policy and delegation scope.
+Keep three distinct objects: a content-addressed source/dependency inventory, deterministic
+verification evidence, and a durable lifecycle receipt. The receipt records maintenance under
+the owner's accepted scope. It is neither independent conformance nor scientific approval.
 
-Mechanical hashing is autonomous. Authorization follows a grant, which can
-cover a bounded class of routine releases. A change outside that class produces
-one reviewable decision packet. Changes to scientific rules, trusted verification,
-authority, key custody, or exposure permissions are classified conservatively.
+One local lifecycle owner prepares a sparse pinned Git runtime, verifies it against the frozen
+candidate, pauses configured writers, rehearses the canonical additive migration, and checks
+all pre-existing evidence. Intent precedes live effects; the runtime pointer changes atomically.
+The actual executable reports its module root, release and ledger schema through a read-only
+probe. Both existing writer locks serialize cutover. Lost responses recover receipts.
 
-The decision interface presents consequences, evidence, remaining uncertainty,
-rollback feasibility, exact subject digest and expiry. The principal approves or
-declines in an authenticated interaction. A trusted adapter binds that decision
-to the packet; the agent carries out the permitted mechanics. Typing a principal
-name, copying a chat sentence, or setting a “human confirmed” flag cannot mint
-authority.
+The canonical registry and evidence stay in place. A backup cannot erase later accrued history.
+Recovery uses a compatible runtime or halts the affected launcher. Development work remains
+separate, so editing its checksum inventory cannot alter deployed code.
 
-**This authenticated approval adapter and protected release installation are
-not verified as available.** Provisioning them is an explicit implementation
-dependency. Until they exist, current gates remain binding. An unavailable
-operator capability is reported as such; the system does not ask the principal
-to debug Python or invent a shell-based workaround.
-
-A standing grant is a deliberate principal decision, not inferred from this
-document or the request to improve ergonomics. Tests are fallible evidence;
-passing candidate-authored tests alone cannot authorize arbitrary evaluator
-changes. Admission uses a protected baseline of required checks and an explicitly
-accepted risk scope. Unclassifiable changes escalate.
-
-Release rollout changes the executable runtime, not the scientific record.
-Rollback retains all claims, exposures, revisions and debt accrued since
-activation. An older binary unable to read current evidence cannot be activated;
-use a compatible forward repair or halt the affected operations.
+Scientific rules, intent, independent review, promotion, historical attestations, sealed batches,
+holdout access and trading retain their existing authority. The signed scientific-policy reader
+stays strict; maintenance creates no signature. Retain JUDGE_UNAVAILABLE where genuine
+independent evidence is absent. Ordinary maintenance proceeds without inventing that evidence.
 
 ## 7. Make each session improve the next
 
@@ -267,43 +255,29 @@ adaptive selection on frozen validation/holdout outcomes.
 
 ## 9. Deployment shape and trust limits
 
-Start with one Python application and its existing SQLite/Parquet storage.
-CLI, MCP and any future UI are adapters to the same control implementation.
-Use a deterministic local worker for long jobs; external workers are optional
-and receive only authorized inputs. The agent remains the direct executor.
+Use the existing Python application, SQLite/Parquet, Git, locked environment and local worker.
+The appliance is an on-demand CLI runtime with one append-only operational journal. CLI/MCP
+continue to call the same Warden science owners. No new daemon, signer, privileged installer,
+workflow platform or external coding-agent delegation is required.
 
-The Release Authority is the one necessary separate trust identity. It owns
-release admission, protected grants and activation records. The research registry
-continues to own scientific history. Referencing authority receipts from research
-records does not duplicate either source of truth.
+Source artifacts and the pinned execution worktree are separate from canonical state. Bind
+only the registry, unsealed exploratory data, cache and hypothesis documents. Do not install a
+sealed-data mount or discover/read sealed files. Frozen checksums, runtime observation and
+readonly source modes detect accidental drift; they are not a hostile-agent security boundary.
+Host permissions remain binding. Tests establish the recorded scope, not independent review.
 
-The current #119 boundary is governed application entry points. Same-UID shell
-access, mutable evaluator code, direct writable SQLite or arbitrary strategy
-execution are not made safe by an API wrapper. The target isolates signing and
-activation first. Moving candidate execution to an unprivileged worker can then
-protect ledger writes and sealed files; tests must demonstrate actual permissions.
-Even isolated code with accessible validation data can perform undeclared search,
-so intent, conformance and accounting controls remain necessary. Do not claim a
-general hostile-code sandbox from AST checks or process separation alone.
+Existing job isolation/resource limits remain useful against accidents. Accessible validation
+data can still be used for undeclared search by a malicious owner; intent, conformance,
+causality and append-only accounting remain necessary scientific controls.
 
-There is no requirement for Kubernetes, a workflow platform, an event broker, a
-graph database, or multiple coding agents. Introduce a new process or store only
-for a demonstrated trust, recovery or performance need.
+## 10. Delivery and evidence
 
-## 10. Delivery and unresolved facts
+The [implementation plan](AGENT-CONTROL-PLAN.md) retains the behavioral matrix with the narrow
+A13/A14/A24 amendment and explicit A23 supersession. The [appliance ADR](adr/2026-11-27-trusted-research-appliance.md)
+records the decision and effect exclusions. The original AC ADR and dated pre-amendment
+acceptance/cutover reports retain their original blocked status as historical evidence.
 
-The [implementation plan](AGENT-CONTROL-PLAN.md) defines vertical slices, concrete
-acceptance scenarios, migration gates and stop conditions. The [ADR](adr/2026-11-27-warden-control-and-release-authority.md)
-records the chosen trade-offs.
-
-UNKNOWN until inspected or measured during implementation:
-
-- The available authenticated principal-decision channel and protected installation capability.
-- The actual active production runtime, its ownership and its release/ledger compatibility.
-- Which exact release classes the principal will delegate, and the accepted verification risk.
-- Production-scale hashing, context size, polling and job resource baselines.
-- The supported upgrade/rollback pair for the live registry and the evidence for legacy exposures.
-
-These are visible prerequisites, not reasons to stop all engineering work.
-The design does not ratify missing history, sign a manifest, migrate production,
-grant holdout access, or qualify a strategy.
+Read [operations](AGENT-CONTROL-OPERATIONS.md) before release, migration or recovery. Read
+current lifecycle receipts for deployed identity; a branch name or old acceptance report is
+not runtime observation. Source integration, engineering verification, deployment and scientific
+qualification are separate facts. No maintenance outcome ratifies missing scientific history.

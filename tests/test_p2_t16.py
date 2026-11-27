@@ -40,13 +40,9 @@ SCRIPTS = Path(os.environ.get("P2_T16_SCRIPTS_DIR", REPO / "scripts"))
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "p2_t16"
 WRITE_GOLDENS = os.environ.get("P2_T16_WRITE_GOLDENS") == "1"
 
-# The only direct connections the ticket allows, and only inside these callables.
-DIRECT_SQLITE_ALLOWED = {
-    # A WAL snapshot is a byte copy: it needs a real source/target connection pair.
-    "registry_evidence_snapshot.py": {"backup_readonly"},
-    # Rehearsal migrates an isolated copy and re-reads it to prove the original is untouched.
-    "rehearse_state_machine_migration.py": {"rehearse", "_ro_present_tables", "_read_state"},
-}
+# Snapshot/migration I/O now belongs to warden_ops.ledger_maintenance.
+# Script adapters have no direct SQLite exception, including the two legacy CLIs.
+DIRECT_SQLITE_ALLOWED: dict[str, set[str]] = {}
 
 
 def _sqlite_names(tree: ast.AST) -> tuple[set[str], set[str], list[str]]:

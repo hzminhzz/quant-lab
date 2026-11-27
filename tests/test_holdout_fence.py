@@ -69,7 +69,8 @@ def _contract(
     )
 
 
-def _resolution(contract: EvaluationContract, sha: str = "") -> DatasetResolution:
+def _resolution(contract: EvaluationContract, root: Path) -> DatasetResolution:
+    sha = hashlib.sha256((root / contract.exploratory_data_path).read_bytes()).hexdigest()
     return DatasetResolution(contract.contract_id, "exploratory", contract.exploratory_data_path,
                              sha, "verified_market", "fixture", True, "verified market data")
 
@@ -114,7 +115,7 @@ def test_prepare_panel_rejects_holdout_overflow_and_empty_validation_slice(tmp_p
     (tmp_path / contract.exploratory_data_path).parent.mkdir(parents=True, exist_ok=True)
     overflow.write_parquet(tmp_path / contract.exploratory_data_path)
     with pytest.raises(ContractValidationError, match="holdout_start"):
-        prepare_panel(tmp_path, _resolution(contract), {}, contract)
+        prepare_panel(tmp_path, _resolution(contract, tmp_path), {}, contract)
 
     # Fence passes (max timestamp is before the cutoff) but the validation window holds no bars.
     contract = _contract(val_start_hours=20, val_end_hours=30, holdout_end_hours=40)
@@ -122,13 +123,13 @@ def test_prepare_panel_rejects_holdout_overflow_and_empty_validation_slice(tmp_p
     (tmp_path / contract.exploratory_data_path).parent.mkdir(parents=True, exist_ok=True)
     sparse.write_parquet(tmp_path / contract.exploratory_data_path)
     with pytest.raises(ContractValidationError, match="validation slice"):
-        prepare_panel(tmp_path, _resolution(contract), {}, contract)
+        prepare_panel(tmp_path, _resolution(contract, tmp_path), {}, contract)
 
     # Control: a panel with bars in both windows prepares a non-empty slice.
     contract = _contract(val_start_hours=6, val_end_hours=24)
     legal = _panel(last_offset_hours=23)
     legal.write_parquet(tmp_path / contract.exploratory_data_path)
-    _, ts, assets, v_slice = prepare_panel(tmp_path, _resolution(contract), {}, contract)
+    _, ts, assets, v_slice = prepare_panel(tmp_path, _resolution(contract, tmp_path), {}, contract)
     assert len(ts) == 24 and assets == ["EURUSD", "USDJPY"]
     assert v_slice.start < v_slice.stop and v_slice.stop == 24
 
@@ -184,7 +185,7 @@ def _fenced_repo(tmp_path: Path, panel: pl.DataFrame, contract: EvaluationContra
 
 
 @pytest.mark.parametrize("case", ["holdout_overflow", "empty_validation_slice"])
-def test_run_spec_fails_before_stage0_or_reservation(tmp_path: Path, case: str) -> None:
+def test_run_spec_fails_before_stage0_or_reservation(pre_rg05_policy, tmp_path: Path, case: str) -> None:
     if case == "holdout_overflow":
         contract = _contract()
         panel = _panel(last_offset_hours=24)

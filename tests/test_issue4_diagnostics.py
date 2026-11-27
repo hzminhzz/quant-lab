@@ -78,7 +78,7 @@ def test_timing_skill_separates_timing_from_constant_beta():
     assert "regimes/trends" in nonstationary["caveat"]
 
 
-def test_runner_exposes_metrics_as_additive_diagnostics(tiny_repo):
+def test_runner_exposes_metrics_as_additive_diagnostics(pre_rg05_policy, tiny_repo):
     fixture = tiny_repo()
     res = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo).run_spec(fixture.spec)
     diag = json.loads(res.diagnostics_json)

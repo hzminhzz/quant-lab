@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from warden import incremental
+from warden.candidate_admission import freeze_candidate
 from warden.codeid import code_closure
 from warden.contract_source import load_active_contract, load_recorded_contract
 from warden.contracts import (
@@ -70,6 +72,7 @@ from warden.protocols import (
     CARRY_MECHANISM_LEGACY,
     CarryMechanismRequiredError,
     carry_mechanism_policy,
+    carry_outputs_callable,
     load_and_enforce_strategy_protocol,
     resolve_effective_params,
     resolve_protocol_target,
@@ -77,6 +80,7 @@ from warden.protocols import (
 )
 from warden.provenance import resolve_dataset
 from warden.registry import ResearchRegistry, compute_selection_report, normalise_module
+from warden.robustness import build_robustness_plan
 from warden.schemas import load_experiment_spec
 from warden_evidence.selection_alignment import project_onto_grid, utc_ns
 
@@ -303,9 +307,9 @@ def _carry_rv_stage1_series(
 
     A strategy must publish ``causal_carry_outputs`` -- its own spread and net-carry series
     for the validation slice.  Those are preferred, and they pass an evaluator-run prefix
-    check first, so the gate scores the mechanism the strategy actually trades.  A strategy
-    that publishes nothing is refused *before* any ledger mutation, unless this run is an
-    explicitly authorized legacy replay (``mechanism_policy == CARRY_MECHANISM_LEGACY``), in
+    check first, so the gate scores the mechanism the strategy actually trades. The runner
+    checks for a missing hook before admission, then executes this series only after
+    admission. A missing hook is allowed only for an explicitly authorized legacy replay (``mechanism_policy == CARRY_MECHANISM_LEGACY``), in
     which case the panel proxy is used and recorded as such.
     """
     published = verified_carry_outputs(
@@ -491,9 +495,10 @@ class ExperimentRunner:
     def _prepare_and_check_stage0(
         self, contract, hyp, hyp_id, family, strat_module, params, trials_used,
         simulation_epoch: str = ENGINE_SIMULATION_EPOCH,
+        dataset=None,
     ):
         try:
-            dataset = resolve_dataset(contract, self.repo_root)  # missing data is never substituted
+            dataset = dataset or resolve_dataset(contract, self.repo_root)  # missing data is never substituted
             market = prepare_market_panel(self.repo_root, dataset, params, contract)
             panel_df, ts, assets, v_slice = (
                 market.panel, list(market.ts), list(market.assets), market.eval_slice
@@ -563,6 +568,98 @@ class ExperimentRunner:
                     f"(> {cost_bps:.2f} bps) before deep model '{model_type}'."
                 )
 
+    def _check_carry_declaration(self, family, strategy, module):
+        """Refuse a missing declaration without executing a validation-series hook."""
+        if (family == "carry_rv" and not self.allow_legacy_replay
+                and carry_outputs_callable(strategy) is None):
+            raise CarryMechanismRequiredError(
+                f"carry_rv '{module}' declares no causal_carry_outputs: "
+                "Stage 1 must score the strategy's own prefix-verified spread and net carry."
+            )
+
+    def approve_research_intent(self, hypothesis_id, plan, principal):
+        with self.registry._connect() as conn:
+            row = conn.execute("SELECT contract_id FROM hypotheses WHERE hypothesis_id=?",
+                               (hypothesis_id,)).fetchone()
+        if not row:
+            raise ValueError("Register the hypothesis first")
+        contract = self.resolve_active_contract(row[0])
+        return self.registry.approve_research_intent(
+            hypothesis_id, plan, principal, contract=contract, repo_root=self.repo_root)
+
+    def _require_intent(self, spec, contract):
+        from warden.research_intent import benchmark_binding, require_resolution
+
+        closure = self.registry.terminal_status(spec.hypothesis_id)
+        if closure:
+            raise ValueError(f"Terminal hypothesis {closure['status']}: {closure['reason']}")
+        document = self.registry.require_research_intent(
+            spec.hypothesis_id, spec.research_intent_sha256, contract.contract_id)
+        require_resolution(self.repo_root, contract, document)
+        if benchmark_binding(self.repo_root, document["plan"]["benchmark_spec"], contract.contract_id) != document["benchmark"]:
+            raise ValueError("Frozen research intent benchmark fingerprint changed")
+        return document
+
+    def _freeze_review_candidate(self, spec, contract, effective_params, *, dataset=None):
+        dataset = dataset or resolve_dataset(contract, self.repo_root)
+        code_sha, _ = code_closure(self.repo_root, normalise_module(spec.strategy_module))
+        candidate = freeze_candidate(
+            self.repo_root, spec, contract, dataset, effective_params, code_sha,
+            ENGINE_SIMULATION_EPOCH, legacy_replay=self.allow_legacy_replay)
+        return candidate, dataset
+
+    def _reviewed_candidate_for_run(self, spec, contract, effective_params, robustness_plan, intent):
+        from warden.research_intent import require_dataset_resolution
+
+        try:
+            dataset = resolve_dataset(contract, self.repo_root)
+        except (ValueError, OSError) as exc:
+            self._note_failure(contract, spec.hypothesis_id, spec.strategy_family,
+                               spec.strategy_module, effective_params, None, "DATA", exc)
+            raise
+        require_dataset_resolution(dataset, intent)
+        candidate, _ = self._freeze_review_candidate(spec, contract, effective_params, dataset=dataset)
+        self.registry.require_candidate_conformance(candidate, robustness_plan, spec.research_intent_sha256)
+        return candidate, dataset
+
+    def describe_review_candidate(self, path):
+        """Resolve exact executable identity, without preparing panels or scoring."""
+        spec = load_experiment_spec(path)
+        if not spec.hypothesis_id:
+            raise ValueError("Research intent requires hypothesis_id")
+        contract = self.resolve_active_contract(spec.contract_id)
+        intent = self._require_intent(spec, contract)
+        with self.registry._connect() as conn:
+            status = conn.execute("SELECT status FROM hypotheses WHERE hypothesis_id=?",
+                                  (spec.hypothesis_id,)).fetchone()[0]
+        mod, protocol = load_and_enforce_strategy_protocol(
+            self.repo_root / normalise_module(spec.strategy_module),
+            hypothesis_status=status, strategy_family=spec.strategy_family,
+            allow_legacy_replay=self.allow_legacy_replay)
+        validate_strategy_params(mod, spec.parameters)
+        effective = resolve_effective_params(mod, protocol, spec.parameters)
+        plan, _ = build_robustness_plan(mod, protocol, spec.parameters, spec.param_grid)
+        plan = incremental.extend_plan(plan, intent)
+        incremental.prepare_benchmark(self.repo_root, contract, intent, effective)
+        candidate, dataset = self._freeze_review_candidate(spec, contract, effective)
+        from warden.research_intent import require_dataset_resolution
+
+        require_dataset_resolution(dataset, intent)
+        return spec, candidate, plan
+
+    def describe_candidate_intent(self, path):
+        spec, candidate, plan = self.describe_review_candidate(path)
+        return self.registry.describe_candidate_intent(candidate, plan, spec.research_intent_sha256,
+                                                       repo_root=self.repo_root)
+
+    def record_conformance_review(self, path, review, principal):
+        from warden.research_intent import Review
+
+        spec, candidate, plan = self.describe_review_candidate(path)
+        return self.registry.record_conformance_review(
+            candidate, plan, spec.research_intent_sha256, Review.model_validate(review), principal,
+            repo_root=self.repo_root)
+
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
         # Frozen typed spec first: an unknown or policy-injecting key raises
         # before any contract, dataset, registry or receipt side effect.
@@ -602,6 +699,7 @@ class ExperimentRunner:
                 parent_hypothesis_id=h[8],
             )
             trials_used, hyp_status = h[5], h[6]
+        intent = self._require_intent(spec, contract)
         strat_file = self.repo_root / strat_module
         strat_mod, protocol = load_and_enforce_strategy_protocol(
             strat_file,
@@ -625,14 +723,23 @@ class ExperimentRunner:
             strat_mod=strat_mod,
             contract=contract,
         )
-        dataset, panel_df, ts, assets, v_slice, _, market = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch)
+        robustness_plan, _ = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
+        robustness_plan = incremental.extend_plan(robustness_plan, intent)
+        incremental.prepare_benchmark(self.repo_root, contract, intent, effective_params)
+        candidate, approved_dataset = self._reviewed_candidate_for_run(
+            spec, contract, effective_params, robustness_plan, intent)
+        dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
+            contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch, dataset=approved_dataset)
         # #95: a panel narrowed to target_symbols is annualised on its own measured calendar,
         # not on the contract's multi-exchange union bars_per_year.  Without a symbol filter
         # this is byte-identical to contract.bars_per_year.
         bpy = market.bars_per_year
-        # The carry series are computed before the screen slot is reserved: a strategy whose
-        # published series is malformed or non-causal is refused without consuming a receipt.
+        self._check_carry_declaration(family, strat_mod, strat_module)
+        if candidate.strategy_code_sha256 != code_sha or candidate.dataset_sha256 != dataset.sha256:
+            raise ValueError("Reviewed candidate changed during preparation")
+        screen_key = self.registry.reserve_screen(
+            hyp_id, contract.contract_id, strat_module, params, dataset.sha256, candidate=candidate,
+            robustness_plan=robustness_plan, intent_sha=spec.research_intent_sha256, repo_root=self.repo_root)
         carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
         if family == "carry_rv":
             carry_series = _carry_rv_stage1_series(
@@ -649,7 +756,6 @@ class ExperimentRunner:
                 ),
                 strategy_module=strat_module,
             )
-        screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
         if family == "carry_rv":
             assert carry_series is not None
             net_carry, spread, carry_evidence = carry_series
@@ -666,7 +772,7 @@ class ExperimentRunner:
                 parameters=params,
                 data_provenance=dataset.provenance,
                 returns=None,
-                diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key,
                 simulation_epoch=simulation_epoch,
             )
@@ -695,7 +801,7 @@ class ExperimentRunner:
                     parameters=params,
                     data_provenance=dataset.provenance,
                     returns=None,
-                    diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                    diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                     screen_key=screen_key,
                     simulation_epoch=simulation_epoch,
                 )
@@ -740,8 +846,8 @@ class ExperimentRunner:
                 strategy_module=strat_module,
                 parameters=params,
                 data_provenance=dataset.provenance,
-                returns=sim1.net_returns,
-                diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=sim1.net_returns, timestamps=ts[v_slice],
+                diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key,
                 simulation_epoch=simulation_epoch,
             )
@@ -773,7 +879,7 @@ class ExperimentRunner:
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=sim1.net_returns, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=sim1.net_returns, timestamps=ts[v_slice], diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         if protocol == "causal_model":
@@ -803,7 +909,7 @@ class ExperimentRunner:
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=ic_series, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=ic_series, diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         if family != "rules_ts":
@@ -822,7 +928,7 @@ class ExperimentRunner:
                 hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
                 stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
                 strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-                returns=sim_model.net_returns, diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+                returns=sim_model.net_returns, timestamps=ts[v_slice], diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
                 screen_key=screen_key, simulation_epoch=simulation_epoch)
             return report
         ret_p, fund_p, fund_mask = simulation_inputs(panel_df, contract, ts, assets)
@@ -840,7 +946,7 @@ class ExperimentRunner:
             hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="standalone_screen",
             stage="STAGE_1_SIGNAL", outcome="PASS" if report.passed else "REJECT", strategy_family=family,
             strategy_module=strat_module, parameters=params, data_provenance=dataset.provenance,
-            returns=sim1["net_returns"], diagnostics={**report.metrics, "dataset": dataset.to_dict()},
+            returns=sim1["net_returns"], timestamps=ts[v_slice], diagnostics={**report.metrics, "notes": report.notes, "dataset": dataset.to_dict()},
             screen_key=screen_key, simulation_epoch=simulation_epoch)
         return report
 
@@ -885,6 +991,7 @@ class ExperimentRunner:
             )
             trials_used, hyp_status = h[5], h[8]
 
+        intent = self._require_intent(spec, contract)
         strat_module = strat_module_str = normalise_module(spec.strategy_module)
         strat_mod, protocol = load_and_enforce_strategy_protocol(
             self.repo_root / strat_module,
@@ -910,10 +1017,15 @@ class ExperimentRunner:
         # is a parse refusal, never a consumed trial.  The requirement itself is
         # evaluated at Stage 3, where the neighbor sharpes exist.
         params_model_report = validate_strategy_params(strat_mod, params)
-        neighbor_grid = classify_numeric_neighbors(spec.param_grid, params_model_report)
+        robustness_plan, fixed_grid = build_robustness_plan(strat_mod, protocol, params, spec.param_grid)
+        robustness_plan = incremental.extend_plan(robustness_plan, intent)
+        benchmark = incremental.prepare_benchmark(self.repo_root, contract, intent, effective_params)
+        neighbor_grid = classify_numeric_neighbors(fixed_grid, params_model_report)
 
+        candidate, approved_dataset = self._reviewed_candidate_for_run(
+            spec, contract, effective_params, robustness_plan, intent)
         dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
-            contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch)
+            contract, hyp, hyp_id, family, strat_module_str, effective_params, trials_used, simulation_epoch=simulation_epoch, dataset=approved_dataset)
         # #95: see run_stage1_screen; equal to contract.bars_per_year unless symbols narrowed.
         bpy = market.bars_per_year
         # #100: the *selection* clock.  A ``target_symbols`` trial observes only the bars its
@@ -942,34 +1054,35 @@ class ExperimentRunner:
         preflight = self.registry.preflight_selection_alignment(
             contract, validation_ts, expected_len=len(validation_ts),
             simulation_epoch=simulation_epoch)
-        # carry_rv own-mechanism policy: resolved here, before the trial slot is registered, so
-        # a strategy that declares no prefix-verified own carry series is refused without a
-        # trial row, a selection attempt, or a moved `trials_used` counter.
-        carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
-        if family == "carry_rv":
-            carry_series = _carry_rv_stage1_series(
-                strat_mod,
-                panel_df,
-                contract,
-                ts,
-                assets,
-                v_slice,
-                effective_params,
-                hyp.expected_holding_bars,
-                mechanism_policy=carry_mechanism_policy(
-                    allow_legacy_replay=self.allow_legacy_replay
-                ),
-                strategy_module=strat_module_str,
-            )
+        self._check_carry_declaration(family, strat_mod, strat_module_str)
         run_id = override_run_id or spec.run_id or default_run_id(hyp_id, trials_used + 1)
-        self.registry.record_hypothesis_module(hyp_id, strat_module_str)
-        trial_num = self.registry.register_trial_start(hyp_id, run_id)
+        if candidate.strategy_code_sha256 != code_sha or candidate.dataset_sha256 != dataset.sha256:
+            raise ValueError("Reviewed candidate changed during preparation")
+        trial_num = self.registry.register_trial_start(
+            hyp_id, run_id, candidate=candidate, robustness_plan=robustness_plan,
+            intent_sha=spec.research_intent_sha256, repo_root=self.repo_root)
         provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha,
                          "simulation_epoch": simulation_epoch}
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
             prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
+            carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
+            if family == "carry_rv":
+                carry_series = _carry_rv_stage1_series(
+                    strat_mod,
+                    panel_df,
+                    contract,
+                    ts,
+                    assets,
+                    v_slice,
+                    effective_params,
+                    hyp.expected_holding_bars,
+                    mechanism_policy=carry_mechanism_policy(
+                        allow_legacy_replay=self.allow_legacy_replay
+                    ),
+                    strategy_module=strat_module_str,
+                )
             s1_carry: Stage1Report | None = None
             if family == "carry_rv":
                 assert carry_series is not None
@@ -1043,11 +1156,6 @@ class ExperimentRunner:
                         mean_ic=mean_ic, ic_hac_t=ic_hac_t,
                     )
 
-            sr_1p5 = analytical_1p5x_sharpe(
-                sim1.backtest_result,
-                bpy,
-                val_ts=ts[v_slice],
-            )
             net_ret, gross_ret, turnover = sim1.net_returns, sim1.gross_returns, sim1.turnover
             # The series that is recorded, aligned and deflated lives on the selection clock
             # decided above; the Engine's own gate statistics keep the tape they ran on.  A
@@ -1103,20 +1211,53 @@ class ExperimentRunner:
                         metrics=m, returns_vec=selection_net, returns_timestamps=validation_ts,
                     )
 
+            comparison = None
+            if benchmark is not None:
+                from warden.evaluation import panel_digest
+                from warden.research_intent import benchmark_binding
+
+                scenario = self.registry.reserve_robustness(run_id, incremental.SCENARIO)
+                benchmark_tape, benchmark_proof = incremental.execute_benchmark(
+                    benchmark, panel_df, ts, assets, contract, v_slice)
+                if (benchmark_tape.val_slice != sim1.val_slice
+                        or benchmark_tape.session != sim1.session):
+                    raise ValueError("Candidate and benchmark execution clocks differ")
+                if (benchmark_binding(self.repo_root, intent["benchmark"]["spec_path"],
+                                      contract.contract_id) != intent["benchmark"]
+                        or code_closure(self.repo_root, strat_module_str)[0] != code_sha):
+                    raise ValueError("Frozen paired strategy closure changed during execution")
+                comparison = self.registry.finalize_benchmark(
+                    scenario, contract, panel_digest(panel_df), policy_dict,
+                    net_ret, benchmark_tape.net_returns, panel_validation_ts, benchmark_proof)
+
+            scenario = self.registry.reserve_robustness(run_id, "cost_1p5")
+            sr_1p5 = analytical_1p5x_sharpe(
+                sim1.backtest_result,
+                bpy,
+                val_ts=ts[v_slice],
+            )
+            self.registry.finalize_robustness(scenario, {"net_sharpe": sr_1p5})
+            scenario = self.registry.reserve_robustness(run_id, "cost_2x")
             sim2 = kernel.reprice(
                 sim1, strat_mod, panel_df, ts, assets, contract, v_slice, params,
                 policy=policy_dict, cost_multiplier=2.0,
             )
+            sr2 = annualised_sharpe(sim2.net_returns, bpy)
+            self.registry.finalize_robustness(
+                scenario, {"net_sharpe": sr2}, returns=sim2.net_returns, timestamps=ts[v_slice])
+            scenario = self.registry.reserve_robustness(run_id, "latency_plus1")
             sim_d = kernel.reprice(
                 sim1, strat_mod, panel_df, ts, assets, contract, v_slice, params,
                 policy=policy_dict, delay_offset=1,
             )
-            sr2 = annualised_sharpe(sim2.net_returns, bpy)
             srd = annualised_sharpe(sim_d.net_returns, bpy)
+            self.registry.finalize_robustness(
+                scenario, {"net_sharpe": srd}, returns=sim_d.net_returns, timestamps=ts[v_slice])
 
-            ngrid, n_sr = list(spec.param_grid), []
+            ngrid, n_sr = fixed_grid, []
             grid_returns_list: list[np.ndarray] = [net_ret]
-            for grid_params in ngrid:
+            for index, grid_params in enumerate(ngrid):
+                scenario = self.registry.reserve_robustness(run_id, f"neighbor:{index}")
                 grid_sim = kernel.run(
                     strat_mod,
                     panel_df,
@@ -1131,14 +1272,15 @@ class ExperimentRunner:
                 )
                 grid_returns_list.append(grid_sim.net_returns)
                 n_sr.append(annualised_sharpe(grid_sim.net_returns, bpy))
-                # Grid configurations consume validation evidence: count them, never silently.
+                # Fixed neighbors are raw operations; never use them to select a winner.
                 self.registry.record_selection_attempt(
                     hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="param_grid",
                     stage="STAGE_3_STRESS", outcome="GRID", strategy_family=family,
                     strategy_module=strat_module_str, parameters=grid_params,
                     config_hash=hashlib.sha256(canonical_json(grid_params).encode()).hexdigest()[:12],
                     data_provenance=dataset.provenance, returns=grid_sim.net_returns,
-                    diagnostics={"net_sharpe": n_sr[-1]}, simulation_epoch=simulation_epoch)
+                    diagnostics={"net_sharpe": n_sr[-1]}, simulation_epoch=simulation_epoch,
+                    run_id=run_id, scenario_id=scenario, timestamps=ts[v_slice])
             # Only *distinct, genuine, numeric* configurations are neighbor
             # evidence.  Duplicates, entries that restate the effective baseline
             # and non-numeric edits stay executed and recorded (their selection
@@ -1177,7 +1319,8 @@ class ExperimentRunner:
 
             hist = self.registry.selection_history(
                 contract.contract_id, len(validation_ts), simulation_epoch=simulation_epoch,
-                timestamps=validation_ts, candidate_returns=selection_net, contract=contract)
+                timestamps=validation_ts, candidate_returns=selection_net, contract=contract,
+                exclude_candidate_id=candidate.candidate_id)
             alignment = hist["alignment"]
             n_attempts = hist["raw_attempt_count"] + 1
             # A UTC-day panel compounds the candidate onto the shared daily index, so the DSR
@@ -1220,6 +1363,7 @@ class ExperimentRunner:
                                                             "k_eff_gate", "noise_floor_applied", "correction_policy",
                                                             "non_promotable_reason")},
                                   "simulation_epoch": simulation_epoch,
+                                  "raw_operation_count": hist["raw_operation_count"],
                                   "alignment": alignment,
                                   "bars_per_year_used": float(bars_for_dsr),
                                   "selection_clock": {
@@ -1307,6 +1451,10 @@ class ExperimentRunner:
                 failed_gates.append("stage1_meta_overlay")
             if family == "cross_sectional_ml" and (ic_hac_t is None or not (ic_hac_t >= IC_T_FLOOR)):
                 failed_gates.append("ic_hac")
+            if comparison is not None:
+                diag["incremental_comparison"] = comparison
+                if comparison["status"] != "PASS":
+                    failed_gates.append("incremental_comparison")
             diag["failed_gates"] = failed_gates
             statistical = len(failed_gates) == 0
             if retrospective:
@@ -1360,7 +1508,7 @@ class ExperimentRunner:
         returns_timestamps: list | None = None,
     ) -> ExperimentResult:
         n_attempts = (
-            self.registry.validation_attempt_count(contract_id, simulation_epoch=simulation_epoch) + 1
+            self.registry.selection_attempt_count(contract_id, simulation_epoch=simulation_epoch)
         )
         diag = {
             "dataset": dataset,
@@ -1417,9 +1565,9 @@ class ExperimentRunner:
 
     def _note_failure(self, contract, hyp_id, family, strat_module, params, dataset, stage, exc,
                       simulation_epoch: str = ENGINE_SIMULATION_EPOCH):
-        """Record validation-consuming failures that never reach a trial row."""
+        """Record technical pre-admission refusals, never a candidate outcome."""
         self.registry.record_selection_attempt(
-            hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="failed_reservation", stage=stage,
+            hypothesis_id=hyp_id, contract_id=contract.contract_id, kind="technical_preflight", stage=stage,
             outcome="ERROR", strategy_family=family, strategy_module=strat_module, parameters=params,
             data_provenance=(dataset or {}).get("provenance", "unknown"), diagnostics={"error": str(exc)},
             simulation_epoch=simulation_epoch)

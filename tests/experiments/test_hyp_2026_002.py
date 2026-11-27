@@ -27,7 +27,7 @@ def _require_historical_seed() -> None:
         pytest.skip("Original HYP-2026-002 research trials not mounted; ML fold fixtures remain active")
 
 
-def test_hyp_2026_002_linear_baseline_required_gate(tmp_path: Path) -> None:
+def test_hyp_2026_002_linear_baseline_required_gate(pre_rg05_policy, tmp_path: Path) -> None:
     # In an empty temporary registry with no prior Ridge baseline, running LightGBM must raise
     from warden.contracts import HypothesisSpec
     from warden.registry import ResearchRegistry

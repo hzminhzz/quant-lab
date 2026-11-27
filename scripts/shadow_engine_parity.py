@@ -854,14 +854,18 @@ def replay_historical_run(
     repo_root: Path,
     initial_cash: float = 1_000_000.0,
 ) -> dict[str, Any]:
-    """Replay a historical trial through ml4t.backtest.Engine and compare with legacy vector sim."""
+    """Synthetic engineering replay only; market re-evaluation requires Warden admission."""
     repo = Path(repo_root)
     row = _load_trial_metadata(repo, run_id)
     contract = load_contract(_resolve_contract_path(repo, row["contract_id"]))
     _assert_exploratory_path(repo, contract.exploratory_data_path)
+    if contract.data_provenance != "synthetic":
+        raise ValueError("Market historical replay is retired; use governed Warden admission")
 
     dataset = resolve_dataset(contract, repo)
     _assert_exploratory_path(repo, dataset.path)
+    if dataset.provenance != "synthetic" or dataset.sha256 != contract.data_snapshot_sha256:
+        raise ValueError("Synthetic parity replay requires matching synthetic dataset provenance")
     params = json.loads(row["config_json"] or "{}")
     panel_df, ts, assets, v_slice = prepare_panel(repo, dataset, params, contract)
 
@@ -1168,7 +1172,11 @@ def _profile_single_horizon(repo: Path, n_bars: int) -> dict[str, Any] | None:
     """Profile one 100-asset Engine horizon inside the current process."""
     contract = load_contract(_resolve_contract_path(repo, "CRYPTO_PERPS_TOP100_1H_V1"))
     _assert_exploratory_path(repo, contract.exploratory_data_path)
+    if contract.data_provenance != "synthetic":
+        raise ValueError("Market scaling replay is retired; use synthetic engineering fixtures")
     dataset = resolve_dataset(contract, repo)
+    if dataset.provenance != "synthetic" or dataset.sha256 != contract.data_snapshot_sha256:
+        raise ValueError("Scaling requires matching synthetic dataset provenance")
     _assert_exploratory_path(repo, dataset.path)
     panel_df = pl.read_parquet(repo / dataset.path)
     if "symbol" in panel_df.columns and "asset" not in panel_df.columns:

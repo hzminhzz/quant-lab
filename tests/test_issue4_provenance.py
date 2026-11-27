@@ -180,7 +180,7 @@ def test_holdout_valid_pin_resolves_market_eligible(tmp_path: Path) -> None:
     assert "digest differs from manifest" in substituted.reason
 
 
-def test_synthetic_run_is_recorded_and_never_promoted(tmp_path: Path) -> None:
+def test_synthetic_run_is_recorded_and_never_promoted(pre_rg05_policy, tmp_path: Path) -> None:
     """End-to-end: synthetic provenance is observable in the trial and caps the verdict."""
     panel = _tiny_panel()
     contract = _contract(tmp_path, panel, provenance="synthetic")

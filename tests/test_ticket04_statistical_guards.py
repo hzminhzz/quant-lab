@@ -636,7 +636,7 @@ def test_evaluate_neighbor_stability_sign_safe_and_boundaries() -> None:
     assert strong["stability"] == pytest.approx(0.85 / 1.20)
 
 
-def test_backtest_negative_neighbor_grid_and_empty_grid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_backtest_negative_neighbor_grid_and_empty_grid(pre_rg05_policy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("warden.cli.check_worktree", lambda: True)
 
     neg_strat = """
@@ -746,6 +746,7 @@ def configure_strategy(contract, params):
 
 
 def test_backtest_failed_gates_covers_all_eight_keys_and_candidate_empty(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr("warden.cli.check_worktree", lambda: True)
@@ -798,20 +799,20 @@ def required_symbols(params):
     return None
 
 class _ChurnStrategy(Strategy):
-    def __init__(self, mode):
-        self._mode = str(mode)
+    def __init__(self, mix):
+        self._mix = float(mix)
         self._bar = 0
         self._exec = TargetWeightExecutor(
             RebalanceConfig(allow_short=True, allow_fractional=True, max_single_weight=1.0, max_gross_leverage=1.0)
         )
 
     def on_data(self, timestamp, data, context, broker):
-        w = (0.4 if self._bar % 2 == 0 else -0.25) if self._mode == "ok" else -0.4
+        w = self._mix * (0.4 if self._bar % 2 == 0 else -0.25) - 0.4 * (1.0 - self._mix)
         self._exec.execute({a: w for a in data}, data, broker, timestamp=timestamp)
         self._bar += 1
 
 def configure_strategy(contract, params):
-    return _ChurnStrategy(params.get("mode", "ok"))
+    return _ChurnStrategy(params.get("mix", 1.0))
 """
     cost_prices = [100.0]
     for _ in range(119):
@@ -821,8 +822,8 @@ def configure_strategy(contract, params):
         "fail_cost_nb",
         panel_prices=cost_prices,
         module_source=churn_strat,
-        parameters={"mode": "ok"},
-        param_grid=[{"mode": "bad"}],
+        parameters={"mix": 1.0},
+        param_grid=[{"mix": 0.0}],
         taker_fee_bps=1.0,
         slippage_bps=1.0,
     )

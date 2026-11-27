@@ -972,7 +972,7 @@ def _seed_candidate(repo: Path, contract: EvaluationContract, *, net_sharpe: flo
 
 
 @pytest.mark.parametrize("tier", ["research_proxy", "unverified_roll"])
-def test_qualified_proxy_pass_is_never_promoted(tmp_path: Path, tier: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_qualified_proxy_pass_is_never_promoted(pre_rg05_policy, tmp_path: Path, tier: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("WARDEN_NON_INTERACTIVE", raising=False)
     repo, holdout, contract = _qualification_repo(tmp_path, spec_version=CURRENT_SPEC_VERSION, tier=tier)
     reg = _seed_candidate(repo, contract)
@@ -999,7 +999,7 @@ def test_qualified_proxy_pass_is_never_promoted(tmp_path: Path, tier: str, monke
     assert qual == "QUAL-RUN-T08-001"
 
 
-def test_native_venue_v2_contract_still_promotes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_native_venue_v2_contract_still_promotes(pre_rg05_policy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("WARDEN_NON_INTERACTIVE", raising=False)
     repo, holdout, contract = _qualification_repo(tmp_path, spec_version=CURRENT_SPEC_VERSION, tier="native_venue")
     reg = _seed_candidate(repo, contract)
@@ -1012,7 +1012,7 @@ def test_native_venue_v2_contract_still_promotes(tmp_path: Path, monkeypatch: py
         assert conn.execute("SELECT status FROM hypotheses WHERE hypothesis_id='HYP-T08'").fetchone()[0] == "PROMOTED"
 
 
-def test_legacy_v1_contract_without_declared_tier_is_unaffected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_legacy_v1_contract_without_declared_tier_is_unaffected(pre_rg05_policy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("WARDEN_NON_INTERACTIVE", raising=False)
     repo, holdout, contract = _qualification_repo(tmp_path, spec_version=1, tier="native_venue")
     assert contract.governance.spec_version == 1
@@ -1025,6 +1025,7 @@ def test_legacy_v1_contract_without_declared_tier_is_unaffected(tmp_path: Path, 
 
 
 def test_legacy_v1_manifest_declared_proxy_tier_is_capped_at_qualification(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("WARDEN_NON_INTERACTIVE", raising=False)

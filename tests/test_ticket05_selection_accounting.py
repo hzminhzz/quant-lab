@@ -250,10 +250,18 @@ def test_dsr_non_ratchet_does_not_readd_unvectorized_penalty() -> None:
     assert r3["k_eff_gate"] == pytest.approx(11.0)
 
 
-def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) -> None:
-    fixture = tiny_repo()
+def test_param_grid_and_rules_ts_screens_align_into_effective_rank(pre_rg05_policy, tiny_repo) -> None:
+    from tests.test_rg03_candidate_admission import passing_repo
+
+    fixture = passing_repo(tiny_repo)
+    import yaml
+
+    frozen = yaml.safe_load(fixture.spec.read_text())
+    frozen["parameters"] = {"lookback_bars": 4}
+    frozen["param_grid"] = [{"lookback_bars": 3}, {"lookback_bars": 6}]
+    fixture.spec.write_text(yaml.safe_dump(frozen))
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
-    runner.run_stage1_screen(fixture.spec)
+    assert runner.run_stage1_screen(fixture.spec).passed
 
     # Add a cross_sectional_ml standalone_screen (stores IC series of length != bar len): must not raise SelectionHistoryError
     fixture.registry.record_selection_attempt(
@@ -267,20 +275,19 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(tiny_repo) ->
         simulation_epoch=ENGINE_SIMULATION_EPOCH,
     )
 
-    spec = fixture.spec.read_text() + "param_grid:\n- {lookback_bars: 3}\n- {lookback_bars: 6}\n"
-    fixture.spec.write_text(spec)
     res = runner.run_spec(fixture.spec)
     diag = json.loads(res.diagnostics_json)
     sel = diag["selection"]
-    # 1 screen (rules_ts) + 1 ml screen (unvectorized IC) + 2 param_grid + 1 candidate = 5 total
-    assert res.total_trials_n == 5
-    assert sel["raw_attempt_count"] == 5
-    # streams_used includes: rules_ts screen + 2 param_grid + candidate = 4
-    assert sel["streams_used"] == 4
+    # One frozen candidate (screen/full), one historical unbound ML screen.
+    # Two fixed neighbors and three fixed stresses remain raw evidence, not independent search.
+    assert res.total_trials_n == 2
+    assert sel["raw_attempt_count"] == 2
+    assert sel["raw_operation_count"] == 8
+    assert sel["streams_used"] == 1
     assert sel["unvectorized_attempts"] == 1
 
 
-def test_simulation_epoch_isolation_and_same_epoch_alignment(tiny_repo) -> None:
+def test_simulation_epoch_isolation_and_same_epoch_alignment(pre_rg05_policy, tiny_repo) -> None:
     fixture = tiny_repo(n_bars=24)  # fence-compatible: ends before the fixture holdout_start
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     r_live = runner.run_spec(fixture.spec)
@@ -448,19 +455,12 @@ def test_snapshot_falsifiers_flat_keff_and_epoch_transition(tmp_path: Path) -> N
 
 
 def test_source_published_at_retrospective_tagging_and_qualification_block(
+    pre_rg05_policy,
     tiny_repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    strong_module = """
-import numpy as np
+    from tests.test_rg03_candidate_admission import passing_repo
 
-
-def generate_positions(panel_df, contract, **kwargs):
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    pos = np.full((len(ts), len(assets)), 0.4)
-    return {"positions": pos}
-"""
-    fixture = tiny_repo(module_source=strong_module, module_name="strong", n_bars=24)  # fence-compatible
+    fixture = passing_repo(tiny_repo, module_name="strong")
     # Register a retrospective hypothesis (source_published_at >= val_start)
     retro_hyp = HypothesisSpec(
         "HYP-RETRO",
@@ -486,6 +486,7 @@ def generate_positions(panel_df, contract, **kwargs):
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     screen_rep = runner.run_stage1_screen(retro_spec)
     assert screen_rep.strategy_family == "rules_ts"
+    assert screen_rep.passed
 
     res = runner.run_spec(retro_spec)
     assert res.verdict == "RETROSPECTIVE_REPLICATION_ONLY"

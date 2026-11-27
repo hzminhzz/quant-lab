@@ -141,6 +141,15 @@ byte-for-byte. It records conventions and gates that are not obvious from the co
 lists what landed; `docs/archive/UNTANGLE_DECISION_LOG.md` and `docs/archive/EVIDENCE_INTEGRITY.md` hold the full triage and the
 principal-delegation authorization trails.
 
+### Research intake
+- Before implementing or scoring a new hypothesis (including external-source adaptations), complete
+  [the canonical term sheet](.workspace/templates/hypothesis.md) and follow the
+  [intake/approval sequence](AGENT_RUNBOOK.md). Register and approve the complete intent before
+  candidate implementation; read the applicable ML4T skills and resolve prior-art/lineage decisions.
+  External results are prior evidence, not independent qualification. For new admissions, the
+  RG-03/04 candidate/lineage budgets and fixed robustness accounting in
+  [Research Governance](docs/RESEARCH-GOVERNANCE.md) govern; legacy trial counters remain historical debt.
+
 ### Strategy authoring
 - New `ACTIVE` hypotheses must implement one of the two inverted causal protocols in `src/warden/protocols.py`
   (`generate_positions` is frozen for read-only historical replay only and fails closed on `ACTIVE` hypotheses):
@@ -164,7 +173,7 @@ principal-delegation authorization trails.
   `CODE_DEPENDENCIES`. The trial records it as `strategy_code_sha256`.
 - `warden qualify` binds to that recorded digest: it refuses a missing/absent trial module, an absent
   binding, or a changed closure, and never substitutes a baseline. A legacy trial without a binding is
-  re-run to re-bind before it can qualify.
+  resolved through the governed candidate/revision path before it can qualify; do not replay spent evidence.
 - Contracts are immutable: register through `ResearchRegistry.register_contract` (identical → no-op,
   changed → refuse). Write the `contracts` table only through that API, never raw SQL.
 - Stage 2, Stage 3, and `qualify` simulate via `ml4t.backtest.Engine` (`src/warden/engine_sim.py`) under

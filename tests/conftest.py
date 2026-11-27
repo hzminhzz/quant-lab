@@ -103,11 +103,11 @@ def tiny_repo(tmp_path: Path):
 
     def build(provenance: str = "verified_market", module_source: str = FLAT_MODULE,
               module_name: str = "flat", contract_overrides: dict | None = None,
-              n_bars: int = 24) -> SimpleNamespace:
+              n_bars: int = 24, panel_override: pl.DataFrame | None = None) -> SimpleNamespace:
         builds["n"] += 1
         root = tmp_path / f"case{builds['n']}"
         repo = root / "repo"
-        panel = tiny_panel(n_bars)
+        panel = tiny_panel(n_bars) if panel_override is None else panel_override
         data_path = repo / "data" / "exploratory" / "tiny.parquet"
         data_path.parent.mkdir(parents=True, exist_ok=True)
         panel.write_parquet(data_path)
@@ -143,3 +143,92 @@ def tiny_repo(tmp_path: Path):
                                         "parameters": {}}))
         return SimpleNamespace(repo=repo, registry=reg, contract=contract, spec=spec, panel=panel, sha=sha)
     return build
+
+
+@pytest.fixture
+def pre_rg05_policy(tmp_path, monkeypatch):
+    """Isolate pre-RG-05 evaluator-mechanics tests from the new approval dependency.
+
+    These tests deliberately construct scratch, pre-v6 hypotheses (some seed
+    historical trial debt). Their purpose is execution, causality, statistical
+    gates or historical ledger behavior, not plan approval. Stub ONLY the new
+    intent/review boundary, never RG-03/04 accounting, the kernel, or data gates.
+    No fake approval or binding rows are written. The real RG-05 public paths
+    are exercised without this double in test_rg05_research_intent.py.
+    """
+    from warden import exposure, research_intent
+    from warden.runner import ExperimentRunner
+
+    def scratch(db_path):
+        assert Path(db_path).resolve().is_relative_to(tmp_path.resolve()), (
+            "pre-RG05 test double may only operate on this test's scratch ledger"
+        )
+
+    def require_intent(runner, spec, contract):
+        scratch(runner.registry.db_path)
+        assert spec.research_intent_sha256 is None
+
+    def require_dataset(dataset, document):
+        assert document is None
+
+    def require_review(conn, candidate, robustness_plan, intent_sha):
+        scratch(conn.execute("PRAGMA database_list").fetchone()[2])
+        assert intent_sha is None
+
+    def bind_review(conn, candidate_id, intent_link):
+        scratch(conn.execute("PRAGMA database_list").fetchone()[2])
+        assert intent_link is None
+
+    def qualify(registry, run_id, contract, code_sha, root):
+        scratch(registry.db_path)
+
+    monkeypatch.setattr(ExperimentRunner, "_require_intent", require_intent)
+    monkeypatch.setattr(research_intent, "require_dataset_resolution", require_dataset)
+    monkeypatch.setattr(research_intent, "require_review", require_review)
+    monkeypatch.setattr(research_intent, "bind_review", bind_review)
+    monkeypatch.setattr(research_intent, "require_qualification_conformance", qualify)
+
+    def legacy_fixture_claim(reg, prepared, root, batch_id, *, holdout_override=False):
+        scratch(reg.db_path)
+        assert prepared["binding"] is None and batch_id is None
+
+    monkeypatch.setattr(exposure, "claim", legacy_fixture_claim)
+
+
+def write_novelty_fixture(repo: Path):
+    """Synthetic, explicitly empty memory sources for prospective governance tests."""
+    from warden.novelty import LESSONS
+    from warden_ops.research_outcome_memory import INDEX
+
+    lessons = repo / LESSONS
+    if not lessons.exists():
+        lessons.parent.mkdir(parents=True, exist_ok=True)
+        lessons.write_text("# Synthetic fixture lessons\nNo prior lessons in this fixture.\n")
+    index = repo / INDEX
+    if not index.exists():
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text(json.dumps({
+            "schema_version": 1,
+            "source_refs": [{"pr": 40, "commit": "abc1234"}],
+            "outcomes": [], "original_unattempted": [],
+        }))
+
+
+def novelty_fixture_review(binding):
+    """Test-only principal attestation; explicit relations from fixture identities."""
+    memory = binding["prior_memory"]
+    return {
+        "snapshot_sha256": memory["snapshot_sha256"],
+        "lessons_disposition": "Synthetic lessons inspected for fixture.",
+        "search_disposition": "Synthetic catalog and indexed outcomes inspected.",
+        "relationships": {
+            hid: {
+                "relation": "RELATED" if hid in memory["must_share_lineage"] else "DISTINCT",
+                "mechanism": "Synthetic fixture comparison of mechanism",
+                "signal": "Synthetic fixture signal comparison",
+                "universe": "Synthetic fixture universe comparison",
+                "outcome_disposition": "Retain all fixture prior evidence",
+            }
+            for hid in memory["required_relationships"]
+        },
+    }

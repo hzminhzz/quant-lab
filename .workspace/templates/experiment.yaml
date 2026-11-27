@@ -14,6 +14,9 @@ strategy_name: Human-readable run name
 strategy_family: rules_ts          # rules_ts | cross_sectional_ml | carry_rv | meta_overlay; must match registered hypothesis
 strategy_module: strategies/candidates/causal_rules_drawdown_template.py
 model_type: rules                  # nonlinear/deep models require a logged linear baseline first (deep requires clearing cost-breakeven)
+# For a new scored candidate, replace null with the exact digest returned by approve-research-intent.
+# Null is valid draft metadata, not permission to score. Frozen benchmark specs are not candidates.
+research_intent_sha256: null
 parameters:
   # passed to build_estimator(params) or required_symbols(params) + configure_strategy(contract, params)
   # validated against the strategy's module-level ``params_model`` (a
@@ -33,4 +36,5 @@ param_grid:
 # qualifies with ``param_grid: []`` and diagnostics
 # neighbor_exemption="parameter_free"; never invent a degenerate grid for it.
 # 1.5x cost stress is computed analytically; 2.0x is a full Engine re-simulation gate.
-# Every accepted neighbour is recorded as a selection attempt and counts toward DSR.
+# Fixed preregistered neighbours are recorded as robustness operations, not selectable candidates.
+# Choosing a neighbour as a new baseline requires separate candidate admission and review.

@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import re
+import sqlite3
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,7 +29,7 @@ ExperimentRunner: Any = None
 MANIFEST_FILE = ".warden_manifest.sha256"
 WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and AST boundaries intact."
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
-MUTATING_COMMANDS = frozenset({"register-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "approve-research-intent", "record-conformance", "close-hypothesis", "authorize-holdout-batch", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
 # ``advance`` mutates one spec at a time, so it takes the lease per spec instead of
 # holding it across a ``--pending`` batch (issue #101).
 BATCH_LEASED_COMMANDS = MUTATING_COMMANDS - {"advance"}
@@ -350,6 +351,8 @@ def cmd_screen(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
         ValueError,
         RuntimeError,
         KeyError,
+        OSError,
+        sqlite3.Error,
         pl.exceptions.PolarsError,
     ) as exc:
         print(f"Screen failed: {exc}", file=sys.stderr)
@@ -383,7 +386,7 @@ def cmd_backtest(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int
     except SandboxArtifactError as exc:
         print(f"REFUSED: {exc}\nWARDEN_RUN_FAILED", file=sys.stderr)
         return 2
-    except (ValueError, RuntimeError, KeyError, FileNotFoundError) as exc:
+    except (ValueError, RuntimeError, KeyError, OSError, sqlite3.Error) as exc:
         print(f"Backtest failed: {exc}\nWARDEN_RUN_FAILED", file=sys.stderr)
         return 1
 
@@ -682,7 +685,7 @@ def _advance_one_spec(
         return (status_registry or runner.registry).spec_status(hyp_id, cid, module, params)
 
     def _terminal_or_review(state: dict[str, Any]) -> dict[str, Any] | None:
-        if state["state"] in {"STAGE1_REJECT", "STAGE3_FINAL"}:
+        if state["state"] in {"STAGE1_REJECT", "STAGE3_FINAL", "HYPOTHESIS_TERMINAL"}:
             return _result("SKIP_TERMINAL", state, state["reason"])
         if state["state"] == "REQUIRES_RECONCILIATION":
             return _result("REVIEW_REQUIRED", state, state["reason"])
@@ -702,6 +705,17 @@ def _advance_one_spec(
                 f"Hypothesis {hyp_id} non-runnable or budget exhausted "
                 f"(status={state['hypothesis_status']}, trials_used={state.get('hypothesis_trials_used')})",
             )
+        ledger = status_registry or runner.registry
+        if state["state"] == "NEW" and getattr(ledger, "schema_version", 0) >= 4:
+            try:
+                budget = ledger.candidate_budget(hyp_id)
+            except (ValueError, sqlite3.Error) as exc:
+                return _result("REVIEW_REQUIRED", state, f"Candidate budget unavailable: {exc}")
+            if (budget["used"] >= budget["hypothesis_cap"]
+                    or budget["lineage_used"] >= budget["lineage_cap"]):
+                return _result("SKIP_TERMINAL", state,
+                               f"Candidate budget exhausted: {budget['used']}/{budget['hypothesis_cap']}, "
+                               f"lineage {budget['lineage_used']}/{budget['lineage_cap']}")
         return None
 
     def _legacy_frozen(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -728,6 +742,10 @@ def _advance_one_spec(
         if not check_outcome_memory or not state["hypothesis_registered"]:
             return None
         if state["state"] != "NEW":
+            return None
+        # Governed admission owns the stronger prospective novelty check. The
+        # old sidecar gate remains a precheck for unbound historical specs.
+        if cfg.get("research_intent_sha256"):
             return None
         index_path = repo / "docs" / "research-outcomes" / "branch-result-index-v1.json"
         if not index_path.is_file():
@@ -815,6 +833,8 @@ def _advance_one_spec(
 
             s_rc, s_detail = _invoke_quiet(cmd_screen, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
             state = refresh()
+            if state["state"] == "HYPOTHESIS_TERMINAL":
+                return _result("STAGE1_REJECTED", state, state["reason"])
             if state["state"] == "STAGE1_REJECT":
                 return _result("STAGE1_REJECTED", state, f"Stage 1 rejected (exit={s_rc})")
             if state["state"] != "STAGE1_PASS":
@@ -827,6 +847,8 @@ def _advance_one_spec(
         if state["state"] == "STAGE1_PASS":
             b_rc, b_detail = _invoke_quiet(cmd_backtest, SimpleNamespace(spec_yaml=str(spec_path), json=True), runner)
             state = refresh()
+            if state["state"] == "HYPOTHESIS_TERMINAL":
+                return _result("BACKTEST_FINALIZED", state, state["reason"])
             if state["state"] not in {"STAGE3_FINAL", "STAGE3_CANDIDATE_UNAUDITED"}:
                 return _result(
                     "REVIEW_REQUIRED",
@@ -1083,7 +1105,7 @@ def cmd_qualify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     from warden.contracts import canonical_json
     from warden.qualify import qualify_candidate
 
-    res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner)
+    res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner, batch_id=args.batch_id)
     print(canonical_json(res) if args.json else f"Qualification complete: {res['verdict']}")
     return 0 if res["promoted"] else 1
 
@@ -1091,6 +1113,12 @@ def cmd_qualify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
 def _human_approved(args: argparse.Namespace, policy_key: str | None = None) -> bool:
     """Human-only gates need their explicit flag, or the human-held signing key."""
     key = policy_key or args.subcommand
+    if key in {"approve-research-intent", "record-conformance", "close-hypothesis", "authorize-holdout-batch"}:
+        expected = {"approve-research-intent": "YES_APPROVE_INTENT",
+                    "record-conformance": "YES_RECORD_REVIEW",
+                    "close-hypothesis": "YES_CLOSE_HYPOTHESIS",
+                    "authorize-holdout-batch": "YES_AUTHORIZE_HOLDOUT_BATCH"}[key]
+        return os.environ.get("WARDEN_NON_INTERACTIVE") != "1" and args.human_confirm == expected
     flags = {
         "qualify": "unseal_holdout",
         "generate-manifest": "human_approve_manifest",
@@ -1615,6 +1643,67 @@ def cmd_promote_contract(args: argparse.Namespace, runner: Any) -> int:
     return 0
 
 
+def cmd_holdout_batch(args, runner) -> int:
+    import yaml
+
+    from warden.contracts import canonical_json
+    from warden.exposure import status
+    from warden.qualify import authorize_holdout_batch, describe_holdout_batch
+
+    try:
+        if args.subcommand == "describe-holdout-batch":
+            value = describe_holdout_batch(args.run_id, runner)
+        elif args.subcommand == "holdout-batch-status":
+            value = status(runner.registry, args.batch_id)
+        else:
+            approval = yaml.safe_load(Path(args.approval).read_text(encoding="utf-8"))
+            value = authorize_holdout_batch(args.run_id, runner, approval,
+                                            args.principal, args.human_confirm)
+    except (ValueError, OSError, RuntimeError, sqlite3.Error, yaml.YAMLError) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    print(canonical_json(value))
+    return 0
+
+
+def cmd_research_intent(args, runner) -> int:
+    """Principal-attested approval and metadata-only candidate identity."""
+    import yaml
+
+    from warden.contracts import canonical_json
+
+    cmd = args.subcommand
+    if not _check_repo_worktree(runner.repo_root):
+        return 2
+    if cmd != "describe-candidate":
+        expected = {"approve-research-intent": "YES_APPROVE_INTENT",
+                    "record-conformance": "YES_RECORD_REVIEW",
+                    "close-hypothesis": "YES_CLOSE_HYPOTHESIS"}[cmd]
+        if (os.environ.get("WARDEN_NON_INTERACTIVE") == "1"
+                or args.human_confirm != expected):
+            print(f"REFUSED: interactive principal confirmation {expected} required", file=sys.stderr)
+            return 2
+    try:
+        if cmd == "approve-research-intent":
+            plan = yaml.safe_load(Path(args.plan).read_text(encoding="utf-8"))
+            sha = runner.approve_research_intent(args.hypothesis_id, plan, args.principal)
+            payload = {"hypothesis_id": args.hypothesis_id, "research_intent_sha256": sha}
+        elif cmd == "record-conformance":
+            review = yaml.safe_load(Path(args.review).read_text(encoding="utf-8"))
+            review_id = runner.record_conformance_review(Path(args.spec_yaml), review, args.principal)
+            payload = {"review_id": review_id}
+        elif cmd == "close-hypothesis":
+            payload = runner.registry.close_hypothesis(
+                args.hypothesis_id, args.status, args.reason, args.principal)
+        else:
+            payload = runner.describe_candidate_intent(Path(args.spec_yaml))
+    except (ValueError, OSError, RuntimeError, sqlite3.Error, yaml.YAMLError) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    print(canonical_json(payload))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="warden", description="Deterministic quantitative research harness.")
     p.add_argument("--version", action="version", version=f"warden {__version__}")
@@ -1624,6 +1713,24 @@ def build_parser() -> argparse.ArgumentParser:
     gm = s.add_parser("generate-manifest")
     gm.add_argument("--human-approve-manifest", action="store_true")
     s.add_parser("register-hypothesis").add_argument("path")
+    intent = s.add_parser("approve-research-intent")
+    intent.add_argument("hypothesis_id")
+    intent.add_argument("plan")
+    intent.add_argument("--principal", required=True)
+    intent.add_argument("--human-confirm", required=True)
+    review = s.add_parser("record-conformance")
+    review.add_argument("spec_yaml")
+    review.add_argument("review")
+    review.add_argument("--principal", required=True)
+    review.add_argument("--human-confirm", required=True)
+    s.add_parser("describe-candidate").add_argument("spec_yaml")
+    close = s.add_parser("close-hypothesis")
+    close.add_argument("hypothesis_id")
+    close.add_argument("--status", required=True,
+                       choices=["REJECTED", "INCONCLUSIVE", "EXHAUSTED", "EARLY_STOPPED"])
+    close.add_argument("--reason", required=True)
+    close.add_argument("--principal", required=True)
+    close.add_argument("--human-confirm", required=True)
     for name in ["verify", "screen", "backtest"]: s.add_parser(name).add_argument("spec_yaml")
     adv = s.add_parser("advance")
     adv.add_argument("spec_yaml", nargs="?", default=None)
@@ -1641,8 +1748,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("continue").add_argument("transition_path", nargs="?", default=None)
     q = s.add_parser("qualify")
     q.add_argument("--run-id", required=True)
+    q.add_argument("--batch-id")
     q.add_argument("--human-confirm-unseal", default="")
     q.add_argument("--unseal-holdout", action="store_true")
+    describe = s.add_parser("describe-holdout-batch")
+    describe.add_argument("--run-id", required=True)
+    authorize = s.add_parser("authorize-holdout-batch")
+    authorize.add_argument("--run-id", required=True)
+    authorize.add_argument("--approval", required=True)
+    authorize.add_argument("--principal", required=True)
+    authorize.add_argument("--human-confirm", required=True)
+    s.add_parser("holdout-batch-status").add_argument("--batch-id", required=True)
     # ``warden data build`` -- the declarative dataset builder (#103).  Deliberately
     # CLI-only: it is absent from scripts/mcp_warden/adapter.py's allowlist, so the MCP
     # surface gains no write authority from it.
@@ -1764,7 +1880,7 @@ def main(argv: list[str] | None = None) -> int:
         elif decision.approval_required and not _human_approved(args, policy_key):
             print(f"REFUSED: {decision.reason}; pass the human-only flag for this command "
                   "(--unseal-holdout/--human-confirm-unseal, --seal-holdout/--human-confirm-seal, "
-                  "--human-confirm-promote YES_PROMOTE or --human-approve-manifest)", file=sys.stderr)
+                  "--human-confirm-promote YES_PROMOTE, --human-confirm YES_APPROVE_INTENT/YES_RECORD_REVIEW/YES_CLOSE_HYPOTHESIS, or --human-approve-manifest)", file=sys.stderr)
             code = 2
         elif args.subcommand in {"check-worktree", "generate-manifest", "handoff", "data",
                                  "resolve-data", "promote-contract"}:
@@ -1778,6 +1894,22 @@ def main(argv: list[str] | None = None) -> int:
                 code = data_actions[args.action](args, runner)
             else:
                 code = cmds[args.subcommand](args, runner)
+        elif args.subcommand in {"describe-holdout-batch", "authorize-holdout-batch", "holdout-batch-status"}:
+            from warden.registry import ResearchRegistry
+            from warden.runner import ExperimentRunner as _BatchRunner
+
+            runner = _BatchRunner(registry=ResearchRegistry(Path("registry/registry.db"),
+                                 readonly=args.subcommand != "authorize-holdout-batch"))
+            code = cmd_holdout_batch(args, runner)
+        elif args.subcommand in {"approve-research-intent", "record-conformance", "describe-candidate", "close-hypothesis"}:
+            if args.subcommand == "describe-candidate":
+                from warden.registry import ResearchRegistry
+                from warden.runner import ExperimentRunner as _IntentRunner
+
+                runner = _IntentRunner(registry=ResearchRegistry(Path("registry/registry.db"), readonly=True))
+            else:
+                runner = _get_runner(readonly=False)
+            code = cmd_research_intent(args, runner)
         elif args.subcommand == "register-hypothesis":
             runner = _get_runner(readonly=False)
             if not check_worktree():

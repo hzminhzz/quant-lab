@@ -111,8 +111,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary-out", default=None,
                         help="also write the session envelope JSON to this path")
     parser.add_argument("--force-all", action="store_true",
-                        help="run backtest even when the screen rejects (benchmark/forensics "
-                             "only; the hourly pipeline never sets this)")
+                        help="attempt backtest dispatch after screen failure for diagnostics; "
+                             "does not bypass registry admission")
     args = parser.parse_args(argv)
 
     spec = Path(args.spec_yaml)

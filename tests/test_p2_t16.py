@@ -4,7 +4,7 @@ Three gates, in the order they fail:
 
 1. **Static (alias-aware AST):** no module under ``scripts/`` may open SQLite itself,
    except the two utilities whose job *is* a byte-for-byte copy (``registry_evidence_snapshot``
-   and the migration rehearsal) and the backup-API snapshot inside ``preflight_trial``. Aliases
+   and the migration rehearsal). Trial preflight is read-only. Aliases
    (``import sqlite3 as x``, ``from sqlite3 import connect as c``, ``getattr(sqlite3, "connect")``)
    are resolved, so renaming the import does not launder a direct connection.
 2. **Read-only helper:** the projections in ``warden_ops.readonly`` neither change the ledger
@@ -46,8 +46,6 @@ DIRECT_SQLITE_ALLOWED = {
     "registry_evidence_snapshot.py": {"backup_readonly"},
     # Rehearsal migrates an isolated copy and re-reads it to prove the original is untouched.
     "rehearse_state_machine_migration.py": {"rehearse", "_ro_present_tables", "_read_state"},
-    # `preflight` runs a spec against a throwaway snapshot, so the snapshot must be a copy.
-    "preflight_trial.py": {"snapshot"},
 }
 
 

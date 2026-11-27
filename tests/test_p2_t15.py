@@ -160,6 +160,22 @@ def _wal_legacy_snapshot(tmp_path: Path, seed_db: Path) -> Path:
         src.backup(dst)
     with sqlite3.connect(snap) as conn:
         assert str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal"
+        from warden.exposure import TABLES
+
+        for table in reversed(TABLES):
+            conn.execute(f"DROP TABLE {table}")
+        for name in ("terminal_hypothesis_no_reactivate", "terminal_hypothesis_no_delete"):
+            conn.execute(f"DROP TRIGGER {name}")
+        conn.execute("DROP TABLE hypothesis_terminal")
+        for name in ("approved_hypothesis_no_change", "approved_hypothesis_no_delete"):
+            conn.execute(f"DROP TRIGGER {name}")
+        for name in ("candidate_intent_bindings", "conformance_reviews", "research_intents"):
+            conn.execute(f"DROP TABLE {name}")
+        conn.execute("DROP TABLE robustness_outcomes")
+        conn.execute("DROP TABLE robustness_receipts")
+        conn.execute("DROP TABLE robustness_plans")
+        conn.execute("DROP TABLE candidate_operations")
+        conn.execute("DROP TABLE candidate_admissions")
         conn.execute("PRAGMA user_version=0")
         conn.execute(
             "CREATE TABLE IF NOT EXISTS causality_evidence (evidence_id TEXT PRIMARY KEY,"
@@ -299,8 +315,9 @@ def test_wal_snapshot_migration_rehearsal_preserves_15_tables_14_triggers_and_le
     for name in TRIGGERS_14 | LEGACY_TRIGGERS:
         assert after["triggers"][name] == before["triggers"][name], f"trigger DDL mutated: {name}"
     # Zero row mutations, including the legacy residue and the quarantine markers.
-    assert after["digests"] == before["digests"]
-    assert after["counts"] == before["counts"]
+    assert {name: after["digests"][name] for name in before["digests"]} == before["digests"]
+    assert {name: after["counts"][name] for name in before["counts"]} == before["counts"]
+    assert after["counts"]["candidate_admissions"] == after["counts"]["candidate_operations"] == 0
 
     # Re-running the migration on the migrated WAL snapshot is a pure no-op.
     ResearchRegistry(snap)

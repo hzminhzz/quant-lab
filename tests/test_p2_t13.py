@@ -621,6 +621,7 @@ def test_fold_isolation_check_requires_the_runtime_record_for_ml() -> None:
 
 
 def test_strategy_published_nonstationary_spread_fails_stage1_while_panel_proxy_passes(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=23)
@@ -666,6 +667,7 @@ def test_strategy_published_nonstationary_spread_fails_stage1_while_panel_proxy_
 
 
 def test_active_carry_without_own_outputs_is_refused_before_any_ledger_mutation(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """#99: an active carry_rv run must publish its own series or fail before the ledger moves.
@@ -716,6 +718,7 @@ def test_active_carry_without_own_outputs_is_refused_before_any_ledger_mutation(
 
 
 def test_strategy_published_negative_net_carry_fails_stage1(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=19)
@@ -743,7 +746,8 @@ def test_strategy_published_negative_net_carry_fails_stage1(
     assert engine_calls["n"] == 0
 
 
-def test_strategy_published_lookahead_series_is_refused_before_the_screen_slot(
+def test_strategy_published_lookahead_series_keeps_admitted_slot(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=31)
@@ -763,12 +767,17 @@ def test_strategy_published_lookahead_series_is_refused_before_the_screen_slot(
     assert cli_main(["screen", str(spec), "--json"]) == 1
     captured = capsys.readouterr()
     assert "not causal" in captured.err
-    # A refusal is evidence, not a consumed screen: no receipt, no selection attempt.
-    assert _count(repo, "screen_receipts", "HYP-T13-OWN-LEAK") == 0
+    # The hook consumed validation information; its admitted slot remains spent.
+    assert _count(repo, "screen_receipts", "HYP-T13-OWN-LEAK") == 1
     assert _count(repo, "selection_attempts", "HYP-T13-OWN-LEAK") == 0
+    reg = ResearchRegistry(_db(repo))
+    assert reg.candidate_budget("HYP-T13-OWN-LEAK")["used"] == 1
+    assert reg.screen_status("HYP-T13-OWN-LEAK", contract.contract_id, own_rel,
+                             {"carry_outputs_mode": "lookahead"})["state"] == "RESERVED"
 
 
 def test_strategy_published_stationary_spread_passes_stage1_and_reaches_stage3(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=37)
@@ -813,6 +822,7 @@ def test_strategy_published_stationary_spread_passes_stage1_and_reaches_stage3(
 
 
 def test_screen_refuses_deep_model_without_logged_linear_baseline_and_writes_no_attempt(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=41)
@@ -848,6 +858,7 @@ def test_screen_refuses_deep_model_without_logged_linear_baseline_and_writes_no_
 
 
 def test_screen_refuses_nonlinear_model_without_logged_linear_baseline(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=43)
@@ -870,6 +881,7 @@ def test_screen_refuses_nonlinear_model_without_logged_linear_baseline(
 
 
 def test_screen_refuses_deep_model_when_logged_linear_baseline_misses_cost_breakeven(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=47)
@@ -941,6 +953,7 @@ def test_screen_refuses_deep_model_when_logged_linear_baseline_misses_cost_break
 
 
 def test_real_runs_record_tape_cadence_and_verified_fold_isolation(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=53)
@@ -1005,6 +1018,7 @@ def test_real_runs_record_tape_cadence_and_verified_fold_isolation(
 
 
 def test_audit_check_fails_check1_on_recorded_divergence_and_passes_with_declaration(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=59)
@@ -1204,6 +1218,7 @@ def test_audit_check_fails_check1_on_recorded_holding_divergence_and_shows_it(
 
 
 def test_audit_check_fails_check4_when_ml_trial_lacks_fold_isolation_evidence(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     panel = _carry_panel(stationary=True, positive_carry=True, n_bars=240, seed=61)

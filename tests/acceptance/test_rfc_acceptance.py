@@ -123,7 +123,7 @@ def test_3_purged_and_embargoed_fold_disjointness() -> None:
 # ============================================================================
 
 
-def test_4_holdout_and_governance_isolation(tmp_path: Path) -> None:
+def test_4_holdout_and_governance_isolation(pre_rg05_policy, tmp_path: Path) -> None:
     """Contract tampering, trial deletion, and lineage re-qualification all fail closed."""
     # A. Contract tampering check
     tamper_dir = tmp_path / "tamper_repo"

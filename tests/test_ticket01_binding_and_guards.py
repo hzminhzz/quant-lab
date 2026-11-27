@@ -164,6 +164,7 @@ def configure_strategy(contract, params):
 
 
 def test_full_funnel_code_closure_binding_and_drift_fail_closed(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = _setup_isolated_repo(tmp_path, name="funnel_repo")
@@ -384,7 +385,7 @@ def _seed_indices_typo_ledger(tmp_path: Path) -> tuple[Path, Path]:
     return repo, reg.db_path
 
 
-def test_target_symbols_pre_reservation_guard_and_calendar_filtering(tmp_path: Path) -> None:
+def test_target_symbols_pre_reservation_guard_and_calendar_filtering(pre_rg05_policy, tmp_path: Path) -> None:
     # 1. Replay RUN-HYP068-TYPO-PROBE on an isolated SQLite .backup() of a seeded ledger
     typo_repo, seed_db = _seed_indices_typo_ledger(tmp_path)
     snap_db = tmp_path / "snap.db"
@@ -575,7 +576,7 @@ def configure_strategy(contract, params):
     assert q_res["promoted"] is True
 
 
-def test_1m_low_volatility_fails_stage0_empirical_guard(tmp_path: Path) -> None:
+def test_1m_low_volatility_fails_stage0_empirical_guard(pre_rg05_policy, tmp_path: Path) -> None:
     repo = tmp_path / "lowvol_repo"
     (repo / "contracts" / "datasets").mkdir(parents=True, exist_ok=True)
     (repo / "strategies").mkdir(parents=True, exist_ok=True)

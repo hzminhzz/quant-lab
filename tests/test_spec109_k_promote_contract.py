@@ -792,6 +792,7 @@ def _experiment_spec(repo, contract_id: str, hypothesis_id: str) -> Path:
 
 
 def test_promotion_alone_never_makes_the_sandbox_original_holdout_eligible(
+    pre_rg05_policy,
     tmp_path, monkeypatch, capsys
 ) -> None:
     """The ticket's core claim: promotion moves bytes, it does not unseal anything."""

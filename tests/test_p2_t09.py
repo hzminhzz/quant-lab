@@ -398,7 +398,7 @@ def test_holdout_reads_both_verified_feeds_and_nothing_else(tmp_path: Path, monk
     reads = _recorded_reads(monkeypatch)
     market = MarketDataGateway(fixture.repo).load(fixture.contract, ROLE_HOLDOUT)
     assert market.warmup_rows == 48
-    assert reads == [str(fixture.hold_path), str(fixture.exp_path)]
+    assert reads == [fixture.hold_sha, fixture.exp_sha]
 
 
 def test_holdout_warmup_with_a_different_feed_schema_is_refused(tmp_path: Path) -> None:
@@ -528,18 +528,21 @@ class _RecordingGateway:
 
 
 def _recorded_reads(monkeypatch) -> list[str]:
+    """Record exact parsed bytes, including the gateway\'s verified in-memory feed."""
     reads: list[str] = []
     real_read = pl.read_parquet
 
-    def counted(path, *args, **kwargs):
-        reads.append(str(path))
-        return real_read(path, *args, **kwargs)
+    def counted(source, *args, **kwargs):
+        payload = source.getvalue() if hasattr(source, "getvalue") else Path(source).read_bytes()
+        reads.append(hashlib.sha256(payload).hexdigest())
+        return real_read(source, *args, **kwargs)
 
     monkeypatch.setattr(pl, "read_parquet", counted)
     return reads
 
 
 def test_all_four_callers_load_market_data_only_through_the_gateway(
+    pre_rg05_policy,
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     from warden import cli
@@ -595,10 +598,10 @@ def test_all_four_callers_load_market_data_only_through_the_gateway(
     reads = _recorded_reads(monkeypatch)
     gateway = MarketDataGateway(fixture.repo)
     gateway.load(fixture.contract)
-    assert reads == [str(fixture.exp_path)]
+    assert reads == [fixture.exp_sha]
 
 
-def test_callers_receive_identical_normalised_market_panels(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_callers_receive_identical_normalised_market_panels(pre_rg05_policy, tmp_path: Path, monkeypatch, capsys) -> None:
     from warden import cli
     from warden.runner import ExperimentRunner
 

@@ -1099,6 +1099,28 @@ def test_a_sandbox_contract_registers_verifies_and_advances(
     assert cli_main(["register-hypothesis", str(hypothesis), "--json"]) == 0
     capsys.readouterr()
     spec = _experiment_spec(repo, artifact.contract_id, "HYP-SANDBOX-1")
+    from warden.runner import ExperimentRunner
+
+    runner = ExperimentRunner(repo_root=repo)
+    plan = {
+        "author": "fixture-author", "thesis": "A causal FX fixture",
+        "strategy_module": "strategies/sandbox.py",
+        "data_requirement": _requirement(symbols=["EURUSD"]),
+        "purpose": "absolute", "evaluation_criteria": "Contract gates",
+    }
+    sha = runner.approve_research_intent("HYP-SANDBOX-1", plan, "fixture-principal")
+    document = yaml.safe_load(spec.read_text())
+    document["research_intent_sha256"] = sha
+    spec.write_text(yaml.safe_dump(document))
+    from tests.conftest import novelty_fixture_review, write_novelty_fixture
+
+    write_novelty_fixture(repo)
+    binding = runner.describe_candidate_intent(spec)
+    runner.record_conformance_review(spec, {
+        "binding_sha256": binding["binding_sha256"], "verdict": "PASS",
+        "reviewer": "fixture-reviewer", "evidence": "Synthetic sandbox review",
+        "novelty": novelty_fixture_review(binding),
+    }, "fixture-principal")
     assert cli_main(["verify", str(spec), "--json"]) == 0
     verified = _last_json(capsys)
     # Observed market history without attested origin: runnable, never market-eligible.
@@ -1127,6 +1149,7 @@ def test_a_sandbox_contract_registers_verifies_and_advances(
 
 
 def test_two_sandbox_contracts_in_one_group_share_persisted_selection_debt(
+    pre_rg05_policy,
     tmp_path, monkeypatch, capsys
 ) -> None:
     from warden.cli import main as cli_main
@@ -1270,6 +1293,7 @@ REPO_CONTRACT = (
 
 
 def test_qualify_refuses_a_sandbox_contract_before_any_holdout_claim(
+    pre_rg05_policy,
     tmp_path, monkeypatch, capsys
 ) -> None:
     from warden.cli import main as cli_main

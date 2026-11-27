@@ -545,9 +545,12 @@ def test_engine_entry_points_are_only_called_from_the_kernel() -> None:
 
 
 def test_screen_and_backtest_execute_through_the_kernel(
+    pre_rg05_policy,
     tiny_repo, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    fixture = tiny_repo()
+    from tests.test_rg03_candidate_admission import passing_repo
+
+    fixture = passing_repo(tiny_repo)
     monkeypatch.chdir(fixture.repo)
     calls: list[str] = []
     original = EvaluationKernel.run
@@ -560,6 +563,7 @@ def test_screen_and_backtest_execute_through_the_kernel(
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     report = runner.run_stage1_screen(fixture.spec)
     assert report.strategy_family == "rules_ts"
+    assert report.passed
     assert calls, "screen did not execute through EvaluationKernel"
     calls.clear()
     res = runner.run_spec(fixture.spec, override_run_id="RUN-T10-KERNEL")

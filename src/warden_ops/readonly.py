@@ -15,8 +15,7 @@ reporting question with a fixed column projection: there is deliberately no
 ``query(sql)``/``fetch(table)`` escape hatch, because a generic SQL tunnel in a
 read-only wrapper would re-expose every table the read-only view exists to keep
 out of report code. Direct connections remain only in the WAL backup snapshot
-(``scripts/registry_evidence_snapshot.py``, ``scripts/preflight_trial.py``
-``snapshot``) and the migration-rehearsal utility.
+(``scripts/registry_evidence_snapshot.py``) and the migration-rehearsal utility.
 
 Projections tolerate older snapshots: a field that a legacy registry does not have
 yet is reported as missing (``None``) instead of crashing the reader, which is what
@@ -107,6 +106,12 @@ class ReadOnlyResearchRegistry(ResearchRegistry):
     def read_contracts(self) -> list[dict]:
         """Contract identity/frequency facts used to annualise reporting metrics."""
         return self._project("contracts", CONTRACT_FIELDS, "ORDER BY contract_id")
+
+    def read_contract_spec_hash(self, contract_id: str) -> str | None:
+        """Recorded immutable contract identity, without registration or migration."""
+        rows = self._project("contracts", ("spec_hash",),
+                             "WHERE contract_id=?", (contract_id,))
+        return rows[0]["spec_hash"] if rows else None
 
     def read_search_state(self, contract_id: str) -> dict | None:
         """The stored multiple-testing floor for one contract, or ``None``."""

@@ -454,6 +454,7 @@ def _run(
 
 @pytest.mark.parametrize("variant", ["empty", "omitted"])
 def test_parameterized_strategy_without_neighbors_is_revise(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch, variant: str
 ) -> None:
     repo, result = _run(
@@ -482,6 +483,7 @@ def test_parameterized_strategy_without_neighbors_is_revise(
 
 
 def test_degenerate_and_duplicate_grid_entries_never_count_as_neighbors(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The old bypass: four entries, one real configuration, stability 1.0."""
@@ -522,6 +524,7 @@ def test_degenerate_and_duplicate_grid_entries_never_count_as_neighbors(
 
 
 def test_two_distinct_genuine_neighbors_open_the_gate(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, result = _run(
@@ -546,6 +549,7 @@ def test_two_distinct_genuine_neighbors_open_the_gate(
 
 
 def test_effective_defaults_are_the_neighbor_baseline(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no spec parameters the baseline is the model's own defaults."""
@@ -583,6 +587,7 @@ def test_effective_defaults_are_the_neighbor_baseline(
 
 
 def test_parameter_free_strategy_qualifies_with_empty_grid_and_exemption(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _, result = _run(
@@ -607,6 +612,7 @@ def test_parameter_free_strategy_qualifies_with_empty_grid_and_exemption(
 
 
 def test_bad_declaration_and_bad_grid_cost_no_trial(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repo, contract = _setup_repo(tmp_path, name="t12_bad_params", panel=planned_panel)
@@ -656,6 +662,7 @@ def test_bad_declaration_and_bad_grid_cost_no_trial(
 
 
 def test_reference_rules_template_baseline_rejection_then_neighbor_pass(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Recorded separately: the shipped reference is REVISE without neighbors."""
@@ -696,6 +703,7 @@ def test_reference_rules_template_baseline_rejection_then_neighbor_pass(
 
 
 def test_reference_ridge_template_requires_and_accepts_distinct_neighbors(
+    pre_rg05_policy,
     tmp_path: Path, planned_panel: pl.DataFrame, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     ridge_source = (REPO_ROOT / RIDGE_REL).read_text(encoding="utf-8")

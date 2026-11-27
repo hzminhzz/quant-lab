@@ -30,8 +30,11 @@ def installed(tmp_path):
         shutil.copy2(REPO / name, source / name)
     (source / "pyproject.toml").write_text('[project]\nname="appliance-fixture"\nversion="0.0.0"\n')
     (source / "tests").mkdir()
+    (source / "adapters").mkdir()
+    (source / "adapters/fixture.txt").write_text("required test asset")
     (source / "tests/test_smoke.py").write_text(
-        "def test_fixture():\n    assert 2 + 2 == 4\n\ndef test_second():\n    assert 1 + 1 == 2\n")
+        "from pathlib import Path\n\ndef test_fixture():\n    assert 2 + 2 == 4\n\n"
+        "def test_second():\n    assert Path(\"adapters/fixture.txt\").read_text() == \"required test asset\"\n")
     generate_manifest(source)
     for args in (["init", "-q"], ["add", "."],
                  ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
@@ -165,10 +168,14 @@ def test_receipt_is_not_scientific_authority_and_request_conflicts_refuse(instal
 
 def test_verification_ignores_inherited_test_selection(installed, monkeypatch):
     appliance, release, _db = installed
+    original = next(e["payload"] for e in reversed(appliance.history()) if e["kind"] == "verified")
+    xml = Path(next(arg.removeprefix("--junitxml=") for arg in original["command"] if arg.startswith("--junitxml=")))
+    original_bytes = xml.read_bytes()
     monkeypatch.setenv("PYTEST_ADDOPTS", "-k fixture")
     verified = appliance.verify(release)
     assert verified["ok"]
     assert verified["suite"]["tests"] == 2
+    assert xml.read_bytes() == original_bytes  # A new verification must retain the old evidence.
 
 
 def test_legacy_writer_lock_also_prevents_migration(installed):
@@ -198,3 +205,39 @@ def test_process_death_after_migration_is_reconciled_by_observation(installed):
     assert result["state"] == "ACTIVE"
     assert history(db) == [("original", b"do not rewind")]
     assert [e["kind"] for e in appliance.history()].count("transition-intent") == 1
+
+
+def test_failed_runtime_health_halts_without_rewinding_migration(installed, monkeypatch):
+    appliance, release, db = installed
+    probe = appliance._probe
+    monkeypatch.setattr(appliance, "_probe", lambda value: {"release_id": value, "healthy": False})
+    with pytest.raises(ValueError, match="health/identity"):
+        appliance.transition(release, request_id="failed-health")
+    assert appliance.observe()["status"] == "HALTED"
+    with pytest.raises(ValueError, match="not healthy"):
+        appliance.run(["status", "--json"])
+    with sqlite3.connect(db) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    assert history(db) == [("original", b"do not rewind")]
+    monkeypatch.setattr(appliance, "_probe", probe)
+    assert appliance.transition(release, request_id="failed-health")["state"] == "ACTIVE"
+    assert [e["payload"]["state"] for e in appliance.history() if e["kind"] == "transition-result"] == ["HALTED", "ACTIVE"]
+
+
+def test_loss_after_success_receipt_reconciles_only_its_own_halt(installed, monkeypatch):
+    appliance, release, _db = installed
+    append = appliance._append
+    def lost(kind, subject, payload):
+        append(kind, subject, payload)
+        if kind == "transition-result" and payload["state"] == "ACTIVE":
+            raise KeyboardInterrupt("lost acknowledgement after durable success")
+    monkeypatch.setattr(appliance, "_append", lost)
+    with pytest.raises(KeyboardInterrupt):
+        appliance.transition(release, request_id="lost-success")
+    assert appliance.observe()["status"] == "HALTED"
+    monkeypatch.setattr(appliance, "_append", append)
+    assert appliance.transition(release, request_id="lost-success")["state"] == "ACTIVE"
+    assert appliance.observe()["healthy"]
+    appliance.halt("later deliberate halt")
+    appliance.transition(release, request_id="lost-success")
+    assert appliance.observe()["status"] == "HALTED"

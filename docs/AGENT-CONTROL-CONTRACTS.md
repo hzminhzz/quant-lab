@@ -215,8 +215,9 @@ The original ADR and dated pre-amendment acceptance report retain the historical
 | Capital or orders | Separate trading authority; unavailable |
 
 A maintenance request binds its immutable release and canonical ledger. Reusing its ID
-with another subject refuses. The fixed verification baseline runs the entire candidate
-`tests` directory, protected-inventory verification and AST boundaries; inherited test
+with another subject refuses. The fixed verification baseline runs the entire committed
+`tests` directory with all test assets in an isolated worktree, verifies exact candidate
+bytes before/after, and runs protected-inventory verification and AST boundaries; inherited test
 selection is cleared. Evidence binds exact candidate bytes, environment identity, suite
 output and explicit skips/xfails. Source/test/verifier changes require review and the
 complete relevant verification; they do not require an independent release signer.

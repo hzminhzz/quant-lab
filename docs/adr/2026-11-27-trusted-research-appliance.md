@@ -52,6 +52,12 @@ ledger, external coding agent or independent-authentication simulation is introd
 | Historical exposure attestation, frozen holdout batch, sealed read/sealing | Existing separate exact scientific authorization; excluded from this program |
 | Capital allocation or orders | Separate trading authorization; unavailable |
 
+The pre-amendment interactive manifest metadata was tracked and already failed its checksum
+binding; no HMAC signature was present. Its bytes are preserved unchanged in
+`docs/evidence/pre-appliance-manifest-approval-20261127.json` (SHA-256
+`fc3d78ad37a4459b5043697c4db3e36bb743d8d3a061fbd305ac9abc52f969c2`).
+It is historical metadata, not approval of the new inventory. The prior manifest remains in Git history.
+
 The HMAC-verified scientific-policy input reader is unchanged. A maintenance checksum
 refresh never writes a human signature or human-approval metadata. An existing signature
 is preserved rather than silently invalidated. JUDGE_UNAVAILABLE remains an honest scientific

@@ -68,6 +68,12 @@ def file_sha256(path):
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
+def _counts(conn):
+    names = [row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type=\'table\' AND name NOT LIKE \'sqlite_%\'")]
+    return {name: conn.execute(f"SELECT COUNT(*) FROM {_quote(name)}").fetchone()[0] for name in names}
+
+
 def backup_readonly(source, destination, *, allow_snapshot_name=False):
     source, destination = Path(source).resolve(strict=True), Path(destination).resolve()
     if source == destination or destination.exists() or destination.is_relative_to(source.parent):
@@ -81,9 +87,10 @@ def backup_readonly(source, destination, *, allow_snapshot_name=False):
         with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as upstream, closing(sqlite3.connect(destination)) as copy:
             upstream.execute("PRAGMA query_only=ON")
             upstream.execute("BEGIN")
+            before_counts = _counts(upstream)
             upstream.backup(copy, pages=256)
-            if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise ValueError("Snapshot integrity failed")
+            if before_counts != _counts(copy) or copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise ValueError("Snapshot equivalence/integrity failed")
         state = read_state(destination)
         return {"source": str(source), "snapshot": str(destination),
                 "counts": {name: value["count"] for name, value in state["tables"].items()},

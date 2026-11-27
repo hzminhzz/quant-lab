@@ -121,9 +121,11 @@ They are not a second supported release path.
    Installation creates a separate sparse Git runtime and explicit canonical state bindings.
    It does not change the active runtime or migrate the live database.
 4. Use `warden appliance verify --home HOME --release RELEASE_ID`. The fixed full-suite,
-   protected-inventory and AST checks run over the data-free candidate, never live state.
+   protected-inventory and AST checks run in an isolated checkout of the exact commit with
+   all test assets. Release bytes are reverified before/after; canonical state/data are not mounted.
    Receipts include exact XML/log hashes, dependency identity, skips and expected failures.
-5. Use `warden appliance pause-writers --home HOME`. Timers stop; an already running service
+5. Use `warden appliance pause-writers --home HOME`. Timers are disabled and stopped so the
+   pause survives restart; prior enablement is recorded. An already running service
    must finish naturally. Inspect quiescence. No service is killed to manufacture a clean state.
 6. Use `warden appliance transition --home HOME --release RELEASE_ID --request-id STABLE_ID`.
    Both writer locks must be free. The command takes a fresh WAL snapshot, rehearses and proves

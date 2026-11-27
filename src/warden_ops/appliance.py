@@ -236,20 +236,39 @@ class Appliance:
         with mutation_lease(self.home / "operations.db"):
             return self._verify(release)
 
+    def _verification_source(self, release, directory, manifest):
+        """Complete committed test assets without canonical registry/data bindings."""
+        source = directory / "source"
+        runtime = self.runtime(release)
+        commit = manifest["source"]["commit"]
+        tracked = _command(["git", "ls-tree", "-r", "--name-only", commit], cwd=runtime).splitlines()
+        if any(name.startswith(("data/", "registry/registry.db")) for name in tracked):
+            raise ValueError("verification source contains market data or a canonical database")
+        if not source.exists():
+            _command(["git", "worktree", "add", "--detach", str(source), commit], cwd=runtime)
+            _command(["git", "sparse-checkout", "disable"], cwd=source)
+        if (source / "registry/registry.db").exists() or (source / "data").exists():
+            raise ValueError("verification source must not have registry/data bindings")
+        verify_materialization(self.home / "releases" / release, source)
+        _command(["git", "diff", "--quiet", "HEAD", "--"], cwd=source)
+        return source
+
     def _verify(self, release):
-        """Fixed full-suite baseline over data-free candidate bytes, never canonical state."""
+        """Fixed full-suite baseline over byte-matched source, never canonical state."""
         manifest = self._check_runtime(release)
         candidate = self.home / "releases" / release
         directory = self.home / "verification" / release
         directory.mkdir(parents=True, exist_ok=True)
-        env = self._env(candidate, maintenance=True)
+        source = self._verification_source(release, directory, manifest)
+        attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=directory))
+        env = self._env(source, maintenance=True)
         before_environment = _environment(self.python)
-        xml = directory / "suite.xml"
+        xml = attempt / "suite.xml"
         argv = [str(self.python), "-m", "pytest", "-q", "-n", "4", "--dist", "worksteal",
                 "--tb=short", "-o", "addopts=", "-o", f"cache_dir={directory / 'pytest-cache'}",
                 f"--junitxml={xml}", "tests"]
-        with (directory / "suite.log").open("w") as log:
-            proc = subprocess.run(argv, cwd=candidate, env=env, stdout=log, stderr=subprocess.STDOUT,
+        with (attempt / "suite.log").open("x") as log:
+            proc = subprocess.run(argv, cwd=source, env=env, stdout=log, stderr=subprocess.STDOUT,
                                   check=False, timeout=1800)
         counts = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0, "xfail": 0}
         if xml.exists():
@@ -266,23 +285,33 @@ class Appliance:
         if _environment(self.python) != before_environment:
             raise ValueError("dependency environment changed during verification")
         self._check_runtime(release)
+        self._verification_source(release, directory, manifest)
         result = {"schema_version": 1, "release_id": release, "ok": all(checks.values()),
+                  "test_source": str(source), "test_source_commit": manifest["source"]["commit"],
+                  "canonical_state_mounted": False, "evidence_directory": str(attempt),
                   "required_checks": list(REQUIRED_CHECKS), "checks": checks, "suite": counts,
                   "suite_sha256": file_sha256(xml) if xml.exists() else None,
-                  "log_sha256": file_sha256(directory / "suite.log"), "command": argv,
+                  "log_sha256": file_sha256(attempt / "suite.log"), "command": argv,
                   "environment": before_environment, "dependency_lock_sha256": manifest["dependency_lock_sha256"],
                   "baseline": "full committed tests + protected inventory + AST; ADR appliance 2026-11-27",
                   "scientific_authority": False, "observed_at": time.time()}
         result["verification_id"] = digest(result)
-        _write(directory / "receipt.json", result)
+        _write(attempt / "receipt.json", result)
         self._append("verified", release, result)
+        _write(directory / "current.json", {"attempt": attempt.name, "verification_id": result["verification_id"]})
         return result
 
     def _verified(self, release):
         self._check_runtime(release)
-        path = self.home / "verification" / release
+        directory = self.home / "verification" / release
+        current = _json(directory / "current.json")
+        path = directory / current["attempt"]
+        if path.is_symlink() or path.resolve().parent != directory.resolve():
+            raise ValueError("verification pointer outside immutable evidence")
         value = _json(path / "receipt.json")
         if (value["release_id"] != release or not value["ok"]
+                or current["verification_id"] != value["verification_id"]
+                or self._last("verified", release) != value
                 or value["required_checks"] != list(REQUIRED_CHECKS)
                 or not all(value["checks"].get(check) is True for check in REQUIRED_CHECKS)
                 or digest({k: v for k, v in value.items() if k != "verification_id"}) != value["verification_id"]
@@ -295,7 +324,8 @@ class Appliance:
     def writer_state(self):
         result = {}
         for unit in self.config["writer_units"]:
-            raw = _command(["systemctl", "--user", "show", unit, "-p", "LoadState", "-p", "ActiveState", "-p", "MainPID"])
+            raw = _command(["systemctl", "--user", "show", unit, "-p", "LoadState", "-p", "ActiveState",
+                            "-p", "MainPID", "-p", "UnitFileState"])
             value = dict(line.split("=", 1) for line in raw.splitlines() if "=" in line)
             if value.get("LoadState") != "loaded":
                 raise ValueError("configured writer unit unavailable: " + unit)
@@ -308,7 +338,7 @@ class Appliance:
         # Timers first; stopping a running service is allowed only after it exits naturally.
         timers = [unit for unit in self.config["writer_units"] if unit.endswith(".timer")]
         if timers:
-            _command(["systemctl", "--user", "stop", *timers])
+            _command(["systemctl", "--user", "disable", "--now", *timers])
         after = self.writer_state()
         self._append("writers-observed", "configured-writers", after)
         return {"before": before, "after": after, "quiescent": self._quiescent(after)}
@@ -316,7 +346,8 @@ class Appliance:
     @staticmethod
     def _quiescent(state):
         return all(s.get("ActiveState") in {"inactive", "failed"} and s.get("MainPID", "0") == "0"
-                   for s in state.values())
+                   and (not unit.endswith(".timer") or s.get("UnitFileState") not in {"enabled", "enabled-runtime"})
+                   for unit, s in state.items())
 
     @contextlib.contextmanager
     def _writers(self):

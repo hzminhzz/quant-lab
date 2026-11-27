@@ -43,6 +43,57 @@ This plan authorizes no signing, push/merge, production migration, new data purc
 sealed holdout read, trading or privileged installation. Those steps require their
 own existing or future explicit authority.
 
+### Single-session engineering execution (2026-11-27)
+
+Run AC-01 through AC-09 as one dependency-aware objective, not nine approval
+rounds. Implement all eligible slices directly; use focused behavior tests per
+slice and a full integrated suite at the release candidate. Commit independently
+verifiable slices and retain receipts so a tool timeout or context compaction
+does not require redoing work. Use AC-01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09
+as the default deterministic order; the existing dependency graph permits
+independent eligible work to continue when an external dependency is blocked.
+No requirement to exhaust the session or use external coding agents.
+
+The approved source-only merge of #119 is now on main at
+`b6cbb05f3e55f74ff2aba2c6c8f0ee4b8bbc3b71`. Its source tree equals the
+verified RG head (1,355 passed, 42 skipped, one xfailed). The design is carried
+onto an isolated development branch. The production manifest is intentionally
+stale: do not refresh, sign, bypass, or reinterpret it to make development
+appear authorized. Development builds and tests use scratch repositories,
+synthetic data, isolated ledgers and test-only keys; unsigned inventories are
+not release authority. Existing governance and trust-boundary tests demonstrate
+that engineering checks can run under this restriction.
+
+Separate completion into three factual levels without reducing acceptance:
+- **Engineering:** code, public interfaces, regression tests, immutable unsigned
+  candidates, fixtures, measurements and scratch migration/rollback rehearsal.
+- **Authority integration:** actual authenticated principal-decision consumption,
+  separately controlled verifier/grants/activation and demonstrated permissions
+  (AC-05/06, including A23). Fixture-only results cannot close this acceptance.
+- **Live transition:** AC-10 only after integrated acceptance and exact separately
+  authorized effects. No holdout read or trading is needed to implement AC.
+
+A separate user/process on a host is not an independent authority if the coding
+identity can control that host through privileged capabilities. A GitHub
+environment review is not independent if the coding credential can alter its
+approval settings. Recheck the actual capability inventory in private operational
+context; do not publish unnecessary host security details. AC-05/06 must establish a bounded authority channel and
+verification baseline that the coding identity cannot change or impersonate.
+Do not exercise privilege escalation, copy keys into the agent environment, or
+weaken policy to demonstrate this. If the required external identity/capability
+is absent, finish all independent engineering and produce a precise bootstrap
+and cutover decision packet; do not mark A23, live AC-05/06, or AC-10 complete
+without evidence. An authenticated decision may be collected through a supported
+principal-facing UI; a copied chat response/CLI flag is not that authentication.
+
+Use one consolidated decision packet for any irreducible protected effects
+rather than asking the principal to approve each command. Include exact release
+and migration subjects, compatibility evidence, trust prerequisites, impact and
+rollback, and explicit separate choices for each effect. No blanket live
+delegation is inferred. Production changes and holdout access remain excluded
+from ordinary engineering. A single ChatGPT session is a workflow goal, not a
+guaranteed resource/time bound; keep a durable resume record.
+
 ## 1. Delivery slices
 
 | ID | End-to-end outcome | Dependencies | Main existing seams | Completion evidence |

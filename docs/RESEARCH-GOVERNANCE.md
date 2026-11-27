@@ -1,5 +1,20 @@
 # Research governance hardening (#119)
 
+## Reading this implementation record
+
+The sections below record RG-01–09 incrementally; early slice boundaries are
+historical and later sections describe their governed integration. Use
+[WORKFLOW.md](WORKFLOW.md) and [AGENT_RUNBOOK.md](../AGENT_RUNBOOK.md) for the
+current operator sequence. The [acceptance report](RESEARCH-GOVERNANCE-ACCEPTANCE-20261127.md)
+records its exact verification scope and outstanding production obligations.
+
+The prospective [system architecture](ARCHITECTURE.md),
+[control contracts](AGENT-CONTROL-CONTRACTS.md) and
+[delivery plan](AGENT-CONTROL-PLAN.md) deepen the interface over these rules.
+They introduce no new scientific authority, standing grant, production approval
+or replacement ledger. Current principal-controlled gates remain in force until
+an explicitly authorized replacement is implemented and verified.
+
 ## RG-01: metadata-only preflight (#120)
 
 `python scripts/preflight_trial.py SPEC [--db PATH]` checks the registered
@@ -41,7 +56,7 @@ or authorize qualification. The later governed integration must construct
 identities from recorded evidence and bind the policy before outcomes are
 observed. There are no default policy thresholds in this slice.
 
-## Delivery boundary
+## RG-01/02 delivery boundary (historical)
 
 These two slices use synthetic fixtures only. Principal approval of prospective
 candidate budget representation and legacy-debt mapping is required before
@@ -74,7 +89,8 @@ pending explicit principal ratification before manifest signing or merge.
   dataset, code closure/content, model declaration, effective parameters and
   evaluator epoch. Linked screen and full-trial receipts consume one slot.
   Both admissions are exclusive; interrupted work remains spent. A finalized
-  screen can be followed by the identical full evaluation once.
+  PASS screen can be followed by the identical full evaluation once; a finalized
+  REJECT cannot advance through CLI or direct runner.
 - Resolve lineage transitively through registered parent links, normalized module
   aliases and exact code-content equivalence. Different filenames or contract/
   cadence changes do not reset a known lineage's allowance. Economic equivalence

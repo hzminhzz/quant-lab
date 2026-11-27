@@ -1,100 +1,92 @@
-# Stage-3 campaign prompt
+# Research campaign brief
 
-A reusable brief for driving a set of strategies through the falsification funnel on one contract
-family, in a fresh session. `AGENT_RUNBOOK.md` is the procedure; this file is the brief you paste.
+A reusable objective for one direct agent. Current procedure:
+[AGENT_RUNBOOK.md](AGENT_RUNBOOK.md) and [WORKFLOW.md](docs/WORKFLOW.md).
+The agent resolves operational details from evidence; the principal supplies the
+research objective and any decisions outside existing authority.
 
-Works in any warden workspace: nothing here is specific to one asset class.
+## Objective template
 
-## How to use
+> Investigate the named thesis set within the authorized research scope.
+> Resolve each eligible thesis to a defensible recorded disposition.
+> Reuse existing evidence, stop on decisive falsification, preserve all search
+> debt, and continue independent eligible work until the objective is complete
+> or only concrete external/principal decisions remain.
+>
+> Scope: named mechanisms/source references, intended instruments and frequency,
+> permitted data/execution basis, resource ceiling, and existing authorization.
+> The agent must make missing material assumptions explicit before scoring.
 
-1. Copy the block below into a new session.
-2. Fill every `{{...}}` **from preflight output**, not from memory. The family gate, the usable
-   frequencies and the panel schema are the three things that change between families, and they
-   change while you work.
-3. Keep the hard limits — they are not negotiable per campaign.
+A contract prefix, a folder of specs or “all pending” is not itself an approved
+research scope. Do not ask the principal to fill CLI paths or inspect databases.
 
----
+## Agent execution
 
-Do Stage 3 for the **{{FAMILY}}** strategy set, following `AGENT_RUNBOOK.md`.
+1. **Establish reality.** Inspect current instructions, checkout/dirty work,
+   canonical registry, active runtime when relevant, integrity/policy, prior
+   outcomes and outstanding receipts. Preserve concurrent work. Distinguish
+   observed facts, inference and unknowns.
+2. **Resolve the question's data.** Use the semantic DataRequirement and signed
+   policy. Preserve the declared universe, frequency and clock. Report exact
+   gaps before candidate implementation; do not bend the thesis to a convenient
+   static contract or assume an absent debt row means no prior research.
+3. **Freeze intent and review.** Follow #109/RG-05–07: complete term sheet, registered
+   and approved intent before code/results, frozen benchmark for incremental
+   work, exact candidate binding and independent conformance/novelty disposition.
+   Prepare any missing principal decision with all available evidence first.
+4. **Inspect existing effects.** Use spec/attempt state and metadata preflight.
+   An identical prior result is evidence to retrieve. A rejected screen cannot
+   advance; uncertain effects require reconciliation.
+5. **Progress eligible work.** Use current Warden advance or the supported native
+   commands. Let Warden admit and finalize every scored operation. The same frozen
+   screen/full candidate shares one slot; fixed stress operations are recorded
+   separately and cannot be selected as free variants.
+6. **Verify and learn.** Inspect receipts, artifact identities, failed gates,
+   comparative results and current eligibility. Preserve supporting and negative
+   evidence. Add a scoped lesson or focused regression when it will improve a
+   later decision.
+7. **Continue or close.** Resume the original objective after an ordinary repair.
+   Respect scientific stop conditions and remaining scope. Use current
+   principal-controlled closure rules; retain unresolved blockers and a durable
+   continuation record.
 
-## Preflight first, before registering anything
+The resource budget is a ceiling. A campaign with decisive early rejections can
+finish without any full backtest. New data, a new filename or a changed contract
+does not reset an examined candidate's lineage or selection debt.
 
-1. `uv run warden check-worktree` — must exit 0 (checks `.warden_manifest.sha256` and AST import boundaries), or every `backtest` refuses.
-2. Which `{{CONTRACT_PREFIX}}_*` contracts have both a contract YAML and an
-   `data/exploratory/{{...}}` panel. List the usable frequencies.
-3. `contract_search_state` — a clean family has **no row**. {{FAMILY_GATE_NOTE}}
-4. Panel schema per candidate frequency: asset count, date range, columns, and whether
-   `funding_rate` is all zero (which decides whether carry exists at all).
+## Recovery contract
 
-Report these four before writing any spec.
-
-## Scope
-
-Only mechanisms that have **not** already failed their own Stage-1 bars on another contract.
-{{CANDIDATE_SET}}
-
-If you propose mechanisms native to this family instead, register them as new hypotheses with their
-own economic mechanism, counterparty and falsification bars. Do not repurpose one that was
-falsified elsewhere, and do not re-register an existing set under a new id to get a clean-looking
-gate — `prior_search_floor` matches on `asset_class:frequency`, so the gate follows the family.
-
-## Frequency
-
-Choose one from {{FREQUENCY_OPTIONS}} and justify it against **effective** sample size, not row
-count — intraday returns are autocorrelated, and the contract dictates the execution mode
-({{EXECUTION_MODE}}, which is not always `NEXT_BAR`). State the validation window in years and the
-Sharpe standard error it implies.
-
-## Per hypothesis
-
-Register → one spec with a **≥2-point `param_grid`** (±15%, one factor at a time) → preflight →
-`backtest` → `verify-causality` → `audit-check`, in that order. A grid is strongly recommended:
-without one `evaluate_neighbor_stability` records `neighbor_tested=False` and `stability=None`.
-
-Then generate the ledger rather than transcribing numbers: copy
-`scripts/build_af30_step3_closure.py` to `scripts/build_{{FAMILY_SLUG}}_stage3_closure.py`, retarget
-`STRATEGIES`, and keep the `--check` drift test so the record cannot disagree with the registry.
-
-## Done
-
-Every strategy in the set has either a Stage-3 row carrying 1x / 1.5x / 2x / +1 bar / DSR /
-neighbours **and** an audit verdict, or a recorded Stage-1 `REJECT`. A mechanism falsified at
-Stage 1 owes no Stage-3 trial.
-
-## Hard limits
-
-- Do not read the holdout. Sealing and pinning it are the principal's to approve.
-- Do not apply evaluator or contract changes. Prepare the patch, the exact commands and the tests,
-  and report what is blocked.
-- Do not re-run a hypothesis to fill a single column when another pending change also needs a trial
-  slot — three trials per hypothesis, and the lineage cap is six.
-
----
-
-## Placeholder reference
-
-| Placeholder | Where it comes from |
+| Observation | Response |
 |---|---|
-| `{{FAMILY}}` | `asset_class` of the contracts, e.g. `FX_MAJORS`, `INDICES`, `CRYPTO_PERPS` |
-| `{{CONTRACT_PREFIX}}` | contract id prefix, e.g. `FX_MAJORS_1D_V1` → `FX_MAJORS` |
-| `{{FAMILY_GATE_NOTE}}` | preflight: "confirm no row" when clean, otherwise the inherited `max_keff_gate` and which contracts share the `asset_class:frequency` family |
-| `{{CANDIDATE_SET}}` | the named strategies with the reason each is eligible; never "all of them" |
-| `{{FREQUENCY_OPTIONS}}` | contracts with data, e.g. `_1D`, `_4H`, `_1H` |
-| `{{EXECUTION_MODE}}` | `execution_mode` in the chosen contract YAML |
-| `{{FAMILY_SLUG}}` | lowercase slug for the ledger script, e.g. `fx` |
+| Technical failure proven before admission | Repair and retry within scope |
+| Response lost or execution timed out | Inspect existing receipt/effect before retry |
+| Recorded scientific failure | Preserve it; pursue only a justified governed revision or another approved thesis |
+| Missing review/authority | Prepare the exact decision/evidence packet and continue independent eligible work |
+| Data or evidence drift | Preserve incident and block the affected claim; no silent replacement |
+| External source unavailable | Use only an already-authorized alternative with its own accurate provenance/scope |
 
-## Traps, each paid for once already
+See [BLOCKER-RECOVERY.md](docs/BLOCKER-RECOVERY.md). The target typed
+situation/action/receipt interface in [ARCHITECTURE.md](docs/ARCHITECTURE.md) is
+planned; use currently implemented commands until capabilities are advertised.
 
-1. **1.5x cost stress is analytical, 2.0x is full Engine re-simulation**: `stress_1p5_cost_sharpe`
-   is computed analytically from the 1x `ml4t.backtest.Engine` result (`analytical_1p5x_sharpe`),
-   while `cost_2x` runs a full `cost_multiplier=2.0` Engine simulation.
-2. **A module digest must cover the import closure.** Hashing one file misses shared helpers;
-   declare `CODE_DEPENDENCIES` for runtime-loaded or subdir helpers so `code_closure` covers them.
-3. **Sequencing beats slot count.** Land every evaluator change before the re-runs, or the last slot
-   buys half the evidence.
-4. **A holdout needs the file sealed *and* its digest pinned.** With no `holdout_sha256` in the
-   contract record, `resolve_dataset` accepts any bytes as verified market data.
-5. **`a | tail && b` tests `tail`'s status.** Use `set -o pipefail`, or no pipe.
-6. **The registry is append-only.** Regenerate the ledger; never edit a trial row.
-7. **`preflight_trial.py` may be absent from a worktree.** It spends nothing and catches stream
-   misalignment before a slot is burned — restore it from git history if missing.
+## Completion evidence
+
+Report every named thesis with its exact identity and one of: recorded scientific
+disposition, already-existing evidence, justified unattempted stop, or a concrete
+unresolved blocker. Include applicable candidate/lineage debt, evidence references,
+remaining uncertainty and any required decision. Keep IMPLEMENTED, VERIFIED,
+DEPLOYED and SCIENTIFICALLY QUALIFIED separate.
+
+Generate metrics from the ledger and immutable artifacts through existing
+projections. Preserve full command output as referenced evidence; the summary
+should explain the result and limits. A pending protected decision means the
+affected objective remains blocked, even when all autonomous preparation is done.
+
+## Authority
+
+The campaign does not authorize protected manifest signing, policy changes,
+production migration, sealed holdout access, paid services or trading. Existing
+explicit task authority still applies to separately requested engineering work.
+Prepare and verify a concrete proposed protected effect before requesting its
+specific decision. Execution uses the available authorized channel; a human-only
+confirmation token is not permission to impersonate the principal.

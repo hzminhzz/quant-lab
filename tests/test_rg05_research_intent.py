@@ -366,6 +366,10 @@ def test_v5_migration_preserves_historical_trial_and_receipt(tiny_repo):
         before = hashlib.sha256(artifact.read_bytes()).hexdigest()
         tables = ("hypotheses", "trials", "attempt_receipts", "selection_attempts")
         snapshots = {t: conn.execute(f"SELECT * FROM {t} ORDER BY rowid").fetchall() for t in tables}
+        from warden.exposure import TABLES
+
+        for table in reversed(TABLES):
+            conn.execute(f"DROP TABLE {table}")
         for name in ("terminal_hypothesis_no_reactivate", "terminal_hypothesis_no_delete"):
             conn.execute(f"DROP TRIGGER {name}")
         conn.execute("DROP TABLE hypothesis_terminal")
@@ -376,7 +380,7 @@ def test_v5_migration_preserves_historical_trial_and_receipt(tiny_repo):
         conn.execute("PRAGMA user_version=5")
     migrated = ResearchRegistry(f.registry.db_path)
     with sqlite3.connect(migrated.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
         for table, rows in snapshots.items():
             assert conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() == rows
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == before

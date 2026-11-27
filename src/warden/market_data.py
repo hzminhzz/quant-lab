@@ -346,7 +346,10 @@ class MarketDataGateway:
         resolution: DatasetResolution | None = None,
         holdout_override_path: Path | str | None = None,
         min_holdout_bars: int = MIN_HOLDOUT_BARS,
+        holdout_scope: dict | None = None,
     ) -> MarketPanel:
+        if holdout_scope is not None and (role != ROLE_HOLDOUT or holdout_override_path is not None):
+            raise ValueError("A governed scope applies only to the pinned holdout artifact")
         if role not in ROLES:
             raise ValueError(f"role must be one of {ROLES}, got {role!r}")
         spec_version = resolve_contract_governance(contract, self.repo_root).spec_version
@@ -368,7 +371,20 @@ class MarketDataGateway:
                 f"holdout dataset for '{contract.contract_id}' is not market-eligible: {res.reason}"
             )
         identity = self._build_identity(contract)
-        frame, symbols_filtered = self._read_resolved(res, contract, symbols)
+        if holdout_scope is not None:
+            from warden.exposure import Scope, ScopeIncident
+
+            scope = Scope.model_validate(holdout_scope)
+            # Check every readable observation, before selecting the evaluation universe.
+            frame, _ = self._read_resolved(res, contract, None)
+            if (res.sha256 != scope.dataset_sha256
+                    or not set(frame["asset"].unique().to_list()) <= set(scope.symbols)
+                    or frame["timestamp"].min() < scope.start
+                    or frame["timestamp"].max() > scope.end):
+                raise ScopeIncident("Holdout artifact exceeds its signed exposure scope; claim remains spent")
+            frame, symbols_filtered = select_symbols(frame, symbols, label=res.path)
+        else:
+            frame, symbols_filtered = self._read_resolved(res, contract, symbols)
         if role == ROLE_EXPLORATORY:
             panel = self._exploratory_panel(contract, frame, res, symbols_filtered, spec_version)
         else:

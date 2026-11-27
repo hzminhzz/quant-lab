@@ -321,13 +321,17 @@ def test_v6_review_migration_preserves_rows_without_fabricating_novelty(tiny_rep
             evidence="Prior RG05-only synthetic approval"), "principal")
     with sqlite3.connect(f.registry.db_path) as conn:
         before = conn.execute("SELECT * FROM conformance_reviews").fetchall()
+        from warden.exposure import TABLES
+
+        for table in reversed(TABLES):
+            conn.execute(f"DROP TABLE {table}")
         for name in ("terminal_hypothesis_no_reactivate", "terminal_hypothesis_no_delete"):
             conn.execute(f"DROP TRIGGER {name}")
         conn.execute("DROP TABLE hypothesis_terminal")
         conn.execute("PRAGMA user_version=6")
     migrated = ResearchRegistry(f.registry.db_path)
     with sqlite3.connect(f.registry.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
         assert conn.execute("SELECT * FROM conformance_reviews").fetchall() == before
         assert conn.execute("SELECT count(*) FROM hypothesis_terminal").fetchone()[0] == 0
     runner = ExperimentRunner(registry=migrated, repo_root=f.repo)

@@ -29,7 +29,7 @@ ExperimentRunner: Any = None
 MANIFEST_FILE = ".warden_manifest.sha256"
 WORKTREE_OK = "Worktree integrity verified: protected contracts, warden core, and AST boundaries intact."
 UNTRUSTED_SOURCE = re.compile(r"substack|medium|twitter|x\.com|blog|http", re.IGNORECASE)
-MUTATING_COMMANDS = frozenset({"register-hypothesis", "approve-research-intent", "record-conformance", "close-hypothesis", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
+MUTATING_COMMANDS = frozenset({"register-hypothesis", "approve-research-intent", "record-conformance", "close-hypothesis", "authorize-holdout-batch", "verify", "screen", "backtest", "advance", "audit-check", "handoff", "qualify", "generate-manifest", "reconcile-attempt", "reconcile-screen"})
 # ``advance`` mutates one spec at a time, so it takes the lease per spec instead of
 # holding it across a ``--pending`` batch (issue #101).
 BATCH_LEASED_COMMANDS = MUTATING_COMMANDS - {"advance"}
@@ -1105,7 +1105,7 @@ def cmd_qualify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
     from warden.contracts import canonical_json
     from warden.qualify import qualify_candidate
 
-    res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner)
+    res = qualify_candidate(args.run_id, args.human_confirm_unseal, runner, batch_id=args.batch_id)
     print(canonical_json(res) if args.json else f"Qualification complete: {res['verdict']}")
     return 0 if res["promoted"] else 1
 
@@ -1113,10 +1113,11 @@ def cmd_qualify(args: argparse.Namespace, runner: _ExperimentRunnerType) -> int:
 def _human_approved(args: argparse.Namespace, policy_key: str | None = None) -> bool:
     """Human-only gates need their explicit flag, or the human-held signing key."""
     key = policy_key or args.subcommand
-    if key in {"approve-research-intent", "record-conformance", "close-hypothesis"}:
+    if key in {"approve-research-intent", "record-conformance", "close-hypothesis", "authorize-holdout-batch"}:
         expected = {"approve-research-intent": "YES_APPROVE_INTENT",
                     "record-conformance": "YES_RECORD_REVIEW",
-                    "close-hypothesis": "YES_CLOSE_HYPOTHESIS"}[key]
+                    "close-hypothesis": "YES_CLOSE_HYPOTHESIS",
+                    "authorize-holdout-batch": "YES_AUTHORIZE_HOLDOUT_BATCH"}[key]
         return os.environ.get("WARDEN_NON_INTERACTIVE") != "1" and args.human_confirm == expected
     flags = {
         "qualify": "unseal_holdout",
@@ -1642,6 +1643,29 @@ def cmd_promote_contract(args: argparse.Namespace, runner: Any) -> int:
     return 0
 
 
+def cmd_holdout_batch(args, runner) -> int:
+    import yaml
+
+    from warden.contracts import canonical_json
+    from warden.exposure import status
+    from warden.qualify import authorize_holdout_batch, describe_holdout_batch
+
+    try:
+        if args.subcommand == "describe-holdout-batch":
+            value = describe_holdout_batch(args.run_id, runner)
+        elif args.subcommand == "holdout-batch-status":
+            value = status(runner.registry, args.batch_id)
+        else:
+            approval = yaml.safe_load(Path(args.approval).read_text(encoding="utf-8"))
+            value = authorize_holdout_batch(args.run_id, runner, approval,
+                                            args.principal, args.human_confirm)
+    except (ValueError, OSError, RuntimeError, sqlite3.Error, yaml.YAMLError) as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
+    print(canonical_json(value))
+    return 0
+
+
 def cmd_research_intent(args, runner) -> int:
     """Principal-attested approval and metadata-only candidate identity."""
     import yaml
@@ -1724,8 +1748,17 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_parser("continue").add_argument("transition_path", nargs="?", default=None)
     q = s.add_parser("qualify")
     q.add_argument("--run-id", required=True)
+    q.add_argument("--batch-id")
     q.add_argument("--human-confirm-unseal", default="")
     q.add_argument("--unseal-holdout", action="store_true")
+    describe = s.add_parser("describe-holdout-batch")
+    describe.add_argument("--run-id", required=True)
+    authorize = s.add_parser("authorize-holdout-batch")
+    authorize.add_argument("--run-id", required=True)
+    authorize.add_argument("--approval", required=True)
+    authorize.add_argument("--principal", required=True)
+    authorize.add_argument("--human-confirm", required=True)
+    s.add_parser("holdout-batch-status").add_argument("--batch-id", required=True)
     # ``warden data build`` -- the declarative dataset builder (#103).  Deliberately
     # CLI-only: it is absent from scripts/mcp_warden/adapter.py's allowlist, so the MCP
     # surface gains no write authority from it.
@@ -1861,6 +1894,13 @@ def main(argv: list[str] | None = None) -> int:
                 code = data_actions[args.action](args, runner)
             else:
                 code = cmds[args.subcommand](args, runner)
+        elif args.subcommand in {"describe-holdout-batch", "authorize-holdout-batch", "holdout-batch-status"}:
+            from warden.registry import ResearchRegistry
+            from warden.runner import ExperimentRunner as _BatchRunner
+
+            runner = _BatchRunner(registry=ResearchRegistry(Path("registry/registry.db"),
+                                 readonly=args.subcommand != "authorize-holdout-batch"))
+            code = cmd_holdout_batch(args, runner)
         elif args.subcommand in {"approve-research-intent", "record-conformance", "describe-candidate", "close-hypothesis"}:
             if args.subcommand == "describe-candidate":
                 from warden.registry import ResearchRegistry

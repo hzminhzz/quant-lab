@@ -24,14 +24,14 @@ ALLOWED = frozenset({
     "data compile",
     # ``resolve-data`` answers "which signed contract, or which gap" and writes nothing
     # (#116): it is the read-only front half of ``data build``.
-    "resolve-data", "describe-candidate",
+    "resolve-data", "describe-candidate", "describe-holdout-batch", "holdout-batch-status",
 })
 #: Commands a caller cannot run on their own authority.  ``data seal-holdout`` is on this
 #: list because it writes the protected holdout root and pins ``holdout.sealed``: no agent,
 #: cron job or MCP client may do that, whatever arguments it passes.  ``promote-contract``
 #: joins them (#118): it copies a compiled sandbox artifact into the protected production
 #: namespace, which is a human decision about what the evaluator will see.
-APPROVAL = frozenset({"qualify", "generate-manifest", "data seal-holdout", "promote-contract", "approve-research-intent", "record-conformance", "close-hypothesis"})
+APPROVAL = frozenset({"qualify", "generate-manifest", "data seal-holdout", "promote-contract", "approve-research-intent", "record-conformance", "close-hypothesis", "authorize-holdout-batch"})
 
 
 @dataclass(frozen=True)

@@ -156,7 +156,7 @@ def pre_rg05_policy(tmp_path, monkeypatch):
     No fake approval or binding rows are written. The real RG-05 public paths
     are exercised without this double in test_rg05_research_intent.py.
     """
-    from warden import research_intent
+    from warden import exposure, research_intent
     from warden.runner import ExperimentRunner
 
     def scratch(db_path):
@@ -187,6 +187,12 @@ def pre_rg05_policy(tmp_path, monkeypatch):
     monkeypatch.setattr(research_intent, "require_review", require_review)
     monkeypatch.setattr(research_intent, "bind_review", bind_review)
     monkeypatch.setattr(research_intent, "require_qualification_conformance", qualify)
+
+    def legacy_fixture_claim(reg, prepared, root, batch_id, *, holdout_override=False):
+        scratch(reg.db_path)
+        assert prepared["binding"] is None and batch_id is None
+
+    monkeypatch.setattr(exposure, "claim", legacy_fixture_claim)
 
 
 def write_novelty_fixture(repo: Path):

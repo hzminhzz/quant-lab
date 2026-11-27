@@ -14,7 +14,7 @@ from typing import TypedDict
 
 import numpy as np
 
-from warden import incremental, novelty, research_intent, robustness, terminal
+from warden import exposure, incremental, novelty, research_intent, robustness, terminal
 from warden.candidate_admission import CandidateIdentity
 from warden.codeid import code_closure
 from warden.contracts import (
@@ -189,7 +189,7 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 """Current ``PRAGMA user_version`` of the registry schema.
 
 ``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
@@ -211,6 +211,7 @@ not merely a version flip that would discard candidate-budget enforcement.
 outcomes; historical trial/selection rows remain unchanged.
 ``6`` (#124) adds immutable research intents, review evidence and candidate bindings.
 ``7`` (#126) adds immutable terminal hypothesis dispositions.
+``8`` (#127) adds frozen holdout batches, exposure history, and one-shot read/results.
 A newer schema is
 refused instead of guessed at.
 
@@ -288,7 +289,7 @@ _DDL_SCRIPT = f"""
                     SELECT RAISE(ABORT, 'Governance violation: rejected hypothesis cannot be reactivated')
                     WHERE OLD.status = 'REJECTED' AND NEW.status != 'REJECTED';
                 END;
-""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL + terminal.TERMINAL_DDL
+""" + robustness.ROBUSTNESS_DDL + research_intent.INTENT_DDL + terminal.TERMINAL_DDL + exposure.EXPOSURE_DDL
 
 
 class ScreenStatusView(TypedDict):
@@ -420,6 +421,7 @@ class ResearchRegistry:
                 # #113: distinguish a contract's own declaration from a policy-derived
                 # mapping of legacy debt.  Additive, non-null with a default, no row rewrite.
                 conn.execute("ALTER TABLE contract_governance ADD COLUMN group_source TEXT NOT NULL DEFAULT 'declared'")
+            exposure.capture_legacy(conn)
             conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             conn.commit()
         except BaseException:
@@ -478,6 +480,7 @@ class ResearchRegistry:
                             VALUES (?,?,?,?,?,'FINALIZED',?,?,?)""",
                          (sk, sr[1], sr[2], normalise_module(sr[3]), sr[4] or '{}', sr[0],
                           sr[5] or 0, sr[5] or 0))
+        exposure.capture_legacy(conn)
         for r_id in LEGACY_RUNS:
             if conn.execute("SELECT 1 FROM trial_quarantine WHERE run_id=?", (r_id,)).fetchone():
                 continue
@@ -545,9 +548,12 @@ class ResearchRegistry:
             hyp = conn.execute("SELECT hypothesis_id FROM trials WHERE run_id=?", (run_id,)).fetchone()
             if hyp and terminal.read(conn, hyp[0]):
                 raise ValueError("Terminal hypothesis cannot claim holdout")
+            if hyp and conn.execute("SELECT 1 FROM research_intents WHERE hypothesis_id=?", (hyp[0],)).fetchone():
+                raise PermissionError("Governed holdout requires an authorized frozen batch")
             try:
                 conn.execute("INSERT INTO holdout_claims (lineage_id,run_id,state,claimed_at) VALUES (?,?,?,?)",
                              (lineage_id, run_id, "CLAIMED", time.time()))
+                exposure.capture_legacy(conn)
             except sqlite3.IntegrityError as exc:
                 prior = conn.execute("SELECT run_id,state FROM holdout_claims WHERE lineage_id=?", (lineage_id,)).fetchone()
                 raise PermissionError(f"Lineage '{lineage_id}' was already unsealed by run '{prior['run_id']}' (state={prior['state']}).") from exc
@@ -555,6 +561,9 @@ class ResearchRegistry:
     def mark_holdout_read_started(self, lineage_id: str, run_id: str) -> None:
         """Commit a READ_STARTED event before opening holdout bytes."""
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("SELECT 1 FROM holdout_exposures WHERE run_id=? AND source='batch'", (run_id,)).fetchone():
+                raise PermissionError("Governed holdout requires the frozen batch read-start")
             updated = conn.execute("""UPDATE holdout_claims SET state='READ_STARTED',read_started_at=?
                                       WHERE lineage_id=? AND run_id=? AND state='CLAIMED'""",
                                    (time.time(), lineage_id, run_id)).rowcount

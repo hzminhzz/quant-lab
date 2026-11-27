@@ -189,8 +189,8 @@ allowed_revisions:
 Incremental intent requires `purpose: incremental` and a `benchmark_spec`
 path under `experiments/`. Its declared config and strategy closure are
 fingerprinted at approval and checked before scoring. RG-06 adds the frozen
-comparative development gate below; incremental holdout execution remains
-blocked until RG-08 provides the approved paired batch.
+comparative development gate below; incremental holdout execution requires
+an authorized frozen paired batch under RG-08.
 
 Review YAML requires the exact `binding_sha256` returned by describe-candidate,
 `verdict` (PASS, REFUSED, or JUDGE_UNAVAILABLE), `reviewer` (required for
@@ -286,8 +286,8 @@ remain spent and cannot be replayed.
 
 A non-PASS adds `incremental_comparison` to failed gates and cannot qualify.
 The production holdout path additionally requires a finalized comparative
-development PASS, then refuses before any holdout claim until RG-08 (#127)
-provides the human-approved frozen paired batch. The development decision
+development PASS and a human-approved frozen paired batch under RG-08
+(#127) before any holdout claim. The development decision
 policy is immutable and must be reused by that batch. No new holdout exposure
 or data acquisition is authorized here.
 
@@ -398,3 +398,87 @@ triggers). No historic review, trial, return, qualification or selection
 debt is rewritten. All verification here uses synthetic scratch ledgers;
 no production database migration, approval signing, market scoring or
 holdout exposure is authorized.
+
+## RG-08 — Frozen holdout batches and exposure
+
+Registry v8 adds immutable batch authorizations, exposure records, legacy
+scope reconciliation, read-start receipts and batch outcomes. The existing
+lineage claim remains binding. Before any holdout data is hashed or opened,
+the evaluator verifies the signed policy, frozen identity, intent and novelty
+review, development evidence, six-check audit, and run-bound causal proof.
+It atomically claims both exposure and lineage, then durably records read-start.
+A claim is spent even if execution stops before read-start. No retry, release,
+adaptive candidate addition, or benchmark replacement is permitted.
+
+The principal owns `contracts/holdout_exposure_policy.yaml`; it must be
+covered by the verified human manifest HMAC. Its scope describes the whole
+readable holdout artifact, not merely the scored slice. Example schema
+(illustrative only; not an approved production policy):
+
+```yaml
+version: rg08-exposure-v1
+history_attestation: "Principal reviewed the complete prior exposure inventory."
+windows:
+  EXAMPLE_CONTRACT:
+    dataset_sha256: "<actual 64-character SHA-256>"
+    start: "2025-01-01T00:00:00Z"
+    end: "2025-12-31T23:59:59Z"
+    symbols:
+      BTCUSDT: BTC
+legacy_scopes:
+  RUN-EXAMPLE:
+    scope:
+      start: "2024-01-01T00:00:00Z"
+      end: "2024-12-31T23:59:59Z"
+      symbols:
+        BTC: BTC
+    evidence: "Principal-reviewed evidence of the actual historical exposure."
+external_exposures: {}
+```
+
+Canonical underlying identifiers are stable across cadence, contract and
+provider aliases. Same-lineage exposure is denied even on a different
+window. Unrelated research overlapping a previously exposed artifact hash,
+or an inclusive UTC window and underlying, requires an explicit principal
+independence explanation for every overlapping exposure. Unrelated,
+non-overlapping research does not need that explanation. Unknown legacy
+scope, unresolved identity, or incomplete history blocks qualification;
+never infer that missing evidence means no prior exposure.
+
+Operator sequence:
+
+1. Inspect the signed policy and resolve historical scopes using evidence;
+   sign the protected manifest separately. Do not sign on behalf of the
+   principal or open holdout data to discover a scope.
+2. Run `warden describe-holdout-batch --run-id RUN-ID --json`. Review the
+   exact document and batch digest. This is a metadata-only operation.
+3. Author an approval document containing `batch_sha256` and an
+   `independence` mapping keyed by every overlapping exposure ID, with
+   substantive explanations (empty mapping only for zero overlaps).
+4. Run `warden authorize-holdout-batch --run-id RUN-ID --approval approval.yaml
+   --principal PRINCIPAL --human-confirm YES_AUTHORIZE_HOLDOUT_BATCH --json`.
+   Authorization freezes one absolute candidate or one incremental candidate
+   and its existing benchmark. It does not read or claim the holdout.
+5. Only with separate explicit human unseal authorization, run
+   `warden qualify --run-id RUN-ID --batch-id BATCH-ID --unseal-holdout
+   --human-confirm-unseal YES_UNSEAL_HOLDOUT --json`.
+6. Inspect `warden holdout-batch-status --batch-id BATCH-ID --json`.
+   An interrupted claim remains spent; a changed or corrupt return artifact
+   is reported as evidence drift. An observed scope incident blocks subsequent
+   qualification pending explicit reconciliation; it never releases exposure.
+
+A governed incremental batch evaluates the preregistered benchmark and
+candidate on the identical holdout panel and clock, under the same contract
+execution and refit policy, through the existing ML4T evaluation kernel.
+The RG-06 comparison policy is unchanged. Both the existing absolute
+holdout tests and comparative PASS are required for promotion. A comparative
+INCONCLUSIVE is recorded as such in the batch result and cannot promote.
+The legacy qualification row and its verdict vocabulary remain compatible.
+
+Migration preserves historical qualifications and claims, including reused
+lineages with distinct historical run IDs. It does not manufacture historical
+scope attestations. Production policy provisioning, signed manifest approval,
+and reconciliation of the live ledger's historical exposures are separate
+principal-controlled steps. All RG-08 tests use synthetic fixtures and
+scratch databases; no production holdout or live registry migration is
+authorized by implementation approval.

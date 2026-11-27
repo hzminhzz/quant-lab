@@ -431,4 +431,4 @@ def require_qualification_conformance(registry, run_id, contract, code_sha, root
         with registry._connect() as conn:
             require_trial_pair(conn, registry.db_path.parent / "returns", run_id,
                                verdict="CANDIDATE_FOR_QUALIFICATION")
-        raise ValueError("Incremental holdout requires the approved frozen paired batch (RG-08)")
+    return candidate, intent

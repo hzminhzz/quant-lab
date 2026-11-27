@@ -160,6 +160,10 @@ def _wal_legacy_snapshot(tmp_path: Path, seed_db: Path) -> Path:
         src.backup(dst)
     with sqlite3.connect(snap) as conn:
         assert str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower() == "wal"
+        from warden.exposure import TABLES
+
+        for table in reversed(TABLES):
+            conn.execute(f"DROP TABLE {table}")
         for name in ("terminal_hypothesis_no_reactivate", "terminal_hypothesis_no_delete"):
             conn.execute(f"DROP TRIGGER {name}")
         conn.execute("DROP TABLE hypothesis_terminal")

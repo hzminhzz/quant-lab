@@ -192,11 +192,10 @@ def classify(report, policy):
 
 def evaluate_pair(*, root, run_id, candidate, intent, contract, panel_sha,
                   execution_policy, candidate_returns, benchmark_returns, timestamps,
-                  benchmark_causality):
-    """Publish both actual raw tapes and compute immutable daily paired evidence.
-
-    Called only after the benchmark scenario has been durably reserved.
-    """
+                  benchmark_causality, phase="development", holdout_sha256=None):
+    """Publish paired tapes after the governed benchmark or holdout claim."""
+    if phase not in ("development", "holdout") or (phase == "holdout") != bool(holdout_sha256):
+        raise ValueError("Paired evidence phase and holdout pin disagree")
     from warden.contracts import valid_id
     from warden.engine_sim import ENGINE_INITIAL_CASH, extract_execution_policy
 
@@ -214,9 +213,9 @@ def evaluate_pair(*, root, run_id, candidate, intent, contract, panel_sha,
             or not np.isfinite(c).all() or not np.isfinite(b).all()):
         raise ValueError("Both paired tapes require the complete finite eligible bar clock")
     root = Path(root).resolve()
-    directory = root / contract.contract_id / ".pairs" / run_id
+    directory = root / contract.contract_id / (".pairs" if phase == "development" else ".holdout-pairs") / run_id
     basis = ComparisonBasis(
-        dataset_sha256=candidate.dataset_sha256,
+        dataset_sha256=holdout_sha256 or candidate.dataset_sha256,
         calendar_id=digest([contract.contract_id, clock.tolist()]),
         information_set_sha256=panel_sha,
         execution_policy_sha256=digest([contract.spec_hash(), execution_policy]),
@@ -245,7 +244,7 @@ def evaluate_pair(*, root, run_id, candidate, intent, contract, panel_sha,
     return {**report, "diagnostic_status": report["status"], "status": status,
             "reason": report["reason"] or ("materiality_cleared" if status == "PASS" else
                                            "materiality_not_established"),
-            "phase": "development", "policy": policy, "adjusted_alpha": alpha,
+            "phase": phase, "policy": policy, "adjusted_alpha": alpha,
             "candidate_id": candidate.candidate_id,
             "candidate_path": str(c_path), "benchmark_path": str(b_path),
             "execution_policy": execution_policy, "initial_cash": ENGINE_INITIAL_CASH,

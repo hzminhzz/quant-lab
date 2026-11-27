@@ -49,3 +49,37 @@ RG-03; comparison acceptance/multiplicity, independent conformance, and holdout
 exposure rules remain separate decisions. No production manifest was signed,
 no deployment or holdout access was authorized, and no research verdict or
 trading permission follows from these engineering tests.
+
+## RG-03: candidate budget migration design
+
+The principal requested "Implement next" after the proposal to retain 3 selectable
+candidates per hypothesis and 6 per related lineage, share a slot between the
+same frozen screen and full trial, retain interrupted attempts without refund,
+and preserve historical debt. Implementation proceeds on the isolated feature
+branch. The exact legacy mapping below is a conservative implementation choice
+pending explicit principal ratification before manifest signing or merge.
+
+- Retain the existing global protected evaluator constants, not a second venue
+  policy or a caller-controlled limit. The human-approved manifest covers the
+  evaluator and the candidate identity implementation; no manifest is signed here.
+- Add candidate and operation identities through the existing registry migration.
+  Full-trial counters, receipts, return artifacts, selection-group membership
+  and statistical floors are never rewritten. The old full-trial counter remains
+  a full-trial counter, not the new selectable-candidate count.
+- Charge a historical full-trial slot, an unmatched historical screen receipt
+  (including interrupted), and historical selectable grid evidence conservatively.
+  Do not infer that an old screen and full trial share a slot without frozen
+  executable identity. No legacy receipt is silently attached to a new candidate.
+- New candidate identity binds the registered hypothesis, contract digest,
+  dataset, code closure/content, model declaration, effective parameters and
+  evaluator epoch. Linked screen and full-trial receipts consume one slot.
+  Both admissions are exclusive; interrupted work remains spent. A finalized
+  screen can be followed by the identical full evaluation once.
+- Resolve lineage transitively through registered parent links, normalized module
+  aliases and exact code-content equivalence. Different filenames or contract/
+  cadence changes do not reset a known lineage's allowance. Economic equivalence
+  beyond exact code/registered relationships is explicitly a later RG-07 review.
+- Existing unbound low-level historical/fixture reservation interfaces remain
+  chargeable, never a free slot. RG-04 owns complete accounting of grid/stress
+  execution and scheduler/diagnostic outcome paths. This slice does not claim
+  the entire governance program is complete.

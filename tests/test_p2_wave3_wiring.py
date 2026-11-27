@@ -215,7 +215,9 @@ def _prior_result(run_id: str, contract_id: str) -> ExperimentResult:
 def _record_prior(registry: ResearchRegistry, contract: EvaluationContract, *, run_id: str,
                   count: int, timestamps=None, seed: int = 5) -> Path:
     registry.record_trial(
-        _prior_result(run_id, contract.contract_id), {},
+        # Historical alignment evidence is deliberately a different configuration,
+        # not an ambiguous replay of the new frozen candidate.
+        _prior_result(run_id, contract.contract_id), {"historical_fixture_variant": seed},
         np.random.default_rng(seed).normal(0.0, 0.01, count), timestamps=timestamps,
     )
     with registry._connect() as conn:

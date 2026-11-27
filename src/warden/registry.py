@@ -14,6 +14,7 @@ from typing import TypedDict
 
 import numpy as np
 
+from warden.candidate_admission import CandidateIdentity
 from warden.codeid import code_closure
 from warden.contracts import (
     CURRENT_SPEC_VERSION,
@@ -51,7 +52,7 @@ class HypothesisBudgetExhaustedError(ValueError):
 
 
 class ScreenAlreadyAttemptedError(ValueError):
-    """This exact validation-consuming screen was already admitted."""
+    """This exact validation-consuming operation was already admitted."""
 
 
 class SelectionHistoryError(ValueError):
@@ -186,7 +187,7 @@ def _insert(conn, table, values):
                  tuple(values.values()))
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 """Current ``PRAGMA user_version`` of the registry schema.
 
 ``0`` means "unversioned legacy": the 15 tables and 14 triggers already existed before
@@ -200,7 +201,11 @@ contract, so its scope stays exactly as it was. ``3`` (#113) unifies the contrac
 schema: it adds the explicit ``contracts.policy`` TEXT column (#94's ``InitVar``
 carrier, now a real field) and ``contract_governance.group_source`` (``declared`` vs
 ``policy``), both by ``ALTER TABLE ... ADD COLUMN`` with a non-destructive default.
-Nothing newer than this constant is refused instead of guessed at.
+``4`` (#122) adds immutable selectable candidates and exclusive operation links.
+Historical rows are not rebound to a candidate without frozen code/config evidence.
+A previous evaluator refuses v4; rollback to v3 requires a pre-admission snapshot,
+not merely a version flip that would discard candidate-budget enforcement.
+A newer schema is refused instead of guessed at.
 
 Down-path: v3 is data-only to undo. A v2 build refuses to open a v3 registry (it is
 newer than the build), so rolling back means ``PRAGMA user_version=2``; both added
@@ -246,6 +251,14 @@ _DDL_SCRIPT = f"""
                 CREATE TABLE IF NOT EXISTS selection_attempts (attempt_id TEXT PRIMARY KEY,attempt_base TEXT NOT NULL,run_id TEXT DEFAULT '',hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,strategy_family TEXT DEFAULT '',strategy_module TEXT DEFAULT '',kind TEXT NOT NULL,stage TEXT NOT NULL,outcome TEXT NOT NULL,config_hash TEXT DEFAULT '',parameters_json TEXT DEFAULT '{{}}',data_provenance TEXT DEFAULT 'unknown',returns_observed INTEGER NOT NULL DEFAULT 0,returns_json TEXT DEFAULT '',returns_sha256 TEXT DEFAULT '',diagnostics_json TEXT DEFAULT '{{}}',simulation_epoch TEXT DEFAULT '{DEFAULT_SIMULATION_EPOCH}',created_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS contract_search_state (contract_id TEXT PRIMARY KEY,max_keff_gate REAL NOT NULL,max_noise REAL NOT NULL,updated_at REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS contract_governance (contract_id TEXT PRIMARY KEY,selection_group_id TEXT NOT NULL DEFAULT '',inherits_selection_from TEXT NOT NULL DEFAULT '',spec_version INTEGER NOT NULL DEFAULT 1,group_source TEXT NOT NULL DEFAULT 'declared',recorded_at REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS candidate_admissions (candidate_id TEXT PRIMARY KEY,hypothesis_id TEXT NOT NULL,contract_id TEXT NOT NULL,strategy_module TEXT NOT NULL,code_content_sha256 TEXT NOT NULL,identity_json TEXT NOT NULL,created_at REAL NOT NULL);
+                CREATE INDEX IF NOT EXISTS candidate_admissions_hyp ON candidate_admissions(hypothesis_id);
+                CREATE INDEX IF NOT EXISTS candidate_admissions_code ON candidate_admissions(code_content_sha256);
+                CREATE TABLE IF NOT EXISTS candidate_operations (candidate_id TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('screen','trial')),operation_id TEXT NOT NULL,PRIMARY KEY(candidate_id,kind),UNIQUE(kind,operation_id),FOREIGN KEY(candidate_id) REFERENCES candidate_admissions(candidate_id));
+                CREATE TRIGGER IF NOT EXISTS candidate_admissions_no_update BEFORE UPDATE ON candidate_admissions BEGIN SELECT RAISE(ABORT,'Append-only violation: candidate identity is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS candidate_admissions_no_delete BEFORE DELETE ON candidate_admissions BEGIN SELECT RAISE(ABORT,'Append-only violation: candidate identity is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS candidate_operations_no_update BEFORE UPDATE ON candidate_operations BEGIN SELECT RAISE(ABORT,'Append-only violation: candidate operation is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS candidate_operations_no_delete BEFORE DELETE ON candidate_operations BEGIN SELECT RAISE(ABORT,'Append-only violation: candidate operation is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_update BEFORE UPDATE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS spec_causality_no_delete BEFORE DELETE ON spec_causality BEGIN SELECT RAISE(ABORT,'Append-only violation: causality proof is immutable'); END;
                 CREATE TRIGGER IF NOT EXISTS trials_no_update BEFORE UPDATE ON trials BEGIN SELECT RAISE(ABORT,'Append-only violation: trials table is immutable'); END;
@@ -448,7 +461,9 @@ class ResearchRegistry:
                 "SELECT attempt_id,hypothesis_id,contract_id,strategy_module,parameters_json,created_at "
                 "FROM selection_attempts WHERE kind='standalone_screen'"):
             sk = self.screen_key(sr[1], sr[2], sr[3], json.loads(sr[4] or '{}'))
-            if conn.execute("SELECT 1 FROM screen_receipts WHERE screen_key=?", (sk,)).fetchone():
+            if conn.execute(
+                "SELECT 1 FROM screen_receipts WHERE screen_key=? OR attempt_id=?", (sk, sr[0])
+            ).fetchone():
                 continue
             conn.execute("""INSERT OR IGNORE INTO screen_receipts
                             (screen_key,hypothesis_id,contract_id,strategy_module,parameters_json,state,attempt_id,reserved_at,finalized_at)
@@ -860,48 +875,259 @@ class ResearchRegistry:
             if not row[0]:
                 conn.execute("UPDATE hypotheses SET strategy_module=? WHERE hypothesis_id=?", (module, hypothesis_id))
 
-    def _lineage(self, conn, hypothesis_id):
-        root, seen = hypothesis_id, set()
-        while root not in seen:
-            row = conn.execute("SELECT parent_hypothesis_id FROM hypotheses WHERE hypothesis_id=?", (root,)).fetchone()
-            if not row or not row[0] or row[0] == root:
+    def _lineage(self, conn, hypothesis_id, *, module="", code_content_sha256=""):
+        """Transitive connected component of registered parents and exact code aliases.
+
+        No venue or contract partition resets the hard budget. A malformed parent
+        chain in the affected component is a refusal, never a new lineage.
+        """
+        rows = {r[0]: (r[1], normalise_module(r[2])) for r in conn.execute(
+            "SELECT hypothesis_id,parent_hypothesis_id,strategy_module FROM hypotheses"
+        )}
+        if hypothesis_id not in rows:
+            raise ValueError("Unknown hypothesis")
+        codes: dict[str, set[str]] = {}
+        modules: dict[str, set[str]] = {}
+        for hyp, (_, path) in rows.items():
+            if path:
+                modules.setdefault(path, set()).add(hyp)
+        for hyp, path in conn.execute(
+            "SELECT hypothesis_id,strategy_module FROM screen_receipts "
+            "UNION SELECT hypothesis_id,strategy_module FROM trials "
+            "UNION SELECT hypothesis_id,strategy_module FROM selection_attempts"
+        ):
+            if path:
+                modules.setdefault(normalise_module(path), set()).add(hyp)
+        for hyp, path, digest in conn.execute(
+            "SELECT hypothesis_id,strategy_module,code_content_sha256 FROM candidate_admissions"
+        ):
+            modules.setdefault(normalise_module(path), set()).add(hyp)
+            codes.setdefault(digest, set()).add(hyp)
+        if module:
+            modules.setdefault(normalise_module(module), set()).add(hypothesis_id)
+        if code_content_sha256:
+            codes.setdefault(code_content_sha256, set()).add(hypothesis_id)
+        members = {hypothesis_id}
+        while True:
+            expanded = set(members)
+            for hyp, (parent, _) in rows.items():
+                if parent and (hyp in members or parent in members):
+                    expanded.update((hyp, parent))
+            for group in (*modules.values(), *codes.values()):
+                if group & members:
+                    expanded.update(group)
+            if expanded == members:
                 break
-            seen.add(root)
-            root = row[0]
-        members = {r[0] for r in conn.execute(
-            "WITH RECURSIVE d(hypothesis_id) AS (SELECT ? UNION "
-            "SELECT h.hypothesis_id FROM hypotheses h JOIN d ON h.parent_hypothesis_id = d.hypothesis_id) "
-            "SELECT hypothesis_id FROM d", (root,))}
-        modules = {normalise_module(m) for (m,) in conn.execute(
-            f"SELECT strategy_module FROM hypotheses WHERE hypothesis_id IN ({','.join('?' * len(members))})",
-            tuple(members)) if m}
-        if modules:
-            members |= {r[0] for r in conn.execute(
-                f"SELECT hypothesis_id FROM hypotheses WHERE strategy_module IN ({','.join('?' * len(modules))})",
-                tuple(modules))}
-        return root, members
+            members = expanded
+        roots = set()
+        for hyp in members:
+            seen = set()
+            while True:
+                if hyp in seen or hyp not in rows:
+                    raise ValueError("Ambiguous registered lineage: missing or cyclic parent")
+                seen.add(hyp)
+                parent = rows[hyp][0]
+                if not parent:
+                    roots.add(hyp)
+                    break
+                hyp = parent
+        return min(roots), members
+
+    def _candidate_usage(self, conn, hypothesis_id):
+        """Conservative legacy debt plus one slot per frozen candidate.
+
+        Historical full counters and their receipts represent the same operations.
+        Old screen and full identities cannot be joined without frozen code proof.
+        Every unlinked grid observation remains debt until its role can be proved.
+        """
+        row = conn.execute(
+            "SELECT trials_used FROM hypotheses WHERE hypothesis_id=?", (hypothesis_id,)
+        ).fetchone()
+        if row is None or type(row[0]) is not int or row[0] < 0:
+            raise ValueError("Ambiguous legacy trial budget")
+        full = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT run_id FROM trials WHERE hypothesis_id=? "
+            "UNION SELECT run_id FROM attempt_receipts WHERE hypothesis_id=?)",
+            (hypothesis_id, hypothesis_id),
+        ).fetchone()[0]
+        bound_full, matched_full = conn.execute(
+            "SELECT COUNT(*),COUNT(r.run_id) FROM candidate_operations o "
+            "JOIN candidate_admissions c ON c.candidate_id=o.candidate_id "
+            "LEFT JOIN attempt_receipts r ON r.run_id=o.operation_id "
+            "AND r.hypothesis_id=c.hypothesis_id AND r.contract_id=c.contract_id "
+            "WHERE c.hypothesis_id=? AND o.kind='trial'",
+            (hypothesis_id,),
+        ).fetchone()
+        if bound_full != matched_full or bound_full > max(int(row[0]), full):
+            raise ValueError("Ambiguous candidate/full-trial accounting")
+        legacy_full = max(int(row[0]), full) - bound_full
+        screen_links, matched_screens = conn.execute(
+            "SELECT COUNT(*),COUNT(r.screen_key) FROM candidate_operations o "
+            "JOIN candidate_admissions c ON c.candidate_id=o.candidate_id "
+            "LEFT JOIN screen_receipts r ON r.screen_key=o.operation_id "
+            "AND r.hypothesis_id=c.hypothesis_id AND r.contract_id=c.contract_id "
+            "WHERE c.hypothesis_id=? AND o.kind='screen'", (hypothesis_id,),
+        ).fetchone()
+        if screen_links != matched_screens:
+            raise ValueError("Ambiguous candidate/screen receipt accounting")
+        legacy_screens = conn.execute(
+            "SELECT COUNT(*) FROM screen_receipts r WHERE r.hypothesis_id=? "
+            "AND NOT EXISTS (SELECT 1 FROM candidate_operations o "
+            "WHERE o.kind='screen' AND o.operation_id=r.screen_key)",
+            (hypothesis_id,),
+        ).fetchone()[0]
+        orphan_screens = conn.execute(
+            "SELECT COUNT(*) FROM selection_attempts a WHERE a.hypothesis_id=? "
+            "AND a.kind='standalone_screen' AND NOT EXISTS "
+            "(SELECT 1 FROM screen_receipts r WHERE r.attempt_id=a.attempt_id)",
+            (hypothesis_id,),
+        ).fetchone()[0]
+        legacy_grids = conn.execute(
+            "SELECT COUNT(*) FROM selection_attempts WHERE hypothesis_id=? AND kind='param_grid'",
+            (hypothesis_id,),
+        ).fetchone()[0]
+        frozen = conn.execute(
+            "SELECT COUNT(*) FROM candidate_admissions WHERE hypothesis_id=?",
+            (hypothesis_id,),
+        ).fetchone()[0]
+        return {
+            "frozen_candidates": frozen, "legacy_full": legacy_full,
+            "legacy_screens": legacy_screens + orphan_screens, "unclassified_grids": legacy_grids,
+            "used": frozen + legacy_full + legacy_screens + orphan_screens + legacy_grids,
+        }
+
+    def candidate_budget(self, hypothesis_id):
+        """Read-only budget projection, separate from full-trial counters and DSR."""
+        with self._connect() as conn:
+            root, members = self._lineage(conn, hypothesis_id)
+            usage = {hyp: self._candidate_usage(conn, hyp) for hyp in members}
+        return {
+            **usage[hypothesis_id], "hypothesis_cap": PER_HYPOTHESIS_CAP,
+            "lineage_id": root, "lineage_members": sorted(members),
+            "lineage_used": sum(item["used"] for item in usage.values()), "lineage_cap": LINEAGE_CAP,
+        }
+
+    def _require_candidate_budget(self, conn, hypothesis_id, *, candidate=None, module="", new=True):
+        row = conn.execute(
+            "SELECT status FROM hypotheses WHERE hypothesis_id=?", (hypothesis_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError("Unknown hypothesis")
+        if row[0] not in RUNNABLE_HYPOTHESIS_STATUSES:
+            raise HypothesisBudgetExhaustedError(hypothesis_id)
+        root, members = self._lineage(
+            conn, hypothesis_id, module=candidate.strategy_module if candidate else module,
+            code_content_sha256=candidate.code_content_sha256 if candidate else "",
+        )
+        usage = {hyp: self._candidate_usage(conn, hyp)["used"] for hyp in members}
+        own, total = usage[hypothesis_id], sum(usage.values())
+        extra = int(new)
+        if own + extra > PER_HYPOTHESIS_CAP:
+            raise HypothesisBudgetExhaustedError(
+                f"{hypothesis_id}: candidate budget exhausted ({own}/{PER_HYPOTHESIS_CAP})"
+            )
+        if total + extra > LINEAGE_CAP:
+            raise HypothesisBudgetExhaustedError(
+                f"{hypothesis_id}: lineage {root} exhausted ({total}/{LINEAGE_CAP})"
+            )
 
     def check_hypothesis_budget(self, hypothesis_id):
+        # Preserve the existing terminal full-trial transition. A full candidate
+        # budget alone is NOT terminal while an identical screened candidate may advance.
         with self._connect() as conn:
-            row = conn.execute("SELECT trials_used,status FROM hypotheses WHERE hypothesis_id=?", (hypothesis_id,)).fetchone()
-            if row is None:
-                raise ValueError("Unknown hypothesis")
-            if row[0] >= PER_HYPOTHESIS_CAP:
-                conn.execute(
-                    "UPDATE hypotheses SET status='REJECTED' "
-                    "WHERE hypothesis_id=? AND status IN ('ACTIVE', 'RETROSPECTIVE_REPLICATION_ONLY')",
-                    (hypothesis_id,),
-                )
-            root, members = self._lineage(conn, hypothesis_id)
-            used = sum(r[0] for r in conn.execute(
-                f"SELECT trials_used FROM hypotheses WHERE hypothesis_id IN ({','.join('?' * len(members))})",
-                tuple(members)))
-        if row[0] >= PER_HYPOTHESIS_CAP or row[1] not in RUNNABLE_HYPOTHESIS_STATUSES:
-            raise HypothesisBudgetExhaustedError(hypothesis_id)
-        if used >= LINEAGE_CAP:
-            raise HypothesisBudgetExhaustedError(
-                f"{hypothesis_id}: lineage {root} exhausted ({used}/{LINEAGE_CAP} trials across "
-                f"{len(members)} hypothesis/module aliases)")
+            row = conn.execute("SELECT trials_used FROM hypotheses WHERE hypothesis_id=?",
+                               (hypothesis_id,)).fetchone()
+            if row is not None and row[0] >= PER_HYPOTHESIS_CAP:
+                conn.execute("UPDATE hypotheses SET status='REJECTED' WHERE hypothesis_id=? "
+                             "AND status IN ('ACTIVE','RETROSPECTIVE_REPLICATION_ONLY')",
+                             (hypothesis_id,))
+        with self._connect() as conn:
+            self._require_candidate_budget(conn, hypothesis_id)
+
+    def _link_candidate(self, conn, candidate, kind, operation_id):
+        """Reserve one frozen candidate and an exclusive operation in the caller's transaction."""
+        if not isinstance(candidate, CandidateIdentity):
+            raise TypeError("Missing frozen candidate identity")
+        hyp_id = candidate.hypothesis_id
+        hyp = conn.execute(
+            "SELECT contract_id,strategy_module,strategy_family FROM hypotheses WHERE hypothesis_id=?",
+            (hyp_id,),
+        ).fetchone()
+        contract = conn.execute(
+            "SELECT spec_hash,data_snapshot_sha256 FROM contracts WHERE contract_id=?",
+            (candidate.contract_id,),
+        ).fetchone()
+        if (hyp is None or hyp[0] != candidate.contract_id or hyp[2] != candidate.strategy_family
+                or contract is None or contract[0] != candidate.contract_hash
+                or contract[1] != candidate.dataset_sha256):
+            raise ValueError("Candidate differs from registered hypothesis/contract/dataset")
+        if hyp[1] and normalise_module(hyp[1]) != candidate.strategy_module:
+            raise ValueError(f"Strategy module drift for '{hyp_id}'")
+        existing = conn.execute(
+            "SELECT identity_json FROM candidate_admissions WHERE candidate_id=?",
+            (candidate.candidate_id,),
+        ).fetchone()
+        if existing and existing[0] != candidate.payload:
+            raise ValueError("Candidate identity collision")
+        # Old screen/trial rows lacking a bound candidate cannot be joined to a
+        # current executable. Identical legacy spec keys require explicit review.
+        if existing is None:
+            legacy_screen = conn.execute(
+                "SELECT 1 FROM screen_receipts r WHERE r.hypothesis_id=? "
+                "AND r.contract_id=? AND r.strategy_module=? AND r.parameters_json=? "
+                "AND NOT EXISTS (SELECT 1 FROM candidate_operations o "
+                "WHERE o.kind='screen' AND o.operation_id=r.screen_key)",
+                (hyp_id, candidate.contract_id, candidate.strategy_module, candidate.parameters_json),
+            ).fetchone()
+            legacy_trial = conn.execute(
+                "SELECT 1 FROM trials t WHERE t.hypothesis_id=? AND t.contract_id=? "
+                "AND t.strategy_module=? AND (t.config_hash=? OR t.config_json=?) "
+                "AND NOT EXISTS (SELECT 1 FROM candidate_operations o "
+                "WHERE o.kind='trial' AND o.operation_id=t.run_id)",
+                (hyp_id, candidate.contract_id, candidate.strategy_module,
+                 hashlib.sha256(candidate.parameters_json.encode()).hexdigest()[:12],
+                 candidate.parameters_json),
+            ).fetchone()
+            if legacy_screen or legacy_trial:
+                raise ScreenAlreadyAttemptedError("Legacy candidate identity unresolved; review, never replay")
+        operations = dict(conn.execute(
+            "SELECT kind,operation_id FROM candidate_operations WHERE candidate_id=?",
+            (candidate.candidate_id,),
+        ))
+        if kind in operations or (kind == "screen" and "trial" in operations):
+            raise ScreenAlreadyAttemptedError(
+                f"Candidate {candidate.candidate_id} already admitted for {kind}; review, never replay"
+            )
+        if existing and kind == "trial":
+            screen = conn.execute(
+                "SELECT r.state,a.attempt_id FROM screen_receipts r LEFT JOIN selection_attempts a "
+                "ON a.attempt_id=r.attempt_id WHERE r.screen_key=?", (operations.get("screen"),)
+            ).fetchone()
+            if screen is None or screen[0] != "FINALIZED" or not screen[1]:
+                raise ValueError("Candidate screen is unresolved; review, never replay")
+        self._require_candidate_budget(conn, hyp_id, candidate=candidate, new=existing is None)
+        if not existing:
+            conn.execute(
+                "INSERT INTO candidate_admissions VALUES (?,?,?,?,?,?,?)",
+                (candidate.candidate_id, hyp_id, candidate.contract_id, candidate.strategy_module,
+                 candidate.code_content_sha256, candidate.payload, time.time()),
+            )
+        conn.execute(
+            "INSERT INTO candidate_operations(candidate_id,kind,operation_id) VALUES (?,?,?)",
+            (candidate.candidate_id, kind, operation_id),
+        )
+        if not hyp[1]:
+            conn.execute("UPDATE hypotheses SET strategy_module=? WHERE hypothesis_id=?",
+                         (candidate.strategy_module, hyp_id))
+
+    @staticmethod
+    def _operation_candidate(conn, kind, operation_id):
+        row = conn.execute(
+            "SELECT c.identity_json FROM candidate_operations o "
+            "JOIN candidate_admissions c ON c.candidate_id=o.candidate_id "
+            "WHERE o.kind=? AND o.operation_id=?", (kind, operation_id),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
 
     @staticmethod
     def screen_key(hypothesis_id, contract_id, strategy_module, parameters) -> str:
@@ -910,17 +1136,33 @@ class ResearchRegistry:
             hypothesis_id, contract_id, normalise_module(strategy_module), parameters or {},
         ]).encode()).hexdigest()[:32]
 
-    def reserve_screen(self, hypothesis_id, contract_id, strategy_module, parameters, data_sha256="") -> str:
-        """Durably admit Stage 1 before its first validation read/compute."""
-        key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
+    def reserve_screen(self, hypothesis_id, contract_id, strategy_module, parameters, data_sha256="",
+                       *, candidate: CandidateIdentity | None = None) -> str:
+        """Atomically admit a selectable screen and its durable operation receipt."""
+        legacy_key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
+        key = candidate.candidate_id if candidate else legacy_key
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT contract_id FROM hypotheses WHERE hypothesis_id=?", (hypothesis_id,)).fetchone()
             if not row or row[0] != contract_id:
                 raise ValueError("Screen hypothesis and contract must match frozen registry")
-            old = conn.execute("SELECT state FROM screen_receipts WHERE screen_key=?", (key,)).fetchone()
+            old = conn.execute("SELECT state FROM screen_receipts WHERE screen_key IN (?,?)",
+                               (key, legacy_key)).fetchone()
             if old:
                 raise ScreenAlreadyAttemptedError(f"Stage 1 screen already admitted: {key} ({old[0]}); review, never replay")
+            if candidate is None:
+                self._require_candidate_budget(conn, hypothesis_id, module=strategy_module)
+                if self._screen_receipt_for_spec(
+                    conn, hypothesis_id, contract_id, strategy_module, parameters
+                )[1] is not None:
+                    raise ScreenAlreadyAttemptedError("Screen already admitted; review, never replay")
+            else:
+                if (candidate.hypothesis_id, candidate.contract_id, candidate.strategy_module,
+                    candidate.parameters_json, candidate.dataset_sha256) != (
+                    hypothesis_id, contract_id, normalise_module(strategy_module),
+                    canonical_json(parameters or {}), data_sha256):
+                    raise ValueError("Screen does not match frozen candidate identity")
+                self._link_candidate(conn, candidate, "screen", key)
             conn.execute("""INSERT INTO screen_receipts
                             (screen_key,hypothesis_id,contract_id,strategy_module,parameters_json,state,data_sha256,reserved_at)
                             VALUES (?,?,?,?,?,'RESERVED',?,?)""",
@@ -928,10 +1170,25 @@ class ResearchRegistry:
                           canonical_json(parameters or {}), data_sha256, time.time()))
         return key
 
-    def screen_status(self, hypothesis_id, contract_id, strategy_module, parameters) -> dict:
+    def _screen_receipt_for_spec(self, conn, hypothesis_id, contract_id, strategy_module, parameters):
         key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
+        rows = conn.execute(
+            "SELECT screen_key,state,attempt_id,data_sha256 FROM screen_receipts "
+            "WHERE screen_key=? OR (hypothesis_id=? AND contract_id=? AND strategy_module=? "
+            "AND parameters_json=?) ORDER BY screen_key",
+            (key, hypothesis_id, contract_id, normalise_module(strategy_module),
+             canonical_json(parameters or {})),
+        ).fetchall()
+        if len(rows) > 1:
+            return key, ("EVIDENCE_DRIFT", "", "")
+        if rows:
+            return rows[0][0], tuple(rows[0][1:])
+        return key, None
+
+    def screen_status(self, hypothesis_id, contract_id, strategy_module, parameters) -> dict:
         with self._connect() as conn:
-            row = conn.execute("SELECT state,attempt_id,data_sha256 FROM screen_receipts WHERE screen_key=?", (key,)).fetchone()
+            key, row = self._screen_receipt_for_spec(
+                conn, hypothesis_id, contract_id, strategy_module, parameters)
             attempt = conn.execute("SELECT outcome FROM selection_attempts WHERE attempt_id=?", (row[1],)).fetchone() if row and row[1] else None
         state = row[0] if row else "UNSEEN"
         if state == "FINALIZED" and attempt is None:
@@ -948,12 +1205,9 @@ class ResearchRegistry:
         the receipt can never be reserved or finalized again, and no trial or
         selection debt is credited back. This is a review transition, not a retry.
         """
-        key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT state,attempt_id,data_sha256 FROM screen_receipts WHERE screen_key=?",
-                (key,),
-            ).fetchone()
+            key, row = self._screen_receipt_for_spec(
+                conn, hypothesis_id, contract_id, strategy_module, parameters)
             if row is None:
                 return {"screen_key": key, "state": "UNSEEN", "reason": "no reservation",
                         "attempt_id": "", "outcome": None, "data_sha256": "",
@@ -1079,31 +1333,8 @@ class ResearchRegistry:
 
     def read_screen_status(self, hypothesis_id, contract_id, strategy_module,
                            parameters) -> ScreenStatusView:
-        """Stage 1 receipt projection built only from SELECTs (safe on a readonly view)."""
-        key = self.screen_key(hypothesis_id, contract_id, strategy_module, parameters)
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT state,attempt_id,data_sha256 FROM screen_receipts WHERE screen_key=?",
-                (key,),
-            ).fetchone()
-            attempt = (
-                conn.execute(
-                    "SELECT outcome FROM selection_attempts WHERE attempt_id=?", (row[1],)
-                ).fetchone()
-                if row and row[1]
-                else None
-            )
-        state: str = row[0] if row else "UNSEEN"
-        if state == "FINALIZED" and attempt is None:
-            state = "EVIDENCE_DRIFT"
-        return {
-            "screen_key": key,
-            "state": state,
-            "attempt_id": (row[1] or "") if row else "",
-            "outcome": attempt[0] if attempt else None,
-            "data_sha256": (row[2] or "") if row else "",
-            "retry_allowed": state == "UNSEEN",
-        }
+        """Stage 1 receipt projection built only from SELECTs."""
+        return self.screen_status(hypothesis_id, contract_id, strategy_module, parameters)
 
     def read_spec_status(self, hypothesis_id, contract_id, strategy_module,
                          parameters) -> SpecStatusView:
@@ -1220,10 +1451,11 @@ class ResearchRegistry:
             "verdict": row[5], "stage_reached": row[6], "created_at": row[7],
         }
 
-    def register_trial_start(self, hypothesis_id, run_id):
-        """Atomically reserve unique run identity and monotonic hypothesis/lineage budget."""
+    def register_trial_start(self, hypothesis_id, run_id, *, candidate: CandidateIdentity | None = None):
+        """Reserve an exclusive full operation, sharing a frozen screened candidate's slot."""
         valid_id(run_id)
-        self.check_hypothesis_budget(hypothesis_id)
+        if candidate is None:
+            self.check_hypothesis_budget(hypothesis_id)
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT trials_used,status,attempts_json,contract_id FROM hypotheses WHERE hypothesis_id=?",
@@ -1232,17 +1464,17 @@ class ResearchRegistry:
                 raise ValueError("Unknown hypothesis")
             if row[0] >= PER_HYPOTHESIS_CAP or row[1] not in RUNNABLE_HYPOTHESIS_STATUSES:
                 raise HypothesisBudgetExhaustedError(hypothesis_id)
-            root, members = self._lineage(conn, hypothesis_id)
-            used = sum(r[0] for r in conn.execute(
-                f"SELECT trials_used FROM hypotheses WHERE hypothesis_id IN ({','.join('?' * len(members))})",
-                tuple(members)))
-            if used >= LINEAGE_CAP:
-                raise HypothesisBudgetExhaustedError(f"{hypothesis_id}: lineage {root} exhausted ({used}/{LINEAGE_CAP})")
             attempts = json.loads(row[2])
             if (run_id in attempts or
                 conn.execute("SELECT 1 FROM trials WHERE run_id=?", (run_id,)).fetchone() or
                 conn.execute("SELECT 1 FROM attempt_receipts WHERE run_id=?", (run_id,)).fetchone()):
                 raise ValueError("Duplicate run_id")
+            if candidate is None:
+                self._require_candidate_budget(conn, hypothesis_id)
+            else:
+                if candidate.hypothesis_id != hypothesis_id or candidate.contract_id != row[3]:
+                    raise ValueError("Trial does not match frozen candidate identity")
+                self._link_candidate(conn, candidate, "trial", run_id)
             number = int(row[0]) + 1
             conn.execute("""INSERT INTO attempt_receipts
                             (run_id,hypothesis_id,contract_id,trial_number,state,reserved_at)
@@ -1290,6 +1522,19 @@ class ResearchRegistry:
             vector = None
         payload = canonical_json(vector.tolist()) if vector is not None else ""
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if screen_key is not None:
+                identity = self._operation_candidate(conn, "screen", screen_key)
+                if identity is not None and (
+                    kind != "standalone_screen" or stage != "STAGE_1_SIGNAL"
+                    or identity["hypothesis_id"] != hypothesis_id
+                    or identity["contract_id"] != contract_id
+                    or identity["strategy_module"] != normalise_module(strategy_module)
+                    or identity["strategy_family"] != strategy_family
+                    or identity["parameters_json"] != canonical_json(parameters or {})
+                    or identity["simulation_epoch"] != epoch
+                ):
+                    raise ValueError("Screen evidence does not match frozen candidate")
             seq = conn.execute("SELECT COUNT(*) FROM selection_attempts WHERE attempt_base=?", (base,)).fetchone()[0] + 1
             attempt_id = f"ATT-{base}-{seq:03d}"
             conn.execute(
@@ -1850,6 +2095,19 @@ class ResearchRegistry:
             row = conn.execute("SELECT contract_id,attempts_json FROM hypotheses WHERE hypothesis_id=?", (result.hypothesis_id,)).fetchone()
             if row is None or row[0] != result.contract_id or json.loads(row[1]).get(result.run_id) != trial_number:
                 raise ValueError("Missing or mismatched trial reservation")
+            identity = self._operation_candidate(conn, "trial", result.run_id)
+            if identity is not None and (
+                identity["hypothesis_id"] != result.hypothesis_id
+                or identity["contract_id"] != result.contract_id
+                or identity["strategy_module"] != normalise_module(result.strategy_module)
+                or identity["strategy_family"] != result.strategy_family
+                or identity["parameters_json"] != canonical_json(config_dict)
+                or identity["strategy_code_sha256"] != result.strategy_code_sha256
+                or identity["dataset_sha256"] != result.data_snapshot_sha256
+                or identity["model_type"] != result.model_type
+                or identity["simulation_epoch"] != result.simulation_epoch
+            ):
+                raise ValueError("Trial evidence does not match frozen candidate")
             observed = len(returns) > 0
             returns_sha256 = ""
             if observed:

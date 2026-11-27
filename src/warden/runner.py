@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
+from warden.candidate_admission import freeze_candidate
 from warden.codeid import code_closure
 from warden.contract_source import load_active_contract, load_recorded_contract
 from warden.contracts import (
@@ -70,6 +71,7 @@ from warden.protocols import (
     CARRY_MECHANISM_LEGACY,
     CarryMechanismRequiredError,
     carry_mechanism_policy,
+    carry_outputs_callable,
     load_and_enforce_strategy_protocol,
     resolve_effective_params,
     resolve_protocol_target,
@@ -303,9 +305,9 @@ def _carry_rv_stage1_series(
 
     A strategy must publish ``causal_carry_outputs`` -- its own spread and net-carry series
     for the validation slice.  Those are preferred, and they pass an evaluator-run prefix
-    check first, so the gate scores the mechanism the strategy actually trades.  A strategy
-    that publishes nothing is refused *before* any ledger mutation, unless this run is an
-    explicitly authorized legacy replay (``mechanism_policy == CARRY_MECHANISM_LEGACY``), in
+    check first, so the gate scores the mechanism the strategy actually trades. The runner
+    checks for a missing hook before admission, then executes this series only after
+    admission. A missing hook is allowed only for an explicitly authorized legacy replay (``mechanism_policy == CARRY_MECHANISM_LEGACY``), in
     which case the panel proxy is used and recorded as such.
     """
     published = verified_carry_outputs(
@@ -563,6 +565,15 @@ class ExperimentRunner:
                     f"(> {cost_bps:.2f} bps) before deep model '{model_type}'."
                 )
 
+    def _check_carry_declaration(self, family, strategy, module):
+        """Refuse a missing declaration without executing a validation-series hook."""
+        if (family == "carry_rv" and not self.allow_legacy_replay
+                and carry_outputs_callable(strategy) is None):
+            raise CarryMechanismRequiredError(
+                f"carry_rv '{module}' declares no causal_carry_outputs: "
+                "Stage 1 must score the strategy's own prefix-verified spread and net carry."
+            )
+
     def run_stage1_screen(self, exp_yaml_path: Path) -> Stage1Report:
         # Frozen typed spec first: an unknown or policy-injecting key raises
         # before any contract, dataset, registry or receipt side effect.
@@ -625,14 +636,18 @@ class ExperimentRunner:
             strat_mod=strat_mod,
             contract=contract,
         )
-        dataset, panel_df, ts, assets, v_slice, _, market = self._prepare_and_check_stage0(
+        dataset, panel_df, ts, assets, v_slice, code_sha, market = self._prepare_and_check_stage0(
             contract, hyp, hyp_id, family, strat_module, effective_params, trials_used, simulation_epoch=simulation_epoch)
         # #95: a panel narrowed to target_symbols is annualised on its own measured calendar,
         # not on the contract's multi-exchange union bars_per_year.  Without a symbol filter
         # this is byte-identical to contract.bars_per_year.
         bpy = market.bars_per_year
-        # The carry series are computed before the screen slot is reserved: a strategy whose
-        # published series is malformed or non-causal is refused without consuming a receipt.
+        self._check_carry_declaration(family, strat_mod, strat_module)
+        candidate = freeze_candidate(
+            self.repo_root, spec, contract, dataset, effective_params, code_sha, simulation_epoch,
+            legacy_replay=self.allow_legacy_replay)
+        screen_key = self.registry.reserve_screen(
+            hyp_id, contract.contract_id, strat_module, params, dataset.sha256, candidate=candidate)
         carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
         if family == "carry_rv":
             carry_series = _carry_rv_stage1_series(
@@ -649,7 +664,6 @@ class ExperimentRunner:
                 ),
                 strategy_module=strat_module,
             )
-        screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)
         if family == "carry_rv":
             assert carry_series is not None
             net_carry, spread, carry_evidence = carry_series
@@ -942,34 +956,34 @@ class ExperimentRunner:
         preflight = self.registry.preflight_selection_alignment(
             contract, validation_ts, expected_len=len(validation_ts),
             simulation_epoch=simulation_epoch)
-        # carry_rv own-mechanism policy: resolved here, before the trial slot is registered, so
-        # a strategy that declares no prefix-verified own carry series is refused without a
-        # trial row, a selection attempt, or a moved `trials_used` counter.
-        carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
-        if family == "carry_rv":
-            carry_series = _carry_rv_stage1_series(
-                strat_mod,
-                panel_df,
-                contract,
-                ts,
-                assets,
-                v_slice,
-                effective_params,
-                hyp.expected_holding_bars,
-                mechanism_policy=carry_mechanism_policy(
-                    allow_legacy_replay=self.allow_legacy_replay
-                ),
-                strategy_module=strat_module_str,
-            )
+        self._check_carry_declaration(family, strat_mod, strat_module_str)
         run_id = override_run_id or spec.run_id or default_run_id(hyp_id, trials_used + 1)
-        self.registry.record_hypothesis_module(hyp_id, strat_module_str)
-        trial_num = self.registry.register_trial_start(hyp_id, run_id)
+        candidate = freeze_candidate(
+            self.repo_root, spec, contract, dataset, effective_params, code_sha, simulation_epoch,
+            legacy_replay=self.allow_legacy_replay)
+        trial_num = self.registry.register_trial_start(hyp_id, run_id, candidate=candidate)
         provenance_kw = {"data_provenance": dataset.provenance, "strategy_code_sha256": code_sha,
                          "simulation_epoch": simulation_epoch}
         data_sha = dataset.sha256
         is_synthetic = int(not dataset.eligible_market)
         try:
             prior_keff, prior_noise, family_key = self.registry.prior_search_floor(contract)
+            carry_series: tuple[np.ndarray, np.ndarray, dict[str, Any]] | None = None
+            if family == "carry_rv":
+                carry_series = _carry_rv_stage1_series(
+                    strat_mod,
+                    panel_df,
+                    contract,
+                    ts,
+                    assets,
+                    v_slice,
+                    effective_params,
+                    hyp.expected_holding_bars,
+                    mechanism_policy=carry_mechanism_policy(
+                        allow_legacy_replay=self.allow_legacy_replay
+                    ),
+                    strategy_module=strat_module_str,
+                )
             s1_carry: Stage1Report | None = None
             if family == "carry_rv":
                 assert carry_series is not None

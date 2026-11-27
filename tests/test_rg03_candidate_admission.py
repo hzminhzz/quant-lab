@@ -232,7 +232,7 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(pre_rg05_pol
         before = {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables}
     migrated = ResearchRegistry(reg.db_path)
     with sqlite3.connect(reg.db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 9
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert {table: conn.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables} == before
     assert hashlib.sha256(artifact.read_bytes()).hexdigest() == artifact_sha

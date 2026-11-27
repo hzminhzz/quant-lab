@@ -122,5 +122,18 @@ class Control:
         if request.operation == "inspect" and request.view == "capabilities":
             return Result(ok=True, status="OK", observed_at=time.time(),
                           value=capabilities()).model_dump(mode="json")
+        if request.operation in {"prepare", "act", "receipt", "reconcile"}:
+            from warden.lease import MutationBusy
+            from warden_ops import control_actions
+            try:
+                if request.operation == "receipt":
+                    return control_actions.receipt(self, request.request_id)
+                return getattr(control_actions, request.operation)(self, request)
+            except MutationBusy as exc:
+                return self.refuse("BUSY", str(exc), retry="backoff; lookup receipt before retry")
+            except (OSError, ValueError, sqlite3.Error) as exc:
+                category = ("UNCERTAIN_EFFECT" if request.operation in {"act", "reconcile"}
+                            else "TECHNICAL_PRE_ADMISSION")
+                return self.refuse(category, str(exc), retry="inspect receipt; no automatic replay")
         return self.refuse("EXTERNAL_DEPENDENCY", "capability is not installed",
                            scope=request.operation)

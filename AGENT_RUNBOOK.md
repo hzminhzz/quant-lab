@@ -1,10 +1,17 @@
 # Agent runbook — quant-lab thesis intake
 
-One page. `AGENTS.md` states the invariants; this file is the procedure. When the two disagree,
-`AGENTS.md` wins and this file is wrong — say so instead of guessing.
+`AGENTS.md` states the current invariants; this file is the current intake procedure.
+Surface a conflict instead of silently changing the rule. Use [CONTEXT-MAP.md](CONTEXT-MAP.md)
+for task-specific reading and [WORKFLOW.md](docs/WORKFLOW.md) for the integrated sequence.
 
-Running a whole strategy set through the funnel? The copy-paste brief for a new session is
-`STAGE3_CAMPAIGN_PROMPT.md`.
+The principal supplies objectives and protected decisions through chat. The agent handles
+inspection, preparation, authorized execution and verification. Commands here describe the
+executor interface. The [target architecture](docs/ARCHITECTURE.md) and
+[delivery plan](docs/AGENT-CONTROL-PLAN.md) propose an authenticated decision/release path;
+those capabilities are not implemented by this documentation update.
+
+For a whole research objective, use [STAGE3_CAMPAIGN_PROMPT.md](STAGE3_CAMPAIGN_PROMPT.md).
+Current scope and receipts remain authoritative across sessions.
 
 ## Intake and admission (#109 / #119)
 
@@ -14,7 +21,7 @@ actual Warden admission, not a completed Markdown checklist, authorize evaluatio
 
 | # | Do | Command / artifact | Done when |
 |---|---|---|---|
-| 0 | Gate check | `uv run warden check-worktree` | rc=0; otherwise stop for human manifest approval |
+| 0 | Scope and gate check | actual checkout/ledger/authority, then `uv run warden check-worktree` | integrity required for affected scientific commands; on mismatch diagnose and prepare the precise approval packet while continuing eligible engineering work |
 | 1 | Term sheet | original source, prior-art/lessons search, draft hypothesis, semantic DataRequirement | every material rule is sourced or an explicit proposed choice; novelty, timing, capacity, purpose, evaluation and bounded search are resolved |
 | 2 | Resolve | `uv run warden resolve-data --requirement requirement.yaml --json`; see [DataRequirement](docs/DATA-REQUIREMENT.md) | reusable signed contract or properly compiled sandbox, matching dataset identity, declared universe and clock; run `uv run python scripts/preflight_thesis.py --contract <CONTRACT_ID>` for the read-only state card (0 proceed, 2 human re-sign, 3 stop) |
 | 3 | Register and approve intent | `uv run warden register-hypothesis .workspace/hypotheses/<ID>.md --json`; RG-05 principal approval below | approved digest binds the complete term sheet, registered hypothesis, data, evaluation, allowed revisions and benchmark when required, before candidate code or outcomes |
@@ -54,10 +61,16 @@ interrupted admissions. Record terminal dispositions through RG-07's principal-a
 `close-hypothesis` path where applicable. SQLite is authoritative. See RG-03/RG-04 for the
 candidate/lineage limits and accounting policy.
 
-## Promoting a compiled sandbox contract (human only, #118)
+## Promoting a compiled sandbox contract (principal-controlled, #118)
 
 When an exploratory artifact compiled by `warden data compile` should become a production
-**candidate**, the human — never an agent — runs:
+**candidate**, the agent prepares the exact artifact, provenance, checks and consequences for
+principal review. The current CLI below is restricted to the human-controlled operator path.
+An agent cannot grant itself permission by passing its confirmation flags. If an authorized
+execution channel is unavailable, report that precise capability blocker after preparing the
+work; do not make operating a CLI the principal's research task.
+
+Current operator protocol (reference only; separate authorization still required):
 
 ```bash
 uv run warden promote-contract --contract-id SANDBOX_<CLASS>_<FREQ>_<DIGEST> \
@@ -77,7 +90,9 @@ still `STAGED` and not market-eligible until you sign the inventory and attest a
 Refused under `WARDEN_NON_INTERACTIVE=1`. Full procedure, refusal matrix and exit codes:
 `docs/SANDBOX-PROMOTION.md`.
 
-Paste the verbatim command output into the handoff. A summarized number is not evidence.
+Preserve verbatim output as an evidence artifact and put its identity/reference in the handoff.
+Summarize the decision, coverage and limitations alongside it. Approval metadata is not itself
+a verified HMAC signature; protected policy inputs still require their actual signature checks.
 
 ## Rules that exist because they were already violated once
 
@@ -103,10 +118,12 @@ Paste the verbatim command output into the handoff. A summarized number is not e
    Any test that calls `run_spec`/`run_stage1_screen` against `repo_root="."` must pass a temporary
    registry copy instead. This was real: `test_hyp_2026_001.py` wrote into `registry.db` on every
    suite run; it now uses a copy, and `selection_attempts` is unchanged by the run.
-8. **`ExperimentRunner()` and `ResearchRegistry()` are not read-only.** Their constructors create
-   schema and insert quarantine/migration rows (`src/warden/registry.py`). For a status read use
-   `scripts/preflight_thesis.py` (SQLite `mode=ro`); a temporary copy is for tests only, and a copy
-   taken without `registry.db-wal` is stale because the WAL holds recent commits.
+8. **Default runner/registry construction is not read-only.** It can create schema and
+   quarantine/migration rows. Status/preflight uses `ReadOnlyResearchRegistry` or
+   `ResearchRegistry(..., readonly=True)` through the supported read interfaces. The current
+   handoff builder still constructs a mutable registry; it is not proof of read-only inspection.
+   The target AC-02 slice moves that read to the shared read-only seam. Tests use isolated
+   snapshots taken through SQLite's backup API; a main-file-only copy can miss WAL commits.
 9. **A strategy's code identity is its full closure, and qualification binds to it.** `code_closure`
    covers all imports plus any runtime-loaded code a module declares in `CODE_DEPENDENCIES`. A new
    strategy that loads code at runtime or from a subdir must declare `CODE_DEPENDENCIES`, or its edits
@@ -142,9 +159,9 @@ directory. Do not test that, and do not cite it as evidence that the data is or 
 
 | Situation | Action |
 |---|---|
-| `check-worktree` rc≠0 | output `uv run warden generate-manifest --human-approve-manifest` for the human; never run it yourself — it records `approver: human-operator` |
+| `check-worktree` rc≠0 | diagnose exact protected drift; preserve the diff and prepare a concrete release/approval packet; keep affected scientific gates closed and use only an actually authorized signing channel |
 | source rule missing | mark `[MISSING]`; preregister an explicitly justified adaptation or stop if unresolved |
-| candidate or lineage budget exhausted | post-mortem in `.workspace/memory/LESSONS.md`; a new ID does not reset the budget |
+| candidate or lineage budget exhausted | retain receipts/debt and prepare the applicable RG-07 disposition; add an evidence-linked lesson; a new ID does not reset the budget |
 | gate fails | record it; the failure is evidence, not permission to adjust |
 | contract/data mismatch | resolve through #109; stop for any required human policy/promotion decision |
 

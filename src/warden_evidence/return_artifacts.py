@@ -25,6 +25,8 @@ from what the reader accepts.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
@@ -99,10 +101,18 @@ def return_frame(net_returns, timestamps_ns: np.ndarray | None = None) -> pl.Dat
     return frame.with_columns(column)
 
 
-def read_return_stream(path: Path | str, returns_root: Path | str) -> ReturnStreamArtifact:
-    """Read one artifact as returns plus its (possibly absent) UTC index."""
+def read_return_stream(
+    path: Path | str, returns_root: Path | str, *, expected_sha256: str | None = None,
+) -> ReturnStreamArtifact:
+    """Read returns and their UTC index; optionally verify the exact bytes parsed."""
     resolved = _resolved_under(path, returns_root)
-    frame = pl.read_parquet(resolved)
+    if expected_sha256 is None:
+        frame = pl.read_parquet(resolved)
+    else:
+        payload = resolved.read_bytes()
+        if sha256(payload).hexdigest() != expected_sha256:
+            raise ReturnArtifactError("return artifact digest mismatch")
+        frame = pl.read_parquet(BytesIO(payload))
     if RETURN_COLUMN not in frame.columns:
         raise ReturnArtifactError(f"'{path}' has no '{RETURN_COLUMN}' column")
     try:

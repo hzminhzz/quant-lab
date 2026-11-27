@@ -30,6 +30,7 @@ simulated returns, never market bars).
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import re
@@ -375,10 +376,20 @@ class MarketDataGateway:
             from warden.exposure import Scope, ScopeIncident
 
             scope = Scope.model_validate(holdout_scope)
+            # Verify the exact bytes parsed, not merely a prior provenance read.
+            # A changed file must not yield evidence for the approved digest.
+            root = self.repo_root.resolve()
+            path = root / res.path
+            if (res.path != contract.holdout_data_path
+                    or path.resolve() != path
+                    or not path.is_relative_to(root / "data" / "holdout")):
+                raise ScopeIncident("Holdout artifact path differs from its signed scope")
+            payload = path.read_bytes()
+            if hashlib.sha256(payload).hexdigest() != scope.dataset_sha256 or res.sha256 != scope.dataset_sha256:
+                raise ScopeIncident("Holdout artifact digest differs from its signed scope")
+            frame = normalise_feed(read_parquet_bytes(payload), contract)
             # Check every readable observation, before selecting the evaluation universe.
-            frame, _ = self._read_resolved(res, contract, None)
-            if (res.sha256 != scope.dataset_sha256
-                    or not set(frame["asset"].unique().to_list()) <= set(scope.symbols)
+            if (not set(frame["asset"].unique().to_list()) <= set(scope.symbols)
                     or frame["timestamp"].min() < scope.start
                     or frame["timestamp"].max() > scope.end):
                 raise ScopeIncident("Holdout artifact exceeds its signed exposure scope; claim remains spent")

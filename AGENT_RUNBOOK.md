@@ -6,27 +6,53 @@ One page. `AGENTS.md` states the invariants; this file is the procedure. When th
 Running a whole strategy set through the funnel? The copy-paste brief for a new session is
 `STAGE3_CAMPAIGN_PROMPT.md`.
 
-Start every thesis with:
+## Intake and admission (#109 / #119)
 
-```bash
-uv run python scripts/preflight_thesis.py --contract <CONTRACT_ID>   # state card + next legal command
-```
-Preflight exit codes: `0 proceed · 2 human must re-sign the manifest · 3 stop`.
+Use [.workspace/templates/hypothesis.md](.workspace/templates/hypothesis.md) for
+each new thesis, and the applicable ML4T methodology. The approved intent and
+actual Warden admission, not a completed Markdown checklist, authorize evaluation.
 
-## The seven steps, with the evidence each step must produce
-
-| # | Do | Command | Done when |
+| # | Do | Command / artifact | Done when |
 |---|---|---|---|
-| 0 | Gate check | `uv run warden check-worktree` | rc=0. If not, **STOP** — only the human re-signs (see Escalation) |
-| 1 | Resolve the contract | `contracts/<id>.yaml` → its `exploratory_data_path` | you have the pinned path, sha match, span, assets, cost per side, `label_horizon_bars`, `execution_mode` |
-| 2 | Source trace | read the **original** clipping, not a plan or summary | every rule carries `file:line`; every absent rule is written `[MISSING]` |
-| 3 | Pre-register | `uv run warden register-hypothesis .workspace/hypotheses/<ID>.md --json` | mechanism, counterparty, falsification and `expected_holding_bars` are all stated (or let `warden advance` auto-register) |
-| 4 | Pipeline | `uv run warden verify experiments/active/<spec>.yaml --json` | `status: PASS`; feature cache written (proves causal protocol: `CausalModelStrategy` or `CausalRulesStrategy`; legacy `generate_positions` is frozen for historical replay only) |
-| 5 | Screen | `uv run warden screen <spec> --json` | family gate passes, or the hypothesis is done |
-| 6 | Trial | `uv run warden backtest <spec> --json` | `WARDEN_RUN_COMPLETE` and a verdict; max 3 trials, ever |
-| 7 | Audit / qualify | `uv run warden audit-check --run-id <ID> --json` | `AUDIT_<ID>.md`; `qualify` is human-only |
+| 0 | Gate check | `uv run warden check-worktree` | rc=0; otherwise stop for human manifest approval |
+| 1 | Term sheet | original source, prior-art/lessons search, draft hypothesis, semantic DataRequirement | every material rule is sourced or an explicit proposed choice; novelty, timing, capacity, purpose, evaluation and bounded search are resolved |
+| 2 | Resolve | `uv run warden resolve-data --requirement requirement.yaml --json`; see [DataRequirement](docs/DATA-REQUIREMENT.md) | reusable signed contract or properly compiled sandbox, matching dataset identity, declared universe and clock; run `uv run python scripts/preflight_thesis.py --contract <CONTRACT_ID>` for the read-only state card (0 proceed, 2 human re-sign, 3 stop) |
+| 3 | Register and approve intent | `uv run warden register-hypothesis .workspace/hypotheses/<ID>.md --json`; RG-05 principal approval below | approved digest binds the complete term sheet, registered hypothesis, data, evaluation, allowed revisions and benchmark when required, before candidate code or outcomes |
+| 4 | Implement and review | native causal protocol, experiment YAML, `warden describe-candidate`, independent conformance and principal recording | exact candidate binding reviewed and recorded as PASS; `warden verify` passes sampled causality checks |
+| 5 | Screen | `uv run warden screen <spec> --json` | family gate passes or failure is recorded; frozen candidate admitted before scoring |
+| 6 | Trial | `uv run warden backtest <spec> --json` | same frozen candidate advances once; durable verdict and robustness/comparative evidence; stop on decisive failure or exhausted budget |
+| 7 | Audit / qualify | `uv run warden audit-check --run-id <ID> --json` | audit recorded; qualification separately human-authorized, subject to all holdout gates |
 
-Shortcut: steps 3–7 up to `audit-check` run idempotently via `uv run warden advance experiments/active/<spec>.yaml --json` (specs and hypotheses never move folders; SQLite `registry/registry.db` owns all state).
+### Freeze and review
+
+Use the existing plan and review schemas and exact commands in
+[Research Governance, RG-05/RG-06](docs/RESEARCH-GOVERNANCE.md#rg-05-frozen-research-intent-and-independent-conformance-124).
+The Markdown registration parser consumes only front matter: place the entire
+finalized term sheet text in the plan's `thesis` string (not a filename or
+summary). Embed the semantic `data_requirement` used for resolution in the plan;
+use `purpose: absolute` or `purpose: incremental` and named `allowed_revisions`.
+Incremental mode requires a frozen executable benchmark spec and the approved
+RG-06 comparative policy. Resolve missing benchmark prerequisites before
+approving intent; never choose a comparator after seeing candidate outcomes.
+
+The principal approves the plan; the author writes candidate code only after
+approval and copies the returned `research_intent_sha256` to the experiment
+spec. An independent reviewer assesses the exact described binding against the
+approved thesis. Include the RG-07 novelty disposition against the `prior_memory` snapshot returned by
+`describe-candidate`, as specified in [Research Governance](docs/RESEARCH-GOVERNANCE.md).
+The principal records that review. A missing, refused, stale or unavailable review is not a PASS. Material revisions require the approved
+revision key, predecessor and a new binding/review; a changed plan requires a
+related hypothesis, not an overwritten approval.
+
+Use `scripts/preflight_trial.py` for metadata-only checks and
+`warden spec-status <spec> --json` before scheduling. Neither grants scoring
+permission. `warden advance` may resume eligible frozen work up to audit;
+it cannot substitute for intent approval or conformance. Identical screen and
+full evaluation share one candidate slot; fixed robustness scenarios are
+recorded separately. Budget is a ceiling, not a target. Preserve failed and
+interrupted admissions. Record terminal dispositions through RG-07's principal-authorized
+`close-hypothesis` path where applicable. SQLite is authoritative. See RG-03/RG-04 for the
+candidate/lineage limits and accounting policy.
 
 ## Promoting a compiled sandbox contract (human only, #118)
 
@@ -85,8 +111,8 @@ Paste the verbatim command output into the handoff. A summarized number is not e
    covers all imports plus any runtime-loaded code a module declares in `CODE_DEPENDENCIES`. A new
    strategy that loads code at runtime or from a subdir must declare `CODE_DEPENDENCIES`, or its edits
    won't flip `strategy_code_sha256` and the binding silently under-covers. `qualify` refuses a trial
-   whose module is missing or whose closure no longer matches the recorded digest — re-run the trial to
-   re-bind; it never substitutes a baseline. Register contracts only via `register_contract` (it refuses
+   whose module is missing or whose closure no longer matches the recorded digest — resolve through
+   the governed candidate/revision path; never replay spent evidence to re-bind. Register contracts only via `register_contract` (it refuses
    a changed contract); never raw-write the `contracts` table.
 
 ## What the harness does NOT enforce (declare it yourself, or write `[MISSING]`)
@@ -117,10 +143,10 @@ directory. Do not test that, and do not cite it as evidence that the data is or 
 | Situation | Action |
 |---|---|
 | `check-worktree` rc≠0 | output `uv run warden generate-manifest --human-approve-manifest` for the human; never run it yourself — it records `approver: human-operator` |
-| source rule missing | stop, name the gap, do not invent a parameter |
-| trial budget exhausted (3) | post-mortem in `.workspace/memory/LESSONS.md`; a new ID does not reset the budget |
+| source rule missing | mark `[MISSING]`; preregister an explicitly justified adaptation or stop if unresolved |
+| candidate or lineage budget exhausted | post-mortem in `.workspace/memory/LESSONS.md`; a new ID does not reset the budget |
 | gate fails | record it; the failure is evidence, not permission to adjust |
-| contract/data mismatch | stop; contract changes need the human |
+| contract/data mismatch | resolve through #109; stop for any required human policy/promotion decision |
 
 ## Where things live
 

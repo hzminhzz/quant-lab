@@ -53,6 +53,69 @@ def test_runtime_loaders_declare_code_dependencies() -> None:
     assert offenders == []
 
 
+def test_repeated_closure_reuses_parsing_but_reads_every_source_byte(tmp_path, monkeypatch):
+    """A warm parse cannot hide same-size edits with restored timestamps."""
+    import os
+
+    entry = tmp_path / "strategy.py"
+    helper = tmp_path / "local_helper.py"
+    runtime = tmp_path / "runtime.py"
+    entry.write_text("import local_helper\nCODE_DEPENDENCIES = ('runtime.py',)\n")
+    helper.write_text("VALUE = 1  # closure byte-invalidation fixture\n")
+    runtime.write_text("RUNTIME = 3  # declared dependency fixture\n")
+    original_parse, original_read = ast.parse, Path.read_bytes
+    parsed, read = [], []
+
+    def parse(raw, *args, **kwargs):
+        parsed.append(raw)
+        return original_parse(raw, *args, **kwargs)
+
+    def read_bytes(path):
+        read.append(path)
+        return original_read(path)
+
+    monkeypatch.setattr(ast, "parse", parse)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    first = code_closure(tmp_path, "strategy.py")
+    assert code_closure(tmp_path, "strategy.py") == first
+    assert len(parsed) == 3
+    assert len(read) == 6
+    assert all(read.count(path) == 2 for path in (entry, runtime, helper))
+    recorded = helper.stat()
+    helper.write_text("VALUE = 2  # closure byte-invalidation fixture\n")
+    os.utime(helper, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
+    changed = code_closure(tmp_path, "strategy.py")
+    assert changed[0] != first[0]
+    assert changed[1] == first[1]
+    assert len(parsed) == 4
+    assert len(read) == 9
+    assert all(read.count(path) == 3 for path in (entry, runtime, helper))
+
+
+def test_warm_closure_still_checks_new_dependencies_and_source_links(tmp_path, monkeypatch):
+    entry = tmp_path / "strategy.py"
+    helper = tmp_path / "late_helper.py"
+    entry.write_text("import late_helper  # filesystem bindings are never cached\n")
+    initial = code_closure(tmp_path, "strategy.py")
+    helper.write_text("VALUE = 5\n")
+    resolved = code_closure(tmp_path, "strategy.py")
+    assert resolved[0] != initial[0]
+    assert resolved[1] == ["late_helper.py", "strategy.py"]
+    target = tmp_path / "outside-source"
+    target.write_bytes(b"must never be read")
+    helper.unlink()
+    helper.symlink_to(target)
+
+    def forbid_target(path):
+        assert path != target
+        return original_read(path)
+
+    original_read = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", forbid_target)
+    with pytest.raises(ValueError, match="symlinked source input refused"):
+        code_closure(tmp_path, "strategy.py")
+
+
 def test_register_contract_is_idempotent_and_immutable(tmp_path: Path) -> None:
     reg = ResearchRegistry(tmp_path / "reg.db")
     contract = load_recorded_contract(ROOT, "CRYPTO_PERPS_1H_V1")

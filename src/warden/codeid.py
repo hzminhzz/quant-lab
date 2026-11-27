@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+from functools import lru_cache
 from pathlib import Path
 
 _EXTERNAL_PREFIXES = {"warden", "ml4t", "numpy", "polars", "scipy", "pandas", "yaml", "math", "json"}
@@ -55,6 +56,16 @@ def _declared_dependencies(tree: ast.Module) -> list[str]:
         return []
 
     return strings(consts.get("CODE_DEPENDENCIES"))
+
+
+@lru_cache(maxsize=128)
+def _source_dependencies(raw: bytes) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Reuse parsing by exact bytes; file reads and path checks remain fresh."""
+    try:
+        tree = ast.parse(raw.decode("utf-8"))
+    except SyntaxError:
+        return (), ()
+    return tuple(_imported_names(tree)), tuple(_declared_dependencies(tree))
 
 
 def source_path(root: Path, path: str | Path) -> Path:
@@ -107,11 +118,8 @@ def code_inventory(repo_root: Path, module_path: str) -> dict[str, str]:
             continue
         raw = path.read_bytes()
         inventory[rel] = hashlib.sha256(raw).hexdigest()
-        try:
-            tree = ast.parse(raw.decode("utf-8"))
-        except SyntaxError:
-            continue
-        for name in _imported_names(tree):
+        imports, declared = _source_dependencies(raw)
+        for name in imports:
             if name.startswith("."):
                 base = path.parent / name.lstrip(".")
                 for cand in (base.with_suffix(".py"), base / "__init__.py"):
@@ -122,7 +130,7 @@ def code_inventory(repo_root: Path, module_path: str) -> dict[str, str]:
             for cand in _candidate_paths(name, path.parent):
                 if include(cand):
                     break
-        for dep in _declared_dependencies(tree):
+        for dep in declared:
             include(root / dep)
     return dict(sorted(inventory.items()))
 

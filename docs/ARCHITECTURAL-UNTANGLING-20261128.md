@@ -101,7 +101,7 @@ transition with a fresh WAL snapshot, preservation proof and stable request ID.
 - Screen/trial preparation has one owner. Screen evidence publication sites: **7 → 1**.
   Duplicate spec-state decision trees: **2 → 1**. Four private progression switches
   (`status_registry`, `acquire_lease`, `check_outcome_memory`, `pending_mode`) are gone.
-- Production Python (changed `src/` and the deleted script): **506 net lines removed**.
+- Production Python (changed `src/` and the deleted script): **498 net lines removed**.
   No production module, schema, dependency, control service or persistence layer was added.
   New test/reference and decision-record files are intentionally excluded from this count.
 
@@ -122,6 +122,27 @@ Connections per read fell **3 → 1** (66.7% fewer). Finalized trials still reco
 their artifacts and therefore perform the necessary additional work. These are
 small-ledger state-read measurements, not an end-to-end research or production
 latency claim. Host load varied; connection count is the deterministic improvement.
+
+### Verification-driven cache correction
+
+The first immutable candidate passed its full non-timing suite twice (1,428 passed,
+43 skipped, one expected failure), but the unchanged serial cache witness failed
+at 239.7 and 237.5 ms against its 50 ms limit. Standalone passes were insufficient.
+Profiling the original two-witness sequence identified a 218 ms generation-2
+garbage collection during repeated AST parsing of unchanged source bytes.
+
+Code identity now retains only the pure parsed import/dependency tuples in a
+bounded 128-entry cache keyed by exact source bytes. Every closure read still
+validates filesystem bindings, rereads and hashes all source files, and discovers
+newly present dependencies. Neither file identities nor proof authority are cached.
+Regressions require fresh reads, detect same-size helper edits with restored
+timestamps, discover new dependencies, and refuse a helper replaced by a symlink.
+
+In the same diagnostic sequence, profiled cache-hit calls fell from 35,653 to
+9,718; elapsed time fell from 251 to 26 ms, with no GC pause in the latter sample.
+These instrumented samples explain the fix; the unchanged uninstrumented
+<50 ms witness remains the release criterion. The native reference and 36 focused
+provenance/lifecycle regressions passed after the correction.
 
 ### Behavioral evidence
 

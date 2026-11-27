@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import time
 from collections.abc import Sequence
 from datetime import UTC
@@ -155,6 +156,10 @@ def test_content_addressed_feature_cache_hit_speed(
     cache_dir = tmp_path / "cache" / "features"
     registry = ResearchRegistry(tmp_path / "reg.db")
     pipeline = CausalTimeSeriesPipeline()
+
+    # Settle garbage from earlier tests before this cold/hit pair. GC stays
+    # enabled throughout both measured calls; no cache operation is warmed up.
+    gc.collect()
 
     # First call: computes and caches
     t0 = time.perf_counter()

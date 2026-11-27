@@ -140,9 +140,24 @@ timestamps, discover new dependencies, and refuse a helper replaced by a symlink
 
 In the same diagnostic sequence, profiled cache-hit calls fell from 35,653 to
 9,718; elapsed time fell from 251 to 26 ms, with no GC pause in the latter sample.
-These instrumented samples explain the fix; the unchanged uninstrumented
-<50 ms witness remains the release criterion. The native reference and 36 focused
+These instrumented samples expose unnecessary work; the uninstrumented
+<50 ms assertion remains the release criterion. The native reference and 36 focused
 provenance/lifecycle regressions passed after the correction.
+
+The next complete candidate gate still recorded a 226.0 ms cache hit after all
+1,430 non-timing tests passed. The profile timing was sensitive to inherited GC
+state; the parse improvement alone did not establish release acceptance. The
+benchmark now collects prior-test garbage before its first cold call. GC remains
+enabled during both measured calls, with no extra cache warm-up, retries,
+best-of-N sampling or change to the 50 ms assertion. This separates the previous
+2-million-row fixture's collection debt from the measured cold/hit pair.
+
+With that same setup on both pinned sources, one diagnostic hit measured
+22.671 ms before and 13.235 ms after. Minor generation-0 GC still occurred in the
+baseline hit. These are single descriptive samples; repeated state-read medians
+and deterministic parsing/read counts are stronger evidence of reduced work.
+Long-lived Python processes can still incur GC pauses; this benchmark is not a
+50 ms worst-case operational latency guarantee.
 
 ### Behavioral evidence
 

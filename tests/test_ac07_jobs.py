@@ -30,6 +30,16 @@ def test_shared_limits_fencing_and_restart_are_durable(tmp_path):
     assert resumed.claim("job-two")["state"] == "RUNNING"
 
 
+def test_simultaneous_jobs_reserve_distinct_host_cpus(tmp_path):
+    q = queue(tmp_path)
+    for job in ("job-one", "job-two"):
+        q.submit(job, {"fixture": job}, objective="bounded parallelism",
+                 resources=ResourceLimits(cpu=1, memory_mb=128, io_mb=1, wall_seconds=10))
+    first, second = q.claim("job-one"), q.claim("job-two")
+    assert len(first["details"]["cpu_ids"]) == len(second["details"]["cpu_ids"]) == 1
+    assert set(first["details"]["cpu_ids"]).isdisjoint(second["details"]["cpu_ids"])
+
+
 def test_cancel_expiry_and_late_completion_keep_unknown_effects(tmp_path):
     now = [1000.]
     q = queue(tmp_path, clock=lambda: now[0])
@@ -139,3 +149,4 @@ def test_stateless_worker_cannot_read_parent_files_or_keys_and_is_bounded(tmp_pa
     timeout = run_worker(job, tmp_path / "timeout", ResourceLimits(cpu=1, memory_mb=128, io_mb=1, wall_seconds=1))
     assert timeout["state"] == "STOPPED"
     assert timeout["process_exited"] is True
+    assert timeout["usage"]["cpu_seconds"] > .05  # Measure real work inside bwrap, not only its monitor.

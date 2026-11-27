@@ -60,6 +60,14 @@ def test_copied_chat_changed_packet_revocation_and_unknown_key_are_refused():
         verifier.authorize(p, signed(p), effect="release", subject="a" * 64, now=1200.)
 
 
+def test_unknown_revocation_status_never_means_permission():
+    p = packet()
+    verifier = DecisionGate(keys={("fixture-principal", "fixture"): b"fixture-only"},
+                            current_generation=lambda issuer: 1, revoked=lambda nonce: None)
+    with pytest.raises(ValueError, match="revocation"):
+        verifier.authorize(p, signed(p), effect="release", subject="a" * 64, now=1200.)
+
+
 def test_uninstalled_channel_returns_exact_bootstrap_packet():
     p = packet()
     result = DecisionGate().request(p)

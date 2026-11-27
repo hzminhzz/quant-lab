@@ -10,7 +10,7 @@
    - [`AGENTS.md`](./AGENTS.md) — Current ownership, invariants and authority.
    - [`CONTEXT-MAP.md`](./CONTEXT-MAP.md) — Task-specific routes to procedures, domain owners and evidence.
    - [`AGENT_RUNBOOK.md`](./AGENT_RUNBOOK.md) — Current thesis intake and approval procedure.
-   - For system design or implementation, read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), then its linked contracts and plan. These describe a target, not installed capabilities.
+   - For system design or implementation, read [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), then its linked contracts and plan. [`Agent control operations`](./docs/AGENT-CONTROL-OPERATIONS.md) separates implemented source from installed capabilities.
 2. **Inspect the workspace & environment before editing:**
    ```bash
    uv run --frozen warden check-worktree
@@ -75,6 +75,7 @@ pinned Warden artifacts and contracts are unchanged.
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Target evidence-driven control system and immutable release authority. |
 | [`docs/AGENT-CONTROL-CONTRACTS.md`](./docs/AGENT-CONTROL-CONTRACTS.md) | Proposed situation/action/receipt, authority, recovery and knowledge contracts. |
 | [`docs/AGENT-CONTROL-PLAN.md`](./docs/AGENT-CONTROL-PLAN.md) | Dependency-ordered delivery, behavioral acceptance, resource measurements and cutover gates. |
+| [`docs/AGENT-CONTROL-OPERATIONS.md`](./docs/AGENT-CONTROL-OPERATIONS.md) | Implemented typed control, durable jobs, findings and release protocols; production boundaries and recovery. |
 | [`docs/DATA-REQUIREMENT.md`](./docs/DATA-REQUIREMENT.md) | `warden resolve-data` / `data compile`: decisions, the superset opt-in (`--allow-superset`), and what each answer carries. |
 | [`docs/EXIT-CODES.md`](./docs/EXIT-CODES.md) | The one exit-code vocabulary (`0` success, `1` evidence refused, `2` request refused, `3` not satisfiable, `75` busy) and the documented `data build` exception. |
 | [`STAGE3_CAMPAIGN_PROMPT.md`](./STAGE3_CAMPAIGN_PROMPT.md) | Objective brief for direct autonomous execution, early stopping and evidence-based continuation. |

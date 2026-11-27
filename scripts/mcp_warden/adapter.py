@@ -1,8 +1,8 @@
 """Minimal reviewed MCP stdio adapter for Warden (no HTTP, shell, SQL, or holdout).
 
 Run via `uv run --frozen python -m scripts.mcp_warden.adapter` only from an
-approved local client. Every mutation calls the real CLI, which acquires the
-shared registry lease. Never import the locally untracked legacy HTTP server.
+approved local client. Mutations call the real CLI or shared typed Control;
+both acquire the existing registry lease at scientific admission. Never import the locally untracked legacy HTTP server.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 
 from warden_ops.control_contracts import REQUEST
 
@@ -184,9 +185,28 @@ def execute(command: str, positional: list[str] | None = None, flags: dict | Non
             "stderr_tail": proc.stderr[-1500:], "no_auto_retry": True}
 
 
+def execute_control(payload, root=None):
+    """Typed transport retains the older reviewed-Git execution boundary."""
+    from warden_ops.control import Control
+    effective_root = ROOT if root is None else root
+    control = Control(effective_root)
+    try:
+        request = REQUEST.validate_python(payload)
+        if request.operation in {"act", "enqueue"}:
+            action = request.plan.action
+            relative = _path_arg(effective_root, action.kind, action.spec_path)
+            _trusted_spec(effective_root, relative)
+    except ValidationError:
+        return control.handle(payload)  # Shared typed error envelope.
+    except RestrictedCommandError as exc:
+        return control.refuse("AUTHORIZATION_REQUIRED", str(exc), scope="MCP reviewed Git execution",
+                              remedy="review and commit the exact spec and strategy before execution")
+    return control.handle(payload)
+
+
 TOOLS = [
     {"name": "warden_control", "description": "Typed Warden situation/action/receipt interface",
-     "inputSchema": REQUEST.json_schema()},
+     "inputSchema": {"type": "object", **REQUEST.json_schema()}},
     {"name": "warden_status", "description": "Read-only Warden registry status",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "warden_exec", "description": "Allowlisted native Warden CLI; no trading/holdout/shell/SQL",
@@ -214,8 +234,7 @@ def _handle(request: dict) -> dict | None:
         params = request.get("params") or {}
         try:
             if params.get("name") == "warden_control":
-                from warden_ops.control import Control
-                value = Control(ROOT).handle(params.get("arguments") or {})
+                value = execute_control(params.get("arguments") or {})
             elif params.get("name") == "warden_status":
                 value = execute("status")
             elif params.get("name") == "warden_exec":

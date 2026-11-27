@@ -126,8 +126,10 @@ class Control:
 
     def handle(self, payload: dict) -> dict:
         try:
+            if len(json.dumps(payload, allow_nan=False).encode()) > 131072:
+                raise ValueError("control request exceeds 128 KiB")
             request = parse_request(payload)
-        except ValidationError as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             return self.refuse("TECHNICAL_PRE_ADMISSION", str(exc))
         if request.operation == "observe":
             return self.observe(request)

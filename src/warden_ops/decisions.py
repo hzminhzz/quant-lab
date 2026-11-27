@@ -120,8 +120,10 @@ class DecisionGate:
         if (not all(math.isfinite(x) for x in (now, proof.issued_at, proof.expires_at))
                 or not packet.created_at <= proof.issued_at <= now < proof.expires_at <= packet.expires_at):
             raise ValueError("decision expired or outside packet validity")
-        if self._generation(proof.issuer) != proof.generation or self._revoked(proof.nonce):
-            raise ValueError("decision revoked")
+        generation = self._generation(proof.issuer)
+        revoked = self._revoked(proof.nonce)
+        if type(generation) is not int or generation != proof.generation or revoked is not False:
+            raise ValueError("decision revoked or revocation status unavailable")
         effects = {x.kind: x.subject_sha256 for x in packet.effects}
         if (len(set(proof.approved_effects)) != len(proof.approved_effects)
                 or not set(proof.approved_effects).issubset(effects)

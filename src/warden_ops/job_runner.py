@@ -49,7 +49,8 @@ def run_job(root, registry_path, job_id):
         if any(p.is_symlink() for p in (output, *output.parents)):
             raise ValueError("job output symlink refused")
         output.mkdir(parents=True, exist_ok=False, mode=0o700)
-        result = run_bounded(command, cwd=root, env=env, output=output, limits=limits, heartbeat=heartbeat)
+        result = run_bounded(command, cwd=root, env=env, output=output, limits=limits, heartbeat=heartbeat,
+                             cpu_ids=claim["details"]["cpu_ids"])
     except (OSError, ValueError) as exc:
         # No child survives run_bounded; a launch/setup failure cannot refund an admission.
         result = {"state": "FAILED", "usage": {}, "reason": str(exc)[:300]}

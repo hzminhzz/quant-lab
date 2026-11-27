@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import time
 import uuid
 
@@ -82,7 +83,7 @@ class JobQueue:
             current = self._status(conn, job)
             if current["state"] != "QUEUED":
                 return current
-            rows = conn.execute("SELECT j.job_id,j.resources_json,e.state FROM control_jobs j "
+            rows = conn.execute("SELECT j.job_id,j.resources_json,e.state,e.details_json FROM control_jobs j "
                                 "JOIN control_job_events e ON e.sequence=(SELECT MAX(sequence) "
                                 "FROM control_job_events WHERE job_id=j.job_id)").fetchall()
             used = {k: sum(json.loads(r["resources_json"])[k] for r in rows if r["state"] in _HELD)
@@ -91,8 +92,13 @@ class JobQueue:
             if (any(request[k] + used[k] > getattr(self.limits, k) for k in used)
                     or request["wall_seconds"] > self.limits.wall_seconds):
                 return {**current, "state": "BUSY", "retry_after_seconds": 5, "reservations": used}
+            held = [json.loads(r["details_json"]) for r in rows if r["state"] in _HELD]
+            occupied = {cpu for item in held for cpu in item.get("cpu_ids", [])}
+            free = [cpu for cpu in sorted(os.sched_getaffinity(0))[:self.limits.cpu] if cpu not in occupied]
+            if any("cpu_ids" not in item for item in held) or len(free) < request["cpu"]:
+                return {**current, "state": "BUSY", "retry_after_seconds": 5, "reservations": used}
             fence = uuid.uuid4().hex
-            self._event(conn, job, "RUNNING", fence, {"started_at": self.clock(), "usage": None,
+            self._event(conn, job, "RUNNING", fence, {"started_at": self.clock(), "usage": None, "cpu_ids": free[:request["cpu"]],
                                                    "progress": {"completed": 0, "total": None}})
             payload = json.loads(conn.execute("SELECT payload_json FROM control_jobs WHERE job_id=?", (job,)).fetchone()[0])
             return {**self._status(conn, job), "claimed": True, "payload": payload}

@@ -56,7 +56,6 @@ def _build_state(repo_root: Path, ticket: str | None, notes: str, registry_path=
     counts = registry.read_evidence_counts() if registry else {"trials": None, "hypotheses": None}
     n_trials, n_hyp = counts["trials"], counts["hypotheses"]
     pins = _contract_pins(repo_root)
-    eligibility = {}  # Eligibility is refreshed on demand; handoff never hashes trial artifacts.
     situation = Control(repo_root, registry_path=path).handle(
         {"schema_version": 1, "operation": "observe", "objective": ticket or ""})["value"]
     trace = [
@@ -74,13 +73,15 @@ def _build_state(repo_root: Path, ticket: str | None, notes: str, registry_path=
             {"source": "registry.db", "kind": "hypotheses", "value": n_hyp, "observed_at": now},
             {"source": "contracts", "kind": "pinned_snapshot_sha256", "value": pins, "observed_at": now},
         {"source": "registry.db", "kind": "effective_eligibility",
-         "value": {r: {"eligible": e["eligible"], "reason": e["reason"], "provenance": e["data_provenance"]}
-                   for r, e in eligibility.items()}, "observed_at": now},
+         "value": {"status": "NOT_EVALUATED", "eligible": None,
+                   "reason": "handoff reads metadata; refresh artifact eligibility on demand"}, "observed_at": now},
             {"source": "audit", "kind": "toolcalls", "value": audit_fingerprint(repo_root / AUDIT_LOG), "observed_at": now},
         ],
         "tool_trace": trace,
         "quality_gates": {"worktree_integrity": check_worktree(repo_root), "contracts_pinned": all(pins.values()),
-                          "eligibility_surface_reachable": all("reason" in e for e in eligibility.values())},
+                          "ledger_metadata_reachable": n_trials is not None and n_hyp is not None,
+                          "eligibility_surface_reachable": registry is not None and
+                          callable(getattr(registry, "effective_eligibility", None))},
     }
 
 

@@ -70,7 +70,7 @@ def prepare(control, request):
     return Result(ok=True, status="OK", observed_at=now,
                   value={"plan": plan.model_dump(mode="json"), "effects": {
                       "scientific_admission": request.action.kind, "sealed_access": False,
-                      "cost_estimate": "UNKNOWN; bounded by declared resource ceiling",
+                      "cost_estimate": "UNKNOWN; queued supervisor enforces ceilings; synchronous act uses existing Warden limits",
                       "retry": "receipt lookup only after possible admission"},
                       "completion": "FINALIZED existing domain receipt"}).model_dump(mode="json")
 

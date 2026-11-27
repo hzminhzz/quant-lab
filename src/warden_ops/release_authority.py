@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from pydantic import Field
@@ -56,10 +57,15 @@ class ReleaseAuthority:
                     BEGIN SELECT RAISE(ABORT,'append-only authority evidence'); END;
             """)
 
+    @contextmanager
     def _connect(self):
         conn = sqlite3.connect(self.store)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _append(self, kind, subject, payload):
         with self._connect() as conn:
@@ -162,6 +168,36 @@ class ReleaseAuthority:
             self.gate.authorize(Packet(**auth["packet"]), Proof(**auth["proof"]), effect="release",
                                 subject=admitted["release_id"], now=self.clock())
 
+    def _halt(self, state, release_id, reason=None):
+        outcome = {"state": state, "release_id": release_id, "reason": reason}
+        try:
+            self.executor.halt()
+            outcome["halt_request_returned"] = True
+        except Exception as exc:  # noqa: BLE001 -- failed halt must remain uncertain
+            outcome.update(state="UNCERTAIN_HALT_FAILED", halt_request_returned=False,
+                           halt_error=str(exc)[:1000])
+        return outcome
+
+    def _recover(self, release_id, before, rollback_path):
+        try:
+            current = self.executor.observe()
+            rollback = self._checked(rollback_path) if rollback_path is not None else None
+        except Exception as exc:  # noqa: BLE001 -- no observation means no safe rollback
+            return self._halt("HALTED_RECOVERY_UNVERIFIED", release_id, str(exc)[:1000])
+        compatible = (rollback is not None and rollback["release_id"] == before["release_id"]
+                      and rollback["ledger_min"] <= current["ledger_schema"] <= rollback["ledger_max"])
+        if not compatible:
+            return self._halt("HALTED_INCOMPATIBLE_ROLLBACK", release_id)
+        try:
+            self.executor.activate(Path(rollback_path), current["release_id"])
+            recovered = self.executor.observe()
+            if (recovered["release_id"] != rollback["release_id"] or not recovered["healthy"]
+                    or not rollback["ledger_min"] <= recovered["ledger_schema"] <= rollback["ledger_max"]):
+                raise ValueError("rollback identity, health or schema unverified")
+            return {"state": "ROLLED_BACK", "release_id": release_id, "observed": recovered}
+        except Exception as exc:  # noqa: BLE001 -- no unsafe continuation
+            return self._halt("HALTED_ROLLBACK_UNVERIFIED", release_id, str(exc)[:1000])
+
     def activate(self, path, *, packet=None, proof=None, grant_id=None, rollback_path=None):
         if self.executor is None:
             raise ValueError("protected activation capability absent")
@@ -197,24 +233,7 @@ class ReleaseAuthority:
                     raise ValueError("ledger became incompatible during activation")
                 outcome = {"state": "ACTIVE", "release_id": release_id, "observed": after}
             except Exception as exc:  # noqa: BLE001 -- record and halt uncertain activation
-                current = self.executor.observe()
-                rollback = self._checked(rollback_path) if rollback_path is not None else None
-                compatible = (rollback is not None and rollback["release_id"] == before["release_id"]
-                              and rollback["ledger_min"] <= current["ledger_schema"] <= rollback["ledger_max"])
-                if compatible:
-                    try:
-                        self.executor.activate(Path(rollback_path), current["release_id"])
-                        recovered = self.executor.observe()
-                        if recovered["release_id"] != rollback["release_id"] or not recovered["healthy"]:
-                            raise ValueError("rollback health unverified")
-                        outcome = {"state": "ROLLED_BACK", "release_id": release_id, "observed": recovered}
-                    except Exception as rollback_error:  # noqa: BLE001 -- no unsafe continuation
-                        self.executor.halt()
-                        outcome = {"state": "HALTED_ROLLBACK_UNVERIFIED", "release_id": release_id,
-                                   "reason": str(rollback_error)}
-                else:
-                    self.executor.halt()
-                    outcome = {"state": "HALTED_INCOMPATIBLE_ROLLBACK", "release_id": release_id}
-                outcome["failure"] = str(exc)
+                outcome = self._recover(release_id, before, rollback_path)
+                outcome["failure"] = str(exc)[:1000]
             self._append("activation-result", release_id, outcome)
             return outcome

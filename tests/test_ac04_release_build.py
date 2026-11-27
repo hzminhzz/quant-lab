@@ -52,6 +52,17 @@ def test_changed_candidate_bytes_or_manifest_cannot_verify(cli_repo, tmp_path):
     assert not verify_candidate(artifact)["valid"]
 
 
+def test_candidate_destination_cannot_follow_symlink_parent(cli_repo, tmp_path):
+    root = source(cli_repo)
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    link = tmp_path / "linked"
+    link.symlink_to(target, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        build_candidate(root, link / "builds", ledger_min=9, ledger_max=9)
+    assert list(target.iterdir()) == []
+
+
 def test_build_refuses_tracked_symlinks_before_reading_targets(cli_repo, tmp_path):
     root = source(cli_repo)
     target = tmp_path / "do-not-open"

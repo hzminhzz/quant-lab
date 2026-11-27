@@ -6,6 +6,26 @@ principal — or by an agent under explicit in-session delegation, recorded in a
 
 ## 2026-11-27
 
+### Agent control engineering (AC-01–09, source only)
+
+- Add one strict situation/action/receipt interface for CLI and MCP, with bounded
+  read-only observations, explicit unknowns and original scientific receipt recovery.
+- Bind durable request IDs atomically to existing Warden admissions. Schema 9 adds
+  request mappings; schema 10 adds fenced operational jobs and shared resource policy.
+  No new control mutation initializes or migrates a missing/old ledger.
+- Add unsigned content-addressed release builds, exact principal decision protocols,
+  pinned verification/activation interfaces and compatible rollback-or-halt behavior.
+  The independently authenticated production integration remains unavailable.
+- Add scoped findings from existing evidence, without a second memory database or
+  weaker novelty/lineage/selection gates. Preserve contradictions and stale-source refusals.
+- Supervise bounded objectives, verify stateless Bubblewrap isolation in fixtures, and
+  account for descendant CPU/I/O with explicit sampling limits and separate CPU assignments.
+- Repair WAL migration rehearsal to compare all existing tables/columns/rows and retain
+  original history. Add integrated old/new interface, failure and resource witnesses.
+- Keep the production manifest and scientific policies unchanged. No production migration,
+  activation, sealed holdout access or trading authorization is implied.
+  See [operations](docs/AGENT-CONTROL-OPERATIONS.md) and measured JSON evidence.
+
 ### Spec #109 promotion-gate review fixes (#118)
 
 A second adversarial pass over `warden promote-contract` found that every fact the gate checked

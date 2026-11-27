@@ -1,6 +1,7 @@
 # Quant-Lab architecture: evidence-driven agent control
 
-Status: **TARGET DESIGN — not implemented or deployment-authorized**. Revised 2026-11-27.
+Status: **APPROVED TARGET DESIGN — source implementation is documented separately; production is not authorized**. Revised 2026-11-27.
+See [implemented operations and boundaries](AGENT-CONTROL-OPERATIONS.md) for AC-01–09 source behavior and unavailable authority integration.
 Grounded in `feat/119-research-governance` at `8fb7180` plus the uncommitted
 governance review fixes. The current procedure is [WORKFLOW.md](WORKFLOW.md);
 [AGENTS.md](../AGENTS.md) and explicit principal authorization still govern operations.
@@ -29,9 +30,9 @@ An agent should be able to answer five questions from one bounded situation view
 **Where am I? What is true? What am I allowed to do? What is worth doing next?
 How will I know that it worked?**
 
-## 2. Current implementation and the seams to deepen
+## 2. Pre-AC implementation baseline and the seams to deepen
 
-These are code observations, not claims about the running production deployment.
+These are observations of the design baseline, not claims about the running production deployment. The implementation guide above records subsequent AC changes.
 
 | VERIFIED foundation | Friction visible in the current interface | Target change |
 |---|---|---|

@@ -1,0 +1,145 @@
+{
+  "comparison_only": "staging experiment; production gateway is unchanged",
+  "hashes_agree": true,
+  "limits": "sequential warm filesystem cache; parser includes validation overhead; no model memory measured",
+  "measurements": [
+    {
+      "exit_code": 0,
+      "measurement": {
+        "aggregate_hostile_process_quota": false,
+        "cpu": "max(wait4 owner, sampled descendant sum); process-tree lower bound",
+        "cpu_ids": [
+          7
+        ],
+        "io": "sampled process-tree logical read/write bytes; lower bound",
+        "memory": "max(wait4 owner peak, sampled tree RSS sum); shared pages counted per process",
+        "output_bytes_observed": 250
+      },
+      "output_bytes": 250,
+      "process_exited": true,
+      "reason": null,
+      "result": {
+        "bytes_hashed": 219155413,
+        "bytes_read": 219155413,
+        "bytes_staged": 0,
+        "cache_hits": 0,
+        "method": "buffer",
+        "rows_parsed": null,
+        "scoring": false,
+        "sealed_access": false,
+        "sha256": "8f9777341a28ea0a6a9efab0b66fe912c4475964bc6797ced691bce806cf1573"
+      },
+      "state": "FINISHED",
+      "usage": {
+        "cpu_seconds": 1.085281,
+        "elapsed_seconds": 1.1875090840039775,
+        "io_bytes": 230371367,
+        "peak_rss_mb": 277.41796875
+      }
+    },
+    {
+      "exit_code": 0,
+      "measurement": {
+        "aggregate_hostile_process_quota": false,
+        "cpu": "max(wait4 owner, sampled descendant sum); process-tree lower bound",
+        "cpu_ids": [
+          7
+        ],
+        "io": "sampled process-tree logical read/write bytes; lower bound",
+        "memory": "max(wait4 owner peak, sampled tree RSS sum); shared pages counted per process",
+        "output_bytes_observed": 258
+      },
+      "output_bytes": 258,
+      "process_exited": true,
+      "reason": null,
+      "result": {
+        "bytes_hashed": 219155413,
+        "bytes_read": 219155413,
+        "bytes_staged": 219155413,
+        "cache_hits": 0,
+        "method": "staged",
+        "rows_parsed": null,
+        "scoring": false,
+        "sealed_access": false,
+        "sha256": "8f9777341a28ea0a6a9efab0b66fe912c4475964bc6797ced691bce806cf1573"
+      },
+      "state": "FINISHED",
+      "usage": {
+        "cpu_seconds": 0.8479649999999999,
+        "elapsed_seconds": 0.9055343469954096,
+        "io_bytes": 449526792,
+        "peak_rss_mb": 70.42578125
+      }
+    },
+    {
+      "exit_code": 0,
+      "measurement": {
+        "aggregate_hostile_process_quota": false,
+        "cpu": "max(wait4 owner, sampled descendant sum); process-tree lower bound",
+        "cpu_ids": [
+          7
+        ],
+        "io": "sampled process-tree logical read/write bytes; lower bound",
+        "memory": "max(wait4 owner peak, sampled tree RSS sum); shared pages counted per process",
+        "output_bytes_observed": 260
+      },
+      "output_bytes": 260,
+      "process_exited": true,
+      "reason": null,
+      "result": {
+        "bytes_hashed": 219155413,
+        "bytes_read": 219155413,
+        "bytes_staged": 0,
+        "cache_hits": 0,
+        "method": "buffer-parse",
+        "rows_parsed": 11873470,
+        "scoring": false,
+        "sealed_access": false,
+        "sha256": "8f9777341a28ea0a6a9efab0b66fe912c4475964bc6797ced691bce806cf1573"
+      },
+      "state": "FINISHED",
+      "usage": {
+        "cpu_seconds": 1.712697,
+        "elapsed_seconds": 1.7212834689999,
+        "io_bytes": 230454636,
+        "peak_rss_mb": 1150.54296875
+      }
+    },
+    {
+      "exit_code": 0,
+      "measurement": {
+        "aggregate_hostile_process_quota": false,
+        "cpu": "max(wait4 owner, sampled descendant sum); process-tree lower bound",
+        "cpu_ids": [
+          7
+        ],
+        "io": "sampled process-tree logical read/write bytes; lower bound",
+        "memory": "max(wait4 owner peak, sampled tree RSS sum); shared pages counted per process",
+        "output_bytes_observed": 268
+      },
+      "output_bytes": 268,
+      "process_exited": true,
+      "reason": null,
+      "result": {
+        "bytes_hashed": 219155413,
+        "bytes_read": 219155413,
+        "bytes_staged": 219155413,
+        "cache_hits": 0,
+        "method": "staged-parse",
+        "rows_parsed": 11873470,
+        "scoring": false,
+        "sealed_access": false,
+        "sha256": "8f9777341a28ea0a6a9efab0b66fe912c4475964bc6797ced691bce806cf1573"
+      },
+      "state": "FINISHED",
+      "usage": {
+        "cpu_seconds": 1.721825,
+        "elapsed_seconds": 1.7403616340016015,
+        "io_bytes": 668553515,
+        "peak_rss_mb": 936.390625
+      }
+    }
+  ],
+  "parsed_row_counts_agree": true,
+  "path": "/home/quant/dev/quant-lab/data/exploratory/multi_asset_5m.parquet"
+}

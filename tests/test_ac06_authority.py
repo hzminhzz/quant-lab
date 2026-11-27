@@ -87,6 +87,45 @@ def test_scoped_grant_allows_docs_but_never_candidate_verifier_changes(cli_repo,
         authority.admit(untrusted["path"], grant_id=grant_id, previous_path=old["path"])
 
 
+def test_lost_activation_reply_is_observed_without_repeating_effect(cli_repo, tmp_path, monkeypatch):
+    root, old, executor, authority, _calls = fixture(cli_repo, tmp_path)
+    (root / "src/warden/example.py").write_text("VALUE = 2\n")
+    new = build_candidate(root, tmp_path / "builds", ledger_min=9, ledger_max=10)
+    packet, proof = approval([Effect(kind="release", subject_sha256=new["release_id"]),
+                              Effect(kind="activation", subject_sha256=new["release_id"])])
+    authority.admit(new["path"], packet=packet, proof=proof, previous_path=old["path"])
+    actual, effects = executor.activate, []
+    def lost(path, expected):
+        actual(path, expected)
+        effects.append(path)
+        raise KeyboardInterrupt("lost response after activation")
+    monkeypatch.setattr(executor, "activate", lost)
+    with pytest.raises(KeyboardInterrupt):
+        authority.activate(new["path"], packet=packet, proof=proof)
+    recovered = authority.activate(new["path"], packet=packet, proof=proof)
+    assert recovered["recovered"] is True
+    assert len(effects) == 1
+
+
+def test_observer_failure_after_activation_attempt_is_halted_and_recorded(cli_repo, tmp_path, monkeypatch):
+    root, old, executor, authority, _calls = fixture(cli_repo, tmp_path)
+    (root / "src/warden/example.py").write_text("VALUE = 2\n")
+    new = build_candidate(root, tmp_path / "builds", ledger_min=9, ledger_max=10)
+    packet, proof = approval([Effect(kind="release", subject_sha256=new["release_id"]),
+                              Effect(kind="activation", subject_sha256=new["release_id"])])
+    authority.admit(new["path"], packet=packet, proof=proof, previous_path=old["path"])
+    observed = executor.observe
+    def activate(path, expected):
+        executor.current = Path(path).name
+        monkeypatch.setattr(executor, "observe", lambda: (_ for _ in ()).throw(OSError("observer unavailable")))
+    monkeypatch.setattr(executor, "activate", activate)
+    result = authority.activate(new["path"], packet=packet, proof=proof, rollback_path=old["path"])
+    assert result["state"] == "HALTED_RECOVERY_UNVERIFIED"
+    assert executor.halted is True
+    assert authority.history()[-1]["kind"] == "activation-result"
+    assert observed()["ledger_schema"] == 9
+
+
 def test_failed_activation_never_rewinds_incompatible_ledger(cli_repo, tmp_path):
     root, old, executor, authority, _calls = fixture(cli_repo, tmp_path)
     (root / "src/warden/example.py").write_text("VALUE = 2\n")

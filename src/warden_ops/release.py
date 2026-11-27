@@ -18,7 +18,7 @@ from warden_ops.control_contracts import digest
 
 ROOT_FILES = frozenset({"AGENTS.md", "CLAUDE.md", "README.md", "CONTEXT.md", "CONTEXT-MAP.md",
                         "AGENT_RUNBOOK.md", "CHANGELOG.md", "pyproject.toml", "uv.lock",
-                        ".warden_manifest.sha256"})
+                        ".warden_manifest.sha256", ".workspace/memory/LESSONS.md"})
 SOURCE_DIRS = frozenset({"src", "scripts", "tests", "contracts", "strategies", "experiments",
                          "docs", ".github"})
 
@@ -32,6 +32,8 @@ def _allowed(name):
     path = Path(name)
     return (not path.is_absolute() and ".." not in path.parts and "\\" not in name
             and "\x00" not in name and "holdout" not in path.parts
+            and not any(p in {".env", ".ssh", ".aws", "secrets"} for p in path.parts)
+            and path.suffix.lower() not in {".key", ".pem", ".p12", ".pfx"}
             and (name in ROOT_FILES or (len(path.parts) > 1 and path.parts[0] in SOURCE_DIRS)))
 
 
@@ -59,6 +61,8 @@ def _hash(path):
 
 
 def _inventory(root, names):
+    if any(not (root / name).is_file() for name in names):
+        raise ValueError("candidate includes non-regular file")
     return {name: {"sha256": _hash(root / name),
                    "executable": bool((root / name).stat().st_mode & stat.S_IXUSR)}
             for name in names}
@@ -67,6 +71,8 @@ def _inventory(root, names):
 def build_candidate(root: Path, destination: Path, *, ledger_min: int, ledger_max: int,
                     rollback_release: str | None = None) -> dict:
     root, destination = Path(root).resolve(), Path(destination).absolute()
+    if any(p.is_symlink() for p in (destination, *destination.parents)):
+        raise ValueError("candidate destination symlink refused")
     if destination.is_relative_to(root) or "holdout" in destination.parts:
         raise ValueError("candidate destination must be independent of source and sealed data")
     if not 1 <= ledger_min <= ledger_max:
@@ -126,7 +132,7 @@ def build_candidate(root: Path, destination: Path, *, ledger_min: int, ledger_ma
 def verify_candidate(path: str | Path) -> dict:
     root = Path(path)
     try:
-        if root.is_symlink() or "holdout" in root.parts:
+        if any(p.is_symlink() for p in (root, *root.parents)) or "holdout" in root.parts:
             raise ValueError("protected/symlink candidate refused")
         manifest_path = root / "candidate.json"
         if manifest_path.is_symlink() or manifest_path.stat().st_size > 4 * 1024 * 1024:
@@ -137,7 +143,12 @@ def verify_candidate(path: str | Path) -> dict:
                     "verification", "release_id"}
         if set(manifest) != required or manifest["schema_version"] != 1 or manifest["authorized"] is not False:
             raise ValueError("unsupported candidate contract")
+        if (type(manifest["ledger_min"]) is not int or type(manifest["ledger_max"]) is not int
+                or not 1 <= manifest["ledger_min"] <= manifest["ledger_max"]):
+            raise ValueError("invalid ledger compatibility range")
         release_id = manifest["release_id"]
+        if root.name != release_id:
+            raise ValueError("candidate directory differs from its identity")
         if digest({k: v for k, v in manifest.items() if k != "release_id"}) != release_id:
             raise ValueError("candidate identity changed")
         names = sorted(manifest["inventory"])

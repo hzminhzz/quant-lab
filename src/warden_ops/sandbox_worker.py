@@ -26,7 +26,7 @@ def input_identity(root):
     return digest(rows)
 
 
-def run_worker(staged: Path, output: Path, limits: Resources) -> dict:
+def run_worker(staged: Path, output: Path, limits: Resources, *, cpu_ids=None) -> dict:
     staged, output = Path(staged).absolute(), Path(output).absolute()
     if output.exists() or staged == output or output.is_relative_to(staged):
         raise ValueError("worker requires independent new output")
@@ -53,7 +53,7 @@ def run_worker(staged: Path, output: Path, limits: Resources) -> dict:
             f"--fsize={limits.io_mb * 1024 * 1024}", "--",
             "/usr/bin/python3", "-I", "/input/program.py"]
     result = run_bounded(args, cwd=staged, env={"PATH": "/usr/bin:/bin"},
-                         output=output, limits=limits)
+                         output=output, limits=limits, cpu_ids=cpu_ids)
     if input_identity(staged) != input_sha256:
         result.update(state="FAILED", reason="staged input changed; output not admissible")
     return {**result, "input_sha256": input_sha256, "canonical_ledger_mounted": False,

@@ -698,7 +698,7 @@ def test_mcp_adapter_gains_no_data_build_authority_but_parses_its_real_output(
         [sys.executable, "-m", "warden.cli", "data", "build",
          "--spec", "contracts/datasets/spec_tracer.yaml", "--json"],
         cwd=repo, capture_output=True, text=True, check=False, timeout=300,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
     )
     assert proc.returncode == 0, proc.stderr
     assert "WARDEN_DATA_BUILD_COMPLETE" in proc.stdout

@@ -66,14 +66,15 @@ def source_path(root: Path, path: str | Path) -> Path:
     root = Path(root)
     target = root / path
     if not target.is_relative_to(root) or ".." in target.parts:
-        raise ValueError("protected or external input refused")
+        raise ValueError(f"protected or external input refused: {target.name}")
     parts = target.relative_to(root).parts
     # Python source can legitimately be named e.g. aaa_holdout.py. Dataset
     # trees (including holdout staging) are never code or preparation inputs.
     if (not parts or parts[0].lower() in {"data", "registry", "cache"}
             or any("holdout" in part.lower() for part in parts[:-1])
             or ("holdout" in parts[-1].lower() and target.suffix != ".py"
-                and parts != ("scripts", "lock_holdout_permissions.sh"))):
+                and parts not in {("scripts", "lock_holdout_permissions.sh"),
+                                  ("contracts", "holdout_exposure_policy.yaml")})):
         raise ValueError("protected or external input refused")
     current = root
     for part in parts:

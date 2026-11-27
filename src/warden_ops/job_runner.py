@@ -66,6 +66,9 @@ def _execute_claim(root, registry_path, job_id, queue, claim, fd):
         if any(p.is_symlink() for p in (output, *output.parents)):
             raise ValueError("job output symlink refused")
         output.mkdir(parents=True, exist_ok=False, mode=0o700)
+        cache = output / "numba-cache"
+        cache.mkdir(mode=0o700)
+        env["NUMBA_CACHE_DIR"] = str(cache)
         result = run_bounded(command, cwd=root, env=env, output=output, limits=limits, heartbeat=heartbeat,
                              cpu_ids=claim["details"]["cpu_ids"], ownership_fd=fd,
                              on_spawn=lambda identity: queue.register_worker(job_id, fence, identity))

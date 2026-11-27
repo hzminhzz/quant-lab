@@ -136,7 +136,12 @@ They are not a second supported release path.
    change another release or the shared package cache. The verification receipt
    binds the installed tree's actual file bytes, executable modes, import roots,
    interpreter bytes and package metadata, including unlisted files and bytecode.
-   Recompute this fingerprint at each health/admission check; do not substitute
+   After the frozen environment check, remove write permission from its regular
+   files and directories (do not follow interpreter symlinks). Never change a
+   previously installed environment in place. Verification attempts, foreground
+   commands and queued jobs use fresh private Numba cache directories outside
+   the installed environment, rather than excluding executable caches from the
+   fingerprint. Recompute this fingerprint at each health/admission check; do not substitute
    version metadata or a persistent stale proof. This adds measured I/O and does
    not establish integrity of every shared host OS library or base standard library.
 3. Use `warden appliance install --home HOME --source CHECKOUT --candidate CANDIDATE

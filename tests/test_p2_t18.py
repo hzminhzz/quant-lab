@@ -1022,7 +1022,7 @@ def test_cli_data_build_survives_the_real_subprocess_path(tmp_path: Path) -> Non
         text=True,
         check=False,
         timeout=300,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "PYTHONDONTWRITEBYTECODE": "1"},
     )
     assert proc.returncode == 0, proc.stderr
     assert "WARDEN_DATA_BUILD_COMPLETE" in proc.stdout

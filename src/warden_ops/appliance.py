@@ -350,6 +350,11 @@ class Appliance:
         # Synthetic approval fixtures establish their own context; no production state is mounted.
         env.pop("WARDEN_NON_INTERACTIVE", None)
         env, cleared = clean_test_environment(env)
+        # Numba's executable JIT cache must never mutate the installed tree.
+        # Each verification attempt owns a fresh private cache.
+        cache = attempt / "numba-cache"
+        cache.mkdir(mode=0o700)
+        env["NUMBA_CACHE_DIR"] = str(cache)
         python = self._python(release)
         before_environment = _environment(python)
         preflight = environment_preflight(python, source, env)
@@ -692,8 +697,10 @@ class Appliance:
                 return 0 if result["ok"] else 2
         env = self._env(root)
         env["QUANT_LAB_CALLER_ROOT"] = str(Path.cwd())
-        return subprocess.run([str(self._python(observed["release_id"])), "-m", "warden.cli", *argv], cwd=root,
-                              env=env, check=False).returncode
+        with tempfile.TemporaryDirectory(prefix="warden-jit-") as cache:
+            env["NUMBA_CACHE_DIR"] = cache
+            return subprocess.run([str(self._python(observed["release_id"])), "-m", "warden.cli", *argv], cwd=root,
+                                  env=env, check=False).returncode
 
 
 def _local_probe(appliance, release, *, manifest=None):

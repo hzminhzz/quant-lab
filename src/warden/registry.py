@@ -404,6 +404,52 @@ class ResearchRegistry:
                 self.schema_version = SCHEMA_VERSION
             self._reconcile_legacy(conn)
 
+    def execution_hypothesis(self, hypothesis_id, contract_id, family):
+        """Hydrate and validate the frozen subject used by every scientific operation."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM hypotheses WHERE hypothesis_id=?", (hypothesis_id,)
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"Hypothesis '{hypothesis_id}' not found.")
+        if family != row["strategy_family"]:
+            raise ValueError(
+                f"Experiment spec strategy_family '{family}' does not match registered "
+                f"hypothesis family '{row['strategy_family']}'.")
+        if contract_id != row["contract_id"]:
+            raise ValueError("Experiment spec contract does not match registered hypothesis")
+        values = {field.name: row[field.name] for field in fields(HypothesisSpec)}
+        values["expected_holding_bars"] = int(values["expected_holding_bars"])
+        return HypothesisSpec(**values), int(row["trials_used"]), str(row["status"])
+
+    def read_research_intent(self, hypothesis_id):
+        """Read the original frozen document without resolving or approving it again."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT intent_json FROM research_intents WHERE hypothesis_id=?", (hypothesis_id,)
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def reconcile_control_request(self, request_id):
+        """Resolve the original request's frozen domain link; never import a current spec."""
+        record = self.control_request(request_id)
+        if record is None:
+            return None
+        if record["kind"] == "trial":
+            self.reconcile_attempt(record["operation_id"], confirm_interrupted=True)
+        elif record["kind"] == "screen":
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT hypothesis_id,contract_id,strategy_module,parameters_json "
+                    "FROM screen_receipts WHERE screen_key=?", (record["operation_id"],)
+                ).fetchone()
+            if row is not None:
+                self.reconcile_screen(*row[:3], json.loads(row[3]), confirm_interrupted=True)
+        else:
+            self.record_control_error(
+                request_id, "interrupted before domain link; no scientific reservation")
+        return self.control_request(request_id)
+
     def control_dependencies(self, hypothesis_id):
         with self._connect() as conn:
             conn.execute("BEGIN")
@@ -1314,17 +1360,23 @@ class ResearchRegistry:
             return rows[0][0], tuple(rows[0][1:])
         return key, None
 
-    def screen_status(self, hypothesis_id, contract_id, strategy_module, parameters) -> dict:
-        with self._connect() as conn:
-            key, row = self._screen_receipt_for_spec(
-                conn, hypothesis_id, contract_id, strategy_module, parameters)
-            attempt = conn.execute("SELECT outcome FROM selection_attempts WHERE attempt_id=?", (row[1],)).fetchone() if row and row[1] else None
+    def _screen_status(self, conn, hypothesis_id, contract_id, strategy_module, parameters) -> dict:
+        key, row = self._screen_receipt_for_spec(
+            conn, hypothesis_id, contract_id, strategy_module, parameters)
+        attempt = conn.execute(
+            "SELECT outcome FROM selection_attempts WHERE attempt_id=?", (row[1],)
+        ).fetchone() if row and row[1] else None
         state = row[0] if row else "UNSEEN"
         if state == "FINALIZED" and attempt is None:
             state = "EVIDENCE_DRIFT"
         return {"screen_key": key, "state": state, "attempt_id": row[1] if row else "",
                 "outcome": attempt[0] if attempt else None, "data_sha256": row[2] if row else "",
                 "retry_allowed": state == "UNSEEN"}
+
+    def screen_status(self, hypothesis_id, contract_id, strategy_module, parameters) -> dict:
+        with self._connect() as conn:
+            return self._screen_status(
+                conn, hypothesis_id, contract_id, strategy_module, parameters)
 
     def reconcile_screen(self, hypothesis_id, contract_id, strategy_module, parameters, *,
                          confirm_interrupted: bool = False) -> dict:
@@ -1367,197 +1419,95 @@ class ResearchRegistry:
                 "retry_allowed": state == "UNSEEN"}
 
     def spec_status(self, hypothesis_id, contract_id, strategy_module, parameters) -> dict:
-        """One read-only projection for queue restart, without running research."""
-        module, config = normalise_module(strategy_module), canonical_json(parameters or {})
-        config_hash = hashlib.sha256(config.encode()).hexdigest()[:12]
-        screen = self.screen_status(hypothesis_id, contract_id, module, parameters)
+        """Project the lifecycle and reconcile the original trial artifact before advancement."""
+        return self._spec_status(
+            hypothesis_id, contract_id, strategy_module, parameters, verify_artifacts=True)
+
+    def read_screen_status(self, hypothesis_id, contract_id, strategy_module,
+                           parameters) -> ScreenStatusView:
+        return self.screen_status(hypothesis_id, contract_id, strategy_module, parameters)
+
+    def read_spec_status(self, hypothesis_id, contract_id, strategy_module,
+                         parameters) -> SpecStatusView:
+        """Metadata-only lifecycle view; never opens Parquet or grants artifact eligibility."""
+        return self._spec_status(
+            hypothesis_id, contract_id, strategy_module, parameters, verify_artifacts=False)
+
+    def _spec_status(self, hypothesis_id, contract_id, strategy_module, parameters, *,
+                     verify_artifacts: bool) -> dict:
+        module = normalise_module(strategy_module)
+        config_hash = hashlib.sha256(canonical_json(parameters or {}).encode()).hexdigest()[:12]
         with self._connect() as conn:
-            hyp_row = conn.execute(
+            # One WAL snapshot prevents combining different committed operation states.
+            conn.execute("BEGIN")
+            screen = self._screen_status(
+                conn, hypothesis_id, contract_id, module, parameters)
+            hyp = conn.execute(
                 "SELECT status,trials_used FROM hypotheses WHERE hypothesis_id=?",
                 (hypothesis_id,),
             ).fetchone()
-            trial = conn.execute("""SELECT run_id,verdict FROM trials WHERE hypothesis_id=? AND
-                                   contract_id=? AND strategy_module=? AND config_hash=?
-                                   ORDER BY created_at DESC LIMIT 1""",
-                                 (hypothesis_id, contract_id, module, config_hash)).fetchone()
-            pending = conn.execute("""SELECT run_id,state FROM attempt_receipts WHERE
-                                      hypothesis_id=? AND contract_id=? AND state!='FINALIZED'
-                                      ORDER BY reserved_at DESC LIMIT 1""",
-                                   (hypothesis_id, contract_id)).fetchone()
-            audit_row = (
-                conn.execute(
-                    "SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
-                    (trial[0],),
-                ).fetchone()
-                if trial
-                else None
-            )
-        hyp_registered = hyp_row is not None
-        hyp_status = hyp_row[0] if hyp_row else None
-        hyp_trials_used = int(hyp_row[1]) if hyp_row else 0
-        audit_verdict = audit_row[0] if audit_row else None
+            trial = conn.execute(
+                "SELECT t.run_id,t.verdict,r.state FROM trials t "
+                "LEFT JOIN attempt_receipts r ON r.run_id=t.run_id "
+                "WHERE t.hypothesis_id=? AND t.contract_id=? AND t.strategy_module=? "
+                "AND t.config_hash=? ORDER BY t.created_at DESC LIMIT 1",
+                (hypothesis_id, contract_id, module, config_hash),
+            ).fetchone()
+            pending = conn.execute(
+                "SELECT run_id,state FROM attempt_receipts WHERE hypothesis_id=? "
+                "AND contract_id=? AND state!='FINALIZED' ORDER BY reserved_at DESC LIMIT 1",
+                (hypothesis_id, contract_id),
+            ).fetchone()
+            audit = conn.execute(
+                "SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
+                (trial[0],),
+            ).fetchone() if trial else None
+            closure = terminal.read(conn, hypothesis_id)
         base = {
-            "hypothesis_registered": hyp_registered,
-            "hypothesis_status": hyp_status,
-            "hypothesis_trials_used": hyp_trials_used,
-            "audit_verdict": audit_verdict,
-            "receipt_state": None,
+            "hypothesis_registered": hyp is not None,
+            "hypothesis_status": hyp[0] if hyp else None,
+            "hypothesis_trials_used": int(hyp[1]) if hyp else 0,
+            "audit_verdict": audit[0] if audit else None,
+            "receipt_state": None if verify_artifacts else (trial[2] if trial else None),
             "screen": screen,
         }
-        closure = self.terminal_status(hypothesis_id)
+        if not verify_artifacts:
+            base.update(evidence_verified=False, run_id=None, verdict=None)
         if closure:
             return {**base, "hypothesis_status": closure["status"],
                     "state": "HYPOTHESIS_TERMINAL", "reason": closure["reason"],
                     "terminal": closure, "run_id": None}
         if pending:
-            return {
-                **base,
-                "state": "REQUIRES_RECONCILIATION",
-                "reason": f"trial {pending[0]} is {pending[1]}",
-                "run_id": pending[0],
-                "receipt_state": pending[1],
-            }
-        if trial:
-            receipt = self.reconcile_attempt(trial[0])
-            base["receipt_state"] = receipt["state"]
-            if receipt["state"] != "FINALIZED" or trial[1] == "FAILED":
-                return {
-                    **base,
-                    "state": "REQUIRES_RECONCILIATION",
-                    "reason": receipt["reason"] or f"trial {trial[1]}",
-                    "run_id": trial[0],
-                }
-            if trial[1] == "REJECTED_EARLY":
-                return {
-                    **base,
-                    "state": "STAGE1_REJECT",
-                    "reason": "immutable early-rejection trial recorded",
-                    "run_id": trial[0],
-                    "verdict": trial[1],
-                }
-            if trial[1] == "CANDIDATE_FOR_QUALIFICATION" and audit_verdict is None:
-                return {
-                    **base,
-                    "state": "STAGE3_CANDIDATE_UNAUDITED",
-                    "reason": "finalized candidate trial awaiting six-check audit",
-                    "run_id": trial[0],
-                    "verdict": trial[1],
-                }
-            return {
-                **base,
-                "state": "STAGE3_FINAL",
-                "reason": "immutable Warden trial recorded",
-                "run_id": trial[0],
-                "verdict": trial[1],
-            }
-        if screen["state"] == "FINALIZED":
-            if screen["outcome"] == "PASS":
-                state = "STAGE1_PASS"
-            elif screen["outcome"] == "REJECT":
-                state = "STAGE1_REJECT"
-            else:
-                state = "REQUIRES_RECONCILIATION"
-        elif screen["state"] == "UNSEEN":
-            state = "NEW"
-        else:
-            state = "REQUIRES_RECONCILIATION"
-        return {**base, "state": state, "reason": screen["state"], "run_id": None}
-
-    # --- typed, write-free read API for preflight/campaign/closure consumers ----
-
-    def read_screen_status(self, hypothesis_id, contract_id, strategy_module,
-                           parameters) -> ScreenStatusView:
-        """Stage 1 receipt projection built only from SELECTs."""
-        return self.screen_status(hypothesis_id, contract_id, strategy_module, parameters)
-
-    def read_spec_status(self, hypothesis_id, contract_id, strategy_module,
-                         parameters) -> SpecStatusView:
-        """Write-free spec projection for consumers that must not take a writer lock.
-
-        Unlike :meth:`spec_status` this never opens a Parquet artifact and never
-        reconciles it, so ``evidence_verified`` is always ``False``: a caller that needs
-        byte-level evidence proof must still call :meth:`spec_status`/``reconcile_attempt``.
-        """
-        module = normalise_module(strategy_module)
-        config_hash = hashlib.sha256(canonical_json(parameters or {}).encode()).hexdigest()[:12]
-        screen = self.read_screen_status(hypothesis_id, contract_id, module, parameters)
-        with self._connect() as conn:
-            hyp_row = conn.execute(
-                "SELECT status,trials_used FROM hypotheses WHERE hypothesis_id=?",
-                (hypothesis_id,),
-            ).fetchone()
-            trial = conn.execute(
-                """SELECT run_id,verdict FROM trials WHERE hypothesis_id=? AND
-                   contract_id=? AND strategy_module=? AND config_hash=?
-                   ORDER BY created_at DESC LIMIT 1""",
-                (hypothesis_id, contract_id, module, config_hash),
-            ).fetchone()
-            pending = conn.execute(
-                """SELECT run_id,state FROM attempt_receipts WHERE
-                   hypothesis_id=? AND contract_id=? AND state!='FINALIZED'
-                   ORDER BY reserved_at DESC LIMIT 1""",
-                (hypothesis_id, contract_id),
-            ).fetchone()
-            audit_row = (
-                conn.execute(
-                    "SELECT verdict FROM audit_evidence WHERE run_id=? ORDER BY created_at DESC LIMIT 1",
-                    (trial[0],),
-                ).fetchone()
-                if trial
-                else None
-            )
-            receipt_state = (
-                conn.execute(
-                    "SELECT state FROM attempt_receipts WHERE run_id=?", (trial[0],)
-                ).fetchone()
-                if trial
-                else None
-            )
-        base: SpecStatusView = {
-            "hypothesis_registered": hyp_row is not None,
-            "hypothesis_status": hyp_row[0] if hyp_row else None,
-            "hypothesis_trials_used": int(hyp_row[1]) if hyp_row else 0,
-            "audit_verdict": audit_row[0] if audit_row else None,
-            "receipt_state": (receipt_state[0] if receipt_state else None),
-            "screen": screen,
-            "evidence_verified": False,
-            "run_id": None,
-            "verdict": None,
-        }
-        closure = self.terminal_status(hypothesis_id)
-        if closure:
-            return {**base, "hypothesis_status": closure["status"],
-                    "state": "HYPOTHESIS_TERMINAL", "reason": closure["reason"],
-                    "terminal": closure}
-        if pending:
             return {**base, "state": "REQUIRES_RECONCILIATION",
                     "reason": f"trial {pending[0]} is {pending[1]}",
                     "run_id": pending[0], "receipt_state": pending[1]}
         if trial:
-            verdict = trial[1]
-            if base["receipt_state"] != "FINALIZED" or verdict == "FAILED":
-                return {**base, "state": "REQUIRES_RECONCILIATION",
-                        "reason": f"attempt receipt {base['receipt_state']} for {trial[0]}",
-                        "run_id": trial[0], "verdict": verdict}
+            run_id, verdict, recorded_state = trial
+            receipt = self.reconcile_attempt(run_id) if verify_artifacts else {
+                "state": recorded_state,
+                "reason": f"attempt receipt {recorded_state} for {run_id}",
+            }
+            base["receipt_state"] = receipt["state"]
+            if receipt["state"] != "FINALIZED" or verdict == "FAILED":
+                result = {**base, "state": "REQUIRES_RECONCILIATION",
+                          "reason": receipt["reason"] or f"trial {verdict}", "run_id": run_id}
+                if not verify_artifacts:
+                    result["verdict"] = verdict
+                return result
             if verdict == "REJECTED_EARLY":
-                return {**base, "state": "STAGE1_REJECT",
-                        "reason": "immutable early-rejection trial recorded",
-                        "run_id": trial[0], "verdict": verdict}
-            if verdict == "CANDIDATE_FOR_QUALIFICATION" and base["audit_verdict"] is None:
-                return {**base, "state": "STAGE3_CANDIDATE_UNAUDITED",
-                        "reason": "finalized candidate trial awaiting six-check audit",
-                        "run_id": trial[0], "verdict": verdict}
-            return {**base, "state": "STAGE3_FINAL",
-                    "reason": "immutable Warden trial recorded",
-                    "run_id": trial[0], "verdict": verdict}
+                state, reason = "STAGE1_REJECT", "immutable early-rejection trial recorded"
+            elif verdict == "CANDIDATE_FOR_QUALIFICATION" and base["audit_verdict"] is None:
+                state, reason = ("STAGE3_CANDIDATE_UNAUDITED",
+                                 "finalized candidate trial awaiting six-check audit")
+            else:
+                state, reason = "STAGE3_FINAL", "immutable Warden trial recorded"
+            return {**base, "state": state, "reason": reason, "run_id": run_id, "verdict": verdict}
         if screen["state"] == "FINALIZED":
             state = {"PASS": "STAGE1_PASS", "REJECT": "STAGE1_REJECT"}.get(
-                str(screen["outcome"]), "REQUIRES_RECONCILIATION")
-        elif screen["state"] == "UNSEEN":
-            state = "NEW"
+                screen["outcome"], "REQUIRES_RECONCILIATION")
         else:
-            state = "REQUIRES_RECONCILIATION"
-        return {**base, "state": state, "reason": screen["state"]}
+            state = "NEW" if screen["state"] == "UNSEEN" else "REQUIRES_RECONCILIATION"
+        return {**base, "state": state, "reason": screen["state"], "run_id": None}
 
     def read_holdout_claim(self, lineage_id: str) -> HoldoutClaimView | None:
         """The durable one-shot claim, or ``None``; never writes or releases it."""

@@ -486,6 +486,7 @@ def test_advance_pending_leases_per_spec_and_unblocks_between_specs(
             contract_id=fx.contract.contract_id,
             module_rel="strategies/candidates/t15_lease_legacy.py",
         )
+    (fx.repo / "docs/research-outcomes/branch-result-index-v1.json").unlink()
     # Third spec must register its hypothesis (a mutation) before blocking on a missing
     # research-outcome index, which is the cheapest honest mutating path.
     _write_spec_yaml(
@@ -520,19 +521,22 @@ def test_advance_pending_leases_per_spec_and_unblocks_between_specs(
 
     probed: list[str] = []
     acquired: list[str] = []
-    real_advance = cli._advance_one_spec
-    real_lease = cli._advance_mutation_lease
+    from warden import lease as lease_module
+    from warden.runner import ExperimentRunner
 
-    def spy_advance(spec_path, runner, **kwargs):
+    real_advance = ExperimentRunner.advance_spec
+    real_lease = lease_module.mutation_lease
+
+    def spy_advance(runner, spec_path, **kwargs):
         probed.append(_probe_free())
-        return real_advance(spec_path, runner, **kwargs)
+        return real_advance(runner, spec_path, **kwargs)
 
-    def spy_lease(runner):
-        acquired.append(str(lease_path(Path(runner.repo_root) / "registry" / "registry.db")))
-        return real_lease(runner)
+    def spy_lease(db_path):
+        acquired.append(str(lease_path(db_path)))
+        return real_lease(db_path)
 
-    monkeypatch.setattr(cli, "_advance_mutation_lease", spy_lease)
-    monkeypatch.setattr(cli, "_advance_one_spec", spy_advance)
+    monkeypatch.setattr(lease_module, "mutation_lease", spy_lease)
+    monkeypatch.setattr(ExperimentRunner, "advance_spec", spy_advance)
 
     rc = cli.main(["advance", "--pending", "--json"])
     payload = _pending_payload(capsys)

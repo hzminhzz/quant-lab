@@ -27,8 +27,8 @@ This index changes no permissions or scientific rules.
 | Principal decisions | Objectives, scientific policy, protected authority | Reviewable effects and their evidence |
 | Data resolution | Semantic requirements, pinned artifacts, policy-derived contracts | Actual lake metadata and immutable policy |
 | Research governance | Intent, conformance, novelty, candidate/lineage allowance, selection debt and exposure | Data/code identities and prior evidence |
-| Scientific evaluation | Causal execution and frozen statistical/robustness/comparative tests | Admitted frozen candidates and ML4T |
-| Evidence | Durable records/artifacts and their provenance | Finalized effects; no speculative approvals |
+| Scientific evaluation | `ExperimentRunner` owns verify/screen/trial/audit and idempotent `advance_spec`; `EvaluationKernel` owns native execution | One prepared frozen subject, existing gates and ML4T |
+| Evidence | `ResearchRegistry` owns admission, publication, lifecycle projection and frozen-request recovery | Original receipts; metadata-only reads never attest artifact integrity |
 | Agent control | Situation, plans, action/receipt interface, continuation and resource coordination | Existing domain rules; never another scientific ledger |
 | Trusted appliance | Verified immutable runtime, additive migration and recovery | Exact candidates, full verification, observed writer state; no scientific approval |
 

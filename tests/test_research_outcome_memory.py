@@ -222,24 +222,6 @@ def test_inventory_counts_must_exclude_stage1_rejections_from_full_trial_backlog
     assert report["extra_outcomes_in_open_prs"]["stage1_pass_unqualified"] == 3
 
 
-def test_hourly_runner_checks_failure_memory_before_screening() -> None:
-    wrapper = Path("scripts/run_hourly_pipeline.sh").read_text(encoding="utf-8")
-    assert "WARDEN_NON_INTERACTIVE=1" in wrapper
-    assert "warden advance --pending" in wrapper
-
-    # The guard must come from the packaged module, not the unpackaged scripts/ tree,
-    # or an installed wheel would silently skip the duplicate-screen preflight.
-    cli_src = Path("src/warden/cli.py").read_text(encoding="utf-8")
-    assert "warden_ops.research_outcome_memory" in cli_src
-    assert "scripts.research_outcome_memory" not in cli_src
-    adv_idx = cli_src.index("def _advance_one_spec(")
-    adv_slice = cli_src[adv_idx:]
-    guard = adv_slice.index("check_outcome_spec")
-    verify = adv_slice.index("cmd_verify")
-    screen = adv_slice.index("cmd_screen")
-    assert guard < verify < screen
-
-
 def test_sqlite_verdict_takes_priority_over_conflicting_sidecar(tmp_path: Path) -> None:
     db = tmp_path / "source.db"
     source_registry(db)

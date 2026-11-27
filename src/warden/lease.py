@@ -35,8 +35,8 @@ def lease_path(db_path: Path) -> Path:
 def mutation_lease(db_path: Path) -> Iterator[None]:
     """Admit a single registry mutation, or raise without waiting or retrying.
 
-    Deliberately non-reentrant: scheduler and adapters must call the CLI without
-    holding this lease themselves. Never unlink a lockfile after releasing it.
+    Deliberately non-reentrant: callers must not pre-acquire the lease when an
+    operation owns it. Never unlink a lockfile after releasing it.
     """
     lock = lease_path(db_path)
     lock.parent.mkdir(parents=True, exist_ok=True)

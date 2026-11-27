@@ -299,17 +299,17 @@ def test_deleted_dead_surfaces_and_centralized_gate_constants() -> None:
                         f"Stale import warden.runner.load_module_from_path in {p.relative_to(REPO_ROOT)}"
                     )
 
-    # Verify FeaturePipeline fallback removed from cli.cmd_verify
-    cli_tree = ast.parse(Path(cli.__file__).read_text(encoding="utf-8"))
-    cmd_verify_fn = next(
-        n for n in cli_tree.body if isinstance(n, ast.FunctionDef) and n.name == "cmd_verify"
+    # Scientific verification must never invent a fallback feature pipeline.
+    runner_tree = ast.parse(Path(runner.__file__).read_text(encoding="utf-8"))
+    verify_fn = next(
+        n for n in ast.walk(runner_tree) if isinstance(n, ast.FunctionDef) and n.name == "verify_spec"
     )
     verify_consts = {
-        n.value for n in ast.walk(cmd_verify_fn) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+        n.value for n in ast.walk(verify_fn) if isinstance(n, ast.Constant) and isinstance(n.value, str)
     }
     assert "FeaturePipeline" not in verify_consts
 
-    # Verify runner.py, cli.py, qualify.py use centralized gates constants without bare threshold literals
+    # Scientific owners use central gate constants, never local threshold copies.
     def _func_names_and_compare_floats(mod_path: Path, fn_name: str) -> tuple[set[str], set[float]]:
         tree = ast.parse(mod_path.read_text(encoding="utf-8"))
         fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == fn_name)
@@ -333,9 +333,9 @@ def test_deleted_dead_surfaces_and_centralized_gate_constants() -> None:
     assert {"MIN_SR", "REVISE_SR_FLOOR", "SR2_FLOOR", "SRD_FLOOR", "DSR_FLOOR", "IC_T_FLOOR", "TRIMMED_SHARPE_FLOOR"} <= runner_names
     assert runner_floats.isdisjoint({0.5, 0.7, 0.8, 0.9, 1.0, 1.2, 2.0, -0.001, 0.0})
 
-    cli_names, cli_floats = _func_names_and_compare_floats(Path(cli.__file__), "cmd_audit_check")
-    assert {"TRIMMED_SHARPE_FLOOR", "SR2_FLOOR", "SRD_FLOOR", "AUDIT_DSR_FLOOR"} <= cli_names
-    assert cli_floats.isdisjoint({0.5, 0.7, 0.8, 0.9, 1.0, 1.2, 2.0, -0.001, 0.0})
+    audit_names, audit_floats = _func_names_and_compare_floats(Path(runner.__file__), "audit_run")
+    assert {"TRIMMED_SHARPE_FLOOR", "SR2_FLOOR", "SRD_FLOOR", "AUDIT_DSR_FLOOR"} <= audit_names
+    assert audit_floats.isdisjoint({0.5, 0.7, 0.8, 0.9, 1.0, 1.2, 2.0, -0.001, 0.0})
 
     qual_names, qual_floats = _func_names_and_compare_floats(Path(qualify.__file__), "qualify_candidate")
     assert {"HOLDOUT_SR_FLOOR", "HOLDOUT_RATIO_FLOOR"} <= qual_names

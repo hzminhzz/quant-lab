@@ -249,6 +249,62 @@ def test_verification_ignores_inherited_test_selection(installed, monkeypatch):
     assert xml.read_bytes() == original_bytes  # A new verification must retain the old evidence.
 
 
+
+def test_pause_preserves_linked_timer_definition_without_enabling_it(installed, monkeypatch):
+    import warden_ops.appliance as module
+
+    appliance, _release, db = installed
+    timer, service = "fixture-writer.timer", "fixture-writer.service"
+    definition = appliance.home.parent / timer
+    definition.write_text("[Timer]\nOnActiveSec=1h\n")
+    link = appliance.home / timer
+    link.symlink_to(definition)
+    appliance.config["writer_units"] = [timer, service]
+    state = {"enabled": True, "active": "active"}
+    calls = []
+
+    def systemctl(argv, **kwargs):
+        assert argv[:2] == ["systemctl", "--user"]
+        calls.append(argv[2:])
+        action = argv[2]
+        if action == "show":
+            unit = argv[3]
+            loaded = unit == service or link.exists()
+            if "--value" in argv:
+                return "loaded" if loaded else "not-found"
+            values = {"LoadState": "loaded" if loaded else "not-found",
+                      "ActiveState": "inactive" if unit == service else state["active"],
+                      "MainPID": "0", "UnitFileState": "enabled" if unit == timer and state["enabled"] else "linked",
+                      "FragmentPath": str(link) if unit == timer and loaded else ""}
+            return "\n".join(f"{key}={value}" for key, value in values.items())
+        if action == "disable":
+            assert argv[3:] == ["--now", timer]
+            state.update(enabled=False, active="failed")
+            link.unlink()  # systemd removes a user-linked unit definition as well as enablement.
+            return ""
+        if action == "link":
+            assert argv[3:] == [str(definition)]
+            link.symlink_to(definition)
+            return ""
+        if action == "reset-failed":
+            assert argv[3:] == [timer]
+            state["active"] = "inactive"
+            return ""
+        raise AssertionError(argv)
+
+    before = history(db)
+    monkeypatch.setattr(module, "_command", systemctl)
+    paused = appliance.pause_writers()
+    assert paused["quiescent"] is True
+    assert paused["restored_unit_links"] == [timer]
+    assert paused["after"][timer]["LoadState"] == "loaded"
+    assert paused["after"][timer]["ActiveState"] == "inactive"
+    assert not state["enabled"]
+    assert definition.read_text() == "[Timer]\nOnActiveSec=1h\n"
+    assert not any(call[0] in {"start", "enable", "stop"} for call in calls)
+    assert history(db) == before
+
+
 def test_legacy_writer_lock_also_prevents_migration(installed):
     import fcntl
 

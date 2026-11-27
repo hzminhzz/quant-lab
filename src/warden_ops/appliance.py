@@ -358,7 +358,7 @@ class Appliance:
         result = {}
         for unit in self.config["writer_units"]:
             raw = _command(["systemctl", "--user", "show", unit, "-p", "LoadState", "-p", "ActiveState",
-                            "-p", "MainPID", "-p", "UnitFileState"])
+                            "-p", "MainPID", "-p", "UnitFileState", "-p", "FragmentPath"])
             value = dict(line.split("=", 1) for line in raw.splitlines() if "=" in line)
             if value.get("LoadState") != "loaded":
                 raise ValueError("configured writer unit unavailable: " + unit)
@@ -370,11 +370,32 @@ class Appliance:
         self._append("writers-pause-intent", "configured-writers", before)
         # Timers first; stopping a running service is allowed only after it exits naturally.
         timers = [unit for unit in self.config["writer_units"] if unit.endswith(".timer")]
+        definitions, restored = {}, []
+        for unit in timers:
+            fragment = before[unit].get("FragmentPath")
+            if not fragment:
+                raise ValueError("configured timer definition unavailable: " + unit)
+            target = Path(fragment).resolve(strict=True)
+            if not target.is_file():
+                raise ValueError("configured timer definition is not a file: " + unit)
+            definitions[unit] = (target, file_sha256(target))
         if timers:
             _command(["systemctl", "--user", "disable", "--now", *timers])
+        for unit, (target, sha256) in definitions.items():
+            # disable also removes externally linked unit definitions on this host.
+            # Restore the same definition, without recreating enablement or starting it.
+            if _command(["systemctl", "--user", "show", unit, "-p", "LoadState", "--value"]) == "not-found":
+                if file_sha256(target) != sha256:
+                    raise ValueError("timer definition changed while pausing: " + unit)
+                _command(["systemctl", "--user", "link", str(target)])
+                _command(["systemctl", "--user", "reset-failed", unit])
+                self._append("writer-unit-link-restored", unit,
+                             {"definition": str(target), "sha256": sha256, "enabled": False})
+                restored.append(unit)
         after = self.writer_state()
         self._append("writers-observed", "configured-writers", after)
-        return {"before": before, "after": after, "quiescent": self._quiescent(after)}
+        return {"before": before, "after": after, "quiescent": self._quiescent(after),
+                "restored_unit_links": restored}
 
     @staticmethod
     def _quiescent(state):

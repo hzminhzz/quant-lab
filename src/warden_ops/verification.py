@@ -12,15 +12,19 @@ import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-WITNESS = (
+WITNESSES = (
     "tests/test_ticket07_engine_cutover.py::"
-    "test_falsifier_2_stage1_100_assets_20k_bars_sub5s_and_engine_free"
+    "test_falsifier_2_stage1_100_assets_20k_bars_sub5s_and_engine_free",
+    "tests/test_warden_leakage.py::test_content_addressed_feature_cache_hit_speed",
 )
 
 
 def clean_test_environment(env):
     """Remove inherited selectors and external plugin autoload; pin worker resources."""
-    cleared = sorted(key for key in env if key.startswith("PYTEST_"))
+    cleared = sorted(key for key in env if key.startswith("PYTEST_") or key in {
+        "WARDEN_HUMAN_SIGNING_KEY", "WARDEN_ADMISSION_HMAC_KEY",
+        "QUANT_LAB_APPLIANCE_HOME", "QUANT_LAB_CALLER_ROOT", "WARDEN_TEST_FIXTURE_ROOT",
+    })
     clean = {key: value for key, value in env.items() if key not in cleared}
     clean.update(PYTEST_DISABLE_PLUGIN_AUTOLOAD="1", POLARS_MAX_THREADS="2",
                  OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1")
@@ -123,9 +127,9 @@ def collect_inventory(base, source, env, attempt):
     nodes = json.loads(selection.read_text()) if selection.is_file() else []
     total = re.search(r"(\d+) tests? collected", proc.stdout)
     if (proc.returncode or not total or len(nodes) != int(total.group(1))
-            or len(set(nodes)) != len(nodes) or WITNESS not in nodes
+            or len(set(nodes)) != len(nodes) or not set(WITNESSES) <= set(nodes)
             or any(not node.startswith("tests/") for node in nodes)):
-        raise ValueError("full test collection is empty, narrowed, invalid, or missing the Stage 1 witness")
+        raise ValueError("full test collection is empty, narrowed, invalid, or missing required performance witnesses")
     return nodes
 
 
@@ -146,13 +150,13 @@ def fast_source_checks(python, source, env):
 
 
 def selection_matches(attempt, nodes):
-    expected = set(nodes) - {WITNESS}
+    expected = set(nodes) - set(WITNESSES)
     selected = list(attempt.glob("suite-selection-gw*.json"))
     witness = attempt / "witness-selection-controller.json"
     return (len(selected) == 4
             and all(sorted(json.loads(path.read_text())) == sorted(expected)
                     for path in selected)
-            and witness.is_file() and json.loads(witness.read_text()) == [WITNESS])
+            and witness.is_file() and json.loads(witness.read_text()) == list(WITNESSES))
 
 
 def run_suite(argv, source, env, log_path):

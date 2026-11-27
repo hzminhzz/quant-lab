@@ -20,12 +20,22 @@ def test_development_cli_refuses_linked_stale_ledger_before_migration(tmp_path, 
     root.mkdir()
     (root / "registry").symlink_to(canonical, target_is_directory=True)
     monkeypatch.chdir(root)
+    monkeypatch.setenv("WARDEN_TEST_FIXTURE_ROOT", str(root))
     assert main(["register-hypothesis", "absent.md", "--json"]) == 2
     assert "installed appliance" in capsys.readouterr().err
     with sqlite3.connect(db) as conn:
         assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION - 1
         assert conn.execute("SELECT value FROM history").fetchall() == [("retain",)]
         assert conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall() == [("history",)]
+
+
+def test_fixture_marker_does_not_exempt_git_checkout(tmp_path, monkeypatch, capsys):
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("WARDEN_TEST_FIXTURE_ROOT", str(tmp_path))
+    assert main(["register-hypothesis", "absent.md", "--json"]) == 2
+    assert "installed appliance" in capsys.readouterr().err
+    assert not (tmp_path / "registry" / "registry.db").exists()
 
 
 def test_cli_refuses_incompatible_unlinked_existing_ledger(tmp_path, monkeypatch, capsys):

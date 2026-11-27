@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -123,9 +124,9 @@ def test_env_manifest_validity_and_imports() -> None:
 
 
 def test_warden_cli_version_entrypoint() -> None:
-    """Verify uv run warden --version prints 'warden 0.1.0' and exits 0."""
+    """Verify the locked environment's installed warden console script and version."""
     result = subprocess.run(
-        ["uv", "run", "warden", "--version"],
+        [str(Path(sys.executable).parent / "warden"), "--version"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -139,9 +140,9 @@ def test_warden_cli_version_entrypoint() -> None:
 
 
 def test_warden_cli_help_entrypoint() -> None:
-    """Verify uv run warden --help displays usage and exits 0."""
+    """Verify the locked environment's installed warden console script displays usage."""
     result = subprocess.run(
-        ["uv", "run", "warden", "--help"],
+        [str(Path(sys.executable).parent / "warden"), "--help"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,

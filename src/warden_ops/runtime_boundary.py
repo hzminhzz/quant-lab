@@ -35,9 +35,18 @@ def require_mutation_context(root: Path, db_path: Path) -> None:
     # A source checkout is for engineering. A linked ledger is not a scratch
     # fixture, even if it happens to have a compatible schema. Also refuse an
     # explicit path into a real source checkout, regardless of the caller root.
-    elif (db.resolve() != db or (root / "src/warden/registry.py").is_file()
-          or (db.parent.parent / "src/warden/registry.py").is_file()):
-        raise ValueError("operational mutations require the installed appliance; use an isolated scratch fixture")
+    else:
+        owners = (root, db.parent.parent)
+        copied_source = any((owner / "src/warden/registry.py").is_file() for owner in owners)
+        fixture_root = os.environ.get("WARDEN_TEST_FIXTURE_ROOT")
+        isolated_fixture = (fixture_root is not None and Path(fixture_root).resolve() == root
+                            and db.is_relative_to(root)
+                            and not any((root / name).is_symlink()
+                                        for name in ("registry", "data", "cache", ".workspace")))
+        if (db.resolve() != db
+                or any((owner / ".git").exists() or (owner / ".git").is_symlink() for owner in owners)
+                or (copied_source and not isolated_fixture)):
+            raise ValueError("operational mutations require the installed appliance; use an isolated scratch fixture")
     if db.is_file():
         schema = ResearchRegistry(db, readonly=True).schema_version
         if schema != SCHEMA_VERSION:

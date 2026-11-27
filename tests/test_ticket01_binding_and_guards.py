@@ -177,6 +177,7 @@ def test_full_funnel_code_closure_binding_and_drift_fail_closed(
     generate_manifest(repo)
 
     monkeypatch.chdir(repo)
+    monkeypatch.setenv("WARDEN_TEST_FIXTURE_ROOT", str(repo))
     monkeypatch.delenv("WARDEN_NON_INTERACTIVE", raising=False)
 
     def _run_funnel(hyp_id: str, run_id: str, strat_rel: str) -> None:

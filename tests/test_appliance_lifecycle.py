@@ -59,6 +59,8 @@ def installed(tmp_path, request):
         "    Path(\"registry\").mkdir(exist_ok=True)\n"
         "    with sqlite3.connect(\"registry/registry.db\") as conn:\n"
         "        conn.execute(\"CREATE TABLE synthetic_fixture(id INTEGER)\")\n")
+    (source / "tests/test_warden_leakage.py").write_text(
+        "def test_content_addressed_feature_cache_hit_speed():\n    assert True\n")
     generate_manifest(source)
     for args in (["init", "-q"], ["add", "."],
                  ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
@@ -141,6 +143,47 @@ def test_launcher_observation_does_not_write_runtime_audit_or_scientific_state(i
     assert len(proc.stdout.encode()) <= 12288
     assert not (runtime / ".workspace/audit/toolcalls.jsonl").exists()
     assert history(db) == before
+
+
+def test_fast_observation_refuses_source_receipt_binding_and_schema_drift(installed):
+    appliance, release, db = installed
+    appliance.transition(release, request_id="first")
+    root = appliance.runtime(release)
+
+    def observe():
+        out = subprocess.check_output([str(appliance.home / "warden"), "appliance", "observe"],
+                                      text=True, timeout=60)
+        return json.loads(out)
+
+    assert observe()["healthy"]
+    path = root / "src/warden_ops/control.py"
+    old = path.read_bytes()
+    path.chmod(0o644)
+    path.write_bytes(old + b"\n# fixture drift\n")
+    assert not observe()["healthy"]
+    path.write_bytes(old)
+    path.chmod(0o444)
+    receipt = appliance._last("verified", release)
+    artifact = Path(receipt["evidence_directory"]) / "witness.xml"
+    original = artifact.read_bytes()
+    artifact.write_bytes(original + b"\n")
+    assert not observe()["healthy"]
+    artifact.write_bytes(original)
+    link = root / "cache"
+    target = link.readlink()
+    link.unlink()
+    link.symlink_to(root.parent, target_is_directory=True)
+    assert not observe()["healthy"]
+    link.unlink()
+    link.symlink_to(target, target_is_directory=True)
+    with sqlite3.connect(db) as conn:
+        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION + 1}")
+    assert not observe()["healthy"]
+    with sqlite3.connect(db) as conn:
+        conn.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    assert observe()["healthy"]
+    appliance.halt("fixture halt")
+    assert observe()["status"] == "HALTED"
 
 
 @pytest.mark.parametrize("installed", [True], indirect=True)
@@ -342,7 +385,8 @@ def test_verification_receipt_has_exact_inventory_and_separate_witness(installed
     assert receipt["checks"]["collection-inventory"]
     assert receipt["checks"]["stage1-performance-witness"]
     assert receipt["collection_count"] == receipt["suite"]["tests"]
-    assert receipt["witness"]["tests"] == 1
+    assert receipt["checks"]["cache-performance-witness"]
+    assert receipt["witness"]["tests"] == 2
     assert receipt["witness"]["skipped"] == 0
     assert {"collection.log", "suite.xml", "witness.xml"} <= receipt["artifacts"].keys()
 

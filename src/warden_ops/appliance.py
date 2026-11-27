@@ -27,7 +27,7 @@ from warden_ops.integrity import check_ast_boundaries, check_worktree
 from warden_ops.ledger_maintenance import assert_preserved, backup_readonly, file_sha256, read_state
 from warden_ops.release import verify_candidate, verify_materialization
 from warden_ops.verification import (
-    WITNESS, clean_test_environment, collect_inventory, environment_preflight,
+    WITNESSES, clean_test_environment, collect_inventory, environment_preflight,
     fast_source_checks, junit_report, run_suite, selection_matches, verification_command,
 )
 
@@ -35,7 +35,7 @@ MODEL = "trusted-research-appliance"
 HEX = re.compile(r"^[a-f0-9]{64}$")
 REQUIRED_CHECKS = ("full-suite", "protected-inventory", "ast-boundaries",
                    "source-integrity", "environment-integrity", "environment-preflight",
-                   "collection-inventory", "stage1-performance-witness", "fast-source-checks")
+                   "collection-inventory", "stage1-performance-witness", "cache-performance-witness", "fast-source-checks")
 BINDINGS = ("registry", "data/exploratory", "cache", ".workspace/hypotheses")
 
 
@@ -366,23 +366,24 @@ class Appliance:
         _write(attempt / "collection.json", {"node_ids": nodes, "count": len(nodes)})
         xml = attempt / "suite.xml"
         witness_xml = attempt / "witness.xml"
-        argv = [*base, "-n", "4", "--dist", "worksteal", "--deselect", WITNESS,
+        argv = [*base, "-n", "4", "--dist", "worksteal",
+                *(arg for node in WITNESSES for arg in ("--deselect", node)),
                 "--warden-selection", str(attempt / "suite-selection"),
                 f"--junitxml={xml}", "tests"]
         witness_cpus = sorted(os.sched_getaffinity(0))[-2:]
         witness_argv = ["/usr/bin/taskset", "--cpu-list", ",".join(map(str, witness_cpus)),
                         *base, "-n", "0", "--warden-selection", str(attempt / "witness-selection"),
-                        f"--junitxml={witness_xml}", WITNESS]
+                        f"--junitxml={witness_xml}", *WITNESSES]
         suite_rc = run_suite(argv, source, env, attempt / "suite.log")
-        # The strict 100 x 20k witness never competes with the xdist workers.
+        # Both strict performance assertions run without competing xdist workers.
         witness_rc = run_suite(witness_argv, source, env, attempt / "witness.log")
         suite_counts, suite_skips = junit_report(xml)
         witness, witness_skips = junit_report(witness_xml)
         counts = {key: suite_counts[key] + witness[key] for key in suite_counts}
         inventory_ok = (counts["tests"] == len(nodes)
-                        and suite_counts["tests"] == len(nodes) - 1
+                        and suite_counts["tests"] == len(nodes) - len(WITNESSES)
                         and selection_matches(attempt, nodes))
-        witness_ok = (witness_rc == 0 and witness["tests"] == 1
+        witness_ok = (witness_rc == 0 and witness["tests"] == len(WITNESSES)
                       and witness["failures"] == witness["errors"] == witness["skipped"] == 0)
         with contextlib.redirect_stdout(io.StringIO()):
             integrity = check_worktree(candidate)
@@ -401,13 +402,16 @@ class Appliance:
                   "source-integrity": source_error is None,
                   "environment-integrity": _environment(python) == before_environment,
                   "environment-preflight": True, "collection-inventory": inventory_ok,
-                  "stage1-performance-witness": witness_ok, "fast-source-checks": True}
+                  "stage1-performance-witness": witness_ok, "cache-performance-witness": witness_ok,
+                  "fast-source-checks": True}
         artifact_names = ("collection.log", "collection.json", "suite.xml", "suite.log",
                           "witness.xml", "witness.log",
                           *(path.name for path in sorted(attempt.glob("*-selection-*.json"))))
         artifacts = {name: file_sha256(attempt / name) for name in artifact_names
                      if (attempt / name).is_file()}
-        result = {"schema_version": 1, "release_id": release, "ok": all(checks.values()),
+        passed = all(checks.values())
+        result = {"schema_version": 1, "release_id": release, "ok": passed,
+                  "state": "PASSED" if passed else "FAILED",
                   "test_source": str(source), "test_source_commit": manifest["source"]["commit"],
                   "canonical_state_mounted": False, "source_error": source_error,
                   "evidence_directory": str(attempt),
@@ -419,11 +423,11 @@ class Appliance:
                   "log_sha256": artifacts.get("suite.log"), "command": argv,
                   "witness_command": witness_argv,
                   "environment": before_environment, "dependency_lock_sha256": manifest["dependency_lock_sha256"],
-                  "baseline": "full committed tests + isolated strict Stage 1 witness + inventory + AST",
+                  "baseline": "full committed tests + isolated strict performance witnesses + inventory + AST",
                   "scientific_authority": False, "observed_at": time.time()}
         result["verification_id"] = digest(result)
         _write(attempt / "receipt.json", result)
-        self._append("verified", release, result)
+        self._append("verified" if passed else "verification-failed", release, result)
         _write(directory / "current.json", {"attempt": attempt.name, "verification_id": result["verification_id"]})
         return result
 

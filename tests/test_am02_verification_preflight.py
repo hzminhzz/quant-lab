@@ -19,8 +19,14 @@ def test_inherited_filters_and_plugins_are_removed():
     env, removed = clean_test_environment({
         "PYTEST_ADDOPTS": "-k subset", "PYTEST_PLUGINS": "unreviewed",
         "PYTEST_XDIST_WORKER": "gw0", "PATH": "/usr/bin",
+        "WARDEN_HUMAN_SIGNING_KEY": "fixture-only",
+        "WARDEN_ADMISSION_HMAC_KEY": "fixture-only",
+        "QUANT_LAB_APPLIANCE_HOME": "/fixture",
+        "WARDEN_TEST_FIXTURE_ROOT": "/fixture",
     })
-    assert removed == ["PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_XDIST_WORKER"]
+    assert removed == ["PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTEST_XDIST_WORKER",
+                       "QUANT_LAB_APPLIANCE_HOME", "WARDEN_ADMISSION_HMAC_KEY",
+                       "WARDEN_HUMAN_SIGNING_KEY", "WARDEN_TEST_FIXTURE_ROOT"]
     assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"
     assert env["PATH"] == "/usr/bin"
     assert not set(removed) & set(env)

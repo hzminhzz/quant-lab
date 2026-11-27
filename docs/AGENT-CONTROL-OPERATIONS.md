@@ -138,8 +138,10 @@ They are not a second supported release path.
    Runtime noninteractive guards remain enabled. A durable STARTED event precedes preflight.
    Each attempt retains its own logs, exact selected node inventories, XML, skip/xfail reasons,
    dependency identity and receipt. Inherited pytest selectors and autoloaded plugins are cleared.
-   The fixed Stage 1 100-assets × 20,000-bars witness runs separately on two available CPUs,
-   with the unchanged strict <5 s and engine-free assertions. An interrupted or failed attempt
+   The fixed Stage 1 100-assets × 20,000-bars and cache-hit witnesses run serially on two
+   available CPUs, away from the parallel suite. The strict <5 s, engine-free and <50 ms
+   assertions are unchanged. Bootstrap tests invoke the installed console script in the locked
+   environment, without implicit dependency synchronization. An interrupted or failed attempt
    cannot reuse older success. Re-run explicitly; an orphan STARTED event is reconciled as
    incomplete, not as a pass.
 5. Use `warden appliance pause-writers --home HOME`. Timers are disabled and stopped so the
@@ -174,7 +176,10 @@ The supported operational entry point on this VPS is
 `python -m warden_ops.job_runner` must never point at canonical state. Current mutation
 entry points refuse linked/checkout ledgers, incompatible existing schema, and mismatched
 active runtime; leases recheck scientific admission. Isolated unlinked scratch ledgers
-remain available to tests. This guard is not a sandbox: pre-maintenance code in the dirty
+remain available to tests. A fixture containing copied source must explicitly set
+`WARDEN_TEST_FIXTURE_ROOT` to its isolated root; this cannot exempt a Git checkout or linked
+ledger. The verification gate clears inherited fixture markers and scientific signing keys.
+This guard is not a sandbox: pre-maintenance code in the dirty
 legacy checkout can still write the old ledger if explicitly invoked. Do not run that CLI,
 legacy scheduler, or direct low-level registry API against live state. Do not retrofit or
 reset the concurrent checkout. Existing data/approval gates are unchanged.

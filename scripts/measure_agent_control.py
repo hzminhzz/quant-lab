@@ -138,13 +138,15 @@ def appliance_measurements(home, scratch):
     # Source inventory size is deterministic metadata, not a fabricated I/O
     # counter. The request profile below measures actual reads separately.
     release = samples["idle"][0]["release_id"]
+    if any(row["release_id"] != release for rows in samples.values() for row in rows):
+        raise ValueError("active release changed during measurement; refresh both samples")
     candidate = home / "releases" / release
     runtime = home / "runtimes" / release
     manifest = json.loads((candidate / "candidate.json").read_text())
     sizes = {name: sum((path / rel).stat().st_size for rel in manifest["inventory"])
              for name, path in (("candidate", candidate), ("runtime", runtime))}
     trace = scratch / "read.trace"
-    subprocess.run(["/usr/bin/strace", "-f", "-yy", "-e", "trace=read,pread64",
+    subprocess.run(["/usr/bin/strace", "-f", "-yy", "-s", "0", "-e", "trace=read,pread64",
                     "-o", str(trace), *argv], cwd=caller, env=_env(),
                    capture_output=True, check=True, timeout=120)
     import re

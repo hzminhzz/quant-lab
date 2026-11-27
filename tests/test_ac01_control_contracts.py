@@ -31,7 +31,7 @@ def test_catalog_names_owners_effects_and_receipt_recovery():
     assert catalog["schema_version"] == 1
     assert catalog["request_schema"]["discriminator"]["propertyName"] == "operation"
     actions = {row["name"]: row for row in catalog["actions"]}
-    assert actions["screen"]["owner"] == "warden.runner.ExperimentRunner.screen"
+    assert actions["screen"]["owner"] == "warden.runner.ExperimentRunner.run_stage1_screen"
     assert actions["screen"]["charge"] == "existing candidate and selection accounting"
     assert actions["screen"]["retry"] == "lookup original receipt; never repeat scoring"
     assert actions["observe"]["scientific_write"] is False

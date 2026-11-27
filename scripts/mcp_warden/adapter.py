@@ -17,6 +17,8 @@ from typing import Any
 
 import yaml
 
+from warden_ops.control_contracts import REQUEST
+
 ROOT = Path(__file__).resolve().parents[2]
 RUN_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # (minimum and maximum path args, permitted flag/value types)
@@ -183,6 +185,8 @@ def execute(command: str, positional: list[str] | None = None, flags: dict | Non
 
 
 TOOLS = [
+    {"name": "warden_control", "description": "Typed Warden situation/action/receipt interface",
+     "inputSchema": REQUEST.json_schema()},
     {"name": "warden_status", "description": "Read-only Warden registry status",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "warden_exec", "description": "Allowlisted native Warden CLI; no trading/holdout/shell/SQL",
@@ -209,7 +213,10 @@ def _handle(request: dict) -> dict | None:
     elif method == "tools/call":
         params = request.get("params") or {}
         try:
-            if params.get("name") == "warden_status":
+            if params.get("name") == "warden_control":
+                from warden_ops.control import Control
+                value = Control(ROOT).handle(params.get("arguments") or {})
+            elif params.get("name") == "warden_status":
                 value = execute("status")
             elif params.get("name") == "warden_exec":
                 args = params.get("arguments") or {}

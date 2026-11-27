@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 ALLOWED = frozenset({
-    "status", "check-worktree", "verify", "screen", "backtest",
+    "control", "status", "check-worktree", "verify", "screen", "backtest",
     "audit-check", "handoff", "continue", "register-hypothesis",
     "attempt-status", "reconcile-attempt", "reconcile-screen", "verify-causality",
     "spec-status", "advance",

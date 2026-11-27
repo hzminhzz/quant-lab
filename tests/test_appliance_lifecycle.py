@@ -207,6 +207,17 @@ def test_halt_and_reactivation_keep_newly_accrued_evidence(installed):
     before = history(db)
     assert appliance.halt("fixture recovery exercise")["state"] == "HALTED"
     assert appliance.observe()["healthy"] is False
+    source = appliance.home.parent / "source"
+    incompatible = build_candidate(source, appliance.home.parent / "candidates",
+                                   ledger_min=SCHEMA_VERSION - 1, ledger_max=SCHEMA_VERSION - 1)
+    Appliance.install(home=appliance.home, source=source, candidate=Path(incompatible["path"]),
+                      canonical=appliance.canonical, python=appliance.python, writer_units=[])
+    assert appliance.verify(incompatible["release_id"])["ok"]
+    with pytest.raises(ValueError, match="incompatible"):
+        appliance.transition(incompatible["release_id"], request_id="incompatible-recovery")
+    assert appliance.observe()["status"] == "HALTED"
+    assert appliance.active_release() == release
+    assert history(db) == before
     assert appliance.transition(release, request_id="recovery")["state"] == "ACTIVE"
     assert history(db) == before
     assert not hasattr(appliance, "restore_database")

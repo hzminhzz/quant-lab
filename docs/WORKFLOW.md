@@ -120,7 +120,19 @@ uv run warden verify-causality --run-id <RUN_ID> --json
 
 One `backtest` call runs `ml4t.backtest.Engine` (`1x`), analytical `1.5x` cost stress (`stress_1p5_cost_sharpe`), full `2.0x` Engine re-simulation (`cost_2x`), `+1`-bar latency Engine re-simulation (`latency_plus1`), optional `param_grid` re-simulations (each recorded as its own `selection_attempts` row), `trimmed_sharpe`, DSR selection report, exports Engine artifacts under `registry/backtest_results/<simulation_epoch>/<contract>/<run_id>`, and writes one `trials` row. Output is JSON followed by `WARDEN_RUN_COMPLETE` (or `WARDEN_RUN_FAILED` on error).
 
-The trial slot is registered before the strategy executes, so a failure after that point consumes one of the three slots (`verdict=FAILED`). Run `verify`, `verify-causality`, and `scripts/preflight_trial.py` before spending trial slots.
+The trial slot is registered before the strategy executes, so a failure after that point consumes one of the three slots (`verdict=FAILED`). Run metadata preflight before spending a trial slot:
+
+```bash
+uv run python scripts/preflight_trial.py experiments/active/<spec>.yaml
+```
+
+Preflight validates the registered hypothesis, typed YAML, static strategy entry source,
+pinned exploratory feed, declared symbols, execution schema and selection clock
+against the read-only canonical ledger. It never imports the strategy, snapshots
+the registry, runs a backtest, reads holdout data or reports performance. Dynamic
+strategy requirements and scientific feasibility still need governed evaluation;
+`PREFLIGHT_OK` is not a strategy verdict or admission. The old `--workdir` snapshot
+option is retired.
 
 ### Step 7 — Audit, then qualify
 

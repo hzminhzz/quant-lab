@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
-"""Run one trial spec against a throwaway snapshot of the live registry.
+"""Metadata-only preflight for a declared trial; never execute candidate code.
 
-`run_spec` commits the trial budget at `register_trial_start` *before* it reads the
-contract-wide selection history, so a `SelectionHistoryError` or a strategy subprocess
-error burns a real slot. This preflight spends nothing: it snapshots the registry, runs
-the spec against the snapshot, and refuses when the produced return vector does not match
-the length of the existing streams for that contract.
-
-The snapshot must use SQLite's backup API, not a file copy: the registry runs in WAL
-mode, so `registry.db` alone can be missing committed rows that still live in
-`registry.db-wal`. A copy silently gives the preflight a stale selection history, which
-is exactly the thing the preflight exists to measure.
-
-Usage:
-    python scripts/preflight_trial.py experiments/active/carver_daily/01_buy_hold_single_t1.yaml
+Validate the frozen YAML, static entry source, pinned exploratory dataset,
+execution schema and canonical selection clock against the read-only ledger.
+Dynamic protocol/parameter checks, feasibility, and scientific evaluation
+remain Warden's governed execution responsibilities. No registry snapshot,
+strategy import, outcome calculation, or holdout access is performed here.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
-import shutil
 import sqlite3
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -32,82 +23,81 @@ from warden_ops.readonly import ReadOnlyResearchRegistry
 DEFAULT_DB = Path("registry/registry.db")
 
 
-def snapshot(src: Path, dst: Path) -> Path:
-    """Write a transactionally consistent copy of `src` to `dst` via the backup API.
-
-    This is the one place in this script that opens SQLite directly: the backup API
-    needs a source connection, and a read-only ``mode=ro`` handle is exactly what the
-    copy must come from. Every other read below goes through the readonly registry view.
-    """
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    for suffix in ("", "-wal", "-shm"):
-        Path(str(dst) + suffix).unlink(missing_ok=True)
-    source = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
-    try:
-        target = sqlite3.connect(dst)
-        try:
-            source.backup(target)
-        finally:
-            target.close()
-    finally:
-        source.close()
-    return dst
-
-
 def prior_stream_lengths(db_path: Path, contract_id: str, exclude_run_id: str = "") -> list[int]:
+    """Historical read-only reporting projection; not the admission clock check."""
     ledger = ReadOnlyResearchRegistry(db_path)
     vectors = ledger.read_recorded_return_vectors(contract_id, exclude_run_id)
     return sorted({len(json.loads(vector)) for vector in vectors})
 
 
-def check_alignment(candidate_bars: int, prior_lengths: list[int]) -> list[str]:
-    """Refuse when the candidate's return vector cannot align with the recorded history."""
-    if candidate_bars <= 0:
-        return [f"candidate produced {candidate_bars} return bars"]
-    if not prior_lengths:
-        return []
-    if prior_lengths != [candidate_bars]:
-        return [(f"candidate has {candidate_bars} bars but the contract's recorded streams are "
-                 f"{prior_lengths}; run_spec would raise SelectionHistoryError after spending the trial")]
-    return []
-
-
-def preflight(spec_path: Path, db_path: Path = DEFAULT_DB, workdir: Path | None = None) -> dict[str, Any]:
-    """Run `spec_path` against a snapshot and return a summary, or raise on misalignment."""
-    from warden.registry import ResearchRegistry  # imported late so --help stays cheap
+def preflight(spec_path: Path, db_path: Path = DEFAULT_DB) -> dict[str, Any]:
+    from warden.contracts import ENGINE_SIMULATION_EPOCH
+    from warden.engine_sim import require_execution_columns
+    from warden.market_data import ROLE_EXPLORATORY, MarketDataGateway
+    from warden.provenance import resolve_dataset
+    from warden.registry import normalise_module
     from warden.runner import ExperimentRunner
+    from warden.schemas import load_experiment_spec
 
-    owned = workdir is None
-    workdir = Path(workdir or tempfile.mkdtemp(prefix="warden-preflight-"))
-    try:
-        snap = snapshot(db_path, workdir / "registry.db")
-        runner = ExperimentRunner(registry=ResearchRegistry(snap), repo_root=Path("."))
-        result = runner.run_spec(spec_path)
-        path = ReadOnlyResearchRegistry(snap).read_trial_returns_path(result.run_id)
-        if path is None:
-            raise ValueError(f"trial {result.run_id} recorded no returns_parquet_path in the snapshot")
-        import polars as pl
-        bars = len(pl.read_parquet(Path(path))["net_return"]) if Path(path).is_file() else 0
-        problems = check_alignment(bars, prior_stream_lengths(snap, result.contract_id, result.run_id))
-        if problems:
-            raise ValueError("; ".join(problems))
-        return {"run_id": result.run_id, "verdict": result.verdict, "net_sharpe": result.net_sharpe,
-                "deflated_sharpe_prob": result.deflated_sharpe_prob, "bars": bars,
-                "snapshot": str(snap)}
-    finally:
-        if owned:
-            shutil.rmtree(workdir, ignore_errors=True)
+    root = Path.cwd()
+    spec = load_experiment_spec(spec_path)
+    if not spec.hypothesis_id:
+        raise ValueError("Experiment spec must declare hypothesis_id")
+    if not Path(db_path).is_file():
+        raise ValueError("Registry does not exist; preflight cannot create it")
+    ledger = ReadOnlyResearchRegistry(db_path)
+    hyp = ledger.read_hypothesis(spec.hypothesis_id)
+    if hyp is None:
+        raise ValueError(f"Hypothesis '{spec.hypothesis_id}' not found")
+    if hyp["contract_id"] != spec.contract_id or hyp["strategy_family"] != spec.strategy_family:
+        raise ValueError("Experiment contract or family differs from registered hypothesis")
+    contract = ExperimentRunner(registry=ledger, repo_root=root).resolve_active_contract(
+        spec.contract_id
+    )
+    if ledger.read_contract_spec_hash(contract.contract_id) != contract.spec_hash():
+        raise ValueError("Active contract differs from its registered immutable identity")
+
+    # Do not follow candidate-controlled dependencies into data or other files.
+    # Complete closure binding and dynamic protocol checks belong to admission.
+    module = normalise_module(spec.strategy_module)
+    source = (root / module).resolve()
+    if not source.is_relative_to(root / "strategies") or source.suffix != ".py":
+        raise ValueError("strategy_module must resolve to a Python source under strategies/")
+    source_bytes = source.read_bytes()
+    compile(source_bytes, module, "exec")
+
+    dataset = resolve_dataset(contract, root)
+    gateway = MarketDataGateway(root)
+    market = gateway.load(
+        contract, ROLE_EXPLORATORY, spec.parameters.get("target_symbols"), resolution=dataset
+    )
+    require_execution_columns(market.panel, contract)
+    # The full contract grid is the selection clock, even for a symbol subset.
+    timestamps = (gateway.contract_validation_grid(contract, resolution=dataset)
+                  if market.symbols_filtered else market.ts[market.eval_slice])
+    alignment = ledger.preflight_selection_alignment(
+        contract, timestamps, expected_len=len(timestamps),
+        simulation_epoch=ENGINE_SIMULATION_EPOCH,
+    )
+    return {
+        "kind": "METADATA_ONLY",
+        "contract_id": contract.contract_id,
+        "hypothesis_id": spec.hypothesis_id,
+        "strategy_source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+        "validation_bars": len(timestamps),
+        "selection_alignment": alignment,
+        "strategy_execution": "NOT_RUN",
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Preflight one trial spec on a registry snapshot.")
+    parser = argparse.ArgumentParser(description="Validate trial metadata without executing it.")
     parser.add_argument("spec", type=Path)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
-    parser.add_argument("--workdir", type=Path, default=None, help="keep the snapshot here instead of a temp dir")
     args = parser.parse_args(argv)
     try:
-        summary = preflight(args.spec, args.db, args.workdir)
-    except (ValueError, OSError, KeyError) as exc:
+        summary = preflight(args.spec, args.db)
+    except (ValueError, OSError, KeyError, SyntaxError, sqlite3.Error) as exc:
         print(f"PREFLIGHT_FAILED: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(summary, indent=2))

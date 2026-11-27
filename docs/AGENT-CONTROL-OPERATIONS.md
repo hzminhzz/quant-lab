@@ -46,10 +46,11 @@ the existing receipt; a changed payload under the same ID is refused. A missing
 or old ledger is observed explicitly. New control mutations require an already
 migrated schema 10 ledger and never authorize that migration implicitly.
 
-The default runtime observer and principal authority are unavailable. A development
-checkout, its dirty identity and the canonical ledger are not an active runtime
-attestation. Handoff publishes operational context without migrating the ledger,
-hashing trial artifacts or presenting an unevaluated eligibility result as a pass.
+Without the installed launcher or an explicit runtime observer, runtime identity remains
+unavailable. The launcher supplies its actual appliance observer and retains the caller's
+checkout identity separately. Scientific authority remains unverified unless its existing
+owner establishes it. Handoff publishes context without migrating the ledger, hashing
+trial artifacts or presenting an unevaluated eligibility result as a pass.
 
 ## Bounded objectives and recovery
 
@@ -79,9 +80,9 @@ use the queued supervisor when a declared resource envelope is required.
 portable programs. Bubblewrap mounts only system runtime files, read-only staged
 inputs and one writable output directory, with private PIDs/network and a cleared
 environment. It mounts no canonical ledger, host home or keys. Tests demonstrate
-those restrictions with disposable inputs and fixture secrets. Protected installation
-must still establish the trusted owner/verifier boundary and decide whether stronger
-host enforcement is required. No background service is installed by this source change.
+those restrictions with disposable inputs and fixture secrets. This optional compartment
+is retained for suitable workloads; independent host ownership is not a software maintenance
+prerequisite under the appliance ADR. No background service is installed.
 
 ## Findings and scientific safeguards
 
@@ -115,15 +116,22 @@ They are not a second supported release path.
    Run behavior tests, review the actual diff, then use `warden generate-manifest --maintenance`.
    This refreshes unsigned checksums only; it refuses existing signature/approval metadata.
 2. Commit and integrate reviewed source. Build an immutable candidate with the existing builder.
-   Prepare a locked dependency environment outside the mutable checkout with `uv sync --frozen`.
+   Prepare a separate environment for this release outside the mutable checkout. Use
+   `UV_PROJECT_ENVIRONMENT=HOME/envs/RELEASE_ID uv sync --frozen --no-editable --project CANDIDATE`,
+   then the same command with `--check`. Install the project as well as its locked dependencies:
+   subprocess regressions exercise the installed CLI without relying on `PYTHONPATH`.
+   Preserve prior environments; each release's interpreter binding is immutable.
 3. Use `warden appliance install --home HOME --source CHECKOUT --candidate CANDIDATE
    --canonical CANONICAL_ROOT --python LOCKED_PYTHON --writer-unit UNIT ...`.
    Installation creates a separate sparse Git runtime and explicit canonical state bindings.
    It does not change the active runtime or migrate the live database.
 4. Use `warden appliance verify --home HOME --release RELEASE_ID`. The fixed full-suite,
    protected-inventory and AST checks run in an isolated checkout of the exact commit with
-   all test assets. Release bytes are reverified before/after; canonical state/data are not mounted.
-   Receipts include exact XML/log hashes, dependency identity, skips and expected failures.
+   all test assets in a fresh worktree for each attempt. Release bytes and environment identity
+   are reverified before/after; canonical state/data are not mounted. Synthetic test fixtures
+   establish their own approval contexts and may create their own disposable ledgers.
+   Runtime noninteractive guards remain enabled. Receipts retain exact XML/log hashes,
+   dependency identity, failures, skips and expected failures.
 5. Use `warden appliance pause-writers --home HOME`. Timers are disabled and stopped so the
    pause survives restart; prior enablement is recorded. An already running service
    must finish naturally. Inspect quiescence. No service is killed to manufacture a clean state.
@@ -144,7 +152,10 @@ If compatibility/health cannot be established, retain the halt and current ledge
 historical receipt does not reactivate a later deliberately halted runtime.
 
 The runtime is an **on-demand CLI**, not a continuously running service. Health is a real pinned
-process observation. Halt prevents new launcher admissions; it does not erase or refund an
+process observation, including the release's verified dependency environment. The stable
+launcher selects that release's interpreter before importing application code. Dependency drift
+refuses admission; compatible recovery reuses the earlier release's preserved environment.
+Halt prevents new launcher admissions; it does not erase or refund an
 already admitted scientific operation. Existing canonical leases still guard such operations.
 Legacy scientific scheduling remains paused until eligible under current research governance.
 

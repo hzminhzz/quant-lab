@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,16 @@ from warden_ops.release import build_candidate
 REPO = Path(__file__).resolve().parents[1]
 
 
+def fixture_python(environment):
+    subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", "--without-pip",
+                    str(environment)], check=True)
+    site = environment / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+    (site / "fixture-dependencies.pth").write_text(sysconfig.get_path("purelib") + "\n")
+    return environment / "bin/python"
+
+
 @pytest.fixture
-def installed(tmp_path):
+def installed(tmp_path, request):
     source, canonical, home = (tmp_path / name for name in ("source", "canonical", "appliance"))
     source.mkdir()
     for name in ("src", "scripts"):
@@ -33,8 +42,12 @@ def installed(tmp_path):
     (source / "adapters").mkdir()
     (source / "adapters/fixture.txt").write_text("required test asset")
     (source / "tests/test_smoke.py").write_text(
-        "from pathlib import Path\n\ndef test_fixture():\n    assert 2 + 2 == 4\n\n"
-        "def test_second():\n    assert Path(\"adapters/fixture.txt\").read_text() == \"required test asset\"\n")
+        "from pathlib import Path\nimport os,sqlite3\n\ndef test_fixture():\n    assert 2 + 2 == 4\n\n"
+        "def test_second():\n    assert Path(\"adapters/fixture.txt\").read_text() == \"required test asset\"\n"
+        "    assert os.environ.get(\"WARDEN_NON_INTERACTIVE\") is None\n"
+        "    Path(\"registry\").mkdir(exist_ok=True)\n"
+        "    with sqlite3.connect(\"registry/registry.db\") as conn:\n"
+        "        conn.execute(\"CREATE TABLE synthetic_fixture(id INTEGER)\")\n")
     generate_manifest(source)
     for args in (["init", "-q"], ["add", "."],
                  ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
@@ -50,8 +63,11 @@ def installed(tmp_path):
         (canonical / name).mkdir(parents=True, exist_ok=True)
     candidate = build_candidate(source, tmp_path / "candidates", ledger_min=SCHEMA_VERSION,
                                 ledger_max=SCHEMA_VERSION)
+    python = Path(sys.executable)
+    if getattr(request, "param", False):
+        python = fixture_python(tmp_path / "environment")
     appliance = Appliance.install(home=home, source=source, candidate=Path(candidate["path"]),
-                                  canonical=canonical, python=Path(sys.executable), writer_units=[])
+                                  canonical=canonical, python=python, writer_units=[])
     verification = appliance.verify(candidate["release_id"])
     assert verification["ok"], verification
     return appliance, candidate["release_id"], db
@@ -95,6 +111,50 @@ def test_verified_migration_and_actual_runtime_preserve_history(installed):
                            cwd=appliance.home, capture_output=True, text=True, check=False, timeout=60)
     assert again.returncode == 0, again.stderr
     assert json.loads(again.stdout)["value"]["unchanged"] is True
+    assert history(db) == before
+
+
+@pytest.mark.parametrize("installed", [True], indirect=True)
+def test_active_runtime_refuses_dependency_drift(installed):
+    appliance, release, db = installed
+    appliance.transition(release, request_id="first")
+    assert appliance.observe()["healthy"] is True
+    before = history(db)
+    site = Path(subprocess.check_output(
+        [str(appliance.python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        text=True).strip())
+    metadata = site / "unexpected_fixture-1.0.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text("Name: unexpected-fixture\nVersion: 1.0\n")
+    assert appliance.observe()["healthy"] is False
+    with pytest.raises(ValueError, match="not healthy"):
+        appliance.run(["status", "--json"])
+    assert history(db) == before
+
+
+def test_each_release_keeps_its_verified_environment_for_recovery(installed):
+    appliance, original, db = installed
+    appliance.transition(original, request_id="original")
+    original_python = appliance.observe()["python"]
+    source = appliance.home.parent / "source"
+    (source / "README.md").write_text("Second isolated fixture release\n")
+    subprocess.run(["git", "add", "README.md"], cwd=source, check=True)
+    subprocess.run(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
+                    "commit", "-qm", "fixture second release"], cwd=source, check=True)
+    candidate = build_candidate(source, appliance.home.parent / "candidates",
+                                ledger_min=SCHEMA_VERSION, ledger_max=SCHEMA_VERSION)
+    python = fixture_python(appliance.home.parent / "next-environment")
+    Appliance.install(home=appliance.home, source=source, candidate=Path(candidate["path"]),
+                      canonical=appliance.canonical, python=python, writer_units=[])
+    next_release = candidate["release_id"]
+    assert appliance.verify(next_release)["ok"]
+    appliance.transition(next_release, request_id="next")
+    assert appliance.observe()["python"] == str(python)
+    launched = subprocess.check_output([str(appliance.home / "warden"), "appliance", "observe"], text=True)
+    assert json.loads(launched)["python"] == str(python)
+    before = history(db)
+    appliance.transition(original, request_id="compatible-recovery")
+    assert appliance.observe()["python"] == original_python
     assert history(db) == before
 
 

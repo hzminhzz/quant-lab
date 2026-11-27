@@ -218,15 +218,19 @@ A maintenance request binds its immutable release and canonical ledger. Reusing 
 with another subject refuses. The fixed verification baseline runs the entire committed
 `tests` directory with all test assets in an isolated worktree, verifies exact candidate
 bytes before/after, and runs protected-inventory verification and AST boundaries; inherited test
-selection is cleared. Evidence binds exact candidate bytes, environment identity, suite
-output and explicit skips/xfails. Source/test/verifier changes require review and the
+selection is cleared. Each attempt starts a fresh isolated worktree; synthetic fixtures establish
+their own approval contexts without production state or signing keys. Runtime noninteractive
+guards remain enabled. Evidence binds exact candidate bytes, environment identity, suite
+output and explicit failures/skips/xfails. Source/test/verifier changes require review and the
 complete relevant verification; they do not require an independent release signer.
 
 The runtime is a separate sparse Git worktree of the committed source, checked against
 the immutable candidate. Its canonical registry and unsealed exploratory data are explicit
 bindings. The active pointer changes atomically. Runtime probing starts the pinned Python
-code and reports its actual module root, release, schema and health. Development drift
-cannot silently change it. No sealed-data binding is installed.
+code and reports its actual module root, release, schema, verified dependency identity and health.
+Each release retains its own interpreter binding; a new dependency environment cannot replace
+the old release's binding. Health refuses environment drift. Development drift cannot silently
+change the runtime. No sealed-data binding is installed.
 
 Lifecycle intent is durable before migration/activation. Both canonical and legacy writer
 locks serialize the transition; the configured legacy writer schedule must be quiescent.

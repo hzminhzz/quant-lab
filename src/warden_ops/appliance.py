@@ -30,7 +30,8 @@ from warden_ops.release import verify_candidate, verify_materialization
 
 MODEL = "trusted-research-appliance"
 HEX = re.compile(r"^[a-f0-9]{64}$")
-REQUIRED_CHECKS = ("full-suite", "protected-inventory", "ast-boundaries")
+REQUIRED_CHECKS = ("full-suite", "protected-inventory", "ast-boundaries",
+                   "source-integrity", "environment-integrity")
 BINDINGS = ("registry", "data/exploratory", "cache", ".workspace/hypotheses")
 
 
@@ -88,7 +89,18 @@ class Appliance:
             raise ValueError("unsupported appliance configuration")
         self.canonical = Path(self.config["canonical"])
         self.db = self.canonical / "registry/registry.db"
-        self.python = Path(self.config["python"])
+
+    @property
+    def python(self):
+        """Active release interpreter; config retains only the bootstrap interpreter."""
+        release = self.active_release()
+        return self._python(release) if release else Path(self.config["python"])
+
+    def _python(self, release):
+        installed = self._last("installed", release)
+        if not installed or not installed.get("python"):
+            raise ValueError("release has no installed dependency environment")
+        return Path(installed["python"])
 
     @classmethod
     def install(cls, *, home, source, candidate, canonical, python, writer_units):
@@ -116,12 +128,18 @@ class Appliance:
         home.mkdir(parents=True, exist_ok=True, mode=0o700)
         with mutation_lease(home / "operations.db"):
             path = home / "config.json"
-            if path.exists() and _json(path) != config:
-                raise ValueError("existing appliance binding differs; explicit configuration migration required")
+            if path.exists():
+                existing = _json(path)
+                if {**config, "python": existing.get("python")} != existing:
+                    raise ValueError("existing appliance binding differs; explicit configuration migration required")
             if not path.exists():
                 _write(path, config)
             appliance = cls(home)
             appliance._init_journal()
+            installed = appliance._last("installed", release)
+            if installed and installed.get("python") != config["python"]:
+                raise ValueError("release environment already bound; preserve it and build a new release")
+            _environment(Path(config["python"]))
             stored = home / "releases" / release
             if not stored.exists():
                 stored.parent.mkdir(exist_ok=True)
@@ -150,23 +168,27 @@ class Appliance:
             appliance._check_runtime(release)
             appliance._install_launcher()
             appliance._append("installed", release, {"source": manifest["source"], "runtime": str(runtime),
-                                                    "scientific_authority": False})
+                                                    "python": config["python"], "scientific_authority": False})
             return appliance
 
     def _install_launcher(self):
         path = self.home / "warden"
-        content = (f"#!{self.python}\n"
-                   "import sys\nfrom pathlib import Path\nsys.dont_write_bytecode=True\n"
+        content = (f"#!{self.config['python']}\n"
+                   "import json,os,sqlite3,sys\nfrom pathlib import Path\n"
                    "home=Path(__file__).resolve().parent\n"
                    "root=(home/\"current\").resolve(strict=True)\n"
-                   "sys.path[:0]=[str(root/\"src\"),str(root)]\n"
-                   "from warden_ops.appliance import main\n"
+                   "with sqlite3.connect((home/\"operations.db\").as_uri()+\"?mode=ro\",uri=True) as conn:\n"
+                   "    row=conn.execute(\"SELECT payload FROM lifecycle_events WHERE kind='installed' "
+                   "AND subject=? ORDER BY sequence DESC LIMIT 1\",(root.name,)).fetchone()\n"
+                   "python=json.loads(row[0])[\"python\"]\n"
+                   "os.environ.update(PYTHONPATH=str(root/\"src\")+\":\"+str(root),"
+                   "PYTHONDONTWRITEBYTECODE=\"1\",PYTHONNOUSERSITE=\"1\")\n"
                    "args=sys.argv[1:]\n"
                    "if args[:1]==[\"appliance\"]:\n"
                    "    args=args[1:]+[\"--home\",str(home)]\n"
                    "else:\n"
                    "    args=[\"run\",\"--home\",str(home),\"--\",*args]\n"
-                   "raise SystemExit(main(args))\n")
+                   "os.execv(python,[python,\"-m\",\"warden_ops.appliance\",*args])\n")
         if path.exists() and path.read_text() != content:
             raise ValueError("installed launcher drift; preserve and review before replacement")
         if not path.exists():
@@ -259,12 +281,15 @@ class Appliance:
         candidate = self.home / "releases" / release
         directory = self.home / "verification" / release
         directory.mkdir(parents=True, exist_ok=True)
-        source = self._verification_source(release, directory, manifest)
         attempt = Path(tempfile.mkdtemp(prefix="attempt-", dir=directory))
+        source = self._verification_source(release, attempt, manifest)
         env = self._env(source, maintenance=True)
-        before_environment = _environment(self.python)
+        # Synthetic approval fixtures establish their own context; no production state is mounted.
+        env.pop("WARDEN_NON_INTERACTIVE", None)
+        python = self._python(release)
+        before_environment = _environment(python)
         xml = attempt / "suite.xml"
-        argv = [str(self.python), "-m", "pytest", "-q", "-n", "4", "--dist", "worksteal",
+        argv = [str(python), "-m", "pytest", "-q", "-n", "4", "--dist", "worksteal",
                 "--tb=short", "-o", "addopts=", "-o", f"cache_dir={directory / 'pytest-cache'}",
                 f"--junitxml={xml}", "tests"]
         with (attempt / "suite.log").open("x") as log:
@@ -279,16 +304,24 @@ class Appliance:
             counts["xfail"] = sum(node.get("type") == "pytest.xfail" for node in report.iter("skipped"))
         with contextlib.redirect_stdout(io.StringIO()):
             integrity = check_worktree(candidate)
+        source_error = None
+        try:
+            self._check_runtime(release)
+            verify_materialization(candidate, source)
+            _command(["git", "diff", "--quiet", "HEAD", "--"], cwd=source)
+            if any((source / name).is_symlink() for name in BINDINGS):
+                raise ValueError("test source acquired external state bindings")
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            source_error = str(exc)
         checks = {"full-suite": proc.returncode == 0 and counts["tests"] > 0
                   and counts["failures"] == counts["errors"] == 0,
-                  "protected-inventory": integrity, "ast-boundaries": not check_ast_boundaries(candidate)}
-        if _environment(self.python) != before_environment:
-            raise ValueError("dependency environment changed during verification")
-        self._check_runtime(release)
-        self._verification_source(release, directory, manifest)
+                  "protected-inventory": integrity, "ast-boundaries": not check_ast_boundaries(candidate),
+                  "source-integrity": source_error is None,
+                  "environment-integrity": _environment(python) == before_environment}
         result = {"schema_version": 1, "release_id": release, "ok": all(checks.values()),
                   "test_source": str(source), "test_source_commit": manifest["source"]["commit"],
-                  "canonical_state_mounted": False, "evidence_directory": str(attempt),
+                  "canonical_state_mounted": False, "source_error": source_error,
+                  "evidence_directory": str(attempt),
                   "required_checks": list(REQUIRED_CHECKS), "checks": checks, "suite": counts,
                   "suite_sha256": file_sha256(xml) if xml.exists() else None,
                   "log_sha256": file_sha256(attempt / "suite.log"), "command": argv,
@@ -317,7 +350,7 @@ class Appliance:
                 or digest({k: v for k, v in value.items() if k != "verification_id"}) != value["verification_id"]
                 or value["suite_sha256"] != file_sha256(path / "suite.xml")
                 or value["log_sha256"] != file_sha256(path / "suite.log")
-                or value["environment"] != _environment(self.python)):
+                or value["environment"] != _environment(self._python(release))):
             raise ValueError("verification missing, changed or no longer valid")
         return value
 
@@ -458,7 +491,7 @@ class Appliance:
     def _probe(self, release):
         self._check_runtime(release)
         root = self.runtime(release)
-        result = _command([str(self.python), "-m", "warden_ops.appliance", "_probe",
+        result = _command([str(self._python(release)), "-m", "warden_ops.appliance", "_probe",
                            "--home", str(self.home), "--release", release], cwd=root,
                           env=self._env(root, maintenance=True), timeout=60)
         value = json.loads(result)
@@ -496,13 +529,14 @@ class Appliance:
         root = self.runtime(observed["release_id"])
         env = self._env(root)
         env["QUANT_LAB_CALLER_ROOT"] = str(Path.cwd())
-        return subprocess.run([str(self.python), "-m", "warden.cli", *argv], cwd=root,
+        return subprocess.run([str(self._python(observed["release_id"])), "-m", "warden.cli", *argv], cwd=root,
                               env=env, check=False).returncode
 
 
 def _local_probe(appliance, release):
     root = appliance.runtime(release)
     manifest = appliance._check_runtime(release)
+    verification = appliance._verified(release)
     with contextlib.closing(sqlite3.connect(appliance.db.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
         conn.execute("PRAGMA query_only=ON")
         schema = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -512,6 +546,8 @@ def _local_probe(appliance, release):
     return {"status": "ACTIVE", "release_id": release, "source_commit": manifest["source"]["commit"],
             "module_root": str(Path(__file__).resolve().parents[1]), "pid": os.getpid(),
             "python": sys.executable, "runtime_kind": "on-demand CLI",
+            "environment": verification["environment"], "verification_id": verification["verification_id"],
+            "dependency_lock_sha256": manifest["dependency_lock_sha256"],
             "canonical_ledger": str(appliance.db.resolve()), "ledger_schema": schema,
             "healthy": source_ok and integrity == "ok" and manifest["ledger_min"] <= schema <= manifest["ledger_max"],
             "authority_model": MODEL, "scientific_authority": False, "sealed_access": False,

@@ -24,17 +24,21 @@ Retain the existing immutable candidate builder and canonical Warden owners. Rep
 fixture-only release-authority/grant protocol with one local appliance lifecycle:
 
 1. Prepare a clean, content-addressed release and a separate pinned execution worktree.
-   Bind the locked dependency environment and canonical state explicitly. Preserve concurrent
+   Bind a separate locked dependency environment per release and canonical state explicitly. Preserve concurrent
    development work. Mount only unsealed exploratory data; sealed data is not installed.
 2. Verify exact bytes, the protected checksum inventory, AST boundaries, targeted regressions
    and the full relevant hermetic suite. Record skips/xfails and actual check artifacts.
-   The required suite is an explicit baseline; a candidate cannot choose a smaller check set.
+   Each attempt uses a fresh test worktree; synthetic fixtures establish their own approval
+   contexts without production bindings. The required suite is an explicit baseline; a
+   candidate cannot choose a smaller check set.
 3. Pause the configured legacy writer schedule. Acquire both the canonical mutation lease
    and the legacy scheduler lock. Rehearse the additive migration on a fresh WAL-consistent
    snapshot and compare every existing table, column, row stream, index and trigger.
 4. Persist intent before live effects. Migrate through ResearchRegistry's canonical additive
    migration and verify preservation against the snapshot. Publish the active runtime pointer
    atomically. Probe the actual executable, source inventory, dependency environment and schema.
+   Later health probes revalidate the verified environment; preserve earlier environments
+   so compatible recovery does not reuse changed dependencies.
 5. Re-entry observes durable intent, schema and runtime identity; it never restores an old
    database. Use a schema-compatible runtime for recovery or halt the affected launcher.
 

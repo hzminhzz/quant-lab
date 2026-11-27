@@ -73,9 +73,11 @@ pinned Warden artifacts and contracts are unchanged.
 | [`CONTEXT.md`](./CONTEXT.md) | Canonical domain meanings; candidate, lineage, selection debt, exposure and authority stay distinct. |
 | [`docs/WORKFLOW.md`](./docs/WORKFLOW.md) | Current #109/RG-01–09 progression and pointers to exact evaluator rules. |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Target evidence-driven control system and immutable release authority. |
-| [`docs/AGENT-CONTROL-CONTRACTS.md`](./docs/AGENT-CONTROL-CONTRACTS.md) | Proposed situation/action/receipt, authority, recovery and knowledge contracts. |
+| [`docs/AGENT-CONTROL-CONTRACTS.md`](./docs/AGENT-CONTROL-CONTRACTS.md) | Approved situation/action/receipt, authority, recovery and knowledge contracts. |
 | [`docs/AGENT-CONTROL-PLAN.md`](./docs/AGENT-CONTROL-PLAN.md) | Dependency-ordered delivery, behavioral acceptance, resource measurements and cutover gates. |
 | [`docs/AGENT-CONTROL-OPERATIONS.md`](./docs/AGENT-CONTROL-OPERATIONS.md) | Implemented typed control, durable jobs, findings and release protocols; production boundaries and recovery. |
+| [`docs/AGENT-CONTROL-ACCEPTANCE-20261127.md`](./docs/AGENT-CONTROL-ACCEPTANCE-20261127.md) | Exact frozen source, A01–A25 evidence, full-suite omissions, measurements and preservation. |
+| [`docs/AGENT-CONTROL-CUTOVER-20261127.md`](./docs/AGENT-CONTROL-CUTOVER-20261127.md) | One consolidated blocked AC-10 decision; exact subjects and independent authority prerequisites. |
 | [`docs/DATA-REQUIREMENT.md`](./docs/DATA-REQUIREMENT.md) | `warden resolve-data` / `data compile`: decisions, the superset opt-in (`--allow-superset`), and what each answer carries. |
 | [`docs/EXIT-CODES.md`](./docs/EXIT-CODES.md) | The one exit-code vocabulary (`0` success, `1` evidence refused, `2` request refused, `3` not satisfiable, `75` busy) and the documented `data build` exception. |
 | [`STAGE3_CAMPAIGN_PROMPT.md`](./STAGE3_CAMPAIGN_PROMPT.md) | Objective brief for direct autonomous execution, early stopping and evidence-based continuation. |

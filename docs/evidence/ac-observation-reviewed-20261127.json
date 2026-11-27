@@ -1,0 +1,113 @@
+{
+  "source_commit": "fd19e911764bf86ae733c9111f05861f3c67c27c",
+  "baseline_status": {
+    "all_finished": true,
+    "count": 5,
+    "elapsed_seconds": [
+      0.5377436139970087,
+      0.4569188409950584,
+      0.6174334959941916,
+      0.788969564018771,
+      0.6210561270127073
+    ],
+    "max_output_bytes": 230,
+    "max_rss_mb": 69.39453125,
+    "max_seconds": 0.788969564018771,
+    "median_seconds": 0.6174334959941916
+  },
+  "control_contended": {
+    "all_finished": true,
+    "count": 5,
+    "elapsed_seconds": [
+      0.5548403589928057,
+      0.6694539680029266,
+      0.564630031993147,
+      0.5916834620002192,
+      0.6380732739926316
+    ],
+    "max_output_bytes": 2249,
+    "max_rss_mb": 75.12890625,
+    "max_seconds": 0.6694539680029266,
+    "median_seconds": 0.5916834620002192
+  },
+  "control_idle": {
+    "all_finished": true,
+    "count": 5,
+    "elapsed_seconds": [
+      0.8310249869828112,
+      0.7698804630199447,
+      0.6329793780168984,
+      0.6709259740018751,
+      0.5300053870014381
+    ],
+    "max_output_bytes": 2249,
+    "max_rss_mb": 70.875,
+    "max_seconds": 0.8310249869828112,
+    "median_seconds": 0.6709259740018751
+  },
+  "note": "five cold processes per condition; no cache or speedup claim",
+  "scientific_evaluator_calls": 0,
+  "shared_cpu_refusal": "BUSY",
+  "workers": [
+    {
+      "claimed": false,
+      "details": {
+        "limit_exceeded": false,
+        "outcome": "operational completion; inspect domain verdict",
+        "receipt": {
+          "fixture": "FINISHED"
+        },
+        "usage": {
+          "cpu_seconds": 7.98,
+          "elapsed_seconds": 8.131106432003435,
+          "io_bytes": 141577,
+          "peak_rss_mb": 70.87109375
+        }
+      },
+      "fence": "5dc758e2569d4260adcdc68ce0c3c139",
+      "job_id": "worker-one",
+      "objective": "finish fixed CPU fixture",
+      "resources": {
+        "cpu": 1,
+        "io_mb": 64,
+        "memory_mb": 128,
+        "wall_seconds": 12
+      },
+      "resources_held": false,
+      "retry_allowed": false,
+      "scientific_authority": "existing domain receipt only",
+      "state": "FINISHED",
+      "updated_at": 1795774479.3705359
+    },
+    {
+      "claimed": false,
+      "details": {
+        "limit_exceeded": false,
+        "outcome": "operational completion; inspect domain verdict",
+        "receipt": {
+          "fixture": "FINISHED"
+        },
+        "usage": {
+          "cpu_seconds": 8,
+          "elapsed_seconds": 8.132265780994203,
+          "io_bytes": 141577,
+          "peak_rss_mb": 71.12109375
+        }
+      },
+      "fence": "29eb5e36ea71495aaa82b5aa0d770b96",
+      "job_id": "worker-two",
+      "objective": "finish fixed CPU fixture",
+      "resources": {
+        "cpu": 1,
+        "io_mb": 64,
+        "memory_mb": 128,
+        "wall_seconds": 12
+      },
+      "resources_held": false,
+      "retry_allowed": false,
+      "scientific_authority": "existing domain receipt only",
+      "state": "FINISHED",
+      "updated_at": 1795774479.3820705
+    }
+  ]
+}

@@ -1,0 +1,258 @@
+{
+  "schema_version": 1,
+  "source_commit": "fd19e911764bf86ae733c9111f05861f3c67c27c",
+  "release_id": "1c78c5e2ab0069ee40660d289eed9ef691c2e2601660513eb3cea08027a8264c",
+  "base_commit": "b6cbb05f3e55f74ff2aba2c6c8f0ee4b8bbc3b71",
+  "command": ".venv/bin/python -m pytest -q -n 4 --dist worksteal --tb=short --junitxml=.workspace/evidence/ac-full-reviewed.xml",
+  "total": 1448,
+  "passed": 1405,
+  "failed": 0,
+  "errors": 0,
+  "skipped": 42,
+  "xfailed": 1,
+  "elapsed_seconds": 132.399,
+  "junit_sha256": "2f172b1e863028237d47aa598659cb2b8ad0b3a46f57bbe653b054717c7f1a2d",
+  "omissions": [
+    {
+      "test": "tests.acceptance.test_rfc_acceptance::test_6_research_ergonomics_and_throughput_funnel_timing",
+      "type": "pytest.skip",
+      "reason": "Historical pinned exploratory market Parquet not mounted; integration benchmark deferred"
+    },
+    {
+      "test": "tests.experiments.test_af30_book::test_idm_bounds_and_smoke_call",
+      "type": "pytest.skip",
+      "reason": "IDM smoke call reads the operator-mounted multi-asset panel; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.experiments.test_af30_step3_closure::test_committed_ledger_matches_the_live_registry",
+      "type": "pytest.skip",
+      "reason": "set AF30_LIVE_CHECKS=1 to run live-registry checks"
+    },
+    {
+      "test": "tests.experiments.test_fx_stage3_closure::test_committed_ledger_matches_the_live_registry",
+      "type": "pytest.skip",
+      "reason": "set FX_LIVE_CHECKS=1 to run live-registry checks"
+    },
+    {
+      "test": "tests.experiments.test_hyp_2026_001::test_hyp_2026_001_trials_recorded_in_registry",
+      "type": "pytest.skip",
+      "reason": "Original HYP-2026-001 historical trial rows not mounted; independent budget fixtures remain active"
+    },
+    {
+      "test": "tests.experiments.test_hyp_2026_001::test_hyp_2026_001_fourth_attempt_budget_exhausted",
+      "type": "pytest.skip",
+      "reason": "Original HYP-2026-001 historical trial rows not mounted; independent budget fixtures remain active"
+    },
+    {
+      "test": "tests.experiments.test_hyp_2026_002::test_hyp_2026_002_both_trials_recorded_with_ic_metrics",
+      "type": "pytest.skip",
+      "reason": "Original HYP-2026-002 research trials not mounted; ML fold fixtures remain active"
+    },
+    {
+      "test": "tests.experiments.test_hyp_2026_002::test_early_rejection_does_not_contaminate_return_matrix",
+      "type": "pytest.skip",
+      "reason": "Original HYP-2026-002 research trials not mounted; ML fold fixtures remain active"
+    },
+    {
+      "test": "tests.experiments.test_stage3_causality::test_positions_are_prefix_invariant_at_sampled_cuts[RUN-HYP112-002]",
+      "type": "pytest.skip",
+      "reason": "set AF30_LIVE_CHECKS=1 to run; needs the live registry and market-data panels"
+    },
+    {
+      "test": "tests.experiments.test_stage3_causality::test_positions_are_prefix_invariant_at_sampled_cuts[RUN-HYP113-002]",
+      "type": "pytest.skip",
+      "reason": "set AF30_LIVE_CHECKS=1 to run; needs the live registry and market-data panels"
+    },
+    {
+      "test": "tests.experiments.test_stage3_causality::test_positions_are_prefix_invariant_at_sampled_cuts[RUN-HYP114-002]",
+      "type": "pytest.skip",
+      "reason": "set AF30_LIVE_CHECKS=1 to run; needs the live registry and market-data panels"
+    },
+    {
+      "test": "tests.experiments.test_stage3_causality::test_positions_are_prefix_invariant_at_sampled_cuts[RUN-HYP095-002]",
+      "type": "pytest.skip",
+      "reason": "set AF30_LIVE_CHECKS=1 to run; needs the live registry and market-data panels"
+    },
+    {
+      "test": "tests.experiments.test_stage3_causality::test_positions_are_prefix_invariant_at_sampled_cuts[RUN-HYP099-001]",
+      "type": "pytest.skip",
+      "reason": "set AF30_LIVE_CHECKS=1 to run; needs the live registry and market-data panels"
+    },
+    {
+      "test": "tests.experiments.test_stage3_causality::test_positions_are_prefix_invariant_at_sampled_cuts[RUN-HYP094-002]",
+      "type": "pytest.skip",
+      "reason": "set AF30_LIVE_CHECKS=1 to run; needs the live registry and market-data panels"
+    },
+    {
+      "test": "tests.test_liquidation_episode_fixture::test_sparse_union_must_preserve_inactive_position",
+      "type": "pytest.xfail",
+      "reason": "Reviewed untracked candidate counts inactive union bars as holding bars; scientific change requires approval"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_fx_majors_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_fx_majors_1m_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_indices_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_indices_1m_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_metals_1m_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_commodities_1m_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_crypto_perps_1m_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_multi_asset_1h_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_multi_asset_5m_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_multi_asset_30m_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_multi_asset_4h_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_multi_asset_1d_exploratory_dataset",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_indices_domain_exploratory_datasets[5m-3485714]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_indices_domain_exploratory_datasets[30m-591361]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_indices_domain_exploratory_datasets[4h-87963]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_indices_domain_exploratory_datasets[1d-17697]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_fx_majors_domain_exploratory_datasets[5m-6290027]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_fx_majors_domain_exploratory_datasets[30m-1051876]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_fx_majors_domain_exploratory_datasets[1h-526720]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_fx_majors_domain_exploratory_datasets[4h-136390]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_fx_majors_domain_exploratory_datasets[1d-26576]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_crypto_perps_domain_exploratory_datasets[5m-1260288-contracts/crypto_perps_5m_v1.yaml]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_crypto_perps_domain_exploratory_datasets[30m-210048-contracts/crypto_perps_30m_v1.yaml]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_crypto_perps_domain_exploratory_datasets[1h-105024-contracts/crypto_perps_1h_v2.yaml]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_crypto_perps_domain_exploratory_datasets[4h-26256-contracts/crypto_perps_4h_v1.yaml]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_multi_asset_salvage::test_crypto_perps_domain_exploratory_datasets[1d-4376-contracts/crypto_perps_1d_v1.yaml]",
+      "type": "pytest.skip",
+      "reason": "live market bytes not requested; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_ticket06_shadow_engine_parity::test_probe_multi_exchange_calendar_synthetic_and_repo",
+      "type": "pytest.skip",
+      "reason": "repository dataset probe needs data/exploratory; set WARDEN_LIVE_DATA=1"
+    },
+    {
+      "test": "tests.test_ticket06_shadow_engine_parity::test_profile_engine_scaling_isolated_subprocess",
+      "type": "pytest.skip",
+      "reason": "CRYPTO_PERPS_TOP100_1H_V1 exploratory parquet not present"
+    }
+  ],
+  "warnings": {
+    "observed_category": "Python 3.12 SQLite default datetime adapter DeprecationWarning",
+    "focused_review_count": 15,
+    "focused_review_tests": 23,
+    "full_suite_count": null,
+    "note": "Detached full suite retained JUnit dispositions, not the terminal warning aggregate. Warnings are not counted as passes."
+  },
+  "lint": "Ruff passed for all changed Python paths",
+  "ast_boundary_findings": [],
+  "direct_review": {
+    "standards": "PASS with documented operational limits",
+    "specification": "Engineering witnesses accounted; A23 blocked by unavailable independent authority",
+    "independent_scientific_conformance": "JUDGE_UNAVAILABLE",
+    "reviewed_base": "b6cbb05f3e55f74ff2aba2c6c8f0ee4b8bbc3b71"
+  },
+  "corrected_regressions": [
+    "Typed MCP retains reviewed Git spec and strategy gate",
+    "Documentation standing grants exclude executable files, machine-read evidence and agent instructions",
+    "Real OS kill preserves admitted debt and forbids replay",
+    "Parent exit cannot release resources while owned children survive",
+    "Unconfirmed process exit retains reservations",
+    "CPU affinity is inherited before descendants start"
+  ],
+  "installed_authority": false,
+  "production_activated": false,
+  "scientific_qualification": false
+}

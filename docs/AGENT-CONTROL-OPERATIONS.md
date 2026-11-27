@@ -141,7 +141,9 @@ ceiling and bounded child memory. It performs no strategy scoring and refuses
 sealed paths/symlinks. Staging is a measured experiment; the production gateway
 and its exact-byte/fence behavior are unchanged.
 
-Measured evidence is in `docs/evidence/ac-*-20261127.json`. Source integration,
-authority integration, production activation and scientific qualification are
-separate completion states. The consolidated AC-10 decision must bind the exact
-release and migration evidence before any protected live action.
+Measured evidence is in `docs/evidence/ac-*-20261127.json`. The
+[acceptance report](AGENT-CONTROL-ACCEPTANCE-20261127.md) maps every A01–A25 criterion
+to its witness or external blocker. The [consolidated AC-10 decision](AGENT-CONTROL-CUTOVER-20261127.md)
+binds the exact frozen source candidate, verification omissions and migration evidence.
+Source integration, authority integration, production activation and scientific
+qualification remain separate completion states.

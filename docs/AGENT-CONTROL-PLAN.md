@@ -1,7 +1,10 @@
 # Agent control implementation plan
 
-Status: **APPROVED PLAN — engineering source implemented; final acceptance in progress**.
-Actual interfaces and integration boundaries are recorded in
+Status: **ELIGIBLE ENGINEERING VERIFIED — A23 authority integration blocked; AC-10 not deployed**.
+Exact source, verification and omissions are recorded in
+[AGENT-CONTROL-ACCEPTANCE-20261127.md](AGENT-CONTROL-ACCEPTANCE-20261127.md).
+The [consolidated cutover decision](AGENT-CONTROL-CUTOVER-20261127.md) names the remaining
+protected prerequisites. Implemented interfaces are in
 [AGENT-CONTROL-OPERATIONS.md](AGENT-CONTROL-OPERATIONS.md).
 Revision 2026-11-27. AC identifiers below identify delivery slices, not GitHub issue numbers.
 The [issue projection](AGENT-CONTROL-ISSUES.md) maps each slice to a milestone ticket.
@@ -247,7 +250,8 @@ again at AC-09 with the existing RG holdout/exposure and migration suites.
 
 ## 4. Measure ergonomics and resource cost
 
-These are proposed engineering acceptance targets, not measured results.
+These remain the approved engineering acceptance targets. Measured results and
+limits are recorded in the [acceptance report](AGENT-CONTROL-ACCEPTANCE-20261127.md).
 
 | Measure | Initial target and evaluation |
 |---|---|
@@ -316,8 +320,8 @@ after the authorized preparation has made its consequences reviewable.
 | Current protected manifest is stale | Existing blocker retained; the target removes recurrence only after Release Authority is installed |
 | Production migration/history reconciliation | Outstanding; rehearsal and exact decisions precede live effects |
 | New standing delegation scope | Principal decision at AC-05/06; conservative current rules until then |
-| Authenticated approval channel and protected installer | UNKNOWN; inspect actual capabilities before choosing mechanism |
-| Largest-dataset read-time memory overhead | UNKNOWN; benchmark authorized unsealed inputs in AC-09 |
+| Authenticated approval channel and protected installer | BLOCKED_CAPABILITY; independent ownership was not available; exact bootstrap subjects are prepared |
+| Largest-dataset read-time memory overhead | MEASURED on 219,155,413 authorized unsealed bytes; staging remains an experiment and the production reader is unchanged |
 | Independent conformance | Existing requirement retained; JUDGE_UNAVAILABLE cannot be self-approved |
 | Current application vs OS trust boundary | Document honestly; demonstrate any stronger boundary with actual permissions |
 | Current user workflow | ChatGPT directs and executes; no human coding/CLI burden in the target; no mandatory external agents |

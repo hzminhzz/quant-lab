@@ -21,6 +21,23 @@ from warden.runner import ExperimentRunner
 from warden.schemas import load_experiment_spec
 
 
+def passing_repo(tiny_repo, **kwargs):
+    """Positive control for tests that require an actual PASS before advancement."""
+    from tests.test_rg06_incremental import _control_panel, _long_module
+    from warden.contracts import utc
+
+    end = utc("2025-06-30T00:00:00Z")
+    return tiny_repo(
+        module_source=_long_module("BBB"), panel_override=_control_panel(),
+        contract_overrides={
+            "frequency": "1d", "bars_per_year": 365,
+            "val_start": utc("2025-01-21T00:00:00Z"),
+            "val_end": end, "holdout_start": end,
+            "holdout_end": utc("2025-12-01T00:00:00Z"),
+        }, **kwargs,
+    )
+
+
 def variant(fixture, value, *, filename=None):
     payload = yaml.safe_load(fixture.spec.read_text())
     payload["parameters"] = {"candidate_variant": value}
@@ -60,11 +77,11 @@ def test_fourth_selectable_screen_refused_before_outcome(pre_rg05_policy, tiny_r
 
 
 def test_screen_and_full_trial_share_identity_at_cap(pre_rg05_policy, tiny_repo):
-    fixture = tiny_repo()
+    fixture = passing_repo(tiny_repo)
     reg = fixture.registry
     runner = ExperimentRunner(registry=reg, repo_root=fixture.repo)
     for i in range(3):
-        runner.run_stage1_screen(variant(fixture, i))
+        assert runner.run_stage1_screen(variant(fixture, i)).passed
     spec = variant(fixture, 0, filename="renamed-spec.yaml")
     result = runner.run_spec(spec)
     assert reg.candidate_budget("HYP-TINY")["used"] == 3
@@ -227,14 +244,14 @@ def test_v3_migration_keeps_old_rows_artifact_and_conservative_debt(pre_rg05_pol
 
 
 def test_material_code_revision_is_distinct_but_does_not_reset_budget(pre_rg05_policy, tiny_repo):
-    fixture = tiny_repo()
+    fixture = passing_repo(tiny_repo)
     reg = fixture.registry
     runner = ExperimentRunner(registry=reg, repo_root=fixture.repo)
     spec = variant(fixture, 1)
-    runner.run_stage1_screen(spec)
+    assert runner.run_stage1_screen(spec).passed
     module = fixture.repo / "strategies/flat.py"
-    module.write_text(module.read_text().replace("w = 0.1 if", "w = 0.2 if"))
-    runner.run_stage1_screen(spec)
+    module.write_text(module.read_text().replace("0.4 if", "0.3 if"))
+    assert runner.run_stage1_screen(spec).passed
     assert reg.candidate_budget("HYP-TINY")["used"] == 2
     # The legacy raw-spec status cannot identify which code version is intended.
     assert reg.screen_status("HYP-TINY", fixture.contract.contract_id, "strategies/flat.py",

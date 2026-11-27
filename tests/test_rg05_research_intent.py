@@ -73,12 +73,14 @@ def review(runner, fixture, verdict="PASS", **kwargs):
 
 
 def test_approved_intent_and_independent_review_admit_once_then_advance(tiny_repo):
-    fixture = tiny_repo()
+    from tests.test_rg03_candidate_admission import passing_repo
+
+    fixture = passing_repo(tiny_repo)
     runner, _, _ = approve(fixture)
     with pytest.raises(ValueError, match="Independent conformance review required"):
         runner.run_stage1_screen(fixture.spec)
     review_id, binding = review(runner, fixture)
-    runner.run_stage1_screen(fixture.spec)
+    assert runner.run_stage1_screen(fixture.spec).passed
     result = runner.run_spec(fixture.spec)
     candidate, intent = fixture.registry.require_trial_conformance(result.run_id)
     assert candidate.candidate_id == binding["candidate_id"]
@@ -318,9 +320,12 @@ def test_governed_cli_human_approval_and_review(tiny_repo, monkeypatch, capsys):
     assert main(review_cmd) == 0
     capsys.readouterr()
     assert main(["screen", str(fixture.spec), "--json"]) in (0, 1)
+    assert json.loads(capsys.readouterr().out)["passed"] is False
     assert ResearchRegistry(db).candidate_budget("HYP-TINY")["used"] == 1
-    assert main(["backtest", str(fixture.spec), "--json"]) == 0
-    assert "WARDEN_RUN_COMPLETE" in capsys.readouterr().out
+    assert main(["backtest", str(fixture.spec), "--json"]) == 1
+    captured = capsys.readouterr()
+    assert "screen outcome REJECT" in captured.err
+    assert "WARDEN_RUN_COMPLETE" not in captured.out
     assert ResearchRegistry(db).candidate_budget("HYP-TINY")["used"] == 1
 
 

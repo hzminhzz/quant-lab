@@ -251,7 +251,9 @@ def test_dsr_non_ratchet_does_not_readd_unvectorized_penalty() -> None:
 
 
 def test_param_grid_and_rules_ts_screens_align_into_effective_rank(pre_rg05_policy, tiny_repo) -> None:
-    fixture = tiny_repo()
+    from tests.test_rg03_candidate_admission import passing_repo
+
+    fixture = passing_repo(tiny_repo)
     import yaml
 
     frozen = yaml.safe_load(fixture.spec.read_text())
@@ -259,7 +261,7 @@ def test_param_grid_and_rules_ts_screens_align_into_effective_rank(pre_rg05_poli
     frozen["param_grid"] = [{"lookback_bars": 3}, {"lookback_bars": 6}]
     fixture.spec.write_text(yaml.safe_dump(frozen))
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
-    runner.run_stage1_screen(fixture.spec)
+    assert runner.run_stage1_screen(fixture.spec).passed
 
     # Add a cross_sectional_ml standalone_screen (stores IC series of length != bar len): must not raise SelectionHistoryError
     fixture.registry.record_selection_attempt(
@@ -456,17 +458,9 @@ def test_source_published_at_retrospective_tagging_and_qualification_block(
     pre_rg05_policy,
     tiny_repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    strong_module = """
-import numpy as np
+    from tests.test_rg03_candidate_admission import passing_repo
 
-
-def generate_positions(panel_df, contract, **kwargs):
-    ts = sorted(panel_df["timestamp"].unique().to_list())
-    assets = sorted(panel_df["asset"].unique().to_list())
-    pos = np.full((len(ts), len(assets)), 0.4)
-    return {"positions": pos}
-"""
-    fixture = tiny_repo(module_source=strong_module, module_name="strong", n_bars=24)  # fence-compatible
+    fixture = passing_repo(tiny_repo, module_name="strong")
     # Register a retrospective hypothesis (source_published_at >= val_start)
     retro_hyp = HypothesisSpec(
         "HYP-RETRO",
@@ -492,6 +486,7 @@ def generate_positions(panel_df, contract, **kwargs):
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
     screen_rep = runner.run_stage1_screen(retro_spec)
     assert screen_rep.strategy_family == "rules_ts"
+    assert screen_rep.passed
 
     res = runner.run_spec(retro_spec)
     assert res.verdict == "RETROSPECTIVE_REPLICATION_ONLY"

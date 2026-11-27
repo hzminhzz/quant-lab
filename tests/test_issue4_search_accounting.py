@@ -38,7 +38,9 @@ def _hyp(hyp_id, family="rules_ts", module="", parent=None):
 
 
 def test_screens_grids_and_failed_reservations_are_all_counted(pre_rg05_policy, tiny_repo) -> None:
-    fixture = tiny_repo()
+    from tests.test_rg03_candidate_admission import passing_repo
+
+    fixture = passing_repo(tiny_repo)
     import yaml
 
     frozen = yaml.safe_load(fixture.spec.read_text())
@@ -46,7 +48,7 @@ def test_screens_grids_and_failed_reservations_are_all_counted(pre_rg05_policy, 
     frozen["param_grid"] = [{"lookback_bars": 3}, {"lookback_bars": 6}]
     fixture.spec.write_text(yaml.safe_dump(frozen))
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
-    runner.run_stage1_screen(fixture.spec)                     # standalone screen -> one attempt
+    assert runner.run_stage1_screen(fixture.spec).passed      # standalone screen -> one attempt
     with fixture.registry._connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM selection_attempts").fetchone()[0] == 1
         row = conn.execute("SELECT kind, returns_observed, returns_json FROM selection_attempts").fetchone()

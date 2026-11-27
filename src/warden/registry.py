@@ -1187,11 +1187,13 @@ class ResearchRegistry:
             )
         if existing and kind == "trial":
             screen = conn.execute(
-                "SELECT r.state,a.attempt_id FROM screen_receipts r LEFT JOIN selection_attempts a "
+                "SELECT r.state,a.attempt_id,a.outcome FROM screen_receipts r LEFT JOIN selection_attempts a "
                 "ON a.attempt_id=r.attempt_id WHERE r.screen_key=?", (operations.get("screen"),)
             ).fetchone()
             if screen is None or screen[0] != "FINALIZED" or not screen[1]:
                 raise ValueError("Candidate screen is unresolved; review, never replay")
+            if screen[2] != "PASS":
+                raise ValueError(f"Candidate screen outcome {screen[2]} cannot advance; review, never replay")
         self._require_candidate_budget(conn, hyp_id, candidate=candidate, new=existing is None)
         if not existing:
             conn.execute(

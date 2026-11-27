@@ -365,6 +365,8 @@ class MarketDataGateway:
                 contract, frame, symbols_filtered, spec_version, min_holdout_bars
             )
         res = resolution or resolve_dataset(contract, self.repo_root, role=role)
+        if res.role != role or res.contract_id != contract.contract_id:
+            raise DatasetProvenanceError("Dataset resolution differs from the requested contract or role")
         if role == ROLE_HOLDOUT and not res.eligible_market:
             # Pin rejection precedes the read, structurally: an unpinned or non-market
             # holdout never reaches ``pl.read_parquet`` (and never reaches its digest).
@@ -400,7 +402,8 @@ class MarketDataGateway:
             panel = self._exploratory_panel(contract, frame, res, symbols_filtered, spec_version)
         else:
             panel = self._holdout_panel(
-                contract, frame, res, symbols, symbols_filtered, spec_version, min_holdout_bars
+                contract, frame, res, symbols, symbols_filtered, spec_version, min_holdout_bars,
+                require_eligible_warmup=holdout_scope is not None,
             )
         # The manifest is resolved *before* the bars are read and carried on the panel, so a
         # trial can state which build produced its data instead of re-deriving it from a path.
@@ -423,6 +426,8 @@ class MarketDataGateway:
         contains inside the contract's validation window.
         """
         res = resolution or resolve_dataset(contract, self.repo_root, role=ROLE_EXPLORATORY)
+        if res.role != ROLE_EXPLORATORY:
+            raise DatasetProvenanceError("Validation grid requires an exploratory dataset resolution")
         spec_version = resolve_contract_governance(contract, self.repo_root).spec_version
         frame, _ = self._read_resolved(res, contract, None)
         panel = self._exploratory_panel(contract, frame, res, False, spec_version)
@@ -474,7 +479,15 @@ class MarketDataGateway:
             raise DatasetProvenanceError(
                 f"missing dataset for {contract.contract_id}: {res.reason}"
             )
-        frame = normalise_feed(pl.read_parquet(self.repo_root / res.path), contract)
+        if (res.contract_id != contract.contract_id or res.role not in ROLES
+                or res.path != getattr(contract, f"{res.role}_data_path")):
+            raise DatasetProvenanceError("Dataset resolution differs from the requested contract or role")
+        payload = (self.repo_root / res.path).read_bytes()
+        if hashlib.sha256(payload).hexdigest() != res.sha256:
+            raise DatasetProvenanceError("Dataset digest changed after provenance resolution")
+        frame = normalise_feed(read_parquet_bytes(payload), contract)
+        if res.role == ROLE_EXPLORATORY:
+            _assert_exploratory_fence(frame, contract)
         return select_symbols(frame, symbols, label=res.path)
 
     # -- roles --------------------------------------------------------------
@@ -506,6 +519,8 @@ class MarketDataGateway:
         symbols_filtered: bool,
         spec_version: int,
         min_holdout_bars: int,
+        *,
+        require_eligible_warmup: bool = False,
     ) -> MarketPanel:
         window = _window(holdout_frame, contract.holdout_start, contract.holdout_end)
         if window.height < min_holdout_bars:
@@ -514,7 +529,7 @@ class MarketDataGateway:
                 "no fallback window"
             )
         _assert_window_bounds(window, contract)
-        warmup = self._warmup_prefix(contract, symbols)
+        warmup = self._warmup_prefix(contract, symbols, require_eligible=require_eligible_warmup)
         warmup_ts = warmup["timestamp"].unique().sort().to_list()
         # The prefix must end strictly before the first holdout bar: no overlap, no gap
         # that could let a holdout bar double as training evidence.
@@ -585,7 +600,7 @@ class MarketDataGateway:
             symbols_filtered, spec_version, None, holdout_override=True,
         )
 
-    def _warmup_prefix(self, contract: EvaluationContract, symbols: Any) -> pl.DataFrame:
+    def _warmup_prefix(self, contract: EvaluationContract, symbols: Any, *, require_eligible: bool) -> pl.DataFrame:
         """Verified exploratory bars strictly before ``holdout_start``.
 
         A production holdout read without a verified pre-holdout prefix is refused: the
@@ -594,6 +609,10 @@ class MarketDataGateway:
         market read, so the prefix is evidence, not a convenience copy.
         """
         res = resolve_dataset(contract, self.repo_root, role=ROLE_EXPLORATORY)
+        if (res.sha256 != contract.data_snapshot_sha256
+                or res.provenance != contract.data_provenance
+                or (require_eligible and not res.eligible_market)):
+            raise DatasetProvenanceError("Holdout warmup dataset differs from its approved digest or provenance")
         # The prefix is filtered by the *same* symbols as the holdout window: a warmup that
         # reintroduced untargeted assets would train the evaluation on a different panel.
         warmup, _ = self._read_resolved(res, contract, symbols)

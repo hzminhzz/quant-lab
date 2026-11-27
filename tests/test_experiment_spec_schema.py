@@ -169,9 +169,11 @@ def test_runner_rejects_spec_without_hypothesis_before_any_write(tiny_repo) -> N
 
 
 def test_live_runner_pins_engine_epoch_and_records_it(pre_rg05_policy, tiny_repo) -> None:
-    fixture = tiny_repo(n_bars=24)  # fence-compatible: ends before the fixture holdout_start
+    from tests.test_rg03_candidate_admission import passing_repo
+
+    fixture = passing_repo(tiny_repo)
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
-    runner.run_stage1_screen(fixture.spec)
+    assert runner.run_stage1_screen(fixture.spec).passed
     res = runner.run_spec(fixture.spec)
     assert res.simulation_epoch == ENGINE_SIMULATION_EPOCH
     with fixture.registry._connect() as conn:

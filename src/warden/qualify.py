@@ -132,7 +132,7 @@ def _prepare_qualification(run_id, runner, holdout_override_path=None):
         proof = reg.causal_proof_for_run(run_id, runner.repo_root)
         if not proof["verified"]:
             raise PermissionError(f"Production qualification requires run-bound causal proof: {proof['reason']}")
-    from warden.research_intent import require_qualification_conformance
+    from warden.research_intent import require_dataset_resolution, require_qualification_conformance
 
     binding = require_qualification_conformance(reg, run_id, contract, code_sha, runner.repo_root)
 
@@ -150,6 +150,7 @@ def _prepare_qualification(run_id, runner, holdout_override_path=None):
     if binding is not None:
         candidate, intent = binding
         if not holdout_override:
+            require_dataset_resolution(resolve_dataset(contract, runner.repo_root), intent)
             import json
 
             checks = json.loads(approved["checks_json"])
@@ -218,12 +219,6 @@ def qualify_candidate(
         reg.mark_holdout_read_started(lineage_id, run_id)
     # Even hashing the protected file is a read. Both claims are already durable.
     holdout_res = None
-    if not holdout_override:
-        holdout_res = resolve_dataset(contract, runner.repo_root, role="holdout")
-        if not holdout_res.eligible_market:
-            raise ValueError(f"Holdout dataset for '{cid}' is not market-eligible: {holdout_res.reason}")
-        if batch is not None and holdout_res.sha256 != batch["scope"]["dataset_sha256"]:
-            raise ValueError("Frozen holdout artifact digest changed")
 
     # #97: the holdout refit schedule is contract-declared, not caller-chosen.  A model
     # strategy qualifies under `purged_expanding` (fold 0 trained strictly before
@@ -243,6 +238,14 @@ def qualify_candidate(
         resolution = prepared["binding"][1]["resolution"]
         symbols = sorted(set(resolution["symbols"]) - set(resolution["symbols_to_drop"]))
     try:
+        if not holdout_override:
+            if batch is not None and h_path.resolve() != runner.repo_root.resolve() / contract.holdout_data_path:
+                raise exposure.ScopeIncident("Frozen holdout artifact path changed")
+            holdout_res = resolve_dataset(contract, runner.repo_root, role="holdout")
+            if batch is not None and holdout_res.sha256 != batch["scope"]["dataset_sha256"]:
+                raise exposure.ScopeIncident("Frozen holdout artifact digest changed")
+            if not holdout_res.eligible_market:
+                raise ValueError(f"Holdout dataset for '{cid}' is not market-eligible: {holdout_res.reason}")
         market = MarketDataGateway(runner.repo_root).load(
             contract, ROLE_HOLDOUT, symbols, resolution=holdout_res,
             holdout_override_path=holdout_override_path,

@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.test_rg03_candidate_admission import bound_identity, reserve, variant
+from tests.test_rg03_candidate_admission import bound_identity, passing_repo, reserve, variant
 from warden.contracts import ENGINE_SIMULATION_EPOCH
 from warden.registry import ResearchRegistry
 
@@ -24,9 +24,9 @@ def test_interrupted_screen_is_selection_debt_before_any_outcome(pre_rg05_policy
 def test_fixed_stress_evidence_is_finalized_before_trial_returns(pre_rg05_policy, tiny_repo):
     from warden.runner import ExperimentRunner
 
-    fixture = tiny_repo(provenance="synthetic")
+    fixture = passing_repo(tiny_repo, provenance="synthetic")
     runner = ExperimentRunner(registry=fixture.registry, repo_root=fixture.repo)
-    runner.run_stage1_screen(fixture.spec)
+    assert runner.run_stage1_screen(fixture.spec).passed
     result = runner.run_spec(fixture.spec)
     receipts = fixture.registry.robustness_status(result.run_id)
     assert {row["scenario_key"] for row in receipts} == {"cost_1p5", "cost_2x", "latency_plus1"}
@@ -42,14 +42,14 @@ def test_grid_frozen_before_screen_and_variant_promotion_charges_slot(pre_rg05_p
     from warden.registry import HypothesisBudgetExhaustedError
     from warden.runner import ExperimentRunner
 
-    f = tiny_repo(provenance="synthetic")
+    f = passing_repo(tiny_repo, provenance="synthetic")
     spec = variant(f, 4)
     payload = yaml.safe_load(spec.read_text())
     payload["param_grid"] = [{"candidate_variant": 3}, {"candidate_variant": 5}]
     original = yaml.safe_dump(payload)
     spec.write_text(original)
     runner = ExperimentRunner(registry=f.registry, repo_root=f.repo)
-    runner.run_stage1_screen(spec)
+    assert runner.run_stage1_screen(spec).passed
     payload["param_grid"].append({"candidate_variant": 4})
     spec.write_text(yaml.safe_dump(payload))
     with pytest.raises(ValueError, match="robustness plan changed"):
@@ -182,9 +182,9 @@ def test_v4_migration_does_not_erase_recorded_selection_debt(pre_rg05_policy, ti
 
     from warden.runner import ExperimentRunner
 
-    f = tiny_repo(provenance="synthetic")
+    f = passing_repo(tiny_repo, provenance="synthetic")
     runner = ExperimentRunner(registry=f.registry, repo_root=f.repo)
-    runner.run_stage1_screen(f.spec)
+    assert runner.run_stage1_screen(f.spec).passed
     runner.run_spec(f.spec)
     cid = f.contract.contract_id
     assert f.registry.selection_attempt_count(cid) == 1

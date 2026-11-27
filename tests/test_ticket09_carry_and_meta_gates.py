@@ -432,12 +432,10 @@ def test_carry_rv_rejects_nonstationary_random_walk_at_stage1_without_engine(
     assert engine_calls["n"] == 0
 
     rc_bt = cli_main(["backtest", str(spec_yaml), "--json"])
-    bt_lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
-    assert rc_bt == 0
-    assert bt_lines[-1] == "WARDEN_RUN_COMPLETE"
-    bt_payload = json.loads(bt_lines[0])
-    assert bt_payload["stage_reached"] == "STAGE_1_SIGNAL"
-    assert bt_payload["verdict"] == "REJECTED_EARLY"
+    captured = capsys.readouterr()
+    assert rc_bt == 1
+    assert "screen outcome REJECT" in captured.err
+    assert "WARDEN_RUN_COMPLETE" not in captured.out
     assert engine_calls["n"] == 0
 
 
@@ -852,12 +850,10 @@ def test_meta_overlay_rejects_unimproved_child_at_stage1(
     assert screen_out["metrics"]["turnover_reduction"] < 0.20
 
     rc_bt = cli_main(["backtest", str(child_spec), "--json"])
-    bt_lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
-    assert rc_bt == 0
-    assert bt_lines[-1] == "WARDEN_RUN_COMPLETE"
-    bt_payload = json.loads(bt_lines[0])
-    assert bt_payload["stage_reached"] == "STAGE_1_SIGNAL"
-    assert bt_payload["verdict"] == "REJECTED_EARLY"
+    captured = capsys.readouterr()
+    assert rc_bt == 1
+    assert "screen outcome REJECT" in captured.err
+    assert "WARDEN_RUN_COMPLETE" not in captured.out
 
 
 def test_meta_overlay_ml4t_engineer_filter_passes_stage1_through_stage3(

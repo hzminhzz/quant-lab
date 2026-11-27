@@ -1,5 +1,10 @@
 # ADR: deepen Warden control and separate release authority
 
+**Historical decision:** independent software-release authority was superseded by the
+[accepted trusted research appliance amendment](2026-11-27-trusted-research-appliance.md).
+The original rationale and uninstalled requirements below are preserved, not recorded as passed.
+Scientific authority and the other AC behaviors remain binding.
+
 Status: **PROPOSED FOR IMPLEMENTATION**. Date: 2026-11-27.
 The principal requested an agent-intuitive, ergonomic and accretive system design
 and corresponding document changes. This ADR selects a target architecture; it

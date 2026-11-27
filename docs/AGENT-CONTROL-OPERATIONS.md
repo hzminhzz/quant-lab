@@ -97,38 +97,66 @@ still performs the full conservative RG-07 checks, including off-branch negative
 history. The view does not replace alias, lineage, selection debt, PIT, exact-byte,
 benchmark, risk, cost or one-shot exposure controls.
 
-## Release and principal authority
+## Maintenance lifecycle and scientific authority
 
-`warden_ops.release.build_candidate` publishes a write-once unsigned source inventory
-with code, dependency lock, mandatory lesson metadata, schema compatibility and an
-optional rollback reference. It excludes scientific data/ledger state and known key
-paths. Verification checks exact contents, modes, symlinks and identity. Filesystem
-read-only modes in the coding account are not an independent security boundary.
+The [appliance ADR](adr/2026-11-27-trusted-research-appliance.md) explicitly supersedes
+independent release authentication. The original A23 requirement did not pass. Scientific
+approvals, independent conformance, sealed data and trading remain separate.
 
-`DecisionGate` verifies exact effect subjects, packet hashes, authenticated proofs,
-expiry, issuer generation and revocation. Unknown revocation state fails closed.
-Copied chat text and self-supplied principal names provide no authority.
-Release, installation, migration, activation, policy/history decisions, batch/read
-approval and capital allocation remain separately scoped effects.
+`warden_ops.release.build_candidate` retains the exact unsigned inventory, locked dependencies,
+source provenance and schema range. `warden_ops.appliance` owns local installation, verification,
+quiescence, additive migration, activation, actual runtime observation and halt/recovery.
+The retired `DecisionGate` and `ReleaseAuthority` fixture protocols are preserved in Git history.
+They are not a second supported release path.
 
-`ReleaseAuthority` is a protocol/library for an independently installed owner.
-Its verifier and required-check baseline are supplied by that owner, never by
-candidate code. Standing grants are restricted to non-executable Markdown
-documentation; machine-read research outcomes and agent instructions are excluded.
-Every protected class needs an exact decision. Activation rechecks identity/schema,
-records intent before an effect and observes the result. Failed recovery requests
-a halt; an unverified halt remains explicitly uncertain. Incompatible old binaries
-must not cause a database or history rewind.
+### Routine agent workflow
 
-The production authenticated principal UI, independently controlled verifier/key/
-revocation state and protected installer are not installed or verified by these
-fixtures. A23 remains blocked. A24 produces an exact decision packet and named
-missing capabilities, with no required principal CLI command and no invented proof.
+1. Work in an isolated development checkout. Preserve the canonical ledger and concurrent work.
+   Run behavior tests, review the actual diff, then use `warden generate-manifest --maintenance`.
+   This refreshes unsigned checksums only; it refuses existing signature/approval metadata.
+2. Commit and integrate reviewed source. Build an immutable candidate with the existing builder.
+   Prepare a locked dependency environment outside the mutable checkout with `uv sync --frozen`.
+3. Use `warden appliance install --home HOME --source CHECKOUT --candidate CANDIDATE
+   --canonical CANONICAL_ROOT --python LOCKED_PYTHON --writer-unit UNIT ...`.
+   Installation creates a separate sparse Git runtime and explicit canonical state bindings.
+   It does not change the active runtime or migrate the live database.
+4. Use `warden appliance verify --home HOME --release RELEASE_ID`. The fixed full-suite,
+   protected-inventory and AST checks run over the data-free candidate, never live state.
+   Receipts include exact XML/log hashes, dependency identity, skips and expected failures.
+5. Use `warden appliance pause-writers --home HOME`. Timers stop; an already running service
+   must finish naturally. Inspect quiescence. No service is killed to manufacture a clean state.
+6. Use `warden appliance transition --home HOME --release RELEASE_ID --request-id STABLE_ID`.
+   Both writer locks must be free. The command takes a fresh WAL snapshot, rehearses and proves
+   preservation/idempotence, persists intent, performs the canonical additive migration, switches
+   the active pointer and probes the actual runtime. Same-ID retries return/reconcile its receipt;
+   changed subjects refuse. The ledger is never restored from a backup.
+7. The installed `HOME/warden` runs pinned code after source/schema/health checks. Its
+   `control --request '{"schema_version":1,"operation":"observe"}'` reports the caller's
+   checkout separately from actual runtime and canonical ledger identity. `HOME/warden appliance
+   observe` probes runtime health; `... halt --reason REASON` stops new launcher admissions.
+
+`warden appliance` also has a module entry point: `python -m warden_ops.appliance`. This permits
+recovery using a known verified environment if the current runtime cannot start. To recover,
+install/verify a schema-compatible forward repair and transition with a new stable request ID.
+If compatibility/health cannot be established, retain the halt and current ledger. A completed
+historical receipt does not reactivate a later deliberately halted runtime.
+
+The runtime is an **on-demand CLI**, not a continuously running service. Health is a real pinned
+process observation. Halt prevents new launcher admissions; it does not erase or refund an
+already admitted scientific operation. Existing canonical leases still guard such operations.
+Legacy scientific scheduling remains paused until eligible under current research governance.
+
+The lifecycle journal is operational evidence. It confers no research-intent approval, independent
+conformance, historical attestation, batch/read grant, contract promotion or trading authority.
+`read_signed_manifest_entry` and the existing scientific CLI gates are unchanged. Local hashes
+and readonly modes make no malicious-host-agent isolation claim. Never use sudo to bypass a
+remaining host boundary.
 
 ## Verification and rehearsal tools
 
-`scripts/rehearse_state_machine_migration.py` now uses the existing read-only SQLite
-online backup API. It compares every pre-existing user table, column and row stream,
+`scripts/rehearse_state_machine_migration.py` and `scripts/registry_evidence_snapshot.py`
+are compatibility adapters to `warden_ops.ledger_maintenance`, the shared read-only SQLite
+online backup and preservation owner. It compares every pre-existing user table, column and row stream,
 checks old indexes/triggers, verifies idempotence and integrity, and records every
 new table and additive column. It only migrates a new independent scratch path.
 An evidence snapshot is never permission to rewind newly accrued live history.

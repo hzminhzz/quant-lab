@@ -43,6 +43,14 @@ When you spawn one, write: `You are a subagent. Don't run memo.`
 
 # Quant-Lab operating contract
 
+**Maintenance amendment (principal-authorized, 2026-11-27):** Before release, migration or
+recovery, read [the trusted research appliance ADR](docs/adr/2026-11-27-trusted-research-appliance.md)
+and [operations](docs/AGENT-CONTROL-OPERATIONS.md). Routine software maintenance, unsigned
+checksum refresh, verified deployment and additive migration are delegated to the agent.
+This supersedes older independent release/POSIX ownership requirements only for maintenance.
+Scientific semantics, independent conformance, historical attestation, sealed data, capital,
+trading and host-permission restrictions below remain binding. Receipts are not scientific approval.
+
 Architecture: `docs/archive/agent_native_quant_research_rfc.md`; portability: `docs/archive/AGENT_COMPATIBILITY.md`; bootstrap tickets: `docs/archive/TICKETS.md`. Use `uv` and the locked environment. Optional adapters never enforce the scientific boundary on their own.
 
 ## Four-way ownership

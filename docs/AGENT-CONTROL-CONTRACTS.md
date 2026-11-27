@@ -1,11 +1,11 @@
 # Agent control contracts
 
-Status: **APPROVED CONTRACTS — engineering source implemented; authority integration blocked**.
+Status: **APPROVED — maintenance authority amended by the trusted research appliance ADR**.
 Revision 2026-11-27. Read [ARCHITECTURE.md](ARCHITECTURE.md) for ownership and
 [AGENT-CONTROL-OPERATIONS.md](AGENT-CONTROL-OPERATIONS.md) for the implemented
 CLI/MCP vocabulary, capability discovery and explicit installation limitations.
-The contracts below remain acceptance requirements; protocol fixtures do not attest
-an installed principal channel or authorize production effects.
+The contracts below remain acceptance requirements as explicitly amended in section 6.
+Dated pre-amendment reports preserve the original independent-authority limitations.
 
 ## 1. One interface, several bounded operations
 
@@ -96,9 +96,9 @@ calling it “metadata-only” is not a security guarantee.
 
 A decision packet is content-addressed and includes the plan, consequences,
 evidence coverage, remaining risk, affected subjects, scope, expiration and
-rollback/stop procedure. The authenticated principal decision binds that exact
-packet. Changed subjects require a new packet; an unchanged still-valid approval
-is reused within its scope.
+rollback/stop procedure. For scientific protected effects, the existing principal decision binds that exact
+packet. Maintenance uses the owner-delegated lifecycle in section 6. Changed subjects
+require fresh preparation; unchanged valid authority is reused only within its scope.
 
 Packets may group related decisions for one review interaction, but every effect
 has its own explicit authorization field. A release approval cannot implicitly
@@ -199,71 +199,46 @@ it does not replace stored vocabulary:
 Keep [EXIT-CODES.md](EXIT-CODES.md) stable. An exit code alone cannot tell an
 agent whether science passed, authority was granted, or a retry is safe.
 
-## 6. Authority and immutable releases
+## 6. Effect governance and immutable releases
 
-### Authority objects
+The [accepted appliance ADR](adr/2026-11-27-trusted-research-appliance.md) supersedes independent software-release
+authentication. Routine maintenance is owner-delegated; scientific authority is unchanged.
+The original ADR and dated pre-amendment acceptance report retain the historical requirements.
 
-A delegation grant binds issuer and recipient identities, action classes,
-subject selectors, policy/verification baseline, resource and risk ceilings,
-validity, revocation generation and exclusions. It is authenticated outside the
-coding agent's writable workspace. A change to a grant is itself a separately
-authorized action.
+| Effect | Authority and required evidence |
+|---|---|
+| Source maintenance, unsigned inventory, candidate installation | Trusted owner maintenance; exact committed source, lock and inventory |
+| Additive canonical migration and runtime activation | Maintenance scope; fixed verification baseline, writer quiescence, fresh WAL backup/rehearsal, preservation and actual runtime health |
+| Compatible runtime recovery or halt | Maintenance scope; append-only receipts and current schema; never database rewind |
+| Scientific rules/contract semantics, research intent, independent conformance, promotion | Existing principal and scientific gates; no authority from a maintenance receipt |
+| Historical attestation, frozen batch, sealed data | Separate exact scientific authority; excluded from AC maintenance |
+| Capital or orders | Separate trading authority; unavailable |
 
-| Effect | Target authority rule | Current default until implemented |
-|---|---|---|
-| Inspect authorized metadata/evidence; edit development code/docs; run hermetic tests | Existing task scope | Allowed where already authorized |
-| Generate unsigned development inventory/build candidate | Mechanical engineering action | Does not permit replacing/signing the protected live manifest |
-| Admit routine releases | Explicit standing release grant plus trusted verification | No new grant is implied |
-| Change scientific rules, authority or trusted verifier | Exact principal decision | Existing principal gates apply |
-| Approve research intent, record conformance or close a hypothesis | Existing rule, or a separately approved bounded delegation policy | Current RG-05/RG-07 principal requirements apply |
-| Attest historical exposures, promote contracts, migrate production | Separately scoped decision and verified executor capability | Explicit separate approval |
-| Authorize a frozen batch; consume a sealed holdout | Separate explicit batch/read decisions and all existing scientific gates | No autonomous unsealing |
-| Allocate capital or send orders | Separate trading authority outside this research program | Unavailable |
+A maintenance request binds its immutable release and canonical ledger. Reusing its ID
+with another subject refuses. The fixed verification baseline runs the entire candidate
+`tests` directory, protected-inventory verification and AST boundaries; inherited test
+selection is cleared. Evidence binds exact candidate bytes, environment identity, suite
+output and explicit skips/xfails. Source/test/verifier changes require review and the
+complete relevant verification; they do not require an independent release signer.
 
-Independent conformance is not supplied by renaming the author or calling a
-deterministic test an independent review. If no eligible reviewer is available,
-retain JUDGE_UNAVAILABLE. This design mandates no external coding-agent delegation.
+The runtime is a separate sparse Git worktree of the committed source, checked against
+the immutable candidate. Its canonical registry and unsealed exploratory data are explicit
+bindings. The active pointer changes atomically. Runtime probing starts the pinned Python
+code and reports its actual module root, release, schema and health. Development drift
+cannot silently change it. No sealed-data binding is installed.
 
-### Release candidate
+Lifecycle intent is durable before migration/activation. Both canonical and legacy writer
+locks serialize the transition; the configured legacy writer schedule must be quiescent.
+Migration uses the existing ResearchRegistry owner. Every existing table/column/row stream
+and index/trigger is compared with the fresh backup; rehearsal proves idempotence.
+Interruption resumes by observing committed schema and receipts, not restoring the backup.
+Incompatible or unverifiable recovery halts the launcher. Scientific debt and history
+are monotone even when a software release is withdrawn.
 
-A release candidate binds the source tree/commit and any included patch digest,
-build/dependency lock, protected inventory, scientific policy references,
-verifier identity and check results, environment assumptions, compatibility
-range, migration plan if any, and rollback candidate. Development candidates
-may be dirty-content-bound; activation requires an immutable, reproducible
-candidate with auditable source provenance.
-
-Verification explicitly records pass/fail/skip/xfail, warnings, selection of
-tests, environmental omissions and untested production-scale limits. A green
-aggregate never absorbs skipped checks. Verification evidence is bound to the
-candidate bytes and configuration, not just a branch name.
-
-### Admission and activation
-
-1. Build/verify in isolated development space; generate an unsigned inventory.
-2. Transfer exact immutable candidate bytes to the authority's staging area.
-3. The authority checks the active grant, trusted verifier baseline, policy
-   identities, protected inventory and compatibility. Candidate-controlled
-   tests/workflows cannot replace required trusted checks.
-4. Within an explicit grant, produce release authorization. Otherwise return the
-   exact decision packet. An LLM's “behavior preserving” assertion is evidence
-   for review, never the authorization predicate.
-5. Activate through the protected executor, serialize against incompatible new
-   admissions, and record before/after runtime identity and observed health.
-6. Verify the running executable identity and ledger compatibility. On failure,
-   use only a compatible authorized rollback, retaining all scientific history.
-
-Signing keys and the activation capability stay outside the coding identity.
-The current HMAC mechanism needs a versioned compatibility design if the trust
-mechanism changes; no algorithm, key service or CI availability is assumed here.
-The missing-key/checksum-only development path cannot count as release
-authorization. Protected policy verification remains fail-closed.
-
-Bootstrap is explicit: inspect available authenticated interfaces and permissions,
-prepare the installation and verification packet, obtain the necessary decision,
-and use the authorized installation channel. The agent never circumvents an
-unavailable privileged channel. The user-facing goal is **zero required human CLI
-commands after that integration is installed and verified**.
+`generate-manifest --maintenance` refreshes unsigned checksums only. It refuses to replace
+an existing signature/approval record. The strict signed scientific-policy reader and
+all scientific approval commands retain their existing requirements. Independent conformance
+remains distinct; absence of genuine evidence remains JUDGE_UNAVAILABLE.
 
 ## 7. Evidence memory and context
 

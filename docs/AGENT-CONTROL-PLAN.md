@@ -1,14 +1,12 @@
 # Agent control implementation plan
 
-Status: **ELIGIBLE ENGINEERING VERIFIED — A23 authority integration blocked; AC-10 not deployed**.
-Exact source, verification and omissions are recorded in
-[AGENT-CONTROL-ACCEPTANCE-20261127.md](AGENT-CONTROL-ACCEPTANCE-20261127.md).
-The [consolidated cutover decision](AGENT-CONTROL-CUTOVER-20261127.md) names the remaining
-protected prerequisites. Implemented interfaces are in
-[AGENT-CONTROL-OPERATIONS.md](AGENT-CONTROL-OPERATIONS.md).
-Revision 2026-11-27. AC identifiers below identify delivery slices, not GitHub issue numbers.
-The [issue projection](AGENT-CONTROL-ISSUES.md) maps each slice to a milestone ticket.
-This plan does not change the acceptance scope or completion status of #109/#119.
+Status: **AMENDED — trusted research appliance maintenance lifecycle**.
+The [accepted ADR](adr/2026-11-27-trusted-research-appliance.md) narrowly revises A13/A14/A24 and explicitly
+supersedes A23 for software maintenance. All other behavioral and scientific criteria
+remain binding. The original [acceptance report](AGENT-CONTROL-ACCEPTANCE-20261127.md)
+and [blocked cutover packet](AGENT-CONTROL-CUTOVER-20261127.md) preserve the pre-amendment
+history; their unavailable independent authority was not demonstrated or retroactively passed.
+Current operation is described in [AGENT-CONTROL-OPERATIONS.md](AGENT-CONTROL-OPERATIONS.md).
 
 ## Objective and completion
 
@@ -18,8 +16,8 @@ evidence-backed conclusion with bounded context, safe continuation and minimal
 principal effort.
 
 Completion requires observable behavior through the public interface, preservation
-of existing scientific semantics, an actual authenticated principal-decision path
-for protected effects, and measured operational costs. Documentation, a prototype,
+of existing scientific semantics, actual lifecycle verification and runtime observation,
+retained scientific authority boundaries, and measured operational costs. Documentation, a prototype,
 passing unit tests or a green status indicator cannot establish that completion.
 
 The existing #109/#119 review fixes, dirty work and production evidence remain
@@ -44,60 +42,24 @@ suite and compatibility checks at release candidates. Repeat tests to resolve a
 specific risk or satisfy a required gate. Record failures, skips, expected failures,
 warnings and untested limits separately from verified passes.
 
-This plan authorizes no signing, push/merge, production migration, new data purchase,
-sealed holdout read, trading or privileged installation. Those steps require their
-own existing or future explicit authority.
+### Authorized completion scope — amendment 2026-11-27
 
-### Single-session engineering execution (2026-11-27)
+The principal explicitly authorizes source amendment, direct implementation, verification,
+commit/push/integration, owner-permitted deployment, additive canonical migration and
+operational recovery after acceptance. Continue eligible dependencies without ticket-by-ticket
+approval. Never bypass host permissions, access sealed holdouts, attest historical exposure,
+invent independent conformance, allocate capital or trade.
 
-Run AC-01 through AC-09 as one dependency-aware objective, not nine approval
-rounds. Implement all eligible slices directly; use focused behavior tests per
-slice and a full integrated suite at the release candidate. Commit independently
-verifiable slices and retain receipts so a tool timeout or context compaction
-does not require redoing work. Use AC-01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09
-as the default deterministic order; the existing dependency graph permits
-independent eligible work to continue when an external dependency is blocked.
-No requirement to exhaust the session or use external coding agents.
+The trusted appliance replaces the uninstalled independent release authority. Build a clean
+immutable candidate, run the complete verification baseline, pause the configured legacy
+writers, take a WAL-consistent backup, rehearse and verify the additive migration, then
+activate and probe the actual pinned runtime. Preserve the concurrent development checkout.
+Keep lifecycle receipts and continuation state. A compatible runtime repair or affected
+operation halt is permitted; rewinding the scientific ledger is not.
 
-The approved source-only merge of #119 is now on main at
-`b6cbb05f3e55f74ff2aba2c6c8f0ee4b8bbc3b71`. Its source tree equals the
-verified RG head (1,355 passed, 42 skipped, one xfailed). The design is carried
-onto an isolated development branch. The production manifest is intentionally
-stale: do not refresh, sign, bypass, or reinterpret it to make development
-appear authorized. Development builds and tests use scratch repositories,
-synthetic data, isolated ledgers and test-only keys; unsigned inventories are
-not release authority. Existing governance and trust-boundary tests demonstrate
-that engineering checks can run under this restriction.
-
-Separate completion into three factual levels without reducing acceptance:
-- **Engineering:** code, public interfaces, regression tests, immutable unsigned
-  candidates, fixtures, measurements and scratch migration/rollback rehearsal.
-- **Authority integration:** actual authenticated principal-decision consumption,
-  separately controlled verifier/grants/activation and demonstrated permissions
-  (AC-05/06, including A23). Fixture-only results cannot close this acceptance.
-- **Live transition:** AC-10 only after integrated acceptance and exact separately
-  authorized effects. No holdout read or trading is needed to implement AC.
-
-A separate user/process on a host is not an independent authority if the coding
-identity can control that host through privileged capabilities. A GitHub
-environment review is not independent if the coding credential can alter its
-approval settings. Recheck the actual capability inventory in private operational
-context; do not publish unnecessary host security details. AC-05/06 must establish a bounded authority channel and
-verification baseline that the coding identity cannot change or impersonate.
-Do not exercise privilege escalation, copy keys into the agent environment, or
-weaken policy to demonstrate this. If the required external identity/capability
-is absent, finish all independent engineering and produce a precise bootstrap
-and cutover decision packet; do not mark A23, live AC-05/06, or AC-10 complete
-without evidence. An authenticated decision may be collected through a supported
-principal-facing UI; a copied chat response/CLI flag is not that authentication.
-
-Use one consolidated decision packet for any irreducible protected effects
-rather than asking the principal to approve each command. Include exact release
-and migration subjects, compatibility evidence, trust prerequisites, impact and
-rollback, and explicit separate choices for each effect. No blanket live
-delegation is inferred. Production changes and holdout access remain excluded
-from ordinary engineering. A single ChatGPT session is a workflow goal, not a
-guaranteed resource/time bound; keep a durable resume record.
+Separate IMPLEMENTED, VERIFIED, MERGED, DEPLOYED and SCIENTIFICALLY QUALIFIED.
+JUDGE_UNAVAILABLE remains a scientific limitation, not a software-maintenance dependency.
+The original no-production execution scope is superseded only by this explicit amendment.
 
 ## 1. Delivery slices
 
@@ -107,17 +69,15 @@ guaranteed resource/time bound; keep a durable resume record.
 | AC-02 | One reliable situation view and resumable evidence inspection | AC-01 | Read-only projections, status/preflight, checkpoint | Cold start and resume explain actual state without migration/scoring; missing facts remain unknown; bounded output/deltas |
 | AC-03 | Prepare, submit and recover one governed action through CLI and MCP | AC-02 | Admission, registry transactions, CLI/adapter | Same request produces one admitted effect; stale/conflicting requests refuse; lost response recovers receipt; existing scientific gates remain binding |
 | AC-04 | Build an immutable release candidate while development remains mutable | AC-01 | Integrity, locked environment, isolated test fixtures | Exact artifact/provenance and verification bundle; unsigned build identity distinct from authorization; current runtime untouched |
-| AC-05 | Present and authenticate one exact principal decision without human CLI work | AC-01, AC-04 for release packets | Existing approval gates; inspected authenticated integration | Packet identity/expiry/scope verified outside coding identity; fake/stale decisions rejected; unavailable capability explicit |
-| AC-06 | Admit and activate a candidate under a bounded Release Authority | AC-03, AC-04, AC-05; separately approved bootstrap | Protected manifest/keys, runtime permissions, activation checks | Routine permitted candidate admitted; unauthorized change refused; observed runtime identity and compatible rollback; no research history reset |
+| AC-05 | Separate maintenance scope from scientific authority | AC-01, AC-04 | Existing scientific gates and exact lifecycle requests | No fabricated scientific approval; request/subject conflicts refused; zero principal CLI steps |
+| AC-06 | Install and activate verified immutable releases under trusted maintenance | AC-03, AC-04, AC-05 | Candidate inventory, Git, canonical leases, lifecycle journal | Exact bytes/environment verified; actual runtime identity; interrupted recovery or halt without history rewind |
 | AC-07 | Drive a bounded objective with recoverable jobs and shared resource limits | AC-03 | advance, leases, evaluation kernel, deterministic worker | Partial progress survives restart; no replay on timeout/cancel; CPU/RAM/I/O budgets enforced; terminal condition stops the objective |
 | AC-08 | Reuse evidence and repairs through scoped, contradiction-aware findings | AC-02, AC-03 | Outcome memory, novelty, lessons, regression fixtures | Relevant finding carries sources/limits; mandatory negative history remains complete; invalidated lesson triggers recheck |
 | AC-09 | Prove integrated compatibility and rehearse production transition | AC-06, AC-07, AC-08 | Snapshot/rehearsal tools, CLI/runner/MCP, protected runtime | Full adversarial matrix, exact preservation evidence, resource measurements and reviewable cutover packet |
-| AC-10 | Perform the separately authorized production transition | AC-09 plus exact principal decisions and installed capabilities | Authorized runtime and canonical state | Observed live identities/health, preserved accrued history, signed scope where required; no implied holdout/trading authorization |
+| AC-10 | Complete the authorized verified lifecycle transition | AC-09 and actual owner-permitted operational gates | Pinned runtime and canonical state | Observed identities/health, writer quiescence, additive migration, preserved history and safe recovery; no scientific authority implied |
 
-AC-01–09 engineering source, fixtures and measurements are implemented. The exact
-acceptance results are separate evidence: AC-05/06 authority integration and A23
-remain blocked by unavailable independent capabilities; AC-10 has no production
-authorization. The requirements in this table are unchanged.
+AC-01–04/07–09 source and prior evidence are reused. AC-05/06/10 follow the explicit
+amendment above. A23 is superseded, never recorded as an independent-authentication pass.
 
 The first useful release is AC-01/02: a truthful read interface and restart packet.
 The manifest-friction path is AC-04/05/06; it does not wait for a new research-memory
@@ -129,8 +89,8 @@ flowchart TD
   A["AC-01: contracts"] --> B["AC-02: situation"]
   B --> C["AC-03: governed action"]
   A --> D["AC-04: immutable build"]
-  D --> E["AC-05: decision"]
-  C --> F["AC-06: release authority"]
+  D --> E["AC-05: effect scope"]
+  C --> F["AC-06: lifecycle"]
   E --> F
   C --> G["AC-07/08: continuation and reuse"]
   F --> H["AC-09: acceptance and rehearsal"]
@@ -168,24 +128,14 @@ First vertical witness: submit an eligible synthetic screen, lose the response,
 resume, retrieve the same receipt, and advance only if the recorded screen passed.
 Prove no new candidate charge on lookup and no forced advancement on rejection.
 
-### AC-04/05/06: remove repeated signing work
+### AC-04/05/06: one maintenance lifecycle
 
-First demonstrate an unsigned immutable candidate while a different authorized
-runtime remains pinned. Only then integrate a real principal-decision channel and
-protected admission/activation identity. Do not start by removing check-worktree,
-embedding a signing key in an agent environment, or auto-signing arbitrary branches.
-
-Inspect the available host/connector authority before choosing the integration.
-If authenticated decisions or privileged installation cannot be performed with
-available capabilities, complete code, fixtures, packets and rehearsal; label
-live integration blocked. Do not claim that a confirmation flag authenticates a
-human or require the principal to operate a CLI as the designed normal workflow.
-
-The principal chooses any standing grant explicitly. Begin with a narrow,
-testable class of routine releases. Keep policy/verifier/authority changes outside
-that class until separately authorized. Pin the trusted required checks outside
-the candidate's mutable source. A candidate may add tests; it may not delete its
-own release requirements.
+Retain the immutable candidate and checksum gates. Replace release grants, fake principal
+proof adapters and privileged installation prerequisites with the owner-delegated lifecycle.
+Separate code/dependencies from canonical state. Bind source, verification, request and runtime
+identities. Fixed full-suite/inventory/AST checks cannot be narrowed by inherited test options.
+Durable intent precedes live effects; retries inspect actual state. Scientific signatures,
+review, promotion, exposure and trading gates remain outside maintenance scope.
 
 ### AC-07: preserve progress, not repeated attempts
 
@@ -230,8 +180,8 @@ snapshots. No production holdout is opened, hashed, sampled or permission-probed
 | A10 | Input bytes change after resolution; excluded symbol crosses temporal fence | Same-byte/fence safeguards still reject; no cached-metadata bypass |
 | A11 | Benchmark, clock, risk/cost basis or paired evidence changes | Incremental evaluation refuses/inconclusive as governed; absolute PASS cannot override |
 | A12 | Renamed candidate, changed cadence, branch failure omitted from display | Existing alias/lineage/selection debt and mandatory novelty checks still apply |
-| A13 | Fake principal name, copied chat text, changed packet or expired/revoked grant | No release, policy change or protected action is authorized |
-| A14 | Candidate changes its tests, verifier or classification of its own edit | Trusted baseline remains binding; unsupported release class requires a decision |
+| A13 | Maintenance receipt/name/chat presented as scientific approval; lifecycle subject changed | Existing scientific gates remain binding; request/subject conflict refuses; no invented scientific authority |
+| A14 | Source/tests/verifier change or inherited options narrow verification | Fixed complete verification and actual-diff review required; exact bytes/environment bound; no independent signer required |
 | A15 | Development inventory becomes stale while an authorized runtime is active | Development diagnostics remain usable; runtime identity/authority unchanged |
 | A16 | Late worker, duplicate result, cancel/lease expiry during execution | Fencing rejects stale finalization; actual effect known or explicitly uncertain |
 | A17 | Activation fails; old binary cannot read newly accrued ledger state | Compatible rollback or affected-operation halt; no database/history rewind |
@@ -240,8 +190,8 @@ snapshots. No production holdout is opened, hashed, sampled or permission-probed
 | A20 | Small context budget or paginated history | Explicit completeness/cursors; no hidden blocker or missing mandatory negative gate |
 | A21 | Multiple jobs exceed CPU/RAM/I/O quota or a job stops heartbeating | Bounded scheduling/termination, accurate resource receipt, conservative scientific state |
 | A22 | Public old/new interface over the same historical fixture | Equivalent stored identities/verdicts/debt; backward-compatible exit/sentinel behavior |
-| A23 | Principal receives a protected-action packet through the installed integration | Exact authenticated decision consumed; zero principal CLI commands; wrong-subject action denied |
-| A24 | Available authenticated/privileged integration is absent | Concrete prepared packet and explicit capability blocker; no invented authorization |
+| A23 | Original independent release authentication | SUPERSEDED by accepted ADR; replacement is a verified local lifecycle completed without principal CLI steps |
+| A24 | A genuinely required permission or scientific capability is absent | Explicit blocker without fabricated proof; absent independent release infrastructure no longer blocks maintenance |
 | A25 | Full integration test and migration rehearsal | Concurrent work, protected files, original database/evidence and sealed data remain unchanged |
 
 A01–A04/20 belong to AC-02; A05–A12/22 to AC-03; A13–A15/17/23/24
@@ -297,39 +247,31 @@ including invalidation, operational effort and auditability.
    migration diff and evidence preservation, authority requirements, resource
    measurements, observation plan and compatible rollback.
 
-### Live execution: separately authorized scope
+### Live execution: authorized maintenance scope
 
-8. Obtain the exact release/installation/migration decisions required by the
-   proposed effects. A standing grant covers only what it actually names.
-9. Quiesce incompatible writers through the authorized interface, take the
-   required backup, apply the approved migration and activate the exact release.
-   Record each committed effect and reconcile interruption before continuing.
-10. Verify actual executable identity, policy/grant state, registry compatibility,
-    read-only status and health. Preserve all newly accrued history on rollback.
-11. Resume only already-authorized research. Historical exposure reconciliation,
-    frozen-batch authorization and holdout reading remain distinct actions;
-    cutover alone grants none of them.
-
-No approval is requested merely to draft this packet. Ask for a decision only
-after the authorized preparation has made its consequences reviewable.
+8. Complete and review the exact candidate and verification receipts under the accepted ADR.
+9. Pause configured legacy writers, acquire both writer locks, take a fresh backup, rehearse,
+   apply the canonical additive migration and prove preservation of all old rows/columns.
+10. Atomically activate the pinned runtime; observe its actual executable identity, canonical
+    schema and read-only health. Reconcile interruption without database rewind.
+11. Leave legacy scientific scheduling paused until its admission path is eligible. Deployment
+    creates no research intent, independent review, historical attestation or sealed-read grant.
 
 ## 6. Known prerequisites and explicit design choices
 
 | Item | Disposition |
 |---|---|
-| Current protected manifest is stale | Existing blocker retained; the target removes recurrence only after Release Authority is installed |
-| Production migration/history reconciliation | Outstanding; rehearsal and exact decisions precede live effects |
-| New standing delegation scope | Principal decision at AC-05/06; conservative current rules until then |
-| Authenticated approval channel and protected installer | BLOCKED_CAPABILITY; independent ownership was not available; exact bootstrap subjects are prepared |
-| Largest-dataset read-time memory overhead | MEASURED on 219,155,413 authorized unsealed bytes; staging remains an experiment and the production reader is unchanged |
+| Stale protected inventory | Refresh unsigned maintenance checksums; preserve existing scientific signatures |
+| Production migration | Authorized after fresh quiescence, backup, rehearsal and preservation gates |
+| Independent release UI/signer/installer | A23 explicitly superseded; no simulated replacement |
+| Host permissions | Remain binding; no sudo or permission circumvention |
+| Largest-dataset read-time memory overhead | Prior 219,155,413-byte unsealed measurement retained; gateway unchanged |
 | Independent conformance | Existing requirement retained; JUDGE_UNAVAILABLE cannot be self-approved |
-| Current application vs OS trust boundary | Document honestly; demonstrate any stronger boundary with actual permissions |
-| Current user workflow | ChatGPT directs and executes; no human coding/CLI burden in the target; no mandatory external agents |
+| Threat model | Accidental errors by a trusted owner-delegated agent; no hostile-host-agent isolation claim |
+| User workflow | ChatGPT directly implements and operates; zero principal CLI burden; no external coding agents |
 
-Decisions settled for the design: reuse Warden/ML4T/SQLite; one typed control
-implementation; immutable evidence; separate release authority; receipts before
-retry; bounded progressive context; scoped findings; conservative approvals.
-No unresolved engineering choice requires asking the user to perform a command.
+Reuse Warden/ML4T/SQLite, immutable evidence, existing leases, fixed verification,
+receipts before retry, bounded context and scoped findings. Add no new service or key authority.
 
 ## 7. Completion report
 

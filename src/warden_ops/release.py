@@ -1,7 +1,7 @@
 """Unsigned, reproducible source candidates; never release authorization.
 
 Candidate directories are write-once publications, not a hostile-agent security
-boundary. A separately protected authority must reverify transferred bytes.
+boundary. The trusted appliance reverifies exact bytes before runtime activation.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path
 from warden_ops.control_contracts import digest
 
 ROOT_FILES = frozenset({"AGENTS.md", "CLAUDE.md", "README.md", "CONTEXT.md", "CONTEXT-MAP.md",
-                        "AGENT_RUNBOOK.md", "CHANGELOG.md", "pyproject.toml", "uv.lock",
+                        "AGENT_RUNBOOK.md", "CHANGELOG.md", "pyproject.toml", "uv.lock", ".gitignore",
                         ".warden_manifest.sha256", ".workspace/memory/LESSONS.md"})
 SOURCE_DIRS = frozenset({"src", "scripts", "tests", "contracts", "strategies", "experiments",
                          "docs", ".github"})
@@ -127,6 +127,19 @@ def build_candidate(root: Path, destination: Path, *, ledger_min: int, ledger_ma
         if pending.exists():
             shutil.rmtree(pending)
     return {**manifest, "release_id": release_id, "path": str(target)}
+
+
+def verify_materialization(candidate: Path, root: Path) -> dict:
+    """Verify a sparse Git runtime against every frozen source byte, excluding state mounts."""
+    checked = verify_candidate(candidate)
+    if not checked["valid"]:
+        raise ValueError("candidate integrity: " + checked["reason"])
+    manifest = checked["manifest"]
+    if _source_paths(root) != sorted(manifest["inventory"]) or _inventory(root, sorted(manifest["inventory"])) != manifest["inventory"]:
+        raise ValueError("runtime source inventory/bytes differ from immutable release")
+    if _git(root, "rev-parse", "HEAD").decode().strip() != manifest["source"]["commit"]:
+        raise ValueError("runtime Git identity differs from immutable release")
+    return manifest
 
 
 def verify_candidate(path: str | Path) -> dict:

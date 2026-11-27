@@ -184,8 +184,8 @@ def capabilities() -> dict:
          "existing review-required receipt; no refund", True),
         ("qualify", "warden.runner.ExperimentRunner.qualify", True, "separate principal and batch approval",
          "holdout claim; information cannot be refunded", False),
-        ("release", "warden_ops.release_authority", False, "independently authenticated exact decision",
-         "protected authority receipt; installed integration required", False),
+        ("release", "warden_ops.appliance", False, "trusted owner maintenance; separate lifecycle CLI",
+         "append-only lifecycle receipt; no scientific approval", False),
         ("handoff", "warden_ops.checkpoint", False, "authorized operational context",
          "append-only operational checkpoint", True),
     ]:
@@ -199,6 +199,10 @@ def capabilities() -> dict:
             "cancellation": "retain admitted or uncertain effects" if write else "no scientific effect",
             "retry": "lookup original receipt; never repeat scoring" if science else "refresh or inspect original receipt",
         })
-    return {"schema_version": 1, "actions": rows, "request_schema": REQUEST.json_schema(),
+    return {"schema_version": 1, "actions": rows,
+            "maintenance": {"interface": "warden appliance", "model": "trusted-research-appliance",
+                            "effects": ["install", "verify", "pause-writers", "transition", "observe", "halt"],
+                            "scientific_authority": False},
+            "request_schema": REQUEST.json_schema(),
             "result_schema": Result.model_json_schema(),
             "compatibility": "additive interface; existing CLI verdicts, exits and sentinels retained"}

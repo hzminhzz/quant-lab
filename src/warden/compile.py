@@ -51,8 +51,8 @@ from warden.resolve import (
     RESAMPLED_FROM_MINUTE,
     DataRequirement,
     ResolutionReport,
-    load_requirement,
     generation_leaf_path,
+    load_requirement,
     resolve_data_requirement,
 )
 from warden_evidence.dataset_builder.build import build_dataset

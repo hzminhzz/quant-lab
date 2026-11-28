@@ -47,9 +47,13 @@ from pydantic import (
 
 from warden.contract_source import active_contract_paths, dataset_manifest_path
 from warden.contracts import EvaluationContract, load_contract
-from warden.lake_root import LAKE_STORE_ENV, resolve_lake_root
+from warden.lake_root import resolve_lake_root
 from warden.provenance import DatasetProvenanceError, resolve_dataset
-from warden_evidence.dataset_builder.containment import assert_never_holdout, canonical_source_path, contained_join
+from warden_evidence.dataset_builder.containment import (
+    assert_never_holdout,
+    canonical_source_path,
+    contained_join,
+)
 from warden_ops.venue_policy import (
     SelectionGroupResolutionError,
     VenuePolicy,

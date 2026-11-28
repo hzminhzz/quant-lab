@@ -417,25 +417,15 @@ def generation_leaf_path(key: str, generation: Mapping[str, Any], leaf: Mapping[
     )
 
 
-def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str, Any], bytes]:
-    """Verify the producer contract and observable membership, without reading prices."""
-    generation = entry["generation"]
+def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], bytes]:
+    """Verify only selected producer manifest and observable inventory, without prices."""
+    reference = entry["generation"]
     key = entry["dataset_key"]
-    identity = generation["generation_identity"]
-    if (generation["schema_version"] != "committed-dataset-v1" or
-            generation["dataset_key"] != key or
-            _canonical_sha256({k: v for k, v in generation.items() if k != "generation_identity"}) != identity or
-            _canonical_sha256(generation["partitions"]) != generation["data_identity"] or
+    identity = reference["generation_identity"]
+    if (not isinstance(identity, str) or not _SHA256_HEX.fullmatch(identity) or
             entry["entry_identity"] != _canonical_sha256(
                 {k: v for k, v in entry.items() if k != "entry_identity"})):
         raise ValueError("committed generation identity mismatch")
-    if generation.get("eligible_intervals") != entry.get("eligible_intervals"):
-        raise ValueError("committed interval eligibility mismatch")
-    semantics = generation["semantics"]
-    if any(entry.get(k) != v for k, v in semantics.items()):
-        raise ValueError("committed generation semantics mismatch")
-    if not isinstance(identity, str) or not _SHA256_HEX.fullmatch(identity):
-        raise ValueError("invalid committed generation identity")
     manifest = canonical_source_path(
         f".generations/{key}/{identity}/generation.json", role="generation manifest"
     )
@@ -445,9 +435,56 @@ def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str,
         raise ValueError("generation manifest uses symlink")
     raw = path.read_bytes()
     bound = entry["evidence"]["metadata"]
-    if (json.loads(raw) != generation or bound["relative_path"] != manifest.as_posix() or
+    if (bound["relative_path"] != manifest.as_posix() or
             hashlib.sha256(raw).hexdigest() != bound["sha256"]):
         raise ValueError("committed generation manifest mismatch")
+    generation = json.loads(raw)
+    local = None
+    if reference.get("schema_version") == "committed-dataset-reference-v1":
+        if reference["data_identity"] != generation["data_identity"]:
+            raise ValueError("committed generation reference mismatch")
+        local_identity = reference["local_observation_sha256"]
+        if not isinstance(local_identity, str) or not _SHA256_HEX.fullmatch(local_identity):
+            raise ValueError("invalid local generation observation identity")
+        relative = canonical_source_path(
+            f".generations/{key}/{identity}/local-{local_identity}.json", role="local generation observation"
+        )
+        local_path = contained_join(root, relative, role="local generation observation")
+        if local_path != root / relative:
+            raise ValueError("local generation observation uses symlink")
+        local_bytes = local_path.read_bytes()
+        local = json.loads(local_bytes)
+        if (hashlib.sha256(local_bytes).hexdigest() != local_identity or
+                local.get("schema_version") != "local-generation-observation-v1" or
+                local.get("generation_identity") != identity or
+                set(local["leaves"]) != {leaf["path"] for leaf in generation["partitions"]} or
+                set(local["receipts"]) != set(generation.get("writer_receipts", {}))):
+            raise ValueError("local generation observation mismatch")
+    elif reference != generation:
+        raise ValueError("committed generation manifest mismatch")
+    if (generation["schema_version"] != "committed-dataset-v1" or
+            generation["dataset_key"] != key or generation["generation_identity"] != identity or
+            _canonical_sha256({k: v for k, v in generation.items() if k != "generation_identity"}) != identity or
+            _canonical_sha256(generation["partitions"]) != generation["data_identity"]):
+        raise ValueError("committed generation identity mismatch")
+    if generation.get("eligible_intervals") != entry.get("eligible_intervals"):
+        raise ValueError("committed interval eligibility mismatch")
+    if any(entry.get(k) != v for k, v in generation["semantics"].items()):
+        raise ValueError("committed generation semantics mismatch")
+    if local is not None:
+        for name in generation.get("writer_receipts", {}):
+            if Path(name).name != name or not name.endswith(".json"):
+                raise ValueError("invalid committed writer receipt")
+            relative = canonical_source_path(
+                f".generations/{key}/{identity}/.receipts/{name}", role="committed writer receipt"
+            )
+            receipt = contained_join(root, relative, role="committed writer receipt")
+            if receipt != root / relative or not receipt.is_file():
+                raise ValueError("committed writer receipt missing")
+            stat = receipt.stat()
+            if local["receipts"][name] != [stat.st_dev, stat.st_ino, stat.st_size,
+                                          stat.st_mtime_ns, stat.st_ctime_ns]:
+                raise ValueError("committed writer receipt observable identity mismatch")
     seen: set[PurePosixPath] = set()
     for leaf in generation["partitions"]:
         relative = generation_leaf_path(key, generation, leaf)
@@ -458,13 +495,18 @@ def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str,
                 not _SHA256_HEX.fullmatch(leaf["sha256"])):
             raise ValueError(f"committed partition missing or changed: {relative}")
         stat = path.stat()
-        observed = entry.get("observed_leaf_stats", {}).get(leaf["path"])
-        if observed != [stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino]:
+        if local is not None:
+            matches = local["leaves"][leaf["path"]][:4] == [
+                stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns]
+        else:
+            matches = entry.get("observed_leaf_stats", {}).get(leaf["path"]) == [
+                stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino]
+        if not matches:
             raise ValueError(f"committed partition observable identity mismatch: {relative}")
         seen.add(relative)
     if not seen:
         raise ValueError("empty committed partition inventory")
-    return generation["metadata"], raw
+    return generation, generation["metadata"], raw
 
 
 def _load_lake(
@@ -572,7 +614,7 @@ def _load_lake(
         metadata_path = root / METADATA_DIR / f"{key}.json"
         try:
             if generation is not None:
-                metadata, raw = _observe_generation(root, entry)
+                generation, metadata, raw = _observe_generation(root, entry)
                 intervals = generation.get("eligible_intervals")
                 if intervals is not None and not any(
                         datetime.fromisoformat(lo) <= requirement.min_start < datetime.fromisoformat(hi)

@@ -31,6 +31,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 import yaml
+from committed_lake_fixture import commit_fixture
 
 from warden.compile import (
     ARTIFACT_CONTRACT,
@@ -211,6 +212,7 @@ def _lake(
         ),
         encoding="utf-8",
     )
+    commit_fixture(root)
     return root
 
 
@@ -324,11 +326,12 @@ def test_compile_writes_one_parquet_one_contract_and_one_manifest(workspace) -> 
     assert sandbox["policy"]["sha256"] == artifact.policy_sha256
     assert sandbox["policy"]["selection_group_id"] == "TEST_FX_INTRADAY"
     assert _at(sandbox["fence"]["holdout_start"]) == FENCE
-    assert sandbox["lake"]["catalog_identity"] == "lane-j-fixture-catalog"
+    assert sandbox["lake"]["catalog_identity"] == json.loads((lake / ".catalog/research-dataset-catalog.json").read_text())["catalog_identity"]
     assert sandbox["lake"]["acceptance"]["forex_minute_EURUSD"]["present"] is True
     # The raw Merkle covers exactly the input files that were read.
+    gen = next(e for e in json.loads((lake / ".catalog/research-dataset-catalog.json").read_text())["entries"] if e["symbol"] == "EURUSD")["generation"]
     assert {record["path"] for record in manifest["raw_inputs"]} == {
-        f"forex_minute_EURUSD/year=2021/month=01/day={day}/part-0.parquet"
+        f".generations/forex_minute_EURUSD/{gen['generation_identity']}/year=2021/month=01/day={day}/part-0.parquet"
         for day in ("01", "02", "03")
     }
 
@@ -469,6 +472,7 @@ def test_a_raw_row_at_or_after_the_fence_is_counted_and_refused(workspace) -> No
     )
     assert spilled["timestamp"].to_list() == [FENCE, FENCE + timedelta(minutes=5)]
     pl.concat([frame, spilled]).write_parquet(part)
+    commit_fixture(lake)
 
     with pytest.raises(CompileFenceError) as caught:
         _compile(repo, lake)
@@ -562,6 +566,7 @@ def test_a_window_that_leaves_no_training_bar_before_val_start_is_refused(
     repo.mkdir()
     lake = _lake(tmp_path / "lake")
     shutil.rmtree(lake / "forex_minute_EURUSD" / "year=2021" / "month=01" / "day=01")
+    commit_fixture(lake)
     metadata = json.loads(
         (lake / ".metadata" / "forex_minute_EURUSD.json").read_text(encoding="utf-8")
     )
@@ -586,6 +591,7 @@ def test_no_input_partition_at_or_after_the_fence_is_ever_opened(tmp_path, monke
     holdout_part = lake / "forex_minute_EURUSD" / "year=2021/month=01/day=04" / "part-0.parquet"
     holdout_part.parent.mkdir(parents=True, exist_ok=True)
     _minute_frame("EURUSD", FENCE, 60 * 24).write_parquet(holdout_part)
+    commit_fixture(lake)
     _policy(repo, monkeypatch)
     artifact = _compile(repo, lake)
     assert artifact.raw_inputs_merkle_sha256
@@ -617,6 +623,34 @@ def test_intraday_bars_are_hand_computed_left_closed_aggregates(workspace) -> No
         assert row["observed_sub_bars"] == 60
 
 
+def test_explicit_native_hourly_crypto_preserves_bar_and_volume(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake", symbols=("BTCUSDT",), asset_class="crypto_perps",
+                 cadence="hourly", per_day=24)
+    key = "crypto_futures_ohlcv_hourly_HYPERLIQUID_BTCUSDT_PERP"
+    for path in (lake / key).rglob("part-0.parquet"):
+        frame = pl.read_parquet(path)
+        first = frame["timestamp"].min()
+        frame = frame.with_columns(
+            (pl.lit(first) + pl.duration(hours=pl.int_range(0, pl.len()))).alias("timestamp")
+        )
+        frame.write_parquet(path)
+    commit_fixture(lake)
+    _policy(repo, monkeypatch)
+    requirement = _requirement(asset_class="crypto_perps", symbols=["BTCUSDT"],
+                               source_frequency="1h")
+    artifact = _compile(repo, lake, requirement)
+    bars = pl.read_parquet(repo / artifact.parquet_path).sort("timestamp")
+    assert bars.height == 72
+    assert bars["observed_sub_bars"].to_list() == [1] * 72
+    original = pl.read_parquet(lake / key / "year=2021/month=01/day=01/part-0.parquet")
+    assert bars["volume"].head(24).to_list() == original["volume"].to_list()
+    assert bars["close"].head(24).to_list() == original["close"].to_list()
+    manifest = json.loads((repo / artifact.manifest_path).read_text())
+    assert manifest["sandbox"]["resampling"]["source_frequency"] == "1h"
+
+
 def test_the_next_bucket_never_leaks_into_a_bar(tmp_path, monkeypatch) -> None:
     """Hour 05 holds one minute only: the 04:00 bar must be exactly 04:00..04:59.
 
@@ -634,6 +668,7 @@ def test_the_next_bucket_never_leaks_into_a_bar(tmp_path, monkeypatch) -> None:
         (pl.col("timestamp") < spilled) | (pl.col("timestamp") >= START + timedelta(hours=6))
     )
     frame.write_parquet(part)
+    commit_fixture(lake)
     _policy(repo, monkeypatch)
 
     artifact = _compile(repo, lake)
@@ -785,6 +820,21 @@ def test_an_untrusted_policy_refuses_and_writes_nothing(tmp_path, monkeypatch) -
     assert _tree(repo) == before
 
 
+def test_legacy_mutable_catalog_never_authorizes_new_compilation(workspace) -> None:
+    repo, lake = workspace
+    catalog_path = lake / ".catalog/research-dataset-catalog.json"
+    catalog = json.loads(catalog_path.read_text())
+    for entry in catalog["entries"]:
+        entry.pop("generation")
+        entry.pop("observed_leaf_stats")
+    catalog["schema_version"] = 2
+    catalog_path.write_text(json.dumps(catalog))
+    before = _tree(repo)
+    with pytest.raises(CompileRefused, match="committed producer generations"):
+        _compile(repo, lake)
+    assert _tree(repo) == before
+
+
 def test_a_gap_fails_closed_without_writing(workspace) -> None:
     repo, lake = workspace
     before = _tree(repo)
@@ -824,6 +874,7 @@ def test_a_changed_lake_refuses_write_once_instead_of_silently_reusing(tmp_path,
     frame = pl.read_parquet(part)
     frame = frame.with_columns((pl.col("close") * 1.0001).alias("close"))
     frame.write_parquet(part)
+    commit_fixture(lake)
 
     with pytest.raises(CompileWriteOnce) as caught:
         _compile(repo, lake)

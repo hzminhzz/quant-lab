@@ -373,6 +373,19 @@ def test_a_requirement_carries_exactly_the_declared_fields() -> None:
         requirement.all_in_family = True
 
 
+def test_native_hourly_source_is_explicit_and_preserves_old_identity() -> None:
+    original = _requirement()
+    assert original.resolved_source_frequency == "1m"
+    assert "source_frequency" not in original.canonical_payload()
+    native = _requirement(asset_class="crypto_perps", symbols=("BTCUSDT",), source_frequency="1h")
+    assert native.resolved_source_frequency == "1h"
+    assert native.canonical_payload()["source_frequency"] == "1h"
+    with pytest.raises(ValidationError):
+        _requirement(source_frequency="1h")
+    with pytest.raises(ValidationError):
+        _requirement(asset_class="crypto_perps", frequency="15m", source_frequency="1h")
+
+
 @pytest.mark.parametrize(
     "policy_key",
     [

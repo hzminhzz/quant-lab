@@ -255,6 +255,17 @@ class SourceInput(_StrictModel):
     #: ``derived_from_dataset``/``composite_union`` kinds and refused on ``lake_raw``,
     #: where the Merkle commitment over the raw bytes is the identity instead.
     sha256: str | None = None
+    ignored_columns: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
+
+    @field_validator("ignored_columns")
+    @classmethod
+    def _ignored_columns(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        # Only the known auxiliary kline fields may be omitted by this OHLCV
+        # adapter; never discard canonical fields or unknown venue semantics.
+        allowed = {"quote_volume", "trade_count", "taker_buy_base_volume", "taker_buy_quote_volume"}
+        if set(value) - allowed or len(set(value)) != len(value):
+            raise ValueError("unsupported or duplicate OHLCV auxiliary columns")
+        return value
 
     @field_validator("path")
     @classmethod

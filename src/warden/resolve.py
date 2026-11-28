@@ -26,12 +26,13 @@ for "what may carry new work".
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 import yaml
@@ -46,8 +47,13 @@ from pydantic import (
 
 from warden.contract_source import active_contract_paths, dataset_manifest_path
 from warden.contracts import EvaluationContract, load_contract
-from warden.lake_root import LAKE_STORE_ENV, resolve_lake_root
+from warden.lake_root import resolve_lake_root
 from warden.provenance import DatasetProvenanceError, resolve_dataset
+from warden_evidence.dataset_builder.containment import (
+    assert_never_holdout,
+    canonical_source_path,
+    contained_join,
+)
 from warden_ops.venue_policy import (
     SelectionGroupResolutionError,
     VenuePolicy,
@@ -78,7 +84,6 @@ METADATA_DIR = Path(".metadata")
 RESAMPLED_FROM_MINUTE = frozenset({"5m", "15m", "30m", "1h", "4h"})
 #: The cadence a requirement is *sourced* from: anything intraday below a day comes from
 #: the canonical minute store, a daily requirement from the daily store.
-DAILY_FREQUENCIES = frozenset({"1d"})
 
 #: ``dataset_key`` prefixes whose remainder is the instrument symbol.  This mirrors
 #: ``data.query.MarketDataQuery._symbol_from_dataset_key`` in ml4t-data: the lake's own
@@ -98,6 +103,10 @@ _SYMBOL_PREFIXES = (
     "equity_daily_",
     "equity_hourly_",
 )
+# ML4T-data v2 taxonomy is deliberately not the Warden contract vocabulary.
+# Translate only the documented labels at the consumer boundary.
+_LAKE_V2_SCHEMA = "research-dataset-catalog-v2"
+_LAKE_DOMAIN_ALIASES = {"crypto_perps": "crypto_perp", "indices": "index"}
 _CADENCE_ALIASES = {
     "minute": "minute",
     "1m": "minute",
@@ -158,9 +167,27 @@ class DataRequirement(BaseModel):
     symbols: tuple[Symbol, ...] = ()
     all_in_family: bool = False
     frequency: Frequency
+    # Explicit opt-in to native hourly crypto; absent retains the frozen minute-source rule.
+    source_frequency: Literal["1h"] | None = Field(default=None, exclude_if=lambda value: value is None)
     min_start: UTCDatetime
     price_basis: PriceBasis
     execution_mode: ExecutionMode
+    instrument_semantics: Literal[
+        "spot_fx", "spot_metal_proxy", "index_cfd", "perpetual",
+        "continuous_futures", "individual_futures",
+    ] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    def canonical_payload(self) -> dict[str, Any]:
+        payload = self.model_dump(mode="json")
+        if self.instrument_semantics is None:
+            payload.pop("instrument_semantics", None)
+        if self.source_frequency is None:
+            payload.pop("source_frequency", None)
+        return payload
+
+    @property
+    def resolved_source_frequency(self) -> str:
+        return self.source_frequency or ("1m" if self.frequency in RESAMPLED_FROM_MINUTE else self.frequency)
 
     @model_validator(mode="after")
     def _one_symbol_source(self) -> DataRequirement:
@@ -168,6 +195,8 @@ class DataRequirement(BaseModel):
             raise ValueError("declare either explicit `symbols` or `all_in_family`, not both")
         if not self.all_in_family and not self.symbols:
             raise ValueError("declare explicit `symbols` or set `all_in_family: true`")
+        if self.source_frequency is not None and (self.asset_class != "crypto_perps" or self.frequency != "1h"):
+            raise ValueError("native hourly sourcing requires a 1h crypto_perps requirement")
         if len(set(self.symbols)) != len(self.symbols):
             raise ValueError("`symbols` must not repeat a symbol")
         return self
@@ -219,13 +248,19 @@ class LakeSymbol:
     dataset_key: str
     first_bar: str
     precision: str
+    last_bar: str | None = None
+    instrument_semantics: str | None = None
+    price_type: str | None = None
+    provider: str | None = None
+    entry_identity: str | None = None
+    metadata_sha256: str | None = None
+    generation: dict[str, Any] | None = None
+    consumer_identity: str | None = None
+    tier: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "dataset_key": self.dataset_key,
-            "first_bar": self.first_bar,
-            "precision": self.precision,
-        }
+        return {key: value for key, value in vars(self).items()
+                if key != "symbol" and value is not None}
 
 
 @dataclass(frozen=True)
@@ -237,6 +272,8 @@ class LakeView:
     symbols: Mapping[str, LakeSymbol]
     unattributed: tuple[str, ...] = ()
     outside_family: tuple[str, ...] = ()
+    rejected_sources: Mapping[str, list[dict[str, Any]]] = field(default_factory=dict)
+    catalog_identity: str | None = None
 
     @property
     def available(self) -> bool:
@@ -257,13 +294,14 @@ class LakeView:
             "symbols": {name: entry.to_dict() for name, entry in sorted(self.symbols.items())},
             "unattributed_dataset_keys": list(self.unattributed),
             "outside_family_symbols": list(self.outside_family),
+            "rejected_sources": dict(self.rejected_sources),
+            "catalog_identity": self.catalog_identity,
         }
 
 
-def _source_cadence(frequency: str) -> str:
-    """The store cadence this frequency is sourced from."""
-
-    return "daily" if frequency in DAILY_FREQUENCIES else "minute"
+def _source_cadence(requirement: DataRequirement) -> str:
+    """The explicitly selected or backward-compatible native store cadence."""
+    return _CADENCE_ALIASES[requirement.resolved_source_frequency]
 
 
 def _normalise_cadence(value: object) -> str | None:
@@ -324,12 +362,168 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def metadata_span(metadata: Mapping[str, Any]) -> tuple[datetime | None, datetime | None]:
+    """Decode the two published producer metadata contracts, without guessing dates."""
+    if metadata.get("schema_version") == "dukascopy-wave1-store-provenance-v1":
+        return (_parse_timestamp(metadata.get("observed_start")),
+                _parse_timestamp(metadata.get("observed_end")))
+    return (_parse_timestamp(metadata.get("first_timestamp")),
+            _parse_timestamp(metadata.get("last_timestamp")))
+
+
+def _external_diagnostic(root: Path, entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Verify a published flat-file archive for discovery, not Hive compilation."""
+    diagnostic = {
+        "dataset_key": entry.get("dataset_key"),
+        "provider": entry.get("provider"),
+        "instrument_semantics": entry.get("instrument_semantics"),
+        "frequency": entry.get("frequency"),
+        "coverage": entry.get("coverage"),
+        "capabilities": entry.get("capabilities"),
+        "source_sha256": entry.get("source_sha256"),
+        "reason": "unsupported_instrument_semantics",
+        "detail": "continuous archive is not an individual-maturity dataset or a Hive input",
+    }
+    source = entry.get("source_path")
+    try:
+        if entry.get("entry_identity") != _canonical_sha256({k: v for k, v in entry.items() if k != "entry_identity"}):
+            raise ValueError("external catalog entry identity mismatch")
+        if root.name != "store" or root.parent.name != ".data" or not isinstance(source, str):
+            raise ValueError("external archive root or path is undeclared")
+        producer = root.parent.parent.resolve()
+        candidate = (producer / source).resolve()
+        if not candidate.is_relative_to(producer / "data" / "futures") or candidate.suffix != ".parquet":
+            raise ValueError("external archive path escapes the producer futures root")
+        assert_never_holdout(str(candidate), role="external archive")
+        if candidate.stat().st_size != entry.get("source_bytes"):
+            raise ValueError("external archive size changed")
+        if not _SHA256_HEX.fullmatch(str(entry.get("source_sha256", ""))):
+            raise ValueError("external archive digest is undeclared")
+        # The producer hashes these archives when publishing its inventory.
+        # Resolution must not read price bytes before compiler fence authorization.
+    except (OSError, ValueError) as exc:
+        diagnostic.update(reason="unsupported_metadata", detail=str(exc))
+    return diagnostic
+
+
+def generation_leaf_path(key: str, generation: Mapping[str, Any], leaf: Mapping[str, Any]) -> PurePosixPath:
+    """Portable producer wire path; never infer membership from directory contents."""
+    identity = generation["generation_identity"]
+    if not isinstance(identity, str) or not _SHA256_HEX.fullmatch(identity):
+        raise ValueError("invalid committed generation identity")
+    relative = canonical_source_path(leaf["path"], role="committed leaf")
+    if relative.suffix != ".parquet" or relative.name.startswith((".", "_")):
+        raise ValueError("invalid committed partition leaf")
+    return canonical_source_path(
+        f".generations/{key}/{identity}/{relative.as_posix()}", role="committed partition"
+    )
+
+
+def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], bytes]:
+    """Verify only selected producer manifest and observable inventory, without prices."""
+    reference = entry["generation"]
+    key = entry["dataset_key"]
+    identity = reference["generation_identity"]
+    if (not isinstance(identity, str) or not _SHA256_HEX.fullmatch(identity) or
+            entry["entry_identity"] != _canonical_sha256(
+                {k: v for k, v in entry.items() if k != "entry_identity"})):
+        raise ValueError("committed generation identity mismatch")
+    manifest = canonical_source_path(
+        f".generations/{key}/{identity}/generation.json", role="generation manifest"
+    )
+    path = contained_join(root, manifest, role="generation manifest")
+    assert_never_holdout(str(path), role="generation manifest target")
+    if path != root / manifest:
+        raise ValueError("generation manifest uses symlink")
+    raw = path.read_bytes()
+    bound = entry["evidence"]["metadata"]
+    if (bound["relative_path"] != manifest.as_posix() or
+            hashlib.sha256(raw).hexdigest() != bound["sha256"]):
+        raise ValueError("committed generation manifest mismatch")
+    generation = json.loads(raw)
+    local = None
+    if reference.get("schema_version") == "committed-dataset-reference-v1":
+        if reference["data_identity"] != generation["data_identity"]:
+            raise ValueError("committed generation reference mismatch")
+        local_identity = reference["local_observation_sha256"]
+        if not isinstance(local_identity, str) or not _SHA256_HEX.fullmatch(local_identity):
+            raise ValueError("invalid local generation observation identity")
+        relative = canonical_source_path(
+            f".generations/{key}/{identity}/local-{local_identity}.json", role="local generation observation"
+        )
+        local_path = contained_join(root, relative, role="local generation observation")
+        if local_path != root / relative:
+            raise ValueError("local generation observation uses symlink")
+        local_bytes = local_path.read_bytes()
+        local = json.loads(local_bytes)
+        if (hashlib.sha256(local_bytes).hexdigest() != local_identity or
+                local.get("schema_version") != "local-generation-observation-v1" or
+                local.get("generation_identity") != identity or
+                set(local["leaves"]) != {leaf["path"] for leaf in generation["partitions"]} or
+                set(local["receipts"]) != set(generation.get("writer_receipts", {}))):
+            raise ValueError("local generation observation mismatch")
+    elif reference != generation:
+        raise ValueError("committed generation manifest mismatch")
+    if (generation["schema_version"] != "committed-dataset-v1" or
+            generation["dataset_key"] != key or generation["generation_identity"] != identity or
+            _canonical_sha256({k: v for k, v in generation.items() if k != "generation_identity"}) != identity or
+            _canonical_sha256(generation["partitions"]) != generation["data_identity"]):
+        raise ValueError("committed generation identity mismatch")
+    if generation.get("eligible_intervals") != entry.get("eligible_intervals"):
+        raise ValueError("committed interval eligibility mismatch")
+    if any(entry.get(k) != v for k, v in generation["semantics"].items()):
+        raise ValueError("committed generation semantics mismatch")
+    if local is not None:
+        for name in generation.get("writer_receipts", {}):
+            if Path(name).name != name or not name.endswith(".json"):
+                raise ValueError("invalid committed writer receipt")
+            relative = canonical_source_path(
+                f".generations/{key}/{identity}/.receipts/{name}", role="committed writer receipt"
+            )
+            receipt = contained_join(root, relative, role="committed writer receipt")
+            if receipt != root / relative or not receipt.is_file():
+                raise ValueError("committed writer receipt missing")
+            stat = receipt.stat()
+            if local["receipts"][name] != [stat.st_dev, stat.st_ino, stat.st_size,
+                                          stat.st_mtime_ns, stat.st_ctime_ns]:
+                raise ValueError("committed writer receipt observable identity mismatch")
+    seen: set[PurePosixPath] = set()
+    for leaf in generation["partitions"]:
+        relative = generation_leaf_path(key, generation, leaf)
+        path = contained_join(root, relative, role="committed partition")
+        assert_never_holdout(str(path), role="committed partition target")
+        if (relative in seen or path != root / relative or not path.is_file() or
+                path.stat().st_size != leaf["bytes"] or
+                not _SHA256_HEX.fullmatch(leaf["sha256"])):
+            raise ValueError(f"committed partition missing or changed: {relative}")
+        stat = path.stat()
+        if local is not None:
+            matches = local["leaves"][leaf["path"]][:4] == [
+                stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns]
+        else:
+            matches = entry.get("observed_leaf_stats", {}).get(leaf["path"]) == [
+                stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino]
+        if not matches:
+            raise ValueError(f"committed partition observable identity mismatch: {relative}")
+        seen.add(relative)
+    if not seen:
+        raise ValueError("empty committed partition inventory")
+    return generation, generation["metadata"], raw
+
+
 def _load_lake(
     requirement: DataRequirement, repo_root: Path, lake_root: Path | str | None
 ) -> LakeView:
-    cadence = _source_cadence(requirement.frequency)
+    cadence = _source_cadence(requirement)
     if lake_root is not None:
         root = Path(lake_root).expanduser()
+        assert_never_holdout(str(root), role="lake root")
         if not root.is_dir():
             return LakeView("unavailable", f"lake root is not a directory: {root}", None, cadence, {})
         root = root.resolve()
@@ -338,16 +532,13 @@ def _load_lake(
             root = resolve_lake_root(repo_root)
         except (FileNotFoundError, OSError) as exc:
             return LakeView("unavailable", str(exc), None, cadence, {})
+    assert_never_holdout(str(root), role="lake root")
     catalog_path = root / CATALOG_REL
-    if not catalog_path.is_file():
-        return LakeView(
-            "unavailable",
-            f"no research dataset catalog at {catalog_path}; set {LAKE_STORE_ENV} to a store root",
-            str(root),
-            cadence,
-            {},
-        )
     try:
+        catalog_path = catalog_path.resolve()
+        assert_never_holdout(str(catalog_path), role="lake catalog")
+        if not catalog_path.is_relative_to(root):
+            raise ValueError("catalog escapes lake root")
         catalog = _read_json(catalog_path)
     except (OSError, ValueError) as exc:
         return LakeView("unavailable", f"unreadable catalog {catalog_path}: {exc}", str(root),
@@ -357,69 +548,198 @@ def _load_lake(
         return LakeView("unavailable", f"catalog {catalog_path} declares no entries", str(root),
                         cadence, {})
 
-    domain = [
-        entry
-        for entry in entries
-        if isinstance(entry, dict) and entry.get("asset_class") == requirement.asset_class
-    ]
-    # An absent or unknown `frequency` label is *unknown*, never a match for an explicit
-    # cadence (ml4t-data taxonomy: absent old-catalog labels are not evidence).
+    modern = catalog.get("schema_version") == _LAKE_V2_SCHEMA
+    catalog_identity = catalog.get("catalog_identity")
+    if modern and catalog_identity != _canonical_sha256(
+        {k: v for k, v in catalog.items() if k != "catalog_identity"}
+    ):
+        return LakeView("unavailable", "catalog identity missing or inconsistent", str(root),
+                        cadence, {})
+    if modern and not any(isinstance(e, dict) and e.get("generation") for e in entries):
+        # Legacy v2 publication still requires its readiness binding. Committed
+        # generations are independently coherent; readiness is observational.
+        # A catalog is not a completed publication until the existing readiness
+        # stage binds its identity. Never admit a partially published generation.
+        try:
+            readiness_path = (root / ".catalog/research-readiness.json").resolve()
+            assert_never_holdout(str(readiness_path), role="research readiness")
+            if not readiness_path.is_relative_to(root):
+                raise ValueError("readiness escapes lake root")
+            readiness = _read_json(readiness_path)
+            if not isinstance(readiness, Mapping) or readiness.get("catalog_identity") != catalog_identity:
+                raise ValueError("readiness does not bind current catalog")
+        except (OSError, ValueError) as exc:
+            return LakeView("unavailable", f"incomplete catalog publication: {exc}", str(root), cadence, {})
+    domain_name = _LAKE_DOMAIN_ALIASES.get(requirement.asset_class, requirement.asset_class) if modern else requirement.asset_class
+    domain = [e for e in entries if isinstance(e, dict) and e.get("asset_class") == domain_name]
     same_cadence = [e for e in domain if _normalise_cadence(e.get("frequency")) == cadence]
-    in_family = (
-        same_cadence
-        if requirement.sub_family is None
-        else [e for e in same_cadence if e.get("sub_family") == requirement.sub_family]
-    )
-
+    in_family = [e for e in same_cadence if requirement.sub_family is None
+                 or e.get("sub_family") == requirement.sub_family]
     symbols: dict[str, LakeSymbol] = {}
     unattributed: list[str] = []
+    diagnostics: dict[str, list[dict[str, Any]]] = {}
+
+    def rejected(symbol: str | None, entry: Mapping[str, Any], reason: str, detail: str,
+                 metadata: Mapping[str, Any] | None = None) -> None:
+        if symbol is None:
+            unattributed.append(str(entry.get("dataset_key")))
+            return
+        coverage = entry.get("coverage")
+        lo, hi = metadata_span(coverage if isinstance(coverage, Mapping) else metadata or {})
+        diagnostics.setdefault(symbol, []).append({
+            "dataset_key": entry.get("dataset_key"),
+            "reason": reason,
+            "detail": detail,
+            "provider": entry.get("provider"),
+            "instrument_semantics": entry.get("instrument_semantics"),
+            "price_type": (metadata or {}).get("price_type") or entry.get("price_type"),
+            "first_bar": lo.isoformat() if lo else None,
+            "last_bar": hi.isoformat() if hi else None,
+        })
+
     for entry in in_family:
         key = str(entry.get("dataset_key") or "")
-        if not key:
+        if not key or Path(key).name != key or key in {".", ".."}:
             continue
+        symbol = entry.get("symbol") if modern else _symbol_from_dataset_key(key)
+        if not isinstance(symbol, str):
+            symbol = None
+        if modern and entry.get("data_kind") != "ohlcv":
+            # Auxiliary series cannot satisfy OHLCV; older producer records need republication.
+            if entry.get("data_kind") is None:
+                old_symbol = symbol or _symbol_from_dataset_key(key)
+                if requirement.all_in_family or old_symbol in requirement.ordered_symbols:
+                    rejected(old_symbol, entry, "unsupported_metadata", "producer data_kind is undeclared")
+            continue
+        if modern and (entry.get("authority") != "canonical" or
+                       entry.get("qualification") != "accepted" or
+                       entry.get("store_present") is not True or entry.get("evidence_errors")):
+            rejected(symbol, entry, "untrusted_source", "source is not accepted canonical evidence")
+            continue
+        if not requirement.all_in_family and symbol is not None and symbol not in requirement.ordered_symbols:
+            continue
+        generation = entry.get("generation") if modern else None
         metadata_path = root / METADATA_DIR / f"{key}.json"
-        metadata: dict[str, Any] = {}
-        if metadata_path.is_file():
-            try:
-                loaded = _read_json(metadata_path)
-                metadata = loaded if isinstance(loaded, dict) else {}
-            except (OSError, ValueError):
-                metadata = {}
+        try:
+            if generation is not None:
+                generation, metadata, raw = _observe_generation(root, entry)
+                intervals = generation.get("eligible_intervals")
+                if intervals is not None and not any(
+                        datetime.fromisoformat(lo) <= requirement.min_start < datetime.fromisoformat(hi)
+                        for lo, hi in intervals):
+                    rejected(symbol, entry, "untrusted_source", "requested start lacks producer interval acceptance", metadata)
+                    continue
+            else:
+                assert_never_holdout(str(metadata_path), role="producer metadata")
+                if not metadata_path.resolve().is_relative_to(root):
+                    raise ValueError("producer metadata escapes lake root")
+                assert_never_holdout(str(metadata_path.resolve()), role="producer metadata target")
+                raw = metadata_path.read_bytes()
+                metadata = json.loads(raw)
+                if not isinstance(metadata, dict):
+                    raise ValueError("metadata is not an object")
+            if modern and generation is None:
+                if not (root / key).is_dir():
+                    raise ValueError("published store directory is absent")
+                if entry.get("entry_identity") != _canonical_sha256(
+                    {k: v for k, v in entry.items() if k != "entry_identity"}
+                ):
+                    raise ValueError("catalog entry identity mismatch")
+                evidence = entry.get("evidence", {})
+                bound = evidence.get("metadata", {})
+                if (bound.get("relative_path") != f".metadata/{key}.json" or
+                    bound.get("sha256") != hashlib.sha256(raw).hexdigest()):
+                    raise ValueError("catalog metadata digest mismatch")
+                acceptance = evidence.get("acceptance", {})
+                if acceptance.get("present"):
+                    rel = f".acceptance/{key}/dataset.json"
+                    target = (root / rel).resolve()
+                    assert_never_holdout(str(target), role="producer acceptance")
+                    if (not target.is_relative_to(root) or acceptance.get("relative_path") != rel or
+                        hashlib.sha256(target.read_bytes()).hexdigest() != acceptance.get("sha256")):
+                        raise ValueError("writer acceptance digest mismatch")
+                coverage = entry.get("coverage")
+                if not isinstance(coverage, Mapping):
+                    raise ValueError("producer coverage is undeclared")
+                # The producer translates its writer-specific timestamps into
+                # this catalog contract; consumer never infers data availability.
+        except (OSError, ValueError, AttributeError, TypeError, KeyError) as exc:
+            rejected(symbol, entry, "unsupported_metadata", str(exc))
+            continue
+
+        if requirement.instrument_semantics is not None and (
+            not modern or entry.get("instrument_semantics") != requirement.instrument_semantics
+        ):
+            rejected(symbol, entry, "unsupported_instrument_semantics",
+                     "source instrument semantics are unproven or incompatible", metadata)
+            continue
+        if requirement.price_basis != "ohlcv" or requirement.execution_mode == "QUOTE_SIDE":
+            # The native Hive compiler currently consumes OHLCV only. Separate
+            # funding settlements and bid-only bars cannot establish executable
+            # funding cashflows or bid/ask quotes.
+            rejected(symbol, entry, "incompatible_price_basis",
+                     f"native lake OHLCV cannot supply {requirement.price_basis}/{requirement.execution_mode}",
+                     metadata)
+            continue
+
         partitions = [p for p in metadata.get("partitions") or [] if isinstance(p, str)]
         per_symbol = _partition_bounds(partitions)
         if per_symbol:
-            for symbol, (year, month) in per_symbol.items():
+            for member, (year, month) in per_symbol.items():
                 bound = _month_bound(year, month).isoformat()
-                current = symbols.get(symbol)
+                current = symbols.get(member)
                 if current is None or bound < current.first_bar:
-                    symbols[symbol] = LakeSymbol(symbol, key, bound, "month")
+                    symbols[member] = LakeSymbol(
+                        member, key, bound, "month",
+                        instrument_semantics=entry.get("instrument_semantics") if modern else None,
+                        price_type=metadata.get("price_type") or entry.get("price_type"),
+                        provider=entry.get("provider"),
+                        entry_identity=entry.get("entry_identity") if modern else None,
+                        metadata_sha256=hashlib.sha256(raw).hexdigest() if modern else None,
+                        generation=generation,
+                        consumer_identity=entry.get("consumer_identity") if generation else None,
+                        tier=entry.get("tier") if generation else None,
+                    )
             continue
-        symbol = _symbol_from_dataset_key(key)
-        first = _parse_timestamp(metadata.get("first_timestamp"))
-        if symbol is None or first is None:
-            unattributed.append(key)
+        first, last = metadata_span(entry["coverage"] if modern else metadata)
+        if symbol is None or first is None or (modern and (last is None or last < first)):
+            rejected(symbol, entry, "unsupported_metadata",
+                     "metadata does not declare usable historical coverage", metadata)
             continue
         current = symbols.get(symbol)
         if current is None or first.isoformat() < current.first_bar:
-            symbols[symbol] = LakeSymbol(symbol, key, first.isoformat(), "timestamp")
+            symbols[symbol] = LakeSymbol(
+                symbol, key, first.isoformat(), "timestamp",
+                last.isoformat() if last else None,
+                entry.get("instrument_semantics"),
+                metadata.get("price_type") or entry.get("price_type"),
+                entry.get("provider"),
+                entry.get("entry_identity"),
+                hashlib.sha256(raw).hexdigest() if modern else None,
+                generation,
+                entry.get("consumer_identity") if generation else None,
+                entry.get("tier") if generation else None,
+            )
+
+    if modern:
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("storage_layout") != "external_parquet":
+                continue
+            symbol = entry.get("symbol")
+            if symbol not in requirement.ordered_symbols:
+                continue
+            # These are explicit alternative sources, never an implicit replacement.
+            diagnostics.setdefault(symbol, []).append(_external_diagnostic(root, entry))
 
     outside_family: list[str] = []
     if requirement.sub_family is not None and requirement.symbols:
-        family_keys = {
-            _symbol_from_dataset_key(str(e.get("dataset_key") or ""))
-            for e in same_cadence
-            if isinstance(e, dict)
-        }
+        family_keys = {e.get("symbol") if modern else _symbol_from_dataset_key(
+            str(e.get("dataset_key") or "")) for e in same_cadence if e not in in_family}
         outside_family = [s for s in requirement.ordered_symbols
-                          if s not in symbols and s in family_keys]
+                          if s not in symbols and s in family_keys and s not in diagnostics]
     return LakeView(
-        "available",
-        "",
-        str(root),
-        cadence,
-        symbols,
-        tuple(sorted(set(unattributed))),
-        tuple(outside_family),
+        "available", "", str(root), cadence, symbols, tuple(sorted(set(unattributed))),
+        tuple(outside_family), diagnostics, catalog_identity,
     )
 
 
@@ -518,12 +838,25 @@ def _candidate_for(
         return None, f"unreadable dataset manifest {manifest_path}: {exc}"
     if not isinstance(record, Mapping):
         return None, f"dataset manifest {manifest_path} is not a JSON object"
+    if requirement.source_frequency is not None:
+        sandbox = record.get("sandbox") or {}
+        resampling = sandbox.get("resampling") if isinstance(sandbox, Mapping) else None
+        source = resampling.get("source_frequency") if isinstance(resampling, Mapping) else None
+        if source != requirement.source_frequency:
+            return None, "source_frequency undeclared or incompatible in signed dataset"
     basis = _manifest_price_basis(record)
     if basis is None:
         return None, ("price_basis undeclared in the dataset manifest: unknown is not "
                       f"{requirement.price_basis}")
     if basis != requirement.price_basis:
         return None, f"price_basis {basis} != {requirement.price_basis}"
+    if requirement.instrument_semantics is not None:
+        dataset = record.get("dataset")
+        semantics = record.get("instrument_semantics")
+        if semantics is None and isinstance(dataset, Mapping):
+            semantics = dataset.get("instrument_semantics")
+        if semantics != requirement.instrument_semantics:
+            return None, "instrument_semantics undeclared or incompatible in signed dataset"
     assets, first_bar, last_bar = _manifest_coverage(record)
     if not assets:
         return None, "coverage undeclared: the dataset manifest names no assets"
@@ -588,7 +921,7 @@ class ResolutionReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "requirement": self.requirement.model_dump(mode="json"),
+            "requirement": self.requirement.canonical_payload(),
             "decision": self.decision,
             "reason": self.reason,
             "lake": dict(self.lake),
@@ -608,10 +941,10 @@ class ResolutionReport:
 
 
 def _resample_block(requirement: DataRequirement) -> dict[str, Any]:
-    required = requirement.frequency in RESAMPLED_FROM_MINUTE
+    required = requirement.resolved_source_frequency != requirement.frequency
     return {
         "required": required,
-        "source_frequency": "1m" if required else requirement.frequency,
+        "source_frequency": requirement.resolved_source_frequency,
         "target_frequency": requirement.frequency,
         "rule": ("left-labelled, left-closed [t, t+interval) aggregation of the canonical "
                  "minute store" if required else "native cadence; no resampling"),
@@ -687,7 +1020,14 @@ def resolve_data_requirement(
                 lake=lake_payload, policy=policy_document, group=group, resample=resample,
             )
         symbols = tuple(sorted(lake.symbols))
-        if not symbols:
+        invalid = {s: sorted({r["reason"] for r in reasons})
+                   for s, reasons in lake.rejected_sources.items() if s not in lake.symbols}
+        if invalid:
+            categories = {reason for reasons in invalid.values() for reason in reasons}
+            reason = next(iter(categories)) if len(categories) == 1 else "incompatible_sources"
+            return _fail_closed(req, reason, f"cannot enumerate complete family: {invalid}",
+                                lake=lake_payload, policy=policy_document, group=group, resample=resample)
+        if not symbols or lake.unattributed:
             detail = (
                 f"the lake cannot attribute symbols to {req.asset_class!r} at cadence "
                 f"{lake.cadence!r}: unattributed dataset keys {list(lake.unattributed)}"
@@ -770,11 +1110,17 @@ def resolve_data_requirement(
             rejected=rejected,
         )
     if missing:
+        absent = tuple(s for s in missing if s not in lake.rejected_sources)
+        failures = {s: sorted({r["reason"] for r in lake.rejected_sources[s]})
+                    for s in missing if s in lake.rejected_sources}
+        categories = {reason for reasons in failures.values() for reason in reasons}
+        reason = ("missing_symbols" if absent else next(iter(categories)) if len(categories) == 1
+                  else "incompatible_sources")
         return _fail_closed(
-            req, "missing_symbols",
-            f"the lake carries no data for {', '.join(missing)}",
+            req, reason,
+            f"absent symbols: {list(absent)}; rejected sources: {failures}",
             lake=lake_payload, policy=policy_document, group=group, resample=resample,
-            missing=missing, rejected=rejected,
+            missing=absent, rejected=rejected,
         )
     common_start = lake.earliest_common_start(required)
     if common_start is None or datetime.fromisoformat(common_start) > req.min_start:

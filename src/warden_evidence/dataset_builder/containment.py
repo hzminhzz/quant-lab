@@ -11,7 +11,9 @@ hashed it.
 
 from __future__ import annotations
 
+import hashlib
 import os
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
@@ -115,15 +117,24 @@ class ListingRawFileSystem(RawFileSystem, Protocol):
 class LocalRawFileSystem:
     """Local raw-input reader confined to one source root."""
 
-    def __init__(self, root: Path | str) -> None:
+    def __init__(self, root: Path | str, *, expected_digests: Mapping[str, str] | None = None) -> None:
         self.root = Path(root).resolve()
+        self.expected_digests = None if expected_digests is None else dict(expected_digests)
 
     def read_bytes(self, relative: PurePosixPath) -> bytes:
+        if self.expected_digests is not None and relative.as_posix() not in self.expected_digests:
+            raise AdapterError(f"raw input was not authorized by the committed compile: {relative}")
         candidate = contained_join(self.root, relative, role="raw input")
         if not candidate.is_file():
             raise AdapterError(f"raw input {relative.as_posix()!r} is not a regular file")
         try:
-            return candidate.read_bytes()
+            if self.expected_digests is not None and candidate != self.root / relative:
+                raise AdapterError(f"committed partition uses symlink: {relative}")
+            data = candidate.read_bytes()
+            expected = None if self.expected_digests is None else self.expected_digests[relative.as_posix()]
+            if expected is not None and hashlib.sha256(data).hexdigest() != expected:
+                raise AdapterError(f"committed partition digest mismatch: {relative}")
+            return data
         except OSError as exc:
             raise AdapterError(f"cannot read raw input {relative.as_posix()!r}: {exc}") from exc
 
@@ -135,6 +146,8 @@ class LocalRawFileSystem:
         ``missing_ok`` an absent directory is an empty listing: a *missing* funding
         directory is a data gap the missing-settlement policy must judge, not an I/O error.
         """
+        if self.expected_digests is not None:
+            raise AdapterError("committed compilation forbids mutable directory discovery")
         directory = contained_join(self.root, relative, role="raw directory")
         if not directory.is_dir():
             if missing_ok and not directory.exists():

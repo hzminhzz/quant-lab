@@ -1,0 +1,6 @@
+asset_class: indices
+symbols: [ES]
+frequency: 1m
+min_start: "2021-01-01T00:00:00Z"
+price_basis: ohlcv
+execution_mode: NEXT_BAR

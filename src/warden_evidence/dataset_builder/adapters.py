@@ -709,9 +709,11 @@ class Ml4tLakeAdapter:
                     f"{raw_input.path}: ml4t_lake reads Parquet stores, got format {raw_input.format!r}"
                 )
             store_rel = canonical_source_path(raw_input.path)
-            store_names.append(store_rel.parts[0])
+            if store_rel.parts[0] != ".generations":
+                store_names.append(store_rel.parts[0])
             parquet_paths = self._discover_parquets(store_rel)
             store_frames: list[pl.DataFrame] = []
+            dropped_columns: set[str] = set()
             for p_rel in parquet_paths:
                 payload = self._fs.read_bytes(p_rel)
                 read_blobs.append((p_rel.as_posix(), payload))
@@ -719,7 +721,8 @@ class Ml4tLakeAdapter:
                     raw_df = self._parquet_reader(payload)
                 except Exception as exc:
                     raise AdapterError(f"{p_rel.as_posix()}: cannot parse Parquet partition: {exc}") from exc
-                canon_df = _canonicalise(raw_df, raw_input)
+                canon_df, dropped = canonicalise_frame(raw_df, raw_input, ignored_columns=raw_input.ignored_columns)
+                dropped_columns.update(dropped)
                 keep_cols = ["timestamp", "asset", "open", "high", "low", "close", "volume"]
                 casts: list[pl.Expr] = [
                     pl.col("asset").cast(pl.String),
@@ -744,13 +747,14 @@ class Ml4tLakeAdapter:
                     "path": store_rel.as_posix(),
                     "partitions": len(parquet_paths),
                     "rows": store_combined.height,
+                    **({"ignored_columns": sorted(dropped_columns)} if dropped_columns else {}),
                 }
             )
 
         merkle, records = merkle_sha256(read_blobs)
         combined = pl.concat(frames, how="vertical") if len(frames) > 1 else frames[0]
         combined = combined.unique(subset=["timestamp", "asset"], keep="last").sort("timestamp", "asset")
-        audit = self._read_catalog_audit(sorted(set(store_names)))
+        audit = self._read_catalog_audit(sorted(set(store_names))) if store_names else {}
         return RawBundle(
             adapter=self.name,
             frame=combined,

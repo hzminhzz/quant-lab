@@ -425,6 +425,8 @@ def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str,
             entry["entry_identity"] != _canonical_sha256(
                 {k: v for k, v in entry.items() if k != "entry_identity"})):
         raise ValueError("committed generation identity mismatch")
+    if generation.get("eligible_intervals") != entry.get("eligible_intervals"):
+        raise ValueError("committed interval eligibility mismatch")
     semantics = generation["semantics"]
     if any(entry.get(k) != v for k, v in semantics.items()):
         raise ValueError("committed generation semantics mismatch")
@@ -567,6 +569,12 @@ def _load_lake(
         try:
             if generation is not None:
                 metadata, raw = _observe_generation(root, entry)
+                intervals = generation.get("eligible_intervals")
+                if intervals is not None and not any(
+                        datetime.fromisoformat(lo) <= requirement.min_start < datetime.fromisoformat(hi)
+                        for lo, hi in intervals):
+                    rejected(symbol, entry, "untrusted_source", "requested start lacks producer interval acceptance", metadata)
+                    continue
             else:
                 assert_never_holdout(str(metadata_path), role="producer metadata")
                 if not metadata_path.resolve().is_relative_to(root):

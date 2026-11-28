@@ -600,6 +600,11 @@ def _plan(
         key = str(entry["dataset_key"])
         dataset_keys[symbol] = key
         generation = entry["generation"]
+        intervals = generation.get("eligible_intervals")
+        if intervals is not None and not any(
+                datetime.fromisoformat(lo) <= requested_start and fence <= datetime.fromisoformat(hi)
+                for lo, hi in intervals):
+            raise CompileRefused(f"{symbol}: requested window lacks producer interval acceptance")
         readable, skipped, straddled = [], [], []
         for leaf in generation["partitions"]:
             path = generation_leaf_path(key, generation, leaf)

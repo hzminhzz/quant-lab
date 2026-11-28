@@ -435,6 +435,19 @@ def _load_lake(
     ):
         return LakeView("unavailable", "catalog identity missing or inconsistent", str(root),
                         cadence, {})
+    if modern:
+        # A catalog is not a completed publication until the existing readiness
+        # stage binds its identity. Never admit a partially published generation.
+        try:
+            readiness_path = (root / ".catalog/research-readiness.json").resolve()
+            assert_never_holdout(str(readiness_path), role="research readiness")
+            if not readiness_path.is_relative_to(root):
+                raise ValueError("readiness escapes lake root")
+            readiness = _read_json(readiness_path)
+            if not isinstance(readiness, Mapping) or readiness.get("catalog_identity") != catalog_identity:
+                raise ValueError("readiness does not bind current catalog")
+        except (OSError, ValueError) as exc:
+            return LakeView("unavailable", f"incomplete catalog publication: {exc}", str(root), cadence, {})
     domain_name = _LAKE_DOMAIN_ALIASES.get(requirement.asset_class, requirement.asset_class) if modern else requirement.asset_class
     domain = [e for e in entries if isinstance(e, dict) and e.get("asset_class") == domain_name]
     same_cadence = [e for e in domain if _normalise_cadence(e.get("frequency")) == cadence]
@@ -473,7 +486,7 @@ def _load_lake(
             # Auxiliary series cannot satisfy OHLCV; older producer records need republication.
             if entry.get("data_kind") is None:
                 old_symbol = symbol or _symbol_from_dataset_key(key)
-                if old_symbol in requirement.ordered_symbols:
+                if requirement.all_in_family or old_symbol in requirement.ordered_symbols:
                     rejected(old_symbol, entry, "unsupported_metadata", "producer data_kind is undeclared")
             continue
         if modern and (entry.get("authority") != "canonical" or
@@ -520,9 +533,11 @@ def _load_lake(
             rejected(symbol, entry, "unsupported_metadata", str(exc))
             continue
 
-        if modern and requirement.instrument_semantics is not None and entry.get("instrument_semantics") != requirement.instrument_semantics:
+        if requirement.instrument_semantics is not None and (
+            not modern or entry.get("instrument_semantics") != requirement.instrument_semantics
+        ):
             rejected(symbol, entry, "unsupported_instrument_semantics",
-                     "source instrument does not match the requested semantics", metadata)
+                     "source instrument semantics are unproven or incompatible", metadata)
             continue
         if requirement.price_basis != "ohlcv" or requirement.execution_mode == "QUOTE_SIDE":
             # The native Hive compiler currently consumes OHLCV only. Separate
@@ -540,7 +555,14 @@ def _load_lake(
                 bound = _month_bound(year, month).isoformat()
                 current = symbols.get(member)
                 if current is None or bound < current.first_bar:
-                    symbols[member] = LakeSymbol(member, key, bound, "month")
+                    symbols[member] = LakeSymbol(
+                        member, key, bound, "month",
+                        instrument_semantics=entry.get("instrument_semantics") if modern else None,
+                        price_type=metadata.get("price_type") or entry.get("price_type"),
+                        provider=entry.get("provider"),
+                        entry_identity=entry.get("entry_identity") if modern else None,
+                        metadata_sha256=hashlib.sha256(raw).hexdigest() if modern else None,
+                    )
             continue
         first, last = metadata_span(entry["coverage"] if modern else metadata)
         if symbol is None or first is None or (modern and (last is None or last < first)):
@@ -852,12 +874,14 @@ def resolve_data_requirement(
                 lake=lake_payload, policy=policy_document, group=group, resample=resample,
             )
         symbols = tuple(sorted(lake.symbols))
-        invalid = sorted(s for s, reasons in lake.rejected_sources.items()
-                         if s not in lake.symbols and any(r["reason"] == "unsupported_metadata" for r in reasons))
+        invalid = {s: sorted({r["reason"] for r in reasons})
+                   for s, reasons in lake.rejected_sources.items() if s not in lake.symbols}
         if invalid:
-            return _fail_closed(req, "unsupported_metadata", f"cannot enumerate complete family: {', '.join(invalid)}",
+            categories = {reason for reasons in invalid.values() for reason in reasons}
+            reason = next(iter(categories)) if len(categories) == 1 else "incompatible_sources"
+            return _fail_closed(req, reason, f"cannot enumerate complete family: {invalid}",
                                 lake=lake_payload, policy=policy_document, group=group, resample=resample)
-        if not symbols:
+        if not symbols or lake.unattributed:
             detail = (
                 f"the lake cannot attribute symbols to {req.asset_class!r} at cadence "
                 f"{lake.cadence!r}: unattributed dataset keys {list(lake.unattributed)}"

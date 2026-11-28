@@ -16,6 +16,9 @@ def publish(lake, entries):
     doc = {"schema_version": "research-dataset-catalog-v2", "entries": entries}
     doc["catalog_identity"] = digest(doc)
     (lake / ".catalog" / "research-dataset-catalog.json").write_text(json.dumps(doc))
+    (lake / ".catalog" / "research-readiness.json").write_text(
+        json.dumps({"catalog_identity": doc["catalog_identity"]})
+    )
 
 
 @pytest.mark.parametrize(
@@ -92,6 +95,19 @@ def test_current_catalog_v2_taxonomy_and_provenance(
         assert refused["decision"] == "fail_closed"
         assert refused["reason"] == "untrusted_source"
         assert refused["missing_symbols"] == []
+    publish(lake, [entry, *distractors])
+    other_key = key + "_SECOND"
+    other = {**entry, "symbol": "OTHER", "dataset_key": other_key,
+             "qualification": "unqualified"}
+    family = {**requirement, "symbols": [], "all_in_family": True}
+    publish(lake, [entry, other, *distractors])
+    assert resolve(family)["reason"] == "untrusted_source"
+    publish(lake, [entry, {k: v for k, v in other.items() if k != "data_kind"}, *distractors])
+    assert resolve(family)["reason"] == "unsupported_metadata"
+    publish(lake, [entry, *distractors])
+    readiness = lake / ".catalog" / "research-readiness.json"
+    readiness.write_text('{"catalog_identity":"stale"}')
+    assert resolve()["reason"] == "lake_unavailable"
     publish(lake, [entry, *distractors])
     (lake / rel).write_bytes(b"{}")
     assert resolve()["reason"] == "unsupported_metadata"

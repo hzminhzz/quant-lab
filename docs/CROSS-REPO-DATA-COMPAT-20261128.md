@@ -8,6 +8,14 @@ The resolver verifies catalog, metadata and acceptance identity, uses declared d
 
 Focused verification: 107 tests passed; fast Warden verification collected 1,490 and passed locked installed byte, import, inventory, lint and AST checks. Producer focused gate: 134 passed, 1 skipped, 2 subtests passed. Full producer verification is not green; see producer evidence. The active producer checkout contains concurrent changes that overlap the writer/scheduler files, and active units point to it. This document does not authorize activation.
 
+## Review remediation
+
+Dependent producer follow-up: `hzminhzz/ml4t-data-project@63a3af1068d9a7449c1470e72791e723c0a22d9f`. The review found stale quality requalification, inconsistent readiness publication, non-idempotent funding identity updates, silent family narrowing, a legacy semantics bypass, missing index acceptance binding and insufficient lifecycle coverage.
+
+Modern catalog resolution requires a readiness document bound to the same catalog identity. A partially published generation is unavailable, not missing raw data. Family enumeration refuses missing/unqualified/undeclared members rather than silently shrinking the universe. Explicit instrument semantics cannot be satisfied by a legacy catalog that does not establish those semantics. The existing scientific policy and holdout boundaries are unchanged.
+
+Verified against real Binance minute and funding data: the existing five maintenance stage implementations and the subsequent funding publisher were exercised after each of three updates. Rows 80,461 -> 81,901 -> 83,341; previous partition SHA-256 unchanged; stale evidence and intermediate publication refused; completed generations resolved correctly. Funding publication preserved the price entry exactly. Evidence: `/tmp/ml4t-compat-reviewed-tail-20261128.json`, SHA-256 `89a958cfa0ff6260a002cfa9b815b3d37fb66ec105641f866f4bd8c431c93e94`. Producer focused tests 170 passed, one skipped, two subtests passed; consumer focused tests 97 passed; fast gate collected 1,491. Old index acceptance gaps remain a genuine producer evidence blocker. No new authority is claimed.
+
 ## Research recovery
 
 The original six requirements were replayed against the reconstructed native catalog. Weekend crypto and index proxy reached compile_required; crypto panel correctly failed insufficient_history; funding majors and FX quotes were incompatible_price_basis; commodity daily lacked ten symbols and had continuous GC/SI, not individual maturities. Additional FX/metals OHLCV requirements reached compile_required. Actual native compile attempts for weekend crypto, index proxy and FX OHLCV refused at the trusted-policy gate before reading research prices.

@@ -1,0 +1,166 @@
+{
+  "after_crash": {
+    "attempt_receipts": [
+      [
+        "RESERVED",
+        "RUN-RED-WRITER-20261107-001",
+        ""
+      ]
+    ],
+    "screen_receipts": [],
+    "selection_attempts": [],
+    "trials": [],
+    "trials_used": 1
+  },
+  "after_old_admission": {
+    "attempt_receipts": [
+      [
+        "RESERVED",
+        "RUN-RED-WRITER-20261107-001",
+        ""
+      ]
+    ],
+    "screen_receipts": [],
+    "selection_attempts": [],
+    "trials": [],
+    "trials_used": 1
+  },
+  "after_recovery": {
+    "attempt_receipts": [
+      [
+        "INTERRUPTED_REVIEW",
+        "RUN-RED-WRITER-20261107-001",
+        ""
+      ]
+    ],
+    "screen_receipts": [
+      [
+        "FINALIZED",
+        "ATT-8f3cd97f35fdae8c-001",
+        "e7e0d4a92d543f04204523f3f05d4780"
+      ]
+    ],
+    "selection_attempts": [
+      [
+        "ATT-8f3cd97f35fdae8c-001",
+        "standalone_screen",
+        "PASS"
+      ]
+    ],
+    "trials": [],
+    "trials_used": 1
+  },
+  "baseline": {
+    "attempt_receipts": [],
+    "screen_receipts": [],
+    "selection_attempts": [],
+    "trials": [],
+    "trials_used": 0
+  },
+  "classification": "SAFE_SINGLE_WRITER",
+  "during_concurrency": {
+    "attempt_receipts": [
+      [
+        "RESERVED",
+        "RUN-RED-WRITER-20261107-001",
+        ""
+      ]
+    ],
+    "screen_receipts": [],
+    "selection_attempts": [],
+    "trials": [],
+    "trials_used": 1
+  },
+  "first_reconcile": [
+    0,
+    "{\"ok\": true, \"value\": {\"run_id\": \"RUN-RED-WRITER-20261107-001\", \"state\": \"INTERRUPTED_REVIEW\", \"reason\": \"interrupted before committed final result\", \"eligible\": false, \"verdict\": null, \"artifact_sha256\": \"\"}, \"source\": \"warden.reconcile-attempt\", \"observed_at\": \"2026-11-07T15:14:15+00:00\", \"policy\": \"allow\"}\n"
+  ],
+  "fixture": {
+    "db_device": 38,
+    "db_inode": 9447681,
+    "db_path": "/tmp/warden-cross-version-red-meun8dqh/quant-lab/registry/registry.db",
+    "holdout_path_exists": false,
+    "market_sha": "14a804d30fea9e04e0d0bb93fd7c10791bcefeaf74461f72b2a782f216ae2812"
+  },
+  "historical_rows_unchanged": true,
+  "holdout_path_exists_after": false,
+  "legacy_lock_held_after_sigkill": false,
+  "legacy_lock_inode": 9447703,
+  "legacy_lock_path": "/tmp/warden-cross-version-red-meun8dqh/quant-lab/registry/warden-writer.lock",
+  "legacy_revision": "4b31646a19ea5d69fefd8f61f78cf34d4dc2a7f7",
+  "lost_response_reconcile": [
+    0,
+    "{\"ok\": true, \"value\": {\"run_id\": \"RUN-RED-WRITER-20261107-001\", \"state\": \"INTERRUPTED_REVIEW\", \"reason\": \"interrupted before committed final result\", \"eligible\": false, \"verdict\": null, \"artifact_sha256\": \"\"}, \"source\": \"warden.reconcile-attempt\", \"observed_at\": \"2026-11-07T15:14:17+00:00\", \"policy\": \"allow\"}\n"
+  ],
+  "merged_lock_held_by_old": true,
+  "merged_lock_inode": 9447705,
+  "merged_lock_path": "/tmp/warden-cross-version-red-meun8dqh/quant-lab/registry/.warden-mutation-3852c58a04acc9bceb2d6304.lock",
+  "merged_revision": "b654352ff2e3d2ed7163a212916a49766457590c",
+  "nested_legacy_lock": {
+    "exit_code": 2,
+    "stderr_tail": "{\"status\": \"GOVERNANCE_BLOCKED\", \"reason\": \"A concurrent Warden research writer holds the shared registry lock\"}\n",
+    "stdout_tail": ""
+  },
+  "new_admitted": null,
+  "new_command": [
+    "/home/quant/dev/quant-lab/.venv/bin/python",
+    "-m",
+    "warden.cli",
+    "screen",
+    "experiments/active/warden_red_spec.yaml",
+    "--json"
+  ],
+  "new_exit_code": 75,
+  "new_lease_held": true,
+  "new_lock_held_after_old_sigkill": true,
+  "new_process_pid": 3491805,
+  "new_response_busy": true,
+  "new_stderr_tail": "",
+  "new_stdout_tail": "{\"ok\": false, \"value\": {\"status\": \"BUSY\", \"reason\": \"WARDEN_BUSY: registry mutation already running at /tmp/warden-cross-version-red-meun8dqh/quant-lab/registry/.warden-mutation-3852c58a04acc9bceb2d6304.lock\"}, \"source\": \"warden.mutation-lease\", \"observed_at\": \"2026-11-07T15:14:07+00:00\", \"policy\": \"deny\"}\n",
+  "old_admitted": {
+    "admitted_at_utc": "2026-11-07T15:14:06.087801+00:00",
+    "db_device": 38,
+    "db_inode": 9447681,
+    "parent_pid": 3491600,
+    "registry_path": "/tmp/warden-cross-version-red-meun8dqh/quant-lab/registry/registry.db",
+    "role": "old",
+    "strategy_pid": 3491654
+  },
+  "old_command": [
+    "/home/quant/dev/quant-lab/.venv/bin/python",
+    "-m",
+    "src.workflow.governance_guard",
+    "--quant-lab",
+    "/tmp/warden-cross-version-red-meun8dqh/quant-lab",
+    "run",
+    "uv",
+    "run",
+    "warden",
+    "backtest",
+    "experiments/active/warden_red_spec.yaml",
+    "--json"
+  ],
+  "old_lock_held": true,
+  "old_process_pid": 3491593,
+  "old_sigkill_returncode": -9,
+  "postcrash_screen_exit_code": 0,
+  "postcrash_screen_stdout_tail": "{\"data_provenance\": \"synthetic\", \"market_eligible\": false, \"metrics\": {\"avg_holding_bars\": 480.0, \"bootstrap_p_value\": 0.0, \"conditional_edge\": 8.48363682286112e-05, \"profit_factor\": 18.175285067229932, \"time_in_market\": 1.0, \"trade_edge\": 0.040721456749733376}, \"notes\": \"PF=18.18, Edge=0.8bps, TiM=100.0%, Holding=480.0h\", \"passed\": true, \"provenance_reason\": \"not market eligible\", \"strategy_family\": \"rules_ts\"}\n",
+  "sandbox_root": "/tmp/warden-cross-version-red-meun8dqh/quant-lab",
+  "screen_reconciled": [
+    0,
+    "{\"ok\": true, \"value\": {\"state\": \"REQUIRES_RECONCILIATION\", \"reason\": \"trial RUN-RED-WRITER-20261107-001 is INTERRUPTED_REVIEW\", \"run_id\": \"RUN-RED-WRITER-20261107-001\", \"screen\": {\"screen_key\": \"e7e0d4a92d543f04204523f3f05d4780\", \"state\": \"FINALIZED\", \"attempt_id\": \"ATT-8f3cd97f35fdae8c-001\", \"outcome\": \"PASS\", \"data_sha256\": \"14a804d30fea9e04e0d0bb93fd7c10791bcefeaf74461f72b2a782f216ae2812\", \"retry_allowed\": false}}, \"source\": \"warden.spec-status\", \"observed_at\": \"2026-11-07T15:14:20+00:00\", \"policy\": \"allow\"}\n"
+  ],
+  "screen_reconciled_again": [
+    0,
+    "{\"ok\": true, \"value\": {\"state\": \"REQUIRES_RECONCILIATION\", \"reason\": \"trial RUN-RED-WRITER-20261107-001 is INTERRUPTED_REVIEW\", \"run_id\": \"RUN-RED-WRITER-20261107-001\", \"screen\": {\"screen_key\": \"e7e0d4a92d543f04204523f3f05d4780\", \"state\": \"FINALIZED\", \"attempt_id\": \"ATT-8f3cd97f35fdae8c-001\", \"outcome\": \"PASS\", \"data_sha256\": \"14a804d30fea9e04e0d0bb93fd7c10791bcefeaf74461f72b2a782f216ae2812\", \"retry_allowed\": false}}, \"source\": \"warden.spec-status\", \"observed_at\": \"2026-11-07T15:14:22+00:00\", \"policy\": \"allow\"}\n"
+  ],
+  "screen_retry": [
+    1,
+    "",
+    "_stage1_screen\n    screen_key = self.registry.reserve_screen(hyp_id, contract.contract_id, strat_module, params, dataset.sha256)\n  File \"/home/quant/.devspace/worktrees/quant-lab-2f31dfa4/src/warden/registry.py\", line 510, in reserve_screen\n    raise ScreenAlreadyAttemptedError(f\"Stage 1 screen already admitted: {key} ({old[0]}); review, never replay\")\nwarden.registry.ScreenAlreadyAttemptedError: Stage 1 screen already admitted: e7e0d4a92d543f04204523f3f05d4780 (FINALIZED); review, never replay\n"
+  ],
+  "simultaneous_computation": false,
+  "source_registry_sha256_after": "7b100ec72c623f18f91c9da341fd5c08ece375ac90ffb45293fc3b3d08192eba",
+  "source_registry_sha256_before": "7b100ec72c623f18f91c9da341fd5c08ece375ac90ffb45293fc3b3d08192eba",
+  "source_registry_unchanged": true
+}

@@ -52,13 +52,12 @@ from warden.resolve import (
     DataRequirement,
     ResolutionReport,
     load_requirement,
-    metadata_span,
+    generation_leaf_path,
     resolve_data_requirement,
 )
 from warden_evidence.dataset_builder.build import build_dataset
 from warden_evidence.dataset_builder.containment import (
     LocalRawFileSystem,
-    canonical_source_path,
 )
 from warden_evidence.dataset_builder.merkle import merkle_sha256
 from warden_evidence.dataset_builder.spec import parse_dataset_spec
@@ -426,120 +425,6 @@ def _partition_bounds(values: Mapping[str, int]) -> tuple[datetime, datetime] | 
     return start, start + timedelta(days=1)
 
 
-def _leaf_partitions(
-    fs: LocalRawFileSystem, base: PurePosixPath, values: dict[str, int]
-) -> list[tuple[PurePosixPath, dict[str, int]]]:
-    """Every leaf directory under ``base`` that holds Parquet files, with its partitions."""
-    names = fs.list_dir(base)
-    files = [name for name in names if name.endswith(".parquet") and not name.startswith((".", "_"))]
-    children = [
-        name
-        for name in names
-        if "=" in name and not name.startswith((".", "_")) and name.split("=", 1)[1].isdigit()
-    ]
-    if children and files:
-        raise CompileError(
-            f"{base.as_posix()!r} mixes partitions and loose Parquet files; a compiled input "
-            "must be one layout so the Merkle root names exactly what was read"
-        )
-    if not children:
-        return [(base, values)]
-    found: list[tuple[PurePosixPath, dict[str, int]]] = []
-    for name in children:
-        key, _, value = name.partition("=")
-        found.extend(_leaf_partitions(fs, base / name, {**values, key: int(value)}))
-    return found
-
-
-def _declared_span(lake_root: Path, dataset_key: str) -> tuple[datetime | None, datetime | None]:
-    """The store's declared first/last timestamp from ``.metadata/<key>.json``, or ``None``s."""
-    metadata_path = lake_root / ".metadata" / f"{dataset_key}.json"
-    if not metadata_path.is_file():
-        return None, None
-    try:
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None, None
-    if not isinstance(metadata, dict):
-        return None, None
-    return metadata_span(metadata)
-
-
-def _store_files(
-    fs: LocalRawFileSystem,
-    dataset_key: str,
-    *,
-    not_before: datetime,
-    fence: datetime,
-    declared_first: datetime | None,
-    declared_last: datetime | None,
-) -> tuple[list[tuple[PurePosixPath, datetime]], list[str], list[str]]:
-    """``([(file, partition start)], excluded partitions, fence-straddling partitions)``.
-
-    Selection is by *name* first: a partition that begins before ``not_before`` is skipped
-    (a whole file is never sliced), and a partition that straddles the fence is **dropped
-    whole** — reading it would read holdout bytes, and slicing it is exactly the truncation
-    this compile refuses.  The drop is recorded, never silent (``sandbox.lake.
-    excluded_partitions`` plus ``sandbox.fence.partition_policy``), so a reviewer can see
-    the window a mid-month fence costs.
-    """
-    store = canonical_source_path(dataset_key, role="lake dataset key")
-    if store.suffix == ".parquet":
-        # A single flat store cannot be sliced by name: it is readable only when its own
-        # declared span lies inside the window.
-        if declared_last is None or declared_first is None:
-            raise CompileFenceError(
-                f"single-file lake store {dataset_key!r} declares no first/last timestamp; a "
-                "compile cannot place it against the window and the fence"
-            )
-        if declared_last >= fence:
-            raise CompileFenceError(
-                f"single-file lake store {dataset_key!r} ends at {declared_last.isoformat()}, at or "
-                f"after the holdout fence {fence.isoformat()}: the partition straddles the fence"
-            )
-        if declared_last < not_before:
-            return [], [dataset_key], []
-        if declared_first < not_before:
-            raise CompileFenceError(
-                f"single-file lake store {dataset_key!r} starts at {declared_first.isoformat()}, "
-                f"before the compiled window start {not_before.isoformat()}: a compile never "
-                "slices a raw file, and reading it whole would reach before the window"
-            )
-        return [(store, declared_first)], [], []
-
-    readable: list[tuple[PurePosixPath, datetime]] = []
-    excluded: list[str] = []
-    straddling: list[str] = []
-    for base, values in _leaf_partitions(fs, store, {}):
-        bounds = _partition_bounds(values)
-        if bounds is None:
-            raise CompileFenceError(
-                f"lake store {dataset_key!r} has no year=/month= partition bounds at "
-                f"{base.as_posix()!r}; its span cannot be placed against the fence"
-            )
-        start, end = bounds
-        # A partition that begins before the window cannot be used at all: a compile never
-        # slices a raw file, and reading it whole would reach before the declared window.
-        if start < not_before or start >= fence:
-            excluded.append(base.as_posix())
-            continue
-        if start < fence < end:
-            # Straddles: dropped whole and recorded.  Nothing at or after the fence is read,
-            # so causality is unchanged; the cost is up to one partition of window.
-            excluded.append(base.as_posix())
-            straddling.append(base.as_posix())
-            continue
-        names = fs.list_dir(base)
-        files = sorted(
-            name for name in names if name.endswith(".parquet") and not name.startswith((".", "_"))
-        )
-        if not files:
-            excluded.append(base.as_posix())
-            continue
-        readable.extend((base / name, start) for name in files)
-    return readable, excluded, straddling
-
-
 def _catalogue_provenance(
     lake_root: Path, dataset_keys: Iterable[str]
 ) -> dict[str, Any]:
@@ -622,7 +507,7 @@ class _Plan:
     dataset_keys: dict[str, str]
     input_paths: tuple[PurePosixPath, ...]
     sandbox_block: dict[str, Any]
-    raw_inputs_merkle_sha256: str
+    input_digests: dict[str, str]
 
     @property
     def requirement_sha256(self) -> str:
@@ -701,12 +586,11 @@ def _plan(
         raise CompileRefused("the resolver reported no basket for a compile_required decision")
 
     requested_start, fence = _window(requirement, policy)
-    fs = LocalRawFileSystem(lake_root)
-
     dataset_keys: dict[str, str] = {}
     per_symbol: dict[str, list[tuple[PurePosixPath, datetime]]] = {}
     starts: dict[str, datetime] = {}
     excluded: list[str] = []
+    input_digests: dict[str, str] = {}
     for symbol in basket:
         entry = lake_symbols.get(symbol)
         if not entry or not entry.get("dataset_key"):
@@ -715,24 +599,30 @@ def _plan(
             )
         key = str(entry["dataset_key"])
         dataset_keys[symbol] = key
-        if entry.get("metadata_sha256"):
-            metadata_path = lake_root / ".metadata" / f"{key}.json"
-            if hashlib.sha256(metadata_path.read_bytes()).hexdigest() != entry["metadata_sha256"]:
-                raise CompileRefused(f"producer metadata changed after resolution: {key}")
-            declared_first, declared_last = metadata_span({
-                "first_timestamp": entry.get("first_bar"),
-                "last_timestamp": entry.get("last_bar"),
-            })
-        else:
-            declared_first, declared_last = _declared_span(lake_root, key)
-        readable, skipped, straddled = _store_files(
-            fs,
-            key,
-            not_before=requested_start,
-            fence=fence,
-            declared_first=declared_first,
-            declared_last=declared_last,
-        )
+        generation = entry["generation"]
+        readable, skipped, straddled = [], [], []
+        for leaf in generation["partitions"]:
+            path = generation_leaf_path(key, generation, leaf)
+            parts = PurePosixPath(leaf["path"]).parts[:-1]
+            partition_symbols = [part.removeprefix("symbol=") for part in parts if part.startswith("symbol=")]
+            if partition_symbols and partition_symbols != [symbol]:
+                continue
+            values = {}
+            for part in parts:
+                name, sep, value = part.partition("=")
+                if sep and name in {"year", "month", "day"}:
+                    values[name] = int(value)
+            bounds = _partition_bounds(values)
+            if bounds is None:
+                raise CompileFenceError(f"committed partition has no usable bounds: {path}")
+            start, end = bounds
+            if start < requested_start or start >= fence or end > fence:
+                skipped.append(path.parent.as_posix())
+                if start < fence < end:
+                    straddled.append(path.parent.as_posix())
+                continue
+            readable.append((path, start))
+            input_digests[path.as_posix()] = leaf["sha256"]
         if not readable:
             if straddled:
                 raise CompileFenceError(
@@ -842,6 +732,8 @@ def _plan(
                 _input_key(symbol, path): {
                     "path": path.as_posix(),
                     "format": "parquet",
+                    **({"ignored_columns": lake_symbols[symbol]["generation"]["ohlcv_auxiliary_columns"]}
+                       if lake_symbols[symbol].get("generation", {}).get("ohlcv_auxiliary_columns") else {}),
                 }
                 for symbol, path in _inputs_by_symbol(basket, dataset_keys, input_paths)
             },
@@ -913,7 +805,21 @@ def _plan(
     # The dataset pin is the digest of the bytes this compile publishes, so it is filled in
     # by `_pinned_contract` once the Parquet exists; the template keeps every other field.
 
-    catalogue = _catalogue_provenance(lake_root, dataset_keys.values())
+    catalogue = {
+        "catalog_identity": payload["lake"].get("catalog_identity"),
+        "stores": sorted(set(dataset_keys.values())),
+        "acceptance": {
+            dataset_keys[s]: {
+                **lake_symbols[s]["generation"].get("acceptance", {"present": False}),
+                "consumer_identity": lake_symbols[s].get("consumer_identity"),
+                "tier": lake_symbols[s].get("tier"),
+                "generation_identity": lake_symbols[s]["generation"]["generation_identity"],
+                "data_identity": lake_symbols[s]["generation"]["data_identity"],
+                "entry_identity": lake_symbols[s]["entry_identity"],
+                "qualification": lake_symbols[s]["generation"]["semantics"]["qualification"],
+            } for s in basket
+        },
+    }
     sandbox_block = {
         "schema": ARTIFACT_SCHEMA,
         "contract_id": contract_id,
@@ -983,9 +889,6 @@ def _plan(
         # the manifest factory — that is what binds every contract field to this compile.
     }
 
-    fs_read = [(path.as_posix(), fs.read_bytes(path)) for path in input_paths]
-    merkle, _ = merkle_sha256(fs_read)
-
     return _Plan(
         requirement=requirement,
         report=report,
@@ -1004,7 +907,7 @@ def _plan(
         dataset_keys=dataset_keys,
         input_paths=input_paths,
         sandbox_block=sandbox_block,
-        raw_inputs_merkle_sha256=merkle,
+        input_digests={path.as_posix(): input_digests[path.as_posix()] for path in input_paths},
     )
 
 
@@ -1021,6 +924,7 @@ def _input_key(symbol: str, path: PurePosixPath) -> str:
         .replace("=", "")
         .replace("/", "_")
         .replace(".parquet", "")
+        .replace(".", "_")
         .replace("-", "_")
         .lower()
     )
@@ -1042,6 +946,7 @@ def _inputs_by_symbol(
                 for symbol in basket
                 if path.as_posix() == dataset_keys[symbol]
                 or path.as_posix().startswith(f"{dataset_keys[symbol]}/")
+                or path.as_posix().startswith(f".generations/{dataset_keys[symbol]}/")
             ),
             None,
         )
@@ -1150,7 +1055,7 @@ def _existing_artifact(root: Path, plan: _Plan) -> CompiledArtifact | None:
             f"{plan.manifest_path} declares sandbox schema {sandbox.get('schema')!r}, not "
             f"{ARTIFACT_SCHEMA!r}; a different artifact contract is not reused"
         )
-    fs = LocalRawFileSystem(plan.lake_root)
+    fs = LocalRawFileSystem(plan.lake_root, expected_digests=plan.input_digests)
     merkle, _ = merkle_sha256(
         [(path.as_posix(), fs.read_bytes(path)) for path in plan.input_paths]
     )
@@ -1247,8 +1152,17 @@ def compile_data_requirement(
     resolved = resolve_data_requirement(
         req, repo_root=root, lake_root=lake_root, allow_superset=allow_superset
     )
-    if report is not None and report.to_dict() != resolved.to_dict():
-        raise CompileRefused("resolution report changed; resolve again against current producer evidence")
+    if report is not None:
+        old, new = report.to_dict(), resolved.to_dict()
+        # Compare the selected subject and policy, not a globally changing
+        # catalog/readiness observation, for committed-generation reports.
+        if (old["available_symbols"] and all(
+                old["lake"].get("symbols", {}).get(s, {}).get("generation")
+                for s in old["available_symbols"])):
+            old["lake"] = {**old["lake"], "catalog_identity": None}
+            new["lake"] = {**new["lake"], "catalog_identity": None}
+        if old != new:
+            raise CompileRefused("resolution report changed; resolve again against current producer evidence")
     if resolved.decision == DECISION_FAIL_CLOSED:
         raise CompileGap(resolved)
     if resolved.decision == DECISION_REUSE_SIGNED:
@@ -1259,6 +1173,9 @@ def compile_data_requirement(
         raise CompileRefused("the resolution report describes a different requirement")
 
     venue = _trusted_policy(root, resolved)
+    if not all(resolved.lake.get("symbols", {}).get(symbol, {}).get("generation")
+               for symbol in resolved.available_symbols):
+        raise CompileRefused("new compilation requires committed producer generations; legacy mutable sources are diagnostic only")
     plan = _plan(req, resolved, venue, root)
 
     existing = _existing_artifact(root, plan)
@@ -1285,7 +1202,7 @@ def compile_data_requirement(
         repo_root=root,
         dataset_dir=PARQUET_DIR,
         manifest_dir=SANDBOX_MANIFEST_DIR,
-        fs=LocalRawFileSystem(plan.lake_root),
+        fs=LocalRawFileSystem(plan.lake_root, expected_digests=plan.input_digests),
         parquet_reader=parquet_reader,
         frame_guard=guard,
         manifest_extra_factory=_sandbox_factory(plan),

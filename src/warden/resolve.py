@@ -32,7 +32,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
 
 import yaml
@@ -49,7 +49,7 @@ from warden.contract_source import active_contract_paths, dataset_manifest_path
 from warden.contracts import EvaluationContract, load_contract
 from warden.lake_root import LAKE_STORE_ENV, resolve_lake_root
 from warden.provenance import DatasetProvenanceError, resolve_dataset
-from warden_evidence.dataset_builder.containment import assert_never_holdout
+from warden_evidence.dataset_builder.containment import assert_never_holdout, canonical_source_path, contained_join
 from warden_ops.venue_policy import (
     SelectionGroupResolutionError,
     VenuePolicy,
@@ -241,6 +241,9 @@ class LakeSymbol:
     provider: str | None = None
     entry_identity: str | None = None
     metadata_sha256: str | None = None
+    generation: dict[str, Any] | None = None
+    consumer_identity: str | None = None
+    tier: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {key: value for key, value in vars(self).items()
@@ -397,6 +400,67 @@ def _external_diagnostic(root: Path, entry: Mapping[str, Any]) -> dict[str, Any]
     return diagnostic
 
 
+def generation_leaf_path(key: str, generation: Mapping[str, Any], leaf: Mapping[str, Any]) -> PurePosixPath:
+    """Portable producer wire path; never infer membership from directory contents."""
+    identity = generation["generation_identity"]
+    if not isinstance(identity, str) or not _SHA256_HEX.fullmatch(identity):
+        raise ValueError("invalid committed generation identity")
+    relative = canonical_source_path(leaf["path"], role="committed leaf")
+    if relative.suffix != ".parquet" or relative.name.startswith((".", "_")):
+        raise ValueError("invalid committed partition leaf")
+    return canonical_source_path(
+        f".generations/{key}/{identity}/{relative.as_posix()}", role="committed partition"
+    )
+
+
+def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str, Any], bytes]:
+    """Verify the producer contract and observable membership, without reading prices."""
+    generation = entry["generation"]
+    key = entry["dataset_key"]
+    identity = generation["generation_identity"]
+    if (generation["schema_version"] != "committed-dataset-v1" or
+            generation["dataset_key"] != key or
+            _canonical_sha256({k: v for k, v in generation.items() if k != "generation_identity"}) != identity or
+            _canonical_sha256(generation["partitions"]) != generation["data_identity"] or
+            entry["entry_identity"] != _canonical_sha256(
+                {k: v for k, v in entry.items() if k != "entry_identity"})):
+        raise ValueError("committed generation identity mismatch")
+    semantics = generation["semantics"]
+    if any(entry.get(k) != v for k, v in semantics.items()):
+        raise ValueError("committed generation semantics mismatch")
+    if not isinstance(identity, str) or not _SHA256_HEX.fullmatch(identity):
+        raise ValueError("invalid committed generation identity")
+    manifest = canonical_source_path(
+        f".generations/{key}/{identity}/generation.json", role="generation manifest"
+    )
+    path = contained_join(root, manifest, role="generation manifest")
+    assert_never_holdout(str(path), role="generation manifest target")
+    if path != root / manifest:
+        raise ValueError("generation manifest uses symlink")
+    raw = path.read_bytes()
+    bound = entry["evidence"]["metadata"]
+    if (json.loads(raw) != generation or bound["relative_path"] != manifest.as_posix() or
+            hashlib.sha256(raw).hexdigest() != bound["sha256"]):
+        raise ValueError("committed generation manifest mismatch")
+    seen: set[PurePosixPath] = set()
+    for leaf in generation["partitions"]:
+        relative = generation_leaf_path(key, generation, leaf)
+        path = contained_join(root, relative, role="committed partition")
+        assert_never_holdout(str(path), role="committed partition target")
+        if (relative in seen or path != root / relative or not path.is_file() or
+                path.stat().st_size != leaf["bytes"] or
+                not _SHA256_HEX.fullmatch(leaf["sha256"])):
+            raise ValueError(f"committed partition missing or changed: {relative}")
+        stat = path.stat()
+        observed = entry.get("observed_leaf_stats", {}).get(leaf["path"])
+        if observed != [stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino]:
+            raise ValueError(f"committed partition observable identity mismatch: {relative}")
+        seen.add(relative)
+    if not seen:
+        raise ValueError("empty committed partition inventory")
+    return generation["metadata"], raw
+
+
 def _load_lake(
     requirement: DataRequirement, repo_root: Path, lake_root: Path | str | None
 ) -> LakeView:
@@ -435,7 +499,9 @@ def _load_lake(
     ):
         return LakeView("unavailable", "catalog identity missing or inconsistent", str(root),
                         cadence, {})
-    if modern:
+    if modern and not any(isinstance(e, dict) and e.get("generation") for e in entries):
+        # Legacy v2 publication still requires its readiness binding. Committed
+        # generations are independently coherent; readiness is observational.
         # A catalog is not a completed publication until the existing readiness
         # stage binds its identity. Never admit a partially published generation.
         try:
@@ -494,17 +560,23 @@ def _load_lake(
                        entry.get("store_present") is not True or entry.get("evidence_errors")):
             rejected(symbol, entry, "untrusted_source", "source is not accepted canonical evidence")
             continue
+        if not requirement.all_in_family and symbol is not None and symbol not in requirement.ordered_symbols:
+            continue
+        generation = entry.get("generation") if modern else None
         metadata_path = root / METADATA_DIR / f"{key}.json"
         try:
-            assert_never_holdout(str(metadata_path), role="producer metadata")
-            if not metadata_path.resolve().is_relative_to(root):
-                raise ValueError("producer metadata escapes lake root")
-            assert_never_holdout(str(metadata_path.resolve()), role="producer metadata target")
-            raw = metadata_path.read_bytes()
-            metadata = json.loads(raw)
-            if not isinstance(metadata, dict):
-                raise ValueError("metadata is not an object")
-            if modern:
+            if generation is not None:
+                metadata, raw = _observe_generation(root, entry)
+            else:
+                assert_never_holdout(str(metadata_path), role="producer metadata")
+                if not metadata_path.resolve().is_relative_to(root):
+                    raise ValueError("producer metadata escapes lake root")
+                assert_never_holdout(str(metadata_path.resolve()), role="producer metadata target")
+                raw = metadata_path.read_bytes()
+                metadata = json.loads(raw)
+                if not isinstance(metadata, dict):
+                    raise ValueError("metadata is not an object")
+            if modern and generation is None:
                 if not (root / key).is_dir():
                     raise ValueError("published store directory is absent")
                 if entry.get("entry_identity") != _canonical_sha256(
@@ -529,7 +601,7 @@ def _load_lake(
                     raise ValueError("producer coverage is undeclared")
                 # The producer translates its writer-specific timestamps into
                 # this catalog contract; consumer never infers data availability.
-        except (OSError, ValueError, AttributeError, TypeError) as exc:
+        except (OSError, ValueError, AttributeError, TypeError, KeyError) as exc:
             rejected(symbol, entry, "unsupported_metadata", str(exc))
             continue
 
@@ -562,6 +634,9 @@ def _load_lake(
                         provider=entry.get("provider"),
                         entry_identity=entry.get("entry_identity") if modern else None,
                         metadata_sha256=hashlib.sha256(raw).hexdigest() if modern else None,
+                        generation=generation,
+                        consumer_identity=entry.get("consumer_identity") if generation else None,
+                        tier=entry.get("tier") if generation else None,
                     )
             continue
         first, last = metadata_span(entry["coverage"] if modern else metadata)
@@ -579,6 +654,9 @@ def _load_lake(
                 entry.get("provider"),
                 entry.get("entry_identity"),
                 hashlib.sha256(raw).hexdigest() if modern else None,
+                generation,
+                entry.get("consumer_identity") if generation else None,
+                entry.get("tier") if generation else None,
             )
 
     if modern:

@@ -33,6 +33,8 @@ import polars as pl
 import pytest
 import yaml
 
+from committed_lake_fixture import commit_fixture
+
 from warden.compile import compile_data_requirement
 
 START = datetime(2021, 1, 1, tzinfo=UTC)
@@ -159,6 +161,7 @@ def _lake(
         ),
         encoding="utf-8",
     )
+    commit_fixture(root)
     return root
 
 

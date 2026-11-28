@@ -52,6 +52,7 @@ from warden.resolve import (
     DataRequirement,
     ResolutionReport,
     load_requirement,
+    metadata_span,
     resolve_data_requirement,
 )
 from warden_evidence.dataset_builder.build import build_dataset
@@ -461,19 +462,7 @@ def _declared_span(lake_root: Path, dataset_key: str) -> tuple[datetime | None, 
         return None, None
     if not isinstance(metadata, dict):
         return None, None
-    out: list[datetime | None] = []
-    for key in ("first_timestamp", "last_timestamp"):
-        raw = metadata.get(key)
-        if not isinstance(raw, str) or not raw.strip():
-            out.append(None)
-            continue
-        try:
-            parsed = datetime.fromisoformat(raw.strip())
-        except ValueError:
-            out.append(None)
-            continue
-        out.append(parsed.astimezone(UTC) if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC))
-    return out[0], out[1]
+    return metadata_span(metadata)
 
 
 def _store_files(
@@ -637,7 +626,7 @@ class _Plan:
 
     @property
     def requirement_sha256(self) -> str:
-        return _digest(self.requirement.model_dump(mode="json"))
+        return _digest(self.requirement.canonical_payload())
 
 
 def _digest(payload: Any) -> str:
@@ -726,7 +715,16 @@ def _plan(
             )
         key = str(entry["dataset_key"])
         dataset_keys[symbol] = key
-        declared_first, declared_last = _declared_span(lake_root, key)
+        if entry.get("metadata_sha256"):
+            metadata_path = lake_root / ".metadata" / f"{key}.json"
+            if hashlib.sha256(metadata_path.read_bytes()).hexdigest() != entry["metadata_sha256"]:
+                raise CompileRefused(f"producer metadata changed after resolution: {key}")
+            declared_first, declared_last = metadata_span({
+                "first_timestamp": entry.get("first_bar"),
+                "last_timestamp": entry.get("last_bar"),
+            })
+        else:
+            declared_first, declared_last = _declared_span(lake_root, key)
         readable, skipped, straddled = _store_files(
             fs,
             key,
@@ -788,7 +786,7 @@ def _plan(
     # Everything the artifact's identity depends on, in one digest.
     identity = {
         "schema": ARTIFACT_SCHEMA,
-        "requirement": requirement.model_dump(mode="json"),
+        "requirement": requirement.canonical_payload(),
         "policy_sha256": policy.sha256,
         "selection_group_id": group,
         "fence": fence.isoformat(),
@@ -921,8 +919,8 @@ def _plan(
         "contract_id": contract_id,
         "dataset_id": dataset_id,
         "qualification_eligible": False,
-        "requirement": requirement.model_dump(mode="json"),
-        "requirement_sha256": _digest(requirement.model_dump(mode="json")),
+        "requirement": requirement.canonical_payload(),
+        "requirement_sha256": _digest(requirement.canonical_payload()),
         "policy": {
             "path": "contracts/policy/venue_policy.yaml",
             "sha256": policy.sha256,
@@ -1094,7 +1092,7 @@ def _artifact_from_record(
     return CompiledArtifact(
         contract_id=plan.contract_id,
         dataset_id=plan.dataset_id,
-        requirement=plan.requirement.model_dump(mode="json"),
+        requirement=plan.requirement.canonical_payload(),
         requirement_sha256=plan.requirement_sha256,
         parquet_path=plan.parquet_path,
         parquet_sha256=str(record["sha256"]),
@@ -1246,9 +1244,11 @@ def compile_data_requirement(
     req = load_requirement(requirement)
     _refuse_overrides(overrides)
 
-    resolved = report or resolve_data_requirement(
+    resolved = resolve_data_requirement(
         req, repo_root=root, lake_root=lake_root, allow_superset=allow_superset
     )
+    if report is not None and report.to_dict() != resolved.to_dict():
+        raise CompileRefused("resolution report changed; resolve again against current producer evidence")
     if resolved.decision == DECISION_FAIL_CLOSED:
         raise CompileGap(resolved)
     if resolved.decision == DECISION_REUSE_SIGNED:

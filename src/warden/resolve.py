@@ -26,10 +26,11 @@ for "what may carry new work".
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -48,6 +49,7 @@ from warden.contract_source import active_contract_paths, dataset_manifest_path
 from warden.contracts import EvaluationContract, load_contract
 from warden.lake_root import LAKE_STORE_ENV, resolve_lake_root
 from warden.provenance import DatasetProvenanceError, resolve_dataset
+from warden_evidence.dataset_builder.containment import assert_never_holdout
 from warden_ops.venue_policy import (
     SelectionGroupResolutionError,
     VenuePolicy,
@@ -98,6 +100,10 @@ _SYMBOL_PREFIXES = (
     "equity_daily_",
     "equity_hourly_",
 )
+# ML4T-data v2 taxonomy is deliberately not the Warden contract vocabulary.
+# Translate only the documented labels at the consumer boundary.
+_LAKE_V2_SCHEMA = "research-dataset-catalog-v2"
+_LAKE_DOMAIN_ALIASES = {"crypto_perps": "crypto_perp", "indices": "index"}
 _CADENCE_ALIASES = {
     "minute": "minute",
     "1m": "minute",
@@ -161,6 +167,16 @@ class DataRequirement(BaseModel):
     min_start: UTCDatetime
     price_basis: PriceBasis
     execution_mode: ExecutionMode
+    instrument_semantics: Literal[
+        "spot_fx", "spot_metal_proxy", "index_cfd", "perpetual",
+        "continuous_futures", "individual_futures",
+    ] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    def canonical_payload(self) -> dict[str, Any]:
+        payload = self.model_dump(mode="json")
+        if self.instrument_semantics is None:
+            payload.pop("instrument_semantics", None)
+        return payload
 
     @model_validator(mode="after")
     def _one_symbol_source(self) -> DataRequirement:
@@ -219,13 +235,16 @@ class LakeSymbol:
     dataset_key: str
     first_bar: str
     precision: str
+    last_bar: str | None = None
+    instrument_semantics: str | None = None
+    price_type: str | None = None
+    provider: str | None = None
+    entry_identity: str | None = None
+    metadata_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "dataset_key": self.dataset_key,
-            "first_bar": self.first_bar,
-            "precision": self.precision,
-        }
+        return {key: value for key, value in vars(self).items()
+                if key != "symbol" and value is not None}
 
 
 @dataclass(frozen=True)
@@ -237,6 +256,8 @@ class LakeView:
     symbols: Mapping[str, LakeSymbol]
     unattributed: tuple[str, ...] = ()
     outside_family: tuple[str, ...] = ()
+    rejected_sources: Mapping[str, list[dict[str, Any]]] = field(default_factory=dict)
+    catalog_identity: str | None = None
 
     @property
     def available(self) -> bool:
@@ -257,6 +278,8 @@ class LakeView:
             "symbols": {name: entry.to_dict() for name, entry in sorted(self.symbols.items())},
             "unattributed_dataset_keys": list(self.unattributed),
             "outside_family_symbols": list(self.outside_family),
+            "rejected_sources": dict(self.rejected_sources),
+            "catalog_identity": self.catalog_identity,
         }
 
 
@@ -324,12 +347,63 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _canonical_sha256(value: object) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def metadata_span(metadata: Mapping[str, Any]) -> tuple[datetime | None, datetime | None]:
+    """Decode the two published producer metadata contracts, without guessing dates."""
+    if metadata.get("schema_version") == "dukascopy-wave1-store-provenance-v1":
+        return (_parse_timestamp(metadata.get("observed_start")),
+                _parse_timestamp(metadata.get("observed_end")))
+    return (_parse_timestamp(metadata.get("first_timestamp")),
+            _parse_timestamp(metadata.get("last_timestamp")))
+
+
+def _external_diagnostic(root: Path, entry: Mapping[str, Any]) -> dict[str, Any]:
+    """Verify a published flat-file archive for discovery, not Hive compilation."""
+    diagnostic = {
+        "dataset_key": entry.get("dataset_key"),
+        "provider": entry.get("provider"),
+        "instrument_semantics": entry.get("instrument_semantics"),
+        "frequency": entry.get("frequency"),
+        "coverage": entry.get("coverage"),
+        "capabilities": entry.get("capabilities"),
+        "source_sha256": entry.get("source_sha256"),
+        "reason": "unsupported_instrument_semantics",
+        "detail": "continuous archive is not an individual-maturity dataset or a Hive input",
+    }
+    source = entry.get("source_path")
+    try:
+        if entry.get("entry_identity") != _canonical_sha256({k: v for k, v in entry.items() if k != "entry_identity"}):
+            raise ValueError("external catalog entry identity mismatch")
+        if root.name != "store" or root.parent.name != ".data" or not isinstance(source, str):
+            raise ValueError("external archive root or path is undeclared")
+        producer = root.parent.parent.resolve()
+        candidate = (producer / source).resolve()
+        if not candidate.is_relative_to(producer / "data" / "futures") or candidate.suffix != ".parquet":
+            raise ValueError("external archive path escapes the producer futures root")
+        assert_never_holdout(str(candidate), role="external archive")
+        if candidate.stat().st_size != entry.get("source_bytes"):
+            raise ValueError("external archive size changed")
+        if not _SHA256_HEX.fullmatch(str(entry.get("source_sha256", ""))):
+            raise ValueError("external archive digest is undeclared")
+        # The producer hashes these archives when publishing its inventory.
+        # Resolution must not read price bytes before compiler fence authorization.
+    except (OSError, ValueError) as exc:
+        diagnostic.update(reason="unsupported_metadata", detail=str(exc))
+    return diagnostic
+
+
 def _load_lake(
     requirement: DataRequirement, repo_root: Path, lake_root: Path | str | None
 ) -> LakeView:
     cadence = _source_cadence(requirement.frequency)
     if lake_root is not None:
         root = Path(lake_root).expanduser()
+        assert_never_holdout(str(root), role="lake root")
         if not root.is_dir():
             return LakeView("unavailable", f"lake root is not a directory: {root}", None, cadence, {})
         root = root.resolve()
@@ -338,16 +412,13 @@ def _load_lake(
             root = resolve_lake_root(repo_root)
         except (FileNotFoundError, OSError) as exc:
             return LakeView("unavailable", str(exc), None, cadence, {})
+    assert_never_holdout(str(root), role="lake root")
     catalog_path = root / CATALOG_REL
-    if not catalog_path.is_file():
-        return LakeView(
-            "unavailable",
-            f"no research dataset catalog at {catalog_path}; set {LAKE_STORE_ENV} to a store root",
-            str(root),
-            cadence,
-            {},
-        )
     try:
+        catalog_path = catalog_path.resolve()
+        assert_never_holdout(str(catalog_path), role="lake catalog")
+        if not catalog_path.is_relative_to(root):
+            raise ValueError("catalog escapes lake root")
         catalog = _read_json(catalog_path)
     except (OSError, ValueError) as exc:
         return LakeView("unavailable", f"unreadable catalog {catalog_path}: {exc}", str(root),
@@ -357,69 +428,156 @@ def _load_lake(
         return LakeView("unavailable", f"catalog {catalog_path} declares no entries", str(root),
                         cadence, {})
 
-    domain = [
-        entry
-        for entry in entries
-        if isinstance(entry, dict) and entry.get("asset_class") == requirement.asset_class
-    ]
-    # An absent or unknown `frequency` label is *unknown*, never a match for an explicit
-    # cadence (ml4t-data taxonomy: absent old-catalog labels are not evidence).
+    modern = catalog.get("schema_version") == _LAKE_V2_SCHEMA
+    catalog_identity = catalog.get("catalog_identity")
+    if modern and catalog_identity != _canonical_sha256(
+        {k: v for k, v in catalog.items() if k != "catalog_identity"}
+    ):
+        return LakeView("unavailable", "catalog identity missing or inconsistent", str(root),
+                        cadence, {})
+    domain_name = _LAKE_DOMAIN_ALIASES.get(requirement.asset_class, requirement.asset_class) if modern else requirement.asset_class
+    domain = [e for e in entries if isinstance(e, dict) and e.get("asset_class") == domain_name]
     same_cadence = [e for e in domain if _normalise_cadence(e.get("frequency")) == cadence]
-    in_family = (
-        same_cadence
-        if requirement.sub_family is None
-        else [e for e in same_cadence if e.get("sub_family") == requirement.sub_family]
-    )
-
+    in_family = [e for e in same_cadence if requirement.sub_family is None
+                 or e.get("sub_family") == requirement.sub_family]
     symbols: dict[str, LakeSymbol] = {}
     unattributed: list[str] = []
+    diagnostics: dict[str, list[dict[str, Any]]] = {}
+
+    def rejected(symbol: str | None, entry: Mapping[str, Any], reason: str, detail: str,
+                 metadata: Mapping[str, Any] | None = None) -> None:
+        if symbol is None:
+            unattributed.append(str(entry.get("dataset_key")))
+            return
+        coverage = entry.get("coverage")
+        lo, hi = metadata_span(coverage if isinstance(coverage, Mapping) else metadata or {})
+        diagnostics.setdefault(symbol, []).append({
+            "dataset_key": entry.get("dataset_key"),
+            "reason": reason,
+            "detail": detail,
+            "provider": entry.get("provider"),
+            "instrument_semantics": entry.get("instrument_semantics"),
+            "price_type": (metadata or {}).get("price_type") or entry.get("price_type"),
+            "first_bar": lo.isoformat() if lo else None,
+            "last_bar": hi.isoformat() if hi else None,
+        })
+
     for entry in in_family:
         key = str(entry.get("dataset_key") or "")
-        if not key:
+        if not key or Path(key).name != key or key in {".", ".."}:
+            continue
+        symbol = entry.get("symbol") if modern else _symbol_from_dataset_key(key)
+        if not isinstance(symbol, str):
+            symbol = None
+        if modern and entry.get("data_kind") != "ohlcv":
+            # Auxiliary series cannot satisfy OHLCV; older producer records need republication.
+            if entry.get("data_kind") is None:
+                old_symbol = symbol or _symbol_from_dataset_key(key)
+                if old_symbol in requirement.ordered_symbols:
+                    rejected(old_symbol, entry, "unsupported_metadata", "producer data_kind is undeclared")
+            continue
+        if modern and (entry.get("authority") != "canonical" or
+                       entry.get("qualification") != "accepted" or
+                       entry.get("store_present") is not True or entry.get("evidence_errors")):
+            rejected(symbol, entry, "untrusted_source", "source is not accepted canonical evidence")
             continue
         metadata_path = root / METADATA_DIR / f"{key}.json"
-        metadata: dict[str, Any] = {}
-        if metadata_path.is_file():
-            try:
-                loaded = _read_json(metadata_path)
-                metadata = loaded if isinstance(loaded, dict) else {}
-            except (OSError, ValueError):
-                metadata = {}
+        try:
+            assert_never_holdout(str(metadata_path), role="producer metadata")
+            if not metadata_path.resolve().is_relative_to(root):
+                raise ValueError("producer metadata escapes lake root")
+            assert_never_holdout(str(metadata_path.resolve()), role="producer metadata target")
+            raw = metadata_path.read_bytes()
+            metadata = json.loads(raw)
+            if not isinstance(metadata, dict):
+                raise ValueError("metadata is not an object")
+            if modern:
+                if not (root / key).is_dir():
+                    raise ValueError("published store directory is absent")
+                if entry.get("entry_identity") != _canonical_sha256(
+                    {k: v for k, v in entry.items() if k != "entry_identity"}
+                ):
+                    raise ValueError("catalog entry identity mismatch")
+                evidence = entry.get("evidence", {})
+                bound = evidence.get("metadata", {})
+                if (bound.get("relative_path") != f".metadata/{key}.json" or
+                    bound.get("sha256") != hashlib.sha256(raw).hexdigest()):
+                    raise ValueError("catalog metadata digest mismatch")
+                acceptance = evidence.get("acceptance", {})
+                if acceptance.get("present"):
+                    rel = f".acceptance/{key}/dataset.json"
+                    target = (root / rel).resolve()
+                    assert_never_holdout(str(target), role="producer acceptance")
+                    if (not target.is_relative_to(root) or acceptance.get("relative_path") != rel or
+                        hashlib.sha256(target.read_bytes()).hexdigest() != acceptance.get("sha256")):
+                        raise ValueError("writer acceptance digest mismatch")
+                coverage = entry.get("coverage")
+                if not isinstance(coverage, Mapping):
+                    raise ValueError("producer coverage is undeclared")
+                # The producer translates its writer-specific timestamps into
+                # this catalog contract; consumer never infers data availability.
+        except (OSError, ValueError, AttributeError, TypeError) as exc:
+            rejected(symbol, entry, "unsupported_metadata", str(exc))
+            continue
+
+        if modern and requirement.instrument_semantics is not None and entry.get("instrument_semantics") != requirement.instrument_semantics:
+            rejected(symbol, entry, "unsupported_instrument_semantics",
+                     "source instrument does not match the requested semantics", metadata)
+            continue
+        if requirement.price_basis != "ohlcv" or requirement.execution_mode == "QUOTE_SIDE":
+            # The native Hive compiler currently consumes OHLCV only. Separate
+            # funding settlements and bid-only bars cannot establish executable
+            # funding cashflows or bid/ask quotes.
+            rejected(symbol, entry, "incompatible_price_basis",
+                     f"native lake OHLCV cannot supply {requirement.price_basis}/{requirement.execution_mode}",
+                     metadata)
+            continue
+
         partitions = [p for p in metadata.get("partitions") or [] if isinstance(p, str)]
         per_symbol = _partition_bounds(partitions)
         if per_symbol:
-            for symbol, (year, month) in per_symbol.items():
+            for member, (year, month) in per_symbol.items():
                 bound = _month_bound(year, month).isoformat()
-                current = symbols.get(symbol)
+                current = symbols.get(member)
                 if current is None or bound < current.first_bar:
-                    symbols[symbol] = LakeSymbol(symbol, key, bound, "month")
+                    symbols[member] = LakeSymbol(member, key, bound, "month")
             continue
-        symbol = _symbol_from_dataset_key(key)
-        first = _parse_timestamp(metadata.get("first_timestamp"))
-        if symbol is None or first is None:
-            unattributed.append(key)
+        first, last = metadata_span(entry["coverage"] if modern else metadata)
+        if symbol is None or first is None or (modern and (last is None or last < first)):
+            rejected(symbol, entry, "unsupported_metadata",
+                     "metadata does not declare usable historical coverage", metadata)
             continue
         current = symbols.get(symbol)
         if current is None or first.isoformat() < current.first_bar:
-            symbols[symbol] = LakeSymbol(symbol, key, first.isoformat(), "timestamp")
+            symbols[symbol] = LakeSymbol(
+                symbol, key, first.isoformat(), "timestamp",
+                last.isoformat() if last else None,
+                entry.get("instrument_semantics"),
+                metadata.get("price_type") or entry.get("price_type"),
+                entry.get("provider"),
+                entry.get("entry_identity"),
+                hashlib.sha256(raw).hexdigest() if modern else None,
+            )
+
+    if modern:
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("storage_layout") != "external_parquet":
+                continue
+            symbol = entry.get("symbol")
+            if symbol not in requirement.ordered_symbols:
+                continue
+            # These are explicit alternative sources, never an implicit replacement.
+            diagnostics.setdefault(symbol, []).append(_external_diagnostic(root, entry))
 
     outside_family: list[str] = []
     if requirement.sub_family is not None and requirement.symbols:
-        family_keys = {
-            _symbol_from_dataset_key(str(e.get("dataset_key") or ""))
-            for e in same_cadence
-            if isinstance(e, dict)
-        }
+        family_keys = {e.get("symbol") if modern else _symbol_from_dataset_key(
+            str(e.get("dataset_key") or "")) for e in same_cadence if e not in in_family}
         outside_family = [s for s in requirement.ordered_symbols
-                          if s not in symbols and s in family_keys]
+                          if s not in symbols and s in family_keys and s not in diagnostics]
     return LakeView(
-        "available",
-        "",
-        str(root),
-        cadence,
-        symbols,
-        tuple(sorted(set(unattributed))),
-        tuple(outside_family),
+        "available", "", str(root), cadence, symbols, tuple(sorted(set(unattributed))),
+        tuple(outside_family), diagnostics, catalog_identity,
     )
 
 
@@ -524,6 +682,13 @@ def _candidate_for(
                       f"{requirement.price_basis}")
     if basis != requirement.price_basis:
         return None, f"price_basis {basis} != {requirement.price_basis}"
+    if requirement.instrument_semantics is not None:
+        dataset = record.get("dataset")
+        semantics = record.get("instrument_semantics")
+        if semantics is None and isinstance(dataset, Mapping):
+            semantics = dataset.get("instrument_semantics")
+        if semantics != requirement.instrument_semantics:
+            return None, "instrument_semantics undeclared or incompatible in signed dataset"
     assets, first_bar, last_bar = _manifest_coverage(record)
     if not assets:
         return None, "coverage undeclared: the dataset manifest names no assets"
@@ -588,7 +753,7 @@ class ResolutionReport:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "requirement": self.requirement.model_dump(mode="json"),
+            "requirement": self.requirement.canonical_payload(),
             "decision": self.decision,
             "reason": self.reason,
             "lake": dict(self.lake),
@@ -687,6 +852,11 @@ def resolve_data_requirement(
                 lake=lake_payload, policy=policy_document, group=group, resample=resample,
             )
         symbols = tuple(sorted(lake.symbols))
+        invalid = sorted(s for s, reasons in lake.rejected_sources.items()
+                         if s not in lake.symbols and any(r["reason"] == "unsupported_metadata" for r in reasons))
+        if invalid:
+            return _fail_closed(req, "unsupported_metadata", f"cannot enumerate complete family: {', '.join(invalid)}",
+                                lake=lake_payload, policy=policy_document, group=group, resample=resample)
         if not symbols:
             detail = (
                 f"the lake cannot attribute symbols to {req.asset_class!r} at cadence "
@@ -770,11 +940,17 @@ def resolve_data_requirement(
             rejected=rejected,
         )
     if missing:
+        absent = tuple(s for s in missing if s not in lake.rejected_sources)
+        failures = {s: sorted({r["reason"] for r in lake.rejected_sources[s]})
+                    for s in missing if s in lake.rejected_sources}
+        categories = {reason for reasons in failures.values() for reason in reasons}
+        reason = ("missing_symbols" if absent else next(iter(categories)) if len(categories) == 1
+                  else "incompatible_sources")
         return _fail_closed(
-            req, "missing_symbols",
-            f"the lake carries no data for {', '.join(missing)}",
+            req, reason,
+            f"absent symbols: {list(absent)}; rejected sources: {failures}",
             lake=lake_payload, policy=policy_document, group=group, resample=resample,
-            missing=missing, rejected=rejected,
+            missing=absent, rejected=rejected,
         )
     common_start = lake.earliest_common_start(required)
     if common_start is None or datetime.fromisoformat(common_start) > req.min_start:

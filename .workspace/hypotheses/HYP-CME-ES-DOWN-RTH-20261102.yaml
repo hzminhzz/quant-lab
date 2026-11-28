@@ -1,0 +1,34 @@
+hypothesis_id: HYP-CME-ES-DOWN-RTH-20261102
+contract_id: CME_ES_15M_SYNCSTER_V1
+title: ES regular-session down-day rebound over next session's opening two hours
+strategy_family: rules_ts
+economic_mechanism: >-
+  Selling pressure during a fully observed negative ES cash-equity regular
+  session may temporarily reverse during the early following session.
+  A red 09:30-16:00 America/New_York session predicts positive ES 15m
+  next-open returns conditional on trading only the first eight complete
+  regular-session 15m decision bars of the subsequent trading day.
+counterparty_or_friction: >-
+  Inventory liquidation and next-morning index rebalancing provide the
+  proposed counterparty. The study pays assumed 2bps each execution
+  (0.5bps fee plus 1.5bps modeled slippage/spread) and cannot establish
+  CME contract rolls or fill economics from provider-continuous OHLCV.
+expected_holding_bars: 8
+falsification_criteria: >-
+  Frozen before Stage 1. Reject if native Warden rules_ts Stage 1 fails
+  PF>=1.15, gross conditional trade edge>1.5x one-way cost,
+  time-in-market>=5%, or block-bootstrap p<0.05. Never tune the 8-bar
+  horizon, RTH definition or red rule after seeing validation.
+  Stage 3 only after a legitimate Stage 1 PASS; DSR and execution
+  provenance remain non-promotable until related prior searches count.
+source_provenance: >-
+  Breakout Trading Academy, Big Index Trading Secret, 2022-11-30
+  https://breakouttradingacademy.com/big-index-trading-secret-to-get-real-results/
+  previous-down-day tendency. Related original CFD adaptation
+  HYP-SOC-BTA-INDEXDOWN-20261031 Stage1 PASS, Stage3 REVISE.
+  Author DOES NOT specify this 15m RTH entry/exit, eight-bar holding,
+  sizing or costs. This is a distinct researcher-defined CME transfer
+  study. Prior author six tendencies and CFD experiments count as
+  selection debt; isolated Warden registry is not a clean prior.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/syncster_es_down_day_15m.py

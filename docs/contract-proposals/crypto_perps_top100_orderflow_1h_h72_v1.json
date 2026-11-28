@@ -1,0 +1,31 @@
+{
+  "status": "UNAPPROVED_PROPOSAL_ONLY",
+  "contract_id": "CRYPTO_PERPS_TOP100_ORDERFLOW_1H_H72_V1",
+  "path": "data/exploratory/crypto_perps_top100_1h_orderflow_v1.parquet",
+  "sha256": "3045cb84e059810beec5a0f8afc2945cb7d3aee1425297a93d175126c428eafa",
+  "original_frozen_contract_id": "CRYPTO_PERPS_TOP100_1H_V1",
+  "original_frozen_base_sha256": "a7e13ed71f8ac09a11f98bdb6d711d93f91a4021105141a2070fd79696af99bc",
+  "provider": "binance_usdm_1h",
+  "raw_source_file_count": 2987,
+  "raw_file_digest_chain_sha256": "39994173e004c6200b10a9e281097038812c5dd30c47aae91e632f6995819a5f",
+  "source_root": "/home/quant/dev/quant/ml4t-data/.data/store/crypto_futures_ohlcv_1h_BINANCE_UM_PERP",
+  "pipeline": "scripts/prepare_crypto_orderflow.py",
+  "observed_rows": 2174396,
+  "symbols": 100,
+  "first_bar_utc": "2023-01-01T00:00:00Z",
+  "last_bar_utc": "2025-06-30T23:00:00Z",
+  "no_trade_observations": 100,
+  "no_trade_timestamp_utc": "2024-10-28T20:00:00Z",
+  "feature_availability": "closed_1h_bar_at_or_after_close; no fabricated trade timestamps",
+  "research_only": true,
+  "protected_holdout": "NOT_CREATED_NOT_READ",
+  "selection_debt": "Original 149-hypothesis research registry and earlier source searches must be counted; standalone test registry not independent trial family",
+  "derived_source_fields": [
+    "quote_volume",
+    "trade_count",
+    "taker_buy_base_volume",
+    "taker_buy_quote_volume",
+    "flow_valid"
+  ],
+  "note": "Not a protected Warden manifest: requires principal-signed separate contract before any trial."
+}

@@ -1,0 +1,36 @@
+hypothesis_id: HYP-ORDERFLOW-NTR-H72-20261102
+parent_hypothesis_id: HYP-2026-054
+contract_id: CRYPTO_PERPS_TOP100_ORDERFLOW_1H_H72_V1
+title: Actual Binance taker quote flow imbalance predicts 72h forward cross-section
+strategy_family: cross_sectional_ml
+economic_mechanism: >-
+  Informed buy and forced sell taker flow can propagate through liquidity
+  providers and slow repricing. Over the previous 24, 72 and 168 complete
+  hourly windows measure actual imbalance (2*taker_buy_quote_volume -
+  quote_volume)/quote_volume; a linear model predicts future 72h
+  cross-sectional next-open returns using fold-local fitted coefficients.
+counterparty_or_friction: >-
+  Passive market makers absorb directional pressure and may adjust with
+  delay; follow-on taker portfolios pay variable fees, spreads, funding
+  and possible market impact. Signal correlation is not executable alpha.
+expected_holding_bars: 72
+falsification_criteria: >-
+  Predeclared before evaluation: actual taker-buy quote history required,
+  no candle-body fallback. Mask zero-trade bars; require exact hourly
+  window continuity; 72h return label enters t+1 open and exits t+73 open.
+  Train-fold-local StandardScaler and Ridge(alpha=10), purged four forward
+  folds, 72h label and 72h embargo, no later labels. Evaluate non-overlapping
+  UTC 72h anchor IC, at least 20 non-BTC asset pairs. Native Warden
+  cross_sectional_ml Stage1 gate mean IC>=0.015 and HAC t>=2.0. No
+  parameters retuned on validation; record negative previews too.
+source_provenance: >-
+  Derived from HYP-2026-054 with frozen 4h target and
+  cs_taker_flow_imbalance_1h.py. Its candle-direction*volume fallback
+  was not a taker-flow observation, and its delay was applied twice.
+  New data and 72h contract remain proposal-only until human signed.
+  Family-wise attempts from original study must be retained in DSR.
+  Engineering mapping after the recorded provisional rejection: the same
+  unchanged factor and Warden IC path are exposed through
+  binance_ntr_h72.py; no feature, threshold or parameter was revised.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/recovery/binance_ntr_h72.py

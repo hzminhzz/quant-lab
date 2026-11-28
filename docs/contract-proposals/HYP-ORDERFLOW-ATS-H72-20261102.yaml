@@ -1,0 +1,37 @@
+hypothesis_id: HYP-ORDERFLOW-ATS-H72-20261102
+parent_hypothesis_id: HYP-2026-050
+contract_id: CRYPTO_PERPS_TOP100_ORDERFLOW_1H_H72_V1
+title: Binance actual average trade-size expansion predicts 72h cross-sectional drift
+strategy_family: cross_sectional_ml
+economic_mechanism: >-
+  Institutional-sized order execution can persist; each hour after completion,
+  the relative observed average trade size (sum quote_volume / sum trade_count)
+  over the trailing 168 versus 720 calendar hours is a testable predictor of
+  72-hour cross-sectional forward next-open price returns. Compare alternative
+  72-hour ratio and contemporaneous rank, linear Ridge alpha 10.
+counterparty_or_friction: >-
+  Informed aggressive trade execution against slower retail inventory; later
+  long-high/short-low replication pays spread, fees, impact and funding.
+  This signal test is not a venue-fills or profitable-basket result.
+expected_holding_bars: 72
+falsification_criteria: >-
+  Predeclared before evaluation: only actual Binance quote_volume/trade_count
+  with zero-trade bars masked at decision time; strictly contiguous 720h data;
+  use future entry open at t+1h and exit open at t+73h with no time gaps.
+  Fit train-fold-local StandardScaler and Ridge(alpha=10), four purged
+  forward folds, 72h label and 72h embargo, no future labels.
+  Sample non-overlapping UTC 72-hour decision anchors, require at least
+  20 valid altcoin exposures (exclude BTC). Native Warden cross_sectional_ml
+  signal gate requires mean IC>=0.015 and HAC t>=2.0. No tuning after seeing
+  results, all evaluation previews count toward selection history.
+source_provenance: >-
+  Derived from original HYP-2026-050 and old cs_stealth_trade_size_1h.py.
+  Previous code used volume*close and trade_count=1 fabricated fallbacks, and
+  prelagged signals. New exact-source 72h research lineage using real Binance
+  hourly observed trade fields. Parent contract frozen with 4h label.
+  Independent candidate DSR cannot reset original search family attempts.
+  Engineering mapping after the recorded provisional rejection: the same
+  unchanged factor and Warden IC path are exposed through
+  binance_ats_h72.py; no feature, threshold or parameter was revised.
+llm_model_id: GPT-6
+strategy_module: strategies/candidates/recovery/binance_ats_h72.py

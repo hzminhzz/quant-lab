@@ -48,7 +48,6 @@ from warden.resolve import (
     DECISION_COMPILE_REQUIRED,
     DECISION_FAIL_CLOSED,
     DECISION_REUSE_SIGNED,
-    RESAMPLED_FROM_MINUTE,
     DataRequirement,
     ResolutionReport,
     generation_leaf_path,
@@ -697,9 +696,9 @@ def _plan(
     manifest_path = f"{SANDBOX_MANIFEST_DIR}/{contract_id}.json"
     contract_path = f"{SANDBOX_CONTRACTS_DIR}/{contract_id.lower()}.yaml"
 
-    resampling = requirement.frequency in RESAMPLED_FROM_MINUTE
-    source_frequency = "1m" if resampling else requirement.frequency
-    minute_sub_bars = max(1, int(_interval(requirement.frequency).total_seconds()) // 60)
+    source_frequency = requirement.resolved_source_frequency
+    resampling = source_frequency != requirement.frequency
+    required_sub_bars = max(1, int(_interval(requirement.frequency) / _interval(source_frequency)))
     # A resampled non-crypto feed carries tick counts, which is what `tick_count_proxy' says;
     # a daily artifact is a native-cadence read (no aggregation to label) and keeps the
     # store's own contract volume.
@@ -752,7 +751,7 @@ def _plan(
             # Every intraday artifact is the product of the same left-closed aggregation,
             # including the identity 1m bin; a daily artifact is read natively.
             "enabled": resampling or requirement.frequency != "1d",
-            "require_min_sub_bars": minute_sub_bars if requirement.frequency != "1d" else None,
+            "require_min_sub_bars": required_sub_bars if requirement.frequency != "1d" else None,
         },
         "quality_gate": {
             "max_abs_bar_return": MAX_ABS_BAR_RETURN[requirement.frequency],
@@ -883,7 +882,7 @@ def _plan(
             "target_frequency": requirement.frequency,
             "closed": "left",
             "label": "left",
-            "min_sub_bars": minute_sub_bars if requirement.frequency != "1d" else None,
+            "min_sub_bars": required_sub_bars if requirement.frequency != "1d" else None,
         },
         "mechanics": dict(MECHANICS),
         "bars_per_year": contract.bars_per_year,

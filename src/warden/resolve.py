@@ -84,7 +84,6 @@ METADATA_DIR = Path(".metadata")
 RESAMPLED_FROM_MINUTE = frozenset({"5m", "15m", "30m", "1h", "4h"})
 #: The cadence a requirement is *sourced* from: anything intraday below a day comes from
 #: the canonical minute store, a daily requirement from the daily store.
-DAILY_FREQUENCIES = frozenset({"1d"})
 
 #: ``dataset_key`` prefixes whose remainder is the instrument symbol.  This mirrors
 #: ``data.query.MarketDataQuery._symbol_from_dataset_key`` in ml4t-data: the lake's own
@@ -168,6 +167,8 @@ class DataRequirement(BaseModel):
     symbols: tuple[Symbol, ...] = ()
     all_in_family: bool = False
     frequency: Frequency
+    # Explicit opt-in to native hourly crypto; absent retains the frozen minute-source rule.
+    source_frequency: Literal["1h"] | None = Field(default=None, exclude_if=lambda value: value is None)
     min_start: UTCDatetime
     price_basis: PriceBasis
     execution_mode: ExecutionMode
@@ -180,7 +181,13 @@ class DataRequirement(BaseModel):
         payload = self.model_dump(mode="json")
         if self.instrument_semantics is None:
             payload.pop("instrument_semantics", None)
+        if self.source_frequency is None:
+            payload.pop("source_frequency", None)
         return payload
+
+    @property
+    def resolved_source_frequency(self) -> str:
+        return self.source_frequency or ("1m" if self.frequency in RESAMPLED_FROM_MINUTE else self.frequency)
 
     @model_validator(mode="after")
     def _one_symbol_source(self) -> DataRequirement:
@@ -188,6 +195,8 @@ class DataRequirement(BaseModel):
             raise ValueError("declare either explicit `symbols` or `all_in_family`, not both")
         if not self.all_in_family and not self.symbols:
             raise ValueError("declare explicit `symbols` or set `all_in_family: true`")
+        if self.source_frequency is not None and (self.asset_class != "crypto_perps" or self.frequency != "1h"):
+            raise ValueError("native hourly sourcing requires a 1h crypto_perps requirement")
         if len(set(self.symbols)) != len(self.symbols):
             raise ValueError("`symbols` must not repeat a symbol")
         return self
@@ -290,10 +299,9 @@ class LakeView:
         }
 
 
-def _source_cadence(frequency: str) -> str:
-    """The store cadence this frequency is sourced from."""
-
-    return "daily" if frequency in DAILY_FREQUENCIES else "minute"
+def _source_cadence(requirement: DataRequirement) -> str:
+    """The explicitly selected or backward-compatible native store cadence."""
+    return _CADENCE_ALIASES[requirement.resolved_source_frequency]
 
 
 def _normalise_cadence(value: object) -> str | None:
@@ -512,7 +520,7 @@ def _observe_generation(root: Path, entry: Mapping[str, Any]) -> tuple[dict[str,
 def _load_lake(
     requirement: DataRequirement, repo_root: Path, lake_root: Path | str | None
 ) -> LakeView:
-    cadence = _source_cadence(requirement.frequency)
+    cadence = _source_cadence(requirement)
     if lake_root is not None:
         root = Path(lake_root).expanduser()
         assert_never_holdout(str(root), role="lake root")
@@ -830,6 +838,12 @@ def _candidate_for(
         return None, f"unreadable dataset manifest {manifest_path}: {exc}"
     if not isinstance(record, Mapping):
         return None, f"dataset manifest {manifest_path} is not a JSON object"
+    if requirement.source_frequency is not None:
+        sandbox = record.get("sandbox") or {}
+        resampling = sandbox.get("resampling") if isinstance(sandbox, Mapping) else None
+        source = resampling.get("source_frequency") if isinstance(resampling, Mapping) else None
+        if source != requirement.source_frequency:
+            return None, "source_frequency undeclared or incompatible in signed dataset"
     basis = _manifest_price_basis(record)
     if basis is None:
         return None, ("price_basis undeclared in the dataset manifest: unknown is not "
@@ -927,10 +941,10 @@ class ResolutionReport:
 
 
 def _resample_block(requirement: DataRequirement) -> dict[str, Any]:
-    required = requirement.frequency in RESAMPLED_FROM_MINUTE
+    required = requirement.resolved_source_frequency != requirement.frequency
     return {
         "required": required,
-        "source_frequency": "1m" if required else requirement.frequency,
+        "source_frequency": requirement.resolved_source_frequency,
         "target_frequency": requirement.frequency,
         "rule": ("left-labelled, left-closed [t, t+interval) aggregation of the canonical "
                  "minute store" if required else "native cadence; no resampling"),

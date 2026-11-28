@@ -623,6 +623,34 @@ def test_intraday_bars_are_hand_computed_left_closed_aggregates(workspace) -> No
         assert row["observed_sub_bars"] == 60
 
 
+def test_explicit_native_hourly_crypto_preserves_bar_and_volume(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    lake = _lake(tmp_path / "lake", symbols=("BTCUSDT",), asset_class="crypto_perps",
+                 cadence="hourly", per_day=24)
+    key = "crypto_futures_ohlcv_hourly_HYPERLIQUID_BTCUSDT_PERP"
+    for path in (lake / key).rglob("part-0.parquet"):
+        frame = pl.read_parquet(path)
+        first = frame["timestamp"].min()
+        frame = frame.with_columns(
+            (pl.lit(first) + pl.duration(hours=pl.int_range(0, pl.len()))).alias("timestamp")
+        )
+        frame.write_parquet(path)
+    commit_fixture(lake)
+    _policy(repo, monkeypatch)
+    requirement = _requirement(asset_class="crypto_perps", symbols=["BTCUSDT"],
+                               source_frequency="1h")
+    artifact = _compile(repo, lake, requirement)
+    bars = pl.read_parquet(repo / artifact.parquet_path).sort("timestamp")
+    assert bars.height == 72
+    assert bars["observed_sub_bars"].to_list() == [1] * 72
+    original = pl.read_parquet(lake / key / "year=2021/month=01/day=01/part-0.parquet")
+    assert bars["volume"].head(24).to_list() == original["volume"].to_list()
+    assert bars["close"].head(24).to_list() == original["close"].to_list()
+    manifest = json.loads((repo / artifact.manifest_path).read_text())
+    assert manifest["sandbox"]["resampling"]["source_frequency"] == "1h"
+
+
 def test_the_next_bucket_never_leaks_into_a_bar(tmp_path, monkeypatch) -> None:
     """Hour 05 holds one minute only: the 04:00 bar must be exactly 04:00..04:59.
 
